@@ -1,0 +1,27 @@
+{
+  "name": "@do-done/mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "do-done-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@do-done/api-client": "workspace:*",
+    "@do-done/shared": "workspace:*",
+    "@do-done/task-engine": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
