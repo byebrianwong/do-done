@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { parseTaskInput } from "@do-done/task-engine";
+import { parseTaskInput, formatRrule } from "@do-done/task-engine";
 import { PRIORITY_CONFIG } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
@@ -37,6 +37,9 @@ export function TaskForm({
         duration_minutes: result.duration_minutes,
       }),
       ...(result.tags && result.tags.length > 0 && { tags: result.tags }),
+      ...(result.recurrence_rule && {
+        recurrence_rule: result.recurrence_rule,
+      }),
     });
 
     setSubmitting(false);
@@ -136,6 +139,24 @@ export function TaskForm({
           {parsed.duration_minutes && (
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
               {parsed.duration_minutes}min
+            </span>
+          )}
+          {parsed.recurrence_rule && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-violet-600 dark:bg-violet-950 dark:text-violet-400">
+              <svg
+                className="h-3 w-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              {formatRrule(parsed.recurrence_rule)}
             </span>
           )}
         </div>

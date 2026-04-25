@@ -1,5 +1,6 @@
 import * as chrono from "chrono-node";
 import type { ParsedTask, TaskPriority } from "@do-done/shared";
+import { detectRecurrence } from "./recurrence.js";
 
 const PRIORITY_PATTERNS: [RegExp, TaskPriority][] = [
   [/\b(?:p1|!!!)\b/i, "p1"],
@@ -54,6 +55,14 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     text = text.replace(DURATION_PATTERN, "").trim();
   }
 
+  // Extract recurrence (before chrono-node, since "every monday" overlaps)
+  let recurrenceRule: string | undefined;
+  const recMatch = detectRecurrence(text);
+  if (recMatch) {
+    recurrenceRule = recMatch.rrule;
+    text = text.replace(recMatch.matched, "").trim();
+  }
+
   // Extract dates using chrono
   let dueDate: string | undefined;
   let dueTime: string | undefined;
@@ -85,5 +94,6 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     ...(project && { project }),
     ...(tags.length > 0 && { tags }),
     ...(durationMinutes && { duration_minutes: durationMinutes }),
+    ...(recurrenceRule && { recurrence_rule: recurrenceRule }),
   };
 }

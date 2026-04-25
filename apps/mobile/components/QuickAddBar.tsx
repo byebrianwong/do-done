@@ -33,6 +33,9 @@ export default function QuickAddBar({
         duration_minutes: parsed.duration_minutes,
       }),
       ...(parsed.tags && parsed.tags.length > 0 && { tags: parsed.tags }),
+      ...(parsed.recurrence_rule && {
+        recurrence_rule: parsed.recurrence_rule,
+      }),
     });
 
     setSubmitting(false);

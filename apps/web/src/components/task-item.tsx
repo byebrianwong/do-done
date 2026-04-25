@@ -4,15 +4,20 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PRIORITY_CONFIG } from "@do-done/shared";
 import type { TaskPriority } from "@do-done/shared";
+import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { ScheduleButton } from "./schedule-button";
 
 export interface TaskItemProps {
   id: string;
   title: string;
   priority: TaskPriority;
   dueDate?: string | null;
+  dueTime?: string | null;
+  durationMinutes?: number | null;
   completed?: boolean;
   tags?: string[];
+  recurrenceRule?: string | null;
 }
 
 function formatDueDate(dateStr: string): string {
@@ -50,9 +55,13 @@ export function TaskItem({
   title,
   priority,
   dueDate,
+  dueTime = null,
+  durationMinutes = null,
   completed: initialCompleted = false,
   tags = [],
+  recurrenceRule = null,
 }: TaskItemProps) {
+  const canSchedule = !!durationMinutes && !dueTime;
   const router = useRouter();
   const [completed, setCompleted] = useState(initialCompleted);
   const [hovering, setHovering] = useState(false);
@@ -144,6 +153,28 @@ export function TaskItem({
             {tag}
           </span>
         ))}
+
+        {recurrenceRule && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950 dark:text-violet-400"
+            title={recurrenceRule}
+          >
+            <svg
+              className="h-3 w-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {formatRrule(recurrenceRule)}
+          </span>
+        )}
       </div>
 
       {dueDate && (
@@ -159,6 +190,9 @@ export function TaskItem({
           hovering ? "opacity-100" : "opacity-0"
         }`}
       >
+        {canSchedule && durationMinutes && (
+          <ScheduleButton taskId={id} durationMinutes={durationMinutes} />
+        )}
         <button
           onClick={handleDelete}
           className="rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950 dark:hover:text-red-400"

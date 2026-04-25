@@ -4,3 +4,5 @@ export { generateWeeklySummary } from "./summary.js";
 export { scheduleTasks } from "./scheduler.js";
 export type { ScheduledTask } from "./scheduler.js";
 export { suggestCategories, suggestTags } from "./categorizer.js";
+export { detectRecurrence, formatRrule } from "./recurrence.js";
+export type { RecurrenceMatch } from "./recurrence.js";

@@ -57,8 +57,11 @@ export default async function UpcomingPage() {
                     title={task.title}
                     priority={task.priority}
                     dueDate={task.due_date}
+                    dueTime={task.due_time}
+                    durationMinutes={task.duration_minutes}
                     completed={task.status === "done"}
                     tags={task.tags}
+                    recurrenceRule={task.recurrence_rule}
                   />
                 ))}
               </div>
