@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { PRIORITY_CONFIG } from "@do-done/shared";
 import type { TaskPriority } from "@do-done/shared";
+import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
 export interface TaskItemProps {
   id: string;
@@ -51,9 +53,41 @@ export function TaskItem({
   completed: initialCompleted = false,
   tags = [],
 }: TaskItemProps) {
+  const router = useRouter();
   const [completed, setCompleted] = useState(initialCompleted);
   const [hovering, setHovering] = useState(false);
+  const [, startTransition] = useTransition();
   const priorityColor = PRIORITY_CONFIG[priority].color;
+
+  async function handleToggleComplete() {
+    const next = !completed;
+    setCompleted(next); // optimistic
+
+    const tasks = await getClientTasksApi();
+    const { error } = next
+      ? await tasks.complete(id)
+      : await tasks.update(id, { status: "todo" });
+
+    if (error) {
+      setCompleted(!next); // revert
+      console.error("Failed to update task:", error);
+      return;
+    }
+
+    startTransition(() => router.refresh());
+  }
+
+  async function handleDelete() {
+    if (!confirm("Delete this task?")) return;
+    const tasks = await getClientTasksApi();
+    // soft-delete via archive
+    const { error } = await tasks.update(id, { status: "archived" });
+    if (error) {
+      console.error("Failed to delete:", error);
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
 
   return (
     <div
@@ -61,9 +95,8 @@ export function TaskItem({
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
     >
-      {/* Circular checkbox */}
       <button
-        onClick={() => setCompleted(!completed)}
+        onClick={handleToggleComplete}
         className="flex shrink-0 items-center justify-center"
         aria-label={completed ? "Mark incomplete" : "Mark complete"}
       >
@@ -92,7 +125,6 @@ export function TaskItem({
         </span>
       </button>
 
-      {/* Title and metadata */}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
           className={`text-sm leading-snug ${
@@ -114,7 +146,6 @@ export function TaskItem({
         ))}
       </div>
 
-      {/* Due date badge */}
       {dueDate && (
         <span
           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(dueDate)}`}
@@ -123,31 +154,13 @@ export function TaskItem({
         </span>
       )}
 
-      {/* Hover actions */}
       <div
         className={`flex shrink-0 gap-1 transition-opacity ${
           hovering ? "opacity-100" : "opacity-0"
         }`}
       >
         <button
-          className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          aria-label="Edit task"
-        >
-          <svg
-            className="h-3.5 w-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-            />
-          </svg>
-        </button>
-        <button
+          onClick={handleDelete}
           className="rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950 dark:hover:text-red-400"
           aria-label="Delete task"
         >

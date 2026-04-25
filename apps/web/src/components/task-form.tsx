@@ -1,27 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { parseTaskInput } from "@do-done/task-engine";
 import { PRIORITY_CONFIG } from "@do-done/shared";
+import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
-export function TaskForm() {
+export function TaskForm({
+  defaultStatus = "inbox",
+}: {
+  defaultStatus?: "inbox" | "todo";
+}) {
+  const router = useRouter();
   const [input, setInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const parsed = input.trim() ? parseTaskInput(input) : null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
-    const result = parseTaskInput(input);
-    console.log("Parsed task:", result);
-    setInput("");
-  };
+    if (!input.trim() || submitting) return;
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+    setSubmitting(true);
+    setError(null);
+    const result = parseTaskInput(input);
+
+    const tasks = await getClientTasksApi();
+    const { error: createError } = await tasks.create({
+      title: result.title,
+      status: defaultStatus,
+      ...(result.priority && { priority: result.priority }),
+      ...(result.due_date && { due_date: result.due_date }),
+      ...(result.due_time && { due_time: result.due_time }),
+      ...(result.duration_minutes && {
+        duration_minutes: result.duration_minutes,
+      }),
+      ...(result.tags && result.tags.length > 0 && { tags: result.tags }),
+    });
+
+    setSubmitting(false);
+
+    if (createError) {
+      setError(createError.message);
+      return;
+    }
+
+    setInput("");
+    startTransition(() => router.refresh());
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSubmit(e as unknown as React.FormEvent);
     }
-  };
+  }
 
   return (
     <div className="mb-6">
@@ -45,13 +79,13 @@ export function TaskForm() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            disabled={submitting}
             placeholder="Add a task... (try: 'buy milk tomorrow p2 #groceries')"
-            className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-600"
+            className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:opacity-50 dark:text-neutral-100 dark:placeholder:text-neutral-600"
           />
         </div>
       </form>
 
-      {/* NLP parsing preview */}
       {parsed && parsed.title && (
         <div className="mt-2 flex flex-wrap items-center gap-2 px-4 text-xs text-neutral-500">
           {parsed.due_date && (
@@ -105,6 +139,10 @@ export function TaskForm() {
             </span>
           )}
         </div>
+      )}
+
+      {error && (
+        <div className="mt-2 px-4 text-xs text-red-500">{error}</div>
       )}
     </div>
   );
