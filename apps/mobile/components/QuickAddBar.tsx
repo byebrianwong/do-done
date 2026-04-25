@@ -1,21 +1,46 @@
 import React, { useState } from 'react';
-import { View, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, TextInput, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { parseTaskInput } from '@do-done/task-engine';
+import { getTasksApi } from '@/lib/supabase';
 
 interface QuickAddBarProps {
-  onSubmit?: (text: string) => void;
+  defaultStatus?: 'inbox' | 'todo';
+  onCreated?: () => void;
 }
 
-export default function QuickAddBar({ onSubmit }: QuickAddBarProps) {
+export default function QuickAddBar({
+  defaultStatus = 'todo',
+  onCreated,
+}: QuickAddBarProps) {
   const [text, setText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  async function handleSubmit() {
     const trimmed = text.trim();
-    if (trimmed) {
-      onSubmit?.(trimmed);
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+
+    const parsed = parseTaskInput(trimmed);
+    const tasks = await getTasksApi();
+    const { error } = await tasks.create({
+      title: parsed.title,
+      status: defaultStatus,
+      ...(parsed.priority && { priority: parsed.priority }),
+      ...(parsed.due_date && { due_date: parsed.due_date }),
+      ...(parsed.due_time && { due_time: parsed.due_time }),
+      ...(parsed.duration_minutes && {
+        duration_minutes: parsed.duration_minutes,
+      }),
+      ...(parsed.tags && parsed.tags.length > 0 && { tags: parsed.tags }),
+    });
+
+    setSubmitting(false);
+    if (!error) {
       setText('');
+      onCreated?.();
     }
-  };
+  }
 
   return (
     <View style={styles.wrapper}>
@@ -28,12 +53,18 @@ export default function QuickAddBar({ onSubmit }: QuickAddBarProps) {
           onChangeText={setText}
           onSubmitEditing={handleSubmit}
           returnKeyType="done"
+          editable={!submitting}
         />
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={handleSubmit}
+          disabled={submitting}
         >
-          <Ionicons name="add" size={24} color="#fff" />
+          {submitting ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="add" size={24} color="#fff" />
+          )}
         </Pressable>
       </View>
     </View>

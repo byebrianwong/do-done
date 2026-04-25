@@ -1,91 +1,90 @@
-import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
 
-import TaskItem, { Task } from '@/components/TaskItem';
+import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
-
-const MOCK_TASKS: Task[] = [
-  {
-    id: '1',
-    title: 'Review PR for auth module',
-    status: 'active',
-    priority: 'urgent',
-    due_date: 'Today',
-    project_id: 'proj-1',
-  },
-  {
-    id: '2',
-    title: 'Write unit tests for task engine',
-    status: 'active',
-    priority: 'high',
-    due_date: 'Today',
-    project_id: 'proj-1',
-  },
-  {
-    id: '3',
-    title: 'Update design tokens in shared package',
-    status: 'active',
-    priority: 'medium',
-    due_date: 'Today',
-    project_id: 'proj-2',
-  },
-  {
-    id: '4',
-    title: 'Set up CI pipeline for mobile builds',
-    status: 'active',
-    priority: 'low',
-    due_date: 'Tomorrow',
-    project_id: 'proj-3',
-  },
-  {
-    id: '5',
-    title: 'Draft product roadmap for Q3',
-    status: 'active',
-    priority: 'medium',
-    due_date: 'Apr 15',
-  },
-];
-
-const FOCUS_TASKS = MOCK_TASKS.slice(0, 3);
+import { getTasksApi } from '@/lib/supabase';
+import { generateFocusList } from '@do-done/task-engine';
+import type { Task } from '@do-done/shared';
+import { PRIORITY_CONFIG } from '@do-done/shared';
 
 export default function TodayScreen() {
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const api = await getTasksApi();
+    const { data } = await api.list({ limit: 100, offset: 0 });
+    setAllTasks(data ?? []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const active = allTasks.filter(
+    (t) => t.status !== 'done' && t.status !== 'archived'
+  );
+  const focusList = generateFocusList(active, 3);
+  const focusIds = new Set(focusList.map((t) => t.id));
+  const today = new Date().toISOString().split('T')[0];
+  const otherToday = active.filter(
+    (t) => !focusIds.has(t.id) && t.due_date && t.due_date <= today
+  );
+
   return (
     <View style={styles.container}>
       <FlatList
-        data={MOCK_TASKS}
+        data={otherToday}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <TaskItem task={item} />}
+        renderItem={({ item }) => (
+          <TaskItem task={item} onChange={load} />
+        )}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={load} tintColor="#6366f1" />
+        }
         ListHeaderComponent={
-          <View style={styles.focusSection}>
-            <Text style={styles.sectionTitle}>Focus</Text>
-            {FOCUS_TASKS.map((task) => (
-              <View key={task.id} style={styles.focusCard}>
-                <View
-                  style={[
-                    styles.focusDot,
-                    {
-                      backgroundColor:
-                        task.priority === 'urgent'
-                          ? '#ef4444'
-                          : task.priority === 'high'
-                            ? '#f97316'
-                            : '#eab308',
-                    },
-                  ]}
-                />
-                <Text style={styles.focusTitle} numberOfLines={1}>
-                  {task.title}
-                </Text>
+          <View style={styles.headerWrapper}>
+            {focusList.length > 0 && (
+              <View style={styles.focusSection}>
+                <Text style={styles.sectionTitle}>Focus</Text>
+                {focusList.map((task) => (
+                  <View key={task.id} style={styles.focusCard}>
+                    <View
+                      style={[
+                        styles.focusDot,
+                        {
+                          backgroundColor:
+                            PRIORITY_CONFIG[task.priority].color,
+                        },
+                      ]}
+                    />
+                    <Text style={styles.focusTitle} numberOfLines={1}>
+                      {task.title}
+                    </Text>
+                  </View>
+                ))}
               </View>
-            ))}
-            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-              All Tasks
-            </Text>
+            )}
+            {otherToday.length > 0 && (
+              <Text style={[styles.sectionTitle, styles.allTasksTitle]}>
+                Other tasks
+              </Text>
+            )}
           </View>
+        }
+        ListEmptyComponent={
+          !loading && focusList.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Nothing scheduled today</Text>
+              <Text style={styles.emptyHint}>Add a task below.</Text>
+            </View>
+          ) : null
         }
         contentContainerStyle={styles.listContent}
       />
-      <QuickAddBar />
+      <QuickAddBar defaultStatus="todo" onCreated={load} />
     </View>
   );
 }
@@ -97,15 +96,22 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 140,
+    flexGrow: 1,
+  },
+  headerWrapper: {
+    padding: 16,
   },
   focusSection: {
-    padding: 16,
+    marginBottom: 8,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
     marginBottom: 12,
+  },
+  allTasksTitle: {
+    marginTop: 12,
   },
   focusCard: {
     flexDirection: 'row',
@@ -130,5 +136,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1f2937',
     flex: 1,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  emptyHint: {
+    fontSize: 13,
+    color: '#9ca3af',
+    marginTop: 4,
   },
 });

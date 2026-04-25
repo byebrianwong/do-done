@@ -1,48 +1,82 @@
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { PRIORITY_CONFIG } from '@do-done/shared';
+import type { Task as SharedTask } from '@do-done/shared';
+import { getTasksApi } from '@/lib/supabase';
 
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: '#ef4444',
-  high: '#f97316',
-  medium: '#eab308',
-  low: '#22c55e',
-  none: '#9ca3af',
-};
-
-export interface Task {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  due_date?: string;
-  project_id?: string;
-  description?: string;
-}
+export type Task = SharedTask;
 
 interface TaskItemProps {
   task: Task;
+  onChange?: () => void;
   onPress?: (task: Task) => void;
 }
 
-export default function TaskItem({ task, onPress }: TaskItemProps) {
-  const dotColor = PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.none;
+export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
+  const dotColor = PRIORITY_CONFIG[task.priority].color;
+  const completed = task.status === 'done';
+  const [busy, setBusy] = useState(false);
+
+  async function handleToggle() {
+    setBusy(true);
+    const tasks = await getTasksApi();
+    if (completed) {
+      await tasks.update(task.id, { status: 'todo' });
+    } else {
+      await tasks.complete(task.id);
+    }
+    setBusy(false);
+    onChange?.();
+  }
 
   return (
     <Pressable
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       onPress={() => onPress?.(task)}
     >
-      <View style={[styles.dot, { backgroundColor: dotColor }]} />
+      <Pressable
+        onPress={handleToggle}
+        disabled={busy}
+        hitSlop={8}
+        style={[
+          styles.checkbox,
+          {
+            borderColor: completed ? '#d4d4d4' : dotColor,
+            backgroundColor: completed ? '#d4d4d4' : 'transparent',
+          },
+        ]}
+      >
+        {busy ? (
+          <ActivityIndicator size="small" color={dotColor} />
+        ) : completed ? (
+          <Text style={styles.check}>✓</Text>
+        ) : null}
+      </Pressable>
       <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={1}>
+        <Text
+          style={[styles.title, completed && styles.titleDone]}
+          numberOfLines={1}
+        >
           {task.title}
         </Text>
         {task.due_date ? (
-          <Text style={styles.dueDate}>{task.due_date}</Text>
+          <Text style={styles.dueDate}>{formatDueDate(task.due_date)}</Text>
         ) : null}
       </View>
     </Pressable>
   );
+}
+
+function formatDueDate(dateStr: string): string {
+  const date = new Date(dateStr + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  if (date < today) return 'Overdue';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 const styles = StyleSheet.create({
@@ -56,14 +90,21 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   pressed: {
-    opacity: 0.7,
     backgroundColor: '#f9fafb',
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
     marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  check: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   content: {
     flex: 1,
@@ -76,6 +117,10 @@ const styles = StyleSheet.create({
     color: '#111827',
     flex: 1,
     marginRight: 8,
+  },
+  titleDone: {
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
   dueDate: {
     fontSize: 13,

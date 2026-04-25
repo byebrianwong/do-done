@@ -7,6 +7,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth-context';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -28,8 +30,26 @@ function SettingsRow({ icon, label, onPress }: SettingsRowProps) {
 }
 
 export default function SettingsScreen() {
+  const { session } = useAuth();
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {session?.user && (
+        <View style={styles.userCard}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {(session.user.email?.[0] ?? '?').toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.userEmail}>{session.user.email}</Text>
+            <Text style={styles.userId} numberOfLines={1}>
+              Signed in
+            </Text>
+          </View>
+        </View>
+      )}
+
       <Text style={styles.sectionHeader}>Account</Text>
       <View style={styles.section}>
         <SettingsRow icon="person-outline" label="Profile" />
@@ -61,6 +81,16 @@ export default function SettingsScreen() {
           <Text style={styles.connectText}>Connect Google Calendar</Text>
         </Pressable>
       </View>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.signoutButton,
+          pressed && styles.signoutButtonPressed,
+        ]}
+        onPress={() => supabase.auth.signOut()}
+      >
+        <Text style={styles.signoutText}>Sign out</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -128,5 +158,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 12,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  userEmail: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  userId: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 2,
+  },
+  signoutButton: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 32,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#fecaca',
+  },
+  signoutButtonPressed: {
+    backgroundColor: '#fef2f2',
+  },
+  signoutText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
