@@ -9,12 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@do-done/shared": "workspace:*",
     "@do-done/api-client": "workspace:*",
-    "@do-done/ui": "workspace:*",
+    "@do-done/shared": "workspace:*",
     "@do-done/task-engine": "workspace:*",
+    "@do-done/ui": "workspace:*",
     "@supabase/ssr": "^0.6.0",
     "@supabase/supabase-js": "^2.49.0",
+    "googleapis": "^171.4.0",
     "next": "16.2.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
