@@ -23,7 +23,7 @@ export default async function TodayPage() {
   );
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <h1 className="mb-6 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
         Today
       </h1>

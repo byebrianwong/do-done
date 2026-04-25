@@ -2,7 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { parseTaskInput, formatRrule } from "@do-done/task-engine";
+import {
+  parseTaskInput,
+  formatRrule,
+  suggestCategories,
+  suggestTags,
+} from "@do-done/task-engine";
 import { PRIORITY_CONFIG } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
@@ -17,6 +22,17 @@ export function TaskForm({
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const parsed = input.trim() ? parseTaskInput(input) : null;
+  const existingTags = new Set(parsed?.tags ?? []);
+  const suggested = parsed
+    ? [
+        ...suggestCategories(parsed.title).filter((c) => !existingTags.has(c)),
+        ...suggestTags(parsed.title).filter((t) => !existingTags.has(t)),
+      ]
+    : [];
+
+  function addSuggestion(s: string) {
+    setInput((prev) => `${prev.trim()} #${s}`);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -159,6 +175,22 @@ export function TaskForm({
               {formatRrule(parsed.recurrence_rule)}
             </span>
           )}
+        </div>
+      )}
+
+      {parsed && suggested.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 px-4 text-xs">
+          <span className="text-neutral-400">suggest:</span>
+          {suggested.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => addSuggestion(s)}
+              className="rounded-full border border-dashed border-neutral-300 px-2 py-0.5 text-neutral-500 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
+            >
+              + #{s}
+            </button>
+          ))}
         </div>
       )}
 

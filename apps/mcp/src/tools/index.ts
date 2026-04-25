@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@do-done/api-client";
 import { TasksApi } from "@do-done/api-client";
 import { generateFocusList, generateWeeklySummary } from "@do-done/task-engine";
 import { TaskStatus, TaskPriority } from "@do-done/shared";
+import { executeOrganize } from "../organize.js";
 
 export function registerTools(
   server: McpServer,
@@ -203,17 +204,49 @@ export function registerTools(
 
   server.tool(
     "organize_tasks",
-    "Execute bulk task operations described in natural language (e.g., 'archive all done tasks older than 30 days')",
+    "Execute bulk task operations described in natural language. Supported: 'archive done tasks older than N days', 'set all overdue tasks to p1', 'complete all p4 tasks', 'archive overdue tasks'.",
     { instructions: z.string().min(1) },
     async ({ instructions }) => {
-      // For now, return the parsed intent. Full NLP implementation in Phase 6.
+      const outcome = await executeOrganize(tasks, instructions);
+      if (!outcome.ok) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${outcome.error}` }],
+        };
+      }
+      const { result, parsed } = outcome;
+      const filterDesc =
+        Object.entries(parsed.filter)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(", ") || "all tasks";
+      const actionDesc =
+        parsed.action.kind === "set_priority"
+          ? `set_priority → ${parsed.action.priority}`
+          : parsed.action.kind === "set_status"
+            ? `set_status → ${parsed.action.status}`
+            : parsed.action.kind;
+      const lines = [
+        `Parsed: ${actionDesc} where ${filterDesc}`,
+        `Matched: ${result.matched} task${result.matched === 1 ? "" : "s"}`,
+        `Applied: ${result.applied}`,
+      ];
+      if (result.preview.length > 0) {
+        lines.push("", "Affected tasks:");
+        for (const title of result.preview) lines.push(`  - ${title}`);
+        if (result.matched > result.preview.length) {
+          lines.push(
+            `  ... and ${result.matched - result.preview.length} more`
+          );
+        }
+      }
+      if (result.errors.length > 0) {
+        lines.push(
+          "",
+          `${result.errors.length} error${result.errors.length === 1 ? "" : "s"}:`
+        );
+        for (const e of result.errors) lines.push(`  ! ${e}`);
+      }
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Received organization instructions: "${instructions}"\n\nThis feature will be fully implemented with natural language parsing. For now, use specific tools like update_task or complete_task.`,
-          },
-        ],
+        content: [{ type: "text" as const, text: lines.join("\n") }],
       };
     }
   );

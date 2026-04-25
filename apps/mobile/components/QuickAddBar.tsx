@@ -1,6 +1,17 @@
-import React, { useState } from 'react';
-import { View, TextInput, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { parseTaskInput } from '@do-done/task-engine';
 import { getTasksApi } from '@/lib/supabase';
 
@@ -15,6 +26,30 @@ export default function QuickAddBar({
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [listening, setListening] = useState(false);
+
+  // Speech recognition events
+  useSpeechRecognitionEvent('result', (e) => {
+    const transcript = e.results?.[0]?.transcript;
+    if (transcript) {
+      setText(transcript);
+    }
+  });
+  useSpeechRecognitionEvent('end', () => setListening(false));
+  useSpeechRecognitionEvent('error', () => setListening(false));
+
+  useEffect(() => {
+    return () => {
+      // Stop listening if component unmounts
+      if (listening) {
+        try {
+          ExpoSpeechRecognitionModule.stop();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [listening]);
 
   async function handleSubmit() {
     const trimmed = text.trim();
@@ -45,12 +80,43 @@ export default function QuickAddBar({
     }
   }
 
+  async function toggleListening() {
+    if (listening) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        // ignore
+      }
+      setListening(false);
+      return;
+    }
+
+    if (Platform.OS === 'web') {
+      // Web Speech API isn't reliable cross-browser; tell the user.
+      return;
+    }
+
+    const result =
+      await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!result.granted) {
+      return;
+    }
+
+    setListening(true);
+    setText('');
+    ExpoSpeechRecognitionModule.start({
+      lang: 'en-US',
+      interimResults: true,
+      continuous: false,
+    });
+  }
+
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
         <TextInput
           style={styles.input}
-          placeholder="Add a task..."
+          placeholder={listening ? 'Listening...' : 'Add a task...'}
           placeholderTextColor="#9ca3af"
           value={text}
           onChangeText={setText}
@@ -58,6 +124,21 @@ export default function QuickAddBar({
           returnKeyType="done"
           editable={!submitting}
         />
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconButton,
+            (pressed || listening) && styles.iconButtonActive,
+          ]}
+          onPress={toggleListening}
+          disabled={submitting || Platform.OS === 'web'}
+          hitSlop={4}
+        >
+          <Ionicons
+            name={listening ? 'mic' : 'mic-outline'}
+            size={20}
+            color={listening ? '#6366f1' : '#6b7280'}
+          />
+        </Pressable>
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={handleSubmit}
@@ -100,6 +181,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     paddingVertical: 10,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
+  iconButtonActive: {
+    backgroundColor: '#eef2ff',
   },
   button: {
     width: 40,

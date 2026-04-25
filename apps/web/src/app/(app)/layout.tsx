@@ -59,7 +59,7 @@ export default async function AppLayout({
       </aside>
 
       <main className="ml-64 flex-1">
-        <div className="mx-auto max-w-3xl p-8">{children}</div>
+        <div className="p-8">{children}</div>
       </main>
     </div>
   );
