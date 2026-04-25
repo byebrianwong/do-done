@@ -1,12 +1,19 @@
 import { TaskForm } from "@/components/task-form";
 import { TaskItem } from "@/components/task-item";
-import { getServerTasksApi } from "@/lib/supabase/tasks-server";
+import {
+  getServerTasksApi,
+  getServerProjectsApi,
+} from "@/lib/supabase/tasks-server";
 
 export default async function InboxPage() {
   const tasksApi = await getServerTasksApi();
-  const { data: tasks = [] } = tasksApi
-    ? await tasksApi.list({ status: "inbox", limit: 50, offset: 0 })
-    : { data: [] };
+  const projectsApi = await getServerProjectsApi();
+  const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
+    tasksApi
+      ? tasksApi.list({ status: "inbox", limit: 50, offset: 0 })
+      : Promise.resolve({ data: [] }),
+    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  ]);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -19,18 +26,7 @@ export default async function InboxPage() {
       {tasks.length > 0 ? (
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {tasks.map((task) => (
-            <TaskItem
-              key={task.id}
-              id={task.id}
-              title={task.title}
-              priority={task.priority}
-              dueDate={task.due_date}
-              dueTime={task.due_time}
-              durationMinutes={task.duration_minutes}
-              completed={task.status === "done"}
-              tags={task.tags}
-              recurrenceRule={task.recurrence_rule}
-            />
+            <TaskItem key={task.id} task={task} projects={projects} />
           ))}
         </div>
       ) : (

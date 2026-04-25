@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { PRIORITY_CONFIG } from '@do-done/shared';
 import type { Task as SharedTask } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
@@ -60,7 +66,10 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
           {task.title}
         </Text>
         {task.due_date ? (
-          <Text style={styles.dueDate}>{formatDueDate(task.due_date)}</Text>
+          <Text style={styles.dueDate}>
+            {formatDueDate(task.due_date)}
+            {task.due_time ? ` ${task.due_time}` : ''}
+          </Text>
         ) : null}
       </View>
     </Pressable>
@@ -89,9 +98,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
   },
-  pressed: {
-    backgroundColor: '#f9fafb',
-  },
+  pressed: { backgroundColor: '#f9fafb' },
   checkbox: {
     width: 22,
     height: 22,
@@ -101,29 +108,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  check: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-  },
+  check: { color: '#fff', fontSize: 13, fontWeight: '700' },
   content: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  title: {
-    fontSize: 16,
-    color: '#111827',
-    flex: 1,
-    marginRight: 8,
-  },
-  titleDone: {
-    color: '#9ca3af',
-    textDecorationLine: 'line-through',
-  },
-  dueDate: {
-    fontSize: 13,
-    color: '#6b7280',
-  },
+  title: { fontSize: 16, color: '#111827', flex: 1, marginRight: 8 },
+  titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
+  dueDate: { fontSize: 13, color: '#6b7280' },
 });

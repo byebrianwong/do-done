@@ -8,10 +8,19 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import 'react-native-reanimated';
+import { registerWidgetTaskHandler } from 'react-native-android-widget';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { widgetTaskHandler } from '@/widgets/widget-task-handler';
+import { registerUserGeofences } from '@/lib/geofencing';
+
+// Register widget handler at module load (Android only)
+if (Platform.OS === 'android') {
+  registerWidgetTaskHandler(widgetTaskHandler);
+}
 
 export {
   ErrorBoundary,
@@ -66,6 +75,15 @@ function RootLayoutNav() {
       router.replace('/(tabs)');
     }
   }, [session, loading, segments, router]);
+
+  // Re-register geofences whenever the user signs in
+  useEffect(() => {
+    if (session?.user && Platform.OS !== 'web') {
+      registerUserGeofences().catch(() => {
+        // ignore — user may have denied permissions
+      });
+    }
+  }, [session?.user]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

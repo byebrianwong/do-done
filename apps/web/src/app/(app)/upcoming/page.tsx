@@ -1,5 +1,8 @@
 import { TaskItem } from "@/components/task-item";
-import { getServerTasksApi } from "@/lib/supabase/tasks-server";
+import {
+  getServerTasksApi,
+  getServerProjectsApi,
+} from "@/lib/supabase/tasks-server";
 import type { Task } from "@do-done/shared";
 
 function formatDayHeading(dateStr: string): string {
@@ -20,11 +23,12 @@ function formatDayHeading(dateStr: string): string {
 
 export default async function UpcomingPage() {
   const tasksApi = await getServerTasksApi();
-  const { data: tasks = [] } = tasksApi
-    ? await tasksApi.getUpcoming(7)
-    : { data: [] };
+  const projectsApi = await getServerProjectsApi();
+  const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
+    tasksApi ? tasksApi.getUpcoming(7) : Promise.resolve({ data: [] }),
+    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  ]);
 
-  // Group by due_date
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
     if (!task.due_date) continue;
@@ -51,18 +55,7 @@ export default async function UpcomingPage() {
               </h2>
               <div className="space-y-0.5">
                 {dayTasks.map((task) => (
-                  <TaskItem
-                    key={task.id}
-                    id={task.id}
-                    title={task.title}
-                    priority={task.priority}
-                    dueDate={task.due_date}
-                    dueTime={task.due_time}
-                    durationMinutes={task.duration_minutes}
-                    completed={task.status === "done"}
-                    tags={task.tags}
-                    recurrenceRule={task.recurrence_rule}
-                  />
+                  <TaskItem key={task.id} task={task} projects={projects} />
                 ))}
               </div>
             </section>

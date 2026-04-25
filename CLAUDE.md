@@ -58,3 +58,45 @@ Copy `.env.example` to `.env.local` and fill in:
 - Spacing: 4px grid
 - Aesthetic: Things 3 cleanliness + Linear speed
 - Tokens in `packages/ui/src/theme.ts`
+
+## Mobile native builds (EAS)
+
+The mobile app uses native modules (Android home-screen widget, geofencing, voice input) that don't run in Expo Go. To test those, build a custom dev client APK once:
+
+```bash
+# One-time: install EAS CLI globally
+npm i -g eas-cli
+
+# One-time: log in
+eas login
+
+# One-time: link project (creates EAS project on Expo servers and writes
+# the projectId back into app.config.ts → extra.eas.projectId)
+cd apps/mobile && eas init
+
+# Build the dev client APK (cloud build, ~10-15 min, free tier OK)
+eas build --profile development --platform android
+
+# Install the APK on your Android device, then start metro:
+pnpm --filter mobile dev
+# Open the dev client app, scan the QR code → app loads with native modules
+```
+
+Build profiles in `apps/mobile/eas.json`:
+- `development` — APK with dev client + debugging tools
+- `preview` — APK for internal testing (no dev client)
+- `production` — AAB for Play Store
+
+After the dev client is installed, you can iterate on native code without rebuilding — only adding new native modules requires a fresh build.
+
+### Android widget setup
+- Widgets are declared in `apps/mobile/app.config.ts` under the `react-native-android-widget` plugin
+- Widget JSX components live in `apps/mobile/widgets/`
+- Background handler `widget-task-handler.ts` is registered at app launch
+- Widgets use AsyncStorage (shared with main app) to read the Supabase session
+
+### Geofencing setup
+- `apps/mobile/lib/geofencing.ts` defines the background TaskManager task
+- `registerUserGeofences()` is called automatically after sign-in
+- Requires both foreground AND background location permission (the latter
+  shown only AFTER foreground is granted, per Android policy)

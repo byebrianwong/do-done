@@ -1,15 +1,21 @@
 import { TaskForm } from "@/components/task-form";
 import { TaskItem } from "@/components/task-item";
-import { getServerTasksApi } from "@/lib/supabase/tasks-server";
+import {
+  getServerTasksApi,
+  getServerProjectsApi,
+} from "@/lib/supabase/tasks-server";
 import { generateFocusList } from "@do-done/task-engine";
 
 export default async function TodayPage() {
   const tasksApi = await getServerTasksApi();
-  const { data: allTasks = [] } = tasksApi
-    ? await tasksApi.list({ limit: 100, offset: 0 })
-    : { data: [] };
+  const projectsApi = await getServerProjectsApi();
+  const [{ data: allTasks = [] }, { data: projects = [] }] = await Promise.all([
+    tasksApi
+      ? tasksApi.list({ limit: 100, offset: 0 })
+      : Promise.resolve({ data: [] }),
+    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  ]);
 
-  // Filter to active (not done/archived) tasks
   const active = allTasks.filter(
     (t) => t.status !== "done" && t.status !== "archived"
   );
@@ -51,18 +57,7 @@ export default async function TodayPage() {
             </h2>
             <div className="space-y-0.5">
               {focusList.map((task) => (
-                <TaskItem
-                  key={task.id}
-                  id={task.id}
-                  title={task.title}
-                  priority={task.priority}
-                  dueDate={task.due_date}
-                  dueTime={task.due_time}
-                  durationMinutes={task.duration_minutes}
-                  completed={task.status === "done"}
-                  tags={task.tags}
-                  recurrenceRule={task.recurrence_rule}
-                />
+                <TaskItem key={task.id} task={task} projects={projects} />
               ))}
             </div>
           </div>
@@ -76,18 +71,7 @@ export default async function TodayPage() {
           </h2>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {otherToday.map((task) => (
-              <TaskItem
-                key={task.id}
-                id={task.id}
-                title={task.title}
-                priority={task.priority}
-                dueDate={task.due_date}
-                dueTime={task.due_time}
-                durationMinutes={task.duration_minutes}
-                completed={task.status === "done"}
-                tags={task.tags}
-                recurrenceRule={task.recurrence_rule}
-              />
+              <TaskItem key={task.id} task={task} projects={projects} />
             ))}
           </div>
         </section>

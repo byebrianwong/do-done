@@ -3,12 +3,14 @@ import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
+import TaskEditModal from '@/components/TaskEditModal';
 import { getTasksApi } from '@/lib/supabase';
 import type { Task } from '@do-done/shared';
 
 export default function InboxScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Task | null>(null);
 
   const load = useCallback(async () => {
     const api = await getTasksApi();
@@ -31,7 +33,11 @@ export default function InboxScreen() {
         data={tasks}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <TaskItem task={item} onChange={load} />
+          <TaskItem
+            task={item}
+            onChange={load}
+            onPress={(t) => setEditing(t)}
+          />
         )}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={load} tintColor="#6366f1" />
@@ -49,6 +55,12 @@ export default function InboxScreen() {
         contentContainerStyle={styles.listContent}
       />
       <QuickAddBar defaultStatus="inbox" onCreated={load} />
+      <TaskEditModal
+        task={editing}
+        visible={editing !== null}
+        onClose={() => setEditing(null)}
+        onSaved={load}
+      />
     </View>
   );
 }
