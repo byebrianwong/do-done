@@ -1,5 +1,8 @@
 import { SidebarNav } from "@/components/sidebar-nav";
+import { CommandPalette } from "@/components/command-palette";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ProjectsApi } from "@do-done/api-client";
+import type { Project } from "@do-done/shared";
 
 export default async function AppLayout({
   children,
@@ -11,6 +14,13 @@ export default async function AppLayout({
     data: { user },
   } = await supabase.auth.getUser();
 
+  let projects: Project[] = [];
+  if (user) {
+    const projectsApi = new ProjectsApi(supabase, user.id);
+    const result = await projectsApi.list();
+    projects = result.data;
+  }
+
   return (
     <div className="flex min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
@@ -18,7 +28,7 @@ export default async function AppLayout({
           <span className="text-xl font-bold text-indigo-500">do-done</span>
         </div>
 
-        <SidebarNav />
+        <SidebarNav projects={projects} />
 
         <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
           {user && (
@@ -61,6 +71,8 @@ export default async function AppLayout({
       <main className="ml-64 flex-1">
         <div className="p-8">{children}</div>
       </main>
+
+      <CommandPalette projects={projects} />
     </div>
   );
 }

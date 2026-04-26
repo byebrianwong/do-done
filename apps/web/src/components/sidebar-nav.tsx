@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Project } from "@do-done/shared";
 
 const NAV_ITEMS = [
   {
@@ -111,11 +112,11 @@ const NAV_ITEMS = [
   },
 ];
 
-export function SidebarNav() {
+export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="flex-1 space-y-0.5 px-3 pt-2">
+    <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pt-2 pb-4">
       {NAV_ITEMS.map((item) => {
         const isActive = pathname === item.href;
         return (
@@ -133,6 +134,45 @@ export function SidebarNav() {
           </Link>
         );
       })}
+
+      <div className="mt-6 px-3 py-1">
+        <Link
+          href="/projects"
+          className={`text-xs font-semibold uppercase tracking-wider ${
+            pathname === "/projects"
+              ? "text-indigo-600 dark:text-indigo-400"
+              : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          }`}
+        >
+          Projects
+        </Link>
+      </div>
+      <div className="space-y-0.5">
+        {projects.map((p) => {
+          const href = `/projects/${p.id}`;
+          const isActive = pathname === href;
+          return (
+            <Link
+              key={p.id}
+              href={href}
+              className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                isActive
+                  ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+              }`}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: p.color }}
+              />
+              <span className="truncate">
+                {p.icon ? `${p.icon} ` : ""}
+                {p.name}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

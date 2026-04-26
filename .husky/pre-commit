@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+# Block commits that contain secrets (API keys, JWTs, etc.)
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner || {
+    echo ""
+    echo "❌ gitleaks found a secret in staged changes."
+    echo "   Remove the secret, or add a false-positive rule to .gitleaks.toml,"
+    echo "   or bypass with: git commit --no-verify (not recommended)"
+    exit 1
+  }
+else
+  echo "⚠️  gitleaks not installed — skipping secret scan."
+  echo "   Install with: brew install gitleaks"
+fi

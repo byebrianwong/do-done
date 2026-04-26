@@ -1,0 +1,26 @@
+# Gitleaks config for do-done
+# Inherits all default rules from gitleaks; add allowlists below for false positives.
+
+title = "do-done gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''node_modules/''',
+  '''pnpm-lock\.yaml''',
+  '''package-lock\.json''',
+  '''storybook-static/''',
+  '''\.next/''',
+  '''dist/''',
+  # Stories use mock tokens, not real ones
+  '''.*\.stories\.tsx?$''',
+  '''__stories__/.*''',
+]
+# Allow placeholder tokens commonly seen in docs
+regexes = [
+  '''sk-fake[a-zA-Z0-9]+''',
+  '''REPLACE_WITH_[A-Z_]+''',
+]
