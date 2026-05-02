@@ -352,6 +352,25 @@ export class PetsApi {
   }
 
   /**
+   * Mark an open goal as declined. No-op if the goal isn't open.
+   */
+  async declineGoal(
+    goalId: string
+  ): Promise<{ data: PetGoal | null; error: Error | null }> {
+    const updateRes = await this.supabase
+      .from("pet_goals")
+      .update({ status: "declined" })
+      .eq("id", goalId)
+      .eq("status", "open")
+      .select()
+      .maybeSingle();
+    return {
+      data: (updateRes.data as PetGoal | null) ?? null,
+      error: updateRes.error as Error | null,
+    };
+  }
+
+  /**
    * Recent events for the activity log.
    */
   async getHistory(
