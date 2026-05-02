@@ -352,6 +352,39 @@ export class PetsApi {
   }
 
   /**
+   * Record a free-form narrative event (event_type='narrated') tied to an
+   * optional task. Used by the MCP `narrate_task_completion` tool so Claude
+   * can leave color commentary in the pet activity log.
+   */
+  async recordNarrative(args: {
+    narrative: string;
+    task_id?: string | null;
+    actor: PetEventActor;
+  }): Promise<{ data: PetEvent | null; error: Error | null }> {
+    if (!this.userId) {
+      return {
+        data: null,
+        error: new Error("PetsApi.recordNarrative requires userId"),
+      };
+    }
+    const insertRes = await this.supabase
+      .from("pet_events")
+      .insert({
+        user_id: this.userId,
+        event_type: "narrated",
+        task_id: args.task_id ?? null,
+        actor: args.actor,
+        narrative: args.narrative,
+      })
+      .select()
+      .single();
+    return {
+      data: (insertRes.data as PetEvent | null) ?? null,
+      error: insertRes.error as Error | null,
+    };
+  }
+
+  /**
    * Mark an open goal as declined. No-op if the goal isn't open.
    */
   async declineGoal(

@@ -5,6 +5,7 @@ import { TasksApi } from "@do-done/api-client";
 import { generateFocusList, generateWeeklySummary } from "@do-done/task-engine";
 import { TaskStatus, TaskPriority } from "@do-done/shared";
 import { executeOrganize } from "../organize.js";
+import { registerPetTools } from "./pets.js";
 
 export function registerTools(
   server: McpServer,
@@ -83,7 +84,10 @@ export function registerTools(
       tags: z.array(z.string()).optional(),
     },
     async ({ id, ...updates }) => {
-      const { data, error } = await tasks.update(id, updates);
+      // Tasks completed via MCP are tagged actor='claude' so Pip's activity
+      // log honestly attributes the work. Other updates also pass 'claude'
+      // — feeding only fires on status→done transitions inside TasksApi.update.
+      const { data, error } = await tasks.update(id, updates, "claude");
       if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
       return {
         content: [
@@ -98,10 +102,10 @@ export function registerTools(
 
   server.tool(
     "complete_task",
-    "Mark a task as done",
+    "Mark a task as done. The completion is automatically tagged as performed by Claude in Pip's activity log so the user sees honest attribution. After completing, consider calling `narrate_task_completion` to add a brief story about what you actually did.",
     { id: z.string().uuid() },
     async ({ id }) => {
-      const { data, error } = await tasks.complete(id);
+      const { data, error } = await tasks.complete(id, "claude");
       if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
       return {
         content: [
@@ -250,4 +254,8 @@ export function registerTools(
       };
     }
   );
+
+  // Pet tools: get_pet_state, propose_pet_goal, accept_pet_goal,
+  // narrate_task_completion, get_pet_history.
+  registerPetTools(server, supabase, userId);
 }
