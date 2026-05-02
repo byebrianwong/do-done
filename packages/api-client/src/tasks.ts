@@ -4,6 +4,7 @@ import type {
   CreateTaskInput,
   UpdateTaskInput,
   TaskFilterInput,
+  PetEventActor,
 } from "@do-done/shared";
 
 export class TasksApi {
@@ -58,21 +59,57 @@ export class TasksApi {
 
   async update(
     id: string,
-    input: UpdateTaskInput
+    input: UpdateTaskInput,
+    actor: PetEventActor = "user"
   ): Promise<{ data: Task | null; error: Error | null }> {
+    // Detect status→done transition so we can feed Pip after the write.
+    let priorStatus: string | null = null;
+    if (input.status === "done") {
+      const prev = await this.supabase
+        .from("tasks")
+        .select("status")
+        .eq("id", id)
+        .single();
+      priorStatus = (prev.data as { status: string } | null)?.status ?? null;
+    }
+
+    // Stamp completed_at on first transition to done.
+    const patch: Record<string, unknown> = { ...input };
+    if (input.status === "done" && priorStatus !== "done") {
+      patch.completed_at = new Date().toISOString();
+    }
+
     const { data, error } = await this.supabase
       .from("tasks")
-      .update(input)
+      .update(patch)
       .eq("id", id)
       .select()
       .single();
-    return { data: data as Task | null, error: error as Error | null };
+    if (error || !data) {
+      return { data: null, error: error as Error | null };
+    }
+
+    const updated = data as Task;
+    if (input.status === "done" && priorStatus !== "done") {
+      // Lazy import to avoid a circular dep at module load time.
+      const { PetsApi } = await import("./pets.js");
+      const pets = new PetsApi(this.supabase, this.userId);
+      // Best-effort; never block or fail the task update if feeding fails.
+      try {
+        await pets.feedFromTask({ task: updated, actor });
+      } catch {
+        // swallow — pet plumbing must never break task writes
+      }
+    }
+
+    return { data: updated, error: null };
   }
 
-  async complete(id: string): Promise<{ data: Task | null; error: Error | null }> {
-    return this.update(id, {
-      status: "done",
-    });
+  async complete(
+    id: string,
+    actor: PetEventActor = "user"
+  ): Promise<{ data: Task | null; error: Error | null }> {
+    return this.update(id, { status: "done" }, actor);
   }
 
   async search(query: string): Promise<{ data: Task[]; error: Error | null }> {
