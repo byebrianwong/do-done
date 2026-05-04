@@ -7,6 +7,9 @@ android/
 ios/
 *.tsbuildinfo
 
+# Supabase CLI per-developer scratch — project ref + version pins
+supabase/.temp/
+
 # env
 .env
 .env.local

@@ -1,5 +1,6 @@
 import { SidebarNav } from "@/components/sidebar-nav";
 import { CommandPalette } from "@/components/command-palette";
+import { PetPanelContainer } from "@/components/pet/PetPanelContainer";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi } from "@do-done/api-client";
 import type { Project } from "@do-done/shared";
@@ -68,9 +69,15 @@ export default async function AppLayout({
         </div>
       </aside>
 
-      <main className="ml-64 flex-1">
-        <div className="p-8">{children}</div>
-      </main>
+      <div className="ml-64 flex flex-1">
+        <main className="min-w-0 flex-1">
+          <div className="p-8">{children}</div>
+        </main>
+
+        {user ? (
+          <PetPanelContainer className="hidden border-l border-neutral-200 dark:border-neutral-800 xl:block" />
+        ) : null}
+      </div>
 
       <CommandPalette projects={projects} />
     </div>

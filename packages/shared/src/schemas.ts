@@ -194,3 +194,114 @@ export const WeeklySummarySchema = z.object({
   ),
 });
 export type WeeklySummary = z.infer<typeof WeeklySummarySchema>;
+
+// ── Pet ("Pip") ────────────────────────────────────────
+
+export const PetMoodEnum = z.enum([
+  "happy",
+  "content",
+  "tired",
+  "hungry",
+  "sad",
+  "sleeping",
+]);
+export type PetMood = z.infer<typeof PetMoodEnum>;
+
+export const PetEventActorEnum = z.enum(["user", "claude", "system"]);
+export type PetEventActor = z.infer<typeof PetEventActorEnum>;
+
+export const PetGoalStatusEnum = z.enum([
+  "open",
+  "accepted",
+  "completed",
+  "declined",
+  "expired",
+]);
+export type PetGoalStatus = z.infer<typeof PetGoalStatusEnum>;
+
+export const PetGoalProposerEnum = z.enum(["claude", "pet", "user"]);
+export type PetGoalProposer = z.infer<typeof PetGoalProposerEnum>;
+
+export const PetEventTypeEnum = z.enum([
+  "fed",
+  "goal_proposed",
+  "goal_accepted",
+  "goal_completed",
+  "evolved",
+  "sad",
+  "narrated",
+]);
+export type PetEventType = z.infer<typeof PetEventTypeEnum>;
+
+export const PetBodyShapeEnum = z.enum([
+  "blob",
+  "sprout",
+  "orb",
+  "tuft",
+  "wisp",
+  "pebble",
+]);
+export type PetBodyShape = z.infer<typeof PetBodyShapeEnum>;
+
+export const PetEyeStyleEnum = z.enum(["dot", "sparkle", "sleepy", "wide"]);
+export type PetEyeStyle = z.infer<typeof PetEyeStyleEnum>;
+
+export const AppearanceSeedSchema = z.object({
+  bodyHue: z.number().min(0).max(360),
+  bodyShape: PetBodyShapeEnum,
+  eyeStyle: PetEyeStyleEnum,
+  accessories: z.array(z.string()).default([]),
+});
+export type AppearanceSeed = z.infer<typeof AppearanceSeedSchema>;
+
+export const PetSchema = z.object({
+  user_id: z.string().uuid(),
+  name: z.string().min(1).max(30),
+  birthed_at: z.string().datetime(),
+  hunger_at_last_seen: z.number().int().min(0).max(100),
+  happiness_at_last_seen: z.number().int().min(0).max(100),
+  energy_at_last_seen: z.number().int().min(0).max(100),
+  last_seen_at: z.string().datetime(),
+  // appearance_seed is a JSONB column; it may be an empty object before
+  // regeneration, so we accept any record shape and validate the populated
+  // form with AppearanceSeedSchema separately.
+  appearance_seed: z.record(z.string(), z.unknown()),
+  level: z.number().int().min(1),
+  xp: z.number().int().min(0),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+export type Pet = z.infer<typeof PetSchema>;
+
+export const PetGoalSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  description: z.string().min(1).max(200),
+  proposed_by: PetGoalProposerEnum,
+  status: PetGoalStatusEnum.default("open"),
+  task_id: z.string().uuid().nullable(),
+  created_at: z.string().datetime(),
+  completed_at: z.string().datetime().nullable(),
+});
+export type PetGoal = z.infer<typeof PetGoalSchema>;
+
+export const PetEventSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  event_type: PetEventTypeEnum,
+  task_id: z.string().uuid().nullable(),
+  actor: PetEventActorEnum,
+  delta_hunger: z.number().int().default(0),
+  delta_happiness: z.number().int().default(0),
+  delta_energy: z.number().int().default(0),
+  delta_xp: z.number().int().default(0),
+  narrative: z.string().nullable(),
+  created_at: z.string().datetime(),
+});
+export type PetEvent = z.infer<typeof PetEventSchema>;
+
+export const CreatePetGoalInput = z.object({
+  description: z.string().min(1).max(200),
+  proposed_by: PetGoalProposerEnum,
+});
+export type CreatePetGoalInput = z.infer<typeof CreatePetGoalInput>;

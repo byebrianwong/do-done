@@ -1,4 +1,14 @@
-import type { Task, Project } from "@do-done/shared";
+import type {
+  AppearanceSeed,
+  Pet,
+  PetEvent,
+  PetEventActor,
+  PetGoal,
+  PetMood,
+  Project,
+  Task,
+} from "@do-done/shared";
+import type { PetState } from "@do-done/api-client";
 
 const NOW = new Date();
 const TODAY = NOW.toISOString().split("T")[0];
@@ -144,3 +154,126 @@ export function getMonday(date: Date = new Date()): string {
   d.setHours(0, 0, 0, 0);
   return d.toISOString();
 }
+
+// ── Pet mocks ─────────────────────────────────────────
+
+export const SAMPLE_APPEARANCE_SEED: AppearanceSeed = {
+  bodyHue: 168, // pastel teal-green — aesthetic E default
+  bodyShape: "blob",
+  eyeStyle: "dot",
+  accessories: [],
+};
+
+export function makePet(overrides: Partial<Pet> = {}): Pet {
+  return {
+    user_id: "user-1",
+    name: "Pip",
+    birthed_at: NOW.toISOString(),
+    hunger_at_last_seen: 80,
+    happiness_at_last_seen: 80,
+    energy_at_last_seen: 80,
+    last_seen_at: NOW.toISOString(),
+    appearance_seed: { ...SAMPLE_APPEARANCE_SEED },
+    level: 4,
+    xp: 420,
+    created_at: NOW.toISOString(),
+    updated_at: NOW.toISOString(),
+    ...overrides,
+  };
+}
+
+export function makePetEvent(
+  overrides: Partial<PetEvent> & { minutesAgo?: number } = {}
+): PetEvent {
+  const minutesAgo = overrides.minutesAgo ?? 5;
+  const created = new Date(NOW.getTime() - minutesAgo * 60_000).toISOString();
+  const { minutesAgo: _ignored, ...rest } = overrides;
+  return {
+    id: `pet-event-${Math.random().toString(36).slice(2, 9)}`,
+    user_id: "user-1",
+    event_type: "fed",
+    task_id: null,
+    actor: "user",
+    delta_hunger: 15,
+    delta_happiness: 10,
+    delta_energy: 0,
+    delta_xp: 15,
+    narrative: null,
+    created_at: created,
+    ...rest,
+  };
+}
+
+export function makePetGoal(overrides: Partial<PetGoal> = {}): PetGoal {
+  return {
+    id: `pet-goal-${Math.random().toString(36).slice(2, 9)}`,
+    user_id: "user-1",
+    description: "Pip wants to learn something new this week",
+    proposed_by: "claude",
+    status: "open",
+    task_id: null,
+    created_at: NOW.toISOString(),
+    completed_at: null,
+    ...overrides,
+  };
+}
+
+export interface MakePetStateOverrides {
+  pet?: Partial<Pet>;
+  current_stats?: Partial<PetState["current_stats"]>;
+  mood?: PetMood;
+  goals?: PetGoal[];
+  recent_events?: PetEvent[];
+}
+
+export function makePetState(
+  overrides: MakePetStateOverrides = {}
+): PetState {
+  const pet = makePet(overrides.pet);
+  const current_stats = {
+    hunger: 75,
+    happiness: 80,
+    energy: 65,
+    ...overrides.current_stats,
+  };
+  return {
+    pet,
+    current_stats,
+    mood: overrides.mood ?? "happy",
+    goals: overrides.goals ?? [],
+    recent_events: overrides.recent_events ?? SAMPLE_PET_EVENTS,
+  };
+}
+
+export const SAMPLE_PET_EVENTS: PetEvent[] = [
+  makePetEvent({
+    minutesAgo: 14,
+    actor: "user" as PetEventActor,
+    event_type: "fed",
+    delta_hunger: 20,
+    delta_happiness: 15,
+    delta_energy: 0,
+    delta_xp: 50,
+    narrative: "Design system audit",
+  }),
+  makePetEvent({
+    minutesAgo: 60,
+    actor: "claude" as PetEventActor,
+    event_type: "fed",
+    delta_hunger: 8,
+    delta_happiness: 0,
+    delta_energy: 8,
+    delta_xp: 5,
+    narrative: "Email follow-ups",
+  }),
+  makePetEvent({
+    minutesAgo: 180,
+    actor: "user" as PetEventActor,
+    event_type: "fed",
+    delta_hunger: 15,
+    delta_happiness: 10,
+    delta_energy: 0,
+    delta_xp: 15,
+    narrative: "Update Storybook stories",
+  }),
+];
