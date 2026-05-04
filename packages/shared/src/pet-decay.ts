@@ -174,16 +174,17 @@ function todayDateString(now: Date): string {
 }
 
 /**
- * Applies feeding rules from the plan's table. Stats deltas stack — a p1 task
- * completed before its due date gets the priority bonus AND the punctual bonus.
+ * Applies feeding rules. Stats deltas stack — a p1 task completed before its
+ * due date gets the priority bonus AND the punctual bonus.
  *
- * Rules (table from docs/pet-feature.md):
- *   - Any task done           → hunger +15
+ * Rules (Finch-style: pure encouragement, no penalties — finishing a task is
+ * always net positive for Pip, even if it was overdue):
+ *   - Any task done           → hunger +15, xp +15
+ *   - p1 done                 → hunger +20, happiness +15, xp +50 (replaces base)
+ *   - p4 done                 → hunger +5,  xp +5  (replaces base)
  *   - Done before due date    → happiness +10
+ *   - Done overdue            → no penalty (we still credit the work)
  *   - Quick task (<15min)     → energy +8
- *   - p1 done                 → +20 hunger, +15 happiness, +50 xp (replaces base)
- *   - p4 done                 → +5 hunger, +5 xp (replaces base)
- *   - Overdue task done       → +15 hunger, -5 happiness (still net positive)
  *   - actor='claude'          → narrative tagged "Claude fed Pip while you were busy"
  */
 export function applyTaskDeltas(
@@ -210,14 +211,13 @@ export function applyTaskDeltas(
     xp += 15;
   }
 
-  // Punctuality / overdue.
+  // Punctuality bonus only — no penalty for overdue. Finishing late is still
+  // finishing; we don't punish. Plan's "no punishment" stance, applied
+  // consistently. (Earlier versions docked happiness -5 for overdue, which
+  // contradicted the plan and felt bad in user testing for p4 tasks.)
   if (task.due_date) {
     const today = todayDateString(now);
-    if (task.due_date < today) {
-      // Overdue: net positive (hunger already added above) but happiness dips.
-      happiness -= 5;
-    } else {
-      // Done before due date (today counts as "before or on time").
+    if (task.due_date >= today) {
       happiness += 10;
     }
   }

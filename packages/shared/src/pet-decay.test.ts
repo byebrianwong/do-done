@@ -197,15 +197,27 @@ describe("applyTaskDeltas", () => {
     expect(r.deltas.happiness).toBe(10);
   });
 
-  it("overdue task done: hunger +15, happiness -5", () => {
+  it("overdue task done: full hunger credit, no happiness penalty (Finch model)", () => {
     const r = applyTaskDeltas(
       stats,
       task({ priority: "p3", due_date: "2026-04-25" }),
       "user",
       now
     );
-    expect(r.deltas.hunger).toBe(15); // base preserved (net positive)
-    expect(r.deltas.happiness).toBe(-5);
+    expect(r.deltas.hunger).toBe(15); // base preserved
+    expect(r.deltas.happiness).toBe(0); // no penalty for being late
+  });
+
+  it("overdue p4: still net positive, never negative", () => {
+    const r = applyTaskDeltas(
+      stats,
+      task({ priority: "p4", due_date: "2026-04-25" }),
+      "user",
+      now
+    );
+    expect(r.deltas.hunger).toBe(5);
+    expect(r.deltas.happiness).toBe(0);
+    expect(r.deltas.energy).toBe(0);
   });
 
   it("p1 + on-time + quick: stacks all bonuses", () => {

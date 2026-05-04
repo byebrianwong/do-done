@@ -109,7 +109,7 @@ When a task is completed, the API recomputes current stats, applies the delta fr
 | Quick task (<15min duration) | energy | +8 |
 | p1 done | hunger +20, happiness +15, xp +50 |
 | p4 done | hunger +5, xp +5 |
-| Overdue task done | hunger +15, happiness −5 (still net positive) |
+| Overdue task done | hunger +15, no penalty (Finch model — finishing is always positive, never punishment) |
 | Task done by Claude (`actor='claude'`) | same deltas, narrative tagged "Claude fed Pip while you were busy" |
 
 XP thresholds drive level. Level affects nothing functional in v1 (no evolution yet) — it's a number Claude can talk about.
