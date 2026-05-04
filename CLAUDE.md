@@ -23,7 +23,7 @@ pnpm build                # Build all packages
 pnpm dev                  # Start all dev servers
 pnpm typecheck            # Type-check all packages
 pnpm --filter web dev     # Start web app only
-pnpm --filter mobile dev  # Start mobile app only
+pnpm --filter mobile start  # Start Expo dev server (then `a`=android, `i`=ios)
 pnpm --filter @do-done/mcp build  # Build MCP server
 ```
 
