@@ -2,6 +2,11 @@
 -- Three tables to power the gamification layer: pets, pet_goals, pet_events.
 -- Stats decay-on-read: stored values are "value at last_seen_at"; current value
 -- is computed in the API layer using the elapsed time since last_seen_at.
+--
+-- UUIDs use gen_random_uuid() (built-in to Postgres 13+) rather than
+-- uuid_generate_v4() so we don't depend on the uuid-ossp extension being
+-- in the search_path. Supabase installs uuid-ossp into the `extensions`
+-- schema, which means unqualified uuid_generate_v4() calls fail.
 
 -- ── Pets ───────────────────────────────────────────────
 
@@ -33,7 +38,7 @@ create table pets (
 -- ── Pet Goals ──────────────────────────────────────────
 
 create table pet_goals (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   description text not null check (char_length(description) between 1 and 200),
   proposed_by text not null check (proposed_by in ('claude', 'pet', 'user')),
@@ -47,7 +52,7 @@ create table pet_goals (
 -- ── Pet Events ─────────────────────────────────────────
 
 create table pet_events (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   event_type text not null
     check (event_type in (
