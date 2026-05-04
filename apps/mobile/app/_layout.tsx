@@ -10,16 +10,25 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
-import { registerWidgetTaskHandler } from 'react-native-android-widget';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
-import { widgetTaskHandler } from '@/widgets/widget-task-handler';
+import { IS_EXPO_GO } from '@/lib/runtime';
 import { registerUserGeofences } from '@/lib/geofencing';
 
-// Register widget handler at module load (Android only)
-if (Platform.OS === 'android') {
-  registerWidgetTaskHandler(widgetTaskHandler);
+// Register widget handler at module load (Android, real builds only).
+// react-native-android-widget ships custom native code that isn't in Expo
+// Go, so we lazy-load + skip when running in Go.
+if (Platform.OS === 'android' && !IS_EXPO_GO) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { registerWidgetTaskHandler } = require('react-native-android-widget');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { widgetTaskHandler } = require('@/widgets/widget-task-handler');
+    registerWidgetTaskHandler(widgetTaskHandler);
+  } catch {
+    // widget plugin not available — that's fine in Expo Go
+  }
 }
 
 export {
