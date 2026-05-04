@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIORITY_CONFIG } from '@do-done/shared';
-import type { Task, TaskPriority, TaskStatus } from '@do-done/shared';
-import { getTasksApi } from '@/lib/supabase';
+import type { Project, Task, TaskPriority, TaskStatus } from '@do-done/shared';
+import { getProjectsApi, getTasksApi } from '@/lib/supabase';
 
 interface TaskEditModalProps {
   task: Task | null;
@@ -46,6 +46,8 @@ export default function TaskEditModal({
   const [dueTime, setDueTime] = useState('');
   const [duration, setDuration] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -58,7 +60,21 @@ export default function TaskEditModal({
     setDueTime(task.due_time ?? '');
     setDuration(task.duration_minutes?.toString() ?? '');
     setTagsInput((task.tags ?? []).join(', '));
+    setProjectId(task.project_id ?? null);
   }, [task]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      const api = await getProjectsApi();
+      const { data } = await api.list();
+      if (!cancelled) setProjects(data ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
 
   if (!task) return null;
 
@@ -76,6 +92,7 @@ export default function TaskEditModal({
       description: description.trim() || null,
       status,
       priority,
+      project_id: projectId,
       due_date: dueDate || null,
       due_time: dueTime || null,
       duration_minutes: duration ? parseInt(duration, 10) : null,
@@ -206,6 +223,54 @@ export default function TaskEditModal({
                   ]}
                 >
                   {PRIORITY_CONFIG[p].label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <FieldLabel label="Project" />
+          <View style={styles.chipRow}>
+            <Pressable
+              onPress={() => setProjectId(null)}
+              style={[
+                styles.chip,
+                projectId === null && styles.chipActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  projectId === null && styles.chipTextActive,
+                ]}
+              >
+                None
+              </Text>
+            </Pressable>
+            {projects.map((p) => (
+              <Pressable
+                key={p.id}
+                onPress={() => setProjectId(p.id)}
+                style={[
+                  styles.chip,
+                  projectId === p.id && {
+                    backgroundColor: p.color + '20',
+                    borderColor: p.color,
+                  },
+                ]}
+              >
+                <View
+                  style={[styles.priorityDot, { backgroundColor: p.color }]}
+                />
+                <Text
+                  style={[
+                    styles.chipText,
+                    projectId === p.id && {
+                      color: p.color,
+                      fontWeight: '600',
+                    },
+                  ]}
+                >
+                  {p.name}
                 </Text>
               </Pressable>
             ))}

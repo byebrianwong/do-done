@@ -8,12 +8,38 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
 import { parseTaskInput } from '@do-done/task-engine';
 import { getTasksApi } from '@/lib/supabase';
+import { IS_EXPO_GO } from '@/lib/runtime';
+
+// expo-speech-recognition has custom native code, not in Expo Go's bundled
+// runtime. Lazy-load it only when we have a dev client / standalone build,
+// and stub out the API in Expo Go so the mic button can hide gracefully.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let ExpoSpeechRecognitionModule: any = {
+  start: () => {},
+  stop: () => {},
+  requestPermissionsAsync: async () => ({ granted: false }),
+};
+type SpeechEventName = 'result' | 'end' | 'error';
+let useSpeechRecognitionEvent: (
+  name: SpeechEventName,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cb: (e: any) => void
+) => void = () => {};
+
+if (!IS_EXPO_GO) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('expo-speech-recognition');
+    ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule;
+    useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
+  } catch {
+    // module not available — mic stays hidden
+  }
+}
+
+const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 
 interface QuickAddBarProps {
   defaultStatus?: 'inbox' | 'todo';
@@ -124,21 +150,23 @@ export default function QuickAddBar({
           returnKeyType="done"
           editable={!submitting}
         />
-        <Pressable
-          style={({ pressed }) => [
-            styles.iconButton,
-            (pressed || listening) && styles.iconButtonActive,
-          ]}
-          onPress={toggleListening}
-          disabled={submitting || Platform.OS === 'web'}
-          hitSlop={4}
-        >
-          <Ionicons
-            name={listening ? 'mic' : 'mic-outline'}
-            size={20}
-            color={listening ? '#6366f1' : '#6b7280'}
-          />
-        </Pressable>
+        {VOICE_ENABLED ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconButton,
+              (pressed || listening) && styles.iconButtonActive,
+            ]}
+            onPress={toggleListening}
+            disabled={submitting}
+            hitSlop={4}
+          >
+            <Ionicons
+              name={listening ? 'mic' : 'mic-outline'}
+              size={20}
+              color={listening ? '#6366f1' : '#6b7280'}
+            />
+          </Pressable>
+        ) : null}
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={handleSubmit}
