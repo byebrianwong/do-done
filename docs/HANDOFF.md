@@ -1,207 +1,251 @@
 # Handoff — do-done
 
-**For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; current state is non-trivial and there's work parked in multiple places.
+**For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; the project is live in production and there's open work that needs care.
 
-Last updated: 2026-05-02 by Claude (Sonnet 4.5).
-
----
-
-## TL;DR — where things live right now
-
-- **`main`**: clean of pet work. Has uncommitted mobile changes parked in a stash (see "Stashed work" below).
-- **`worktree-agent-a4c491c2921b01921`** (where this doc lives): the pet feature in 4 stacked commits. Worktree path: `<repo>/.claude/worktrees/agent-a4c491c2921b01921`.
-- **No PR open. No merge has happened yet.** User wanted to review the pet feature before merging.
-- **`docs/pet-feature.md`** is the source of truth for the implementation plan; this file is the source of truth for *current execution state*.
+Last updated: 2026-05-06 by Claude (Sonnet 4.5).
 
 ---
 
-## In-flight: Pet feature ("Pip")
+## TL;DR — where things stand right now
 
-### Vision (one paragraph, do not relitigate)
+- **`main`** has the pet feature merged. HEAD is `b98c7cd` (merge commit of PR #1).
+- **App is LIVE** at https://dodone.byebrianwong.com. Vercel auto-deploys main as production. SSL via Let's Encrypt, valid through 2 Aug 2026.
+- **PR #2 is open** (`feat/mobile-projects-real-data`) — mobile projects screen wired to real data + project picker in TaskEditModal + Expo Go compatibility patch. Needs rebase against main (it was branched before the pet merge) before it can land.
+- **Mobile testing in progress** via Expo Go on phone. EAS dev client build never done — flagged as "next step" once user finishes web side.
 
-do-done's "AI-native" framing means Claude (via MCP) drives most task management with the user, not just the user alone. To give web-app users a reason to come back when they're not in Claude, we added Pip — a procedural pet that gets fed by completed tasks. The hard creative problem was: if Claude completes tasks via MCP, who earns the gamification reward? **Resolution: Pip is a shared object between user and Claude.** Both can feed Pip, every event is tagged with `actor = 'user' | 'claude' | 'system'`, and the activity log is honest about who did the work. Claude isn't competing for credit; Claude is co-parenting Pip.
+This doc is the source of truth for *current execution state*. The pet feature implementation plan is in [`docs/pet-feature.md`](pet-feature.md).
 
-### Aesthetic decision (committed)
+---
 
-**Aesthetic E** — Apple Notes / Tweek soft. Yellow legal-pad cream background (`#fffbe6`), rounded everything, pastel stat bars (peach / mint / lavender), pastel-pink goal card, `ui-rounded` system font. Selected via `/design-shotgun` from a 7-variant comparison; comparison HTML at `/Users/brian/.gstack/projects/byebrianwong-do-done/designs/pip-pet-panel-20260501/comparison.html` if you want context on rejected directions.
+## What's live in production
 
-The broader app aesthetic still defaults to Things-3-clean (indigo / Inter). **Pip lives in his own warm corner inside the existing chrome.** If you decide to migrate the whole app toward warm/Claude visual language later, the pet panel is your reference; don't drag the rest of the app there without an explicit instruction.
+### URLs and IDs
 
-### Branch state — 4 commits
+| | Value |
+|---|---|
+| Production URL | https://dodone.byebrianwong.com |
+| Vercel preview alias | https://do-done-web-byebrianwongs-projects.vercel.app |
+| Vercel project | `byebrianwongs-projects/do-done-web` (id `prj_3SyBcR1BcpJDuq33mIjr3R4mjpjl`) |
+| Supabase project | `qvglgxixiwoolsxnmsag` (`do-done`, West US — North California) |
+| GitHub repo | byebrianwong/do-done |
+| GitHub PR #1 | merged — pet feature |
+| GitHub PR #2 | open draft — mobile projects + Expo Go compat |
+| SSL cert | `cert_a8hWxl7Q5rHsJXDU3Rr5JV6s` — Let's Encrypt, expires 2 Aug 2026 |
+
+### DNS (Porkbun, but using Cloudflare DNS infrastructure)
+
+- `dodone.byebrianwong.com` — `CNAME → cname.vercel-dns.com.`
+- `byebrianwong.com` — apex `ALIAS → 25a8e3ff….vercel-dns-017.com.` (different project — user's portfolio)
+- `secondguess.byebrianwong.com` — `CNAME → b896b68936d10f2d.vercel-dns-017.com.` (yet another project)
+- **Risky leftover**: `CNAME *.byebrianwong.com → uixie.porkbun.com` catches all undefined subdomains and dumps them on Porkbun parking. Should be removed (advised earlier; user hasn't done it yet).
+- **Cosmetic leftovers**: two `_acme-challenge.byebrianwong.com` TXT records from past Let's Encrypt validations. Not harmful; can delete.
+
+### Vercel env vars (set via CLI, encrypted)
+
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set for Production, Development, and Preview-on-`worktree-agent-a4c491c2921b01921`-branch. **The Preview scope was set per-branch, not all-branches** (see "Quirks" below). For PR #2 to deploy preview successfully you may need to add Preview vars for `feat/mobile-projects-real-data` too.
+
+### Deploy config
+
+Vercel UI Root Directory is `apps/web`. The vercel.json that drives builds lives at [`apps/web/vercel.json`](../apps/web/vercel.json). It does:
+- `installCommand: cd ../.. && corepack enable && pnpm install --frozen-lockfile`
+- `buildCommand: cd ../.. && corepack enable && pnpm turbo run build --filter=web`
+- `outputDirectory: .next`
+- `framework: nextjs`
+
+Three things matter here and you should know why:
+1. **`cd ../..`** — Vercel runs commands from `apps/web` (the configured Root Directory), but pnpm install needs to run at the workspace root or it can't resolve workspace deps.
+2. **`corepack enable`** — without this, Vercel uses its hardcoded older pnpm 10.x which has a workspace-deps bug. corepack reads `packageManager: pnpm@10.33.0` from package.json and uses our exact version.
+3. **`framework: nextjs`** — keeps Vercel's ISR / edge handling on even though we override commands.
+
+---
+
+## Database
+
+### Supabase CLI is now linked
+
+`supabase` CLI v2.95.4 is installed (via brew) and authenticated. Project `do-done` (`qvglgxixiwoolsxnmsag`) is linked locally. `supabase db push` works.
+
+### Migration history is now tracked properly
+
+The original migrations (`20260412*`) had been applied via the dashboard before CLI linkage, so they weren't in the `supabase_migrations.schema_migrations` table. We ran:
+
+```bash
+supabase migration repair --status applied 20260412000001 20260412000002 20260412000003
+```
+
+to mark them as applied without re-running. Then `supabase db push` applied the new pet migrations cleanly.
+
+### Pet migrations gotcha — uuid_generate_v4 → gen_random_uuid
+
+The pet migrations originally used `uuid_generate_v4()`. Supabase installs the `uuid-ossp` extension into the `extensions` schema (not in default search_path), so unqualified calls fail. Fixed by switching to `gen_random_uuid()` (built-in to Postgres 13+, no extension needed). See [`supabase/migrations/20260501000001_create_pet_tables.sql`](../supabase/migrations/20260501000001_create_pet_tables.sql).
+
+**Use `gen_random_uuid()` for any new tables.** Don't reach for `uuid_generate_v4()`.
+
+---
+
+## PR #2 — open draft, needs rebase
+
+Branch: `feat/mobile-projects-real-data`. Three commits on top of pre-pet main (`19ac733`):
 
 ```
-7c247ac feat(pet): MCP tools — get_pet_state, propose_pet_goal, accept_pet_goal, narrate_task_completion, get_pet_history
-ff84c29 feat(pet): wire PetPanel into web app shell
-7b5edf7 feat(pet): Pip procedural SVG + PetPanel UI + Storybook stories (aesthetic E)
-f69c73a feat: pet feature foundations (migrations, schemas, decay math, PetsApi)
+fec34ce  fix(mobile): make app Expo-Go-tolerant (lazy-load native-only modules)
+0101206  docs(claude.md): fix mobile dev command (it's `start`, not `dev`)
+35f732f  feat(mobile): wire projects screen to real data + add project picker
 ```
 
-Each commit is independently reviewable. Together they implement plan days 1–8.
+### What each commit does
 
-### What's done
+**`35f732f` — main feature (146 +/19−)**
+- `apps/mobile/app/(tabs)/projects.tsx` — replace `MOCK_PROJECTS` array with `ProjectsApi.listWithCounts()` from `@do-done/api-client`. Real Supabase data, color dots, optional icon glyph, "X open · Y done" counts, pull-to-refresh, empty state.
+- `apps/mobile/components/TaskEditModal.tsx` — add a "Project" chip row between Priority and Due Date. None chip + one chip per project. Persists `project_id` on save.
 
-#### Day 1–2: foundations (`f69c73a`)
-- `supabase/migrations/20260501000001_create_pet_tables.sql` — `pets`, `pet_goals`, `pet_events`
-- `supabase/migrations/20260501000002_create_pet_rls_policies.sql` — RLS via `auth.uid() = user_id`
-- `supabase/migrations/20260501000003_create_pet_indexes.sql`
-- `packages/shared/src/schemas.ts` — appended `Pet*`, `AppearanceSeed`, 7 new enums
-- `packages/shared/src/pet-decay.ts` — pure decay/mood/feeding math
-- `packages/shared/src/pet-decay.test.ts` — 28 vitest cases (all passing)
-- `packages/shared/vitest.config.ts` — new (shared had none)
-- `packages/api-client/src/pets.ts` — `PetsApi` class
-- `packages/api-client/src/tasks.ts` — `update`/`complete` accept optional `actor`; lazy-imports `PetsApi` to feed Pip on `status → done`
+**`0101206` — CLAUDE.md fix (1 line)**
+The doc said `pnpm --filter mobile dev` but mobile only has `start`/`android`/`ios`/`web` scripts. Fixed to `pnpm --filter mobile start`.
 
-#### Day 3: web UI (`7b5edf7`)
-- `apps/web/src/components/pet/Pip.tsx` — pure procedural SVG. 6 body shapes × 4 eye styles × 6 mood overlays. No hooks, no `"use client"` — server-component-safe.
-- `apps/web/src/components/pet/PetPanel.tsx` — pastel right-side panel UI, presentational only.
-- `apps/web/src/components/pet/pip.stories.tsx` + `pet-panel.stories.tsx` — **17 stories** total covering each mood, body shape, eye style, hue, goal proposer, log shape, stat extreme.
-- `apps/web/src/components/__stories__/mocks.ts` — extended with `makePet` / `makePetEvent` / `makePetGoal` / `makePetState` / `SAMPLE_PET_EVENTS` / `SAMPLE_APPEARANCE_SEED`.
+**`fec34ce` — Expo Go compatibility (4 files)**
+The app couldn't load in Expo Go because three native-only modules were imported statically:
+- `expo-speech-recognition` — third-party native module
+- `expo-notifications` — removed from Expo Go in SDK 53
+- `react-native-android-widget` — custom Java/Kotlin code
 
-#### Day 6–7: layout integration (`ff84c29`)
-- `apps/web/src/app/(app)/layout.tsx` — main + new pet aside live in flex container; panel only renders for signed-in users, only at `xl:` (>1280px) widths. Below xl, layout reverts to today's full-width main.
-- `apps/web/src/components/pet/PetPanelContainer.tsx` — client wrapper. Polls every 30s, refetches after goal accept/decline. **Fails gracefully** — if `PetsApi.getState` errors (migrations not applied, RLS rejects), the panel hides itself rather than breaking the whole page.
-- `apps/web/src/lib/supabase/pets-client.ts` — `getClientPetsApi`, mirrors `getClientTasksApi` exactly.
-- `packages/api-client/src/pets.ts` — added `declineGoal` (only updates rows where `status='open'` so re-clicks are safe no-ops).
+**Pattern**: new helper [`apps/mobile/lib/runtime.ts`](../apps/mobile/lib/runtime.ts) exports `IS_EXPO_GO` (uses `Constants.appOwnership === 'expo'`). Each problematic file lazy-`require()`s its native dep only when not in Expo Go, with the JS surface stubbed to no-ops in Expo Go. Mic button on QuickAddBar hides; geofence registration becomes a no-op; Android widget handler skipped. Full functionality preserved in dev clients and standalone builds.
 
-#### Day 8: MCP tools (`7c247ac`)
-- `apps/mcp/src/tools/pets.ts` (new) — 5 pet tools:
-  - `get_pet_state` — markdown summary of stats / mood / level / goals / recent events
-  - `propose_pet_goal` — Claude-authored suggestion, surfaces in panel for accept/decline
-  - `accept_pet_goal` — converts open goal to real task on user's behalf
-  - `narrate_task_completion` — writes `event_type='narrated'` with `actor='claude'`
-  - `get_pet_history` — structured event log dump
-- `apps/mcp/src/tools/index.ts` — `complete_task` and `update_task` now pass `actor='claude'` to `TasksApi`. **Honest credit attribution is now end-to-end.**
-- `packages/api-client/src/pets.ts` — added `recordNarrative` for the narrated-event insertion path.
+**Use this pattern for any future native-only feature.** Don't add `import x from 'native-only-module'` at the top of a file that runs at app boot.
 
-### What's left — day 10 (human-in-the-loop only)
+### Rebase needed
 
-1. Apply migrations: `supabase db push` from main checkout (not the worktree — env vars).
-2. `pnpm --filter web dev` → visit `/inbox` at xl+ width → confirm Pip renders after the brief skeleton state, stats look right, recent activity log populates as you complete tasks.
-3. Build the MCP server (already done in CI; rebuild if you change anything): `pnpm --filter @do-done/mcp build`. Wire into Claude Desktop config (see `apps/mcp/CLAUDE.md`):
-   ```jsonc
-   {
-     "mcpServers": {
-       "do-done": {
-         "command": "node",
-         "args": ["<repo>/.claude/worktrees/agent-a4c491c2921b01921/apps/mcp/dist/index.js"],
-         "env": {
-           "SUPABASE_URL": "...",
-           "SUPABASE_SERVICE_ROLE_KEY": "...",
-           "DO_DONE_USER_ID": "..."
-         }
-       }
-     }
-   }
-   ```
-4. Ask Claude (in Claude Desktop, not Claude Code) to do something real: *"Check on Pip and complete one of my p4 tasks for me, then narrate what you did."* Confirm the activity log shows ✨ Claude badge with the narrative.
-5. Tune `packages/shared/src/pet-decay.ts` numbers based on feel. The constants and feeding rules are first-pass guesses — see `HUNGER_DECAY_PER_HOUR`, `applyTaskDeltas`, etc.
+PR #2 was branched from `19ac733` (pre-pet-merge). Main has 13 new commits. To merge cleanly:
 
-### Critical files (cheat sheet)
+```bash
+git checkout feat/mobile-projects-real-data
+git rebase origin/main
+# resolve any CLAUDE.md conflict (main now has different content than what PR #2 modified)
+git push --force-with-lease origin feat/mobile-projects-real-data
+```
+
+**The rebase will conflict on `CLAUDE.md`** because main has a newer version (with mobile section etc.) and PR #2 changed a different line. Resolve by keeping main's content + applying PR #2's `start` fix.
+
+After rebase, the diff is small and clean. Mark ready and merge.
+
+### Manual testing status
+
+User has been running `pnpm --filter mobile start` and loading the app in **Expo Go** on their phone. After commit `fec34ce`, the bundle should succeed. As of last check, user was about to test the projects + picker changes. If they confirm visually, PR #2 is green for merge.
+
+---
+
+## Critical gotchas (read these)
+
+### 1. Don't push to `main` directly
+
+PR #1 was merged via `gh pr merge`. The same pattern works for #2 once it's rebased. Direct pushes to main aren't blocked but go through the PR flow for review trail.
+
+### 2. Force-push is denied to branches with open PRs
+
+The harness will block `git push --force-with-lease` if there's an open PR on the branch. Use a regular commit instead, or rebase locally + only force-push after PR is closed.
+
+### 3. Local main can drift from origin
+
+If you check out main locally and there's a diff against origin (untracked files in tracked paths, etc.), `git pull --ff-only` aborts. Symptom: "Please move or remove them before you merge." Cause: untracked `docs/`, `.claude/worktrees/`, `supabase/.temp/` directories that conflict with committed files. Fix: `rm -rf docs/` (or whichever conflicts), then pull.
+
+### 4. Vercel CLI auth lives in macOS Application Support
+
+`~/Library/Application Support/com.vercel.cli/auth.json`. The user has run `vercel login` so the CLI is authenticated for this session. If `vercel` commands prompt for login, the auth file may have rotated.
+
+### 5. Supabase CLI auth is separate
+
+`supabase login` was done; tokens live in `~/.supabase/`. Same caveat — if it prompts again, it's expired.
+
+### 6. Vercel's preview env vars need a branch
+
+Adding env vars to `preview` scope without specifying a branch hits an interactive prompt the CLI doesn't accept in agent mode. Workaround: add per-branch with `vercel env add NAME preview <branch> --value <value> --yes`, OR add via Vercel UI's "All Preview Branches" toggle.
+
+### 7. `IS_EXPO_GO` is the gate for native modules in apps/mobile
+
+Any new module that's not in Expo Go's bundled runtime must be lazy-loaded inside `if (!IS_EXPO_GO)`. The pattern is in [`apps/mobile/lib/geofencing.ts`](../apps/mobile/lib/geofencing.ts). Import the helper from `@/lib/runtime`.
+
+### 8. Web/mobile have no `typecheck` script in turbo
+
+`pnpm typecheck` only runs typecheck on `packages/*` and `apps/mcp` (the ones that have a `typecheck` script in package.json). For `apps/web` and `apps/mobile`, run `npx tsc --noEmit` directly from the app directory.
+
+### 9. The wildcard CNAME is dangerous
+
+`CNAME *.byebrianwong.com → uixie.porkbun.com` swallows typos and undefined subdomains, sending them to a parking page. Recommend removing it — the user agreed in principle but hasn't done it yet.
+
+### 10. Storybook is web-only
+
+There's no React Native Storybook setup. Pet UI (`Pip`, `PetPanel`) has Storybook coverage. Mobile screens do not. To see mobile changes visually, run the actual app via Expo Go or an EAS dev client.
+
+---
+
+## Critical files (cheat sheet)
 
 | Path | Purpose |
 |---|---|
-| `docs/pet-feature.md` | Implementation plan |
 | `docs/HANDOFF.md` | This file |
-| `packages/shared/src/pet-decay.ts` | Feeding rules + decay math (tune here) |
-| `packages/shared/src/schemas.ts` | All Pet types + enums |
+| `docs/pet-feature.md` | Pet feature implementation plan |
+| `apps/web/vercel.json` | Vercel deploy config (lives in apps/web because of Vercel UI Root Directory) |
+| `apps/mobile/lib/runtime.ts` | `IS_EXPO_GO` helper |
+| `apps/mobile/lib/geofencing.ts` | Reference impl of native-module guard pattern |
+| `apps/mobile/components/QuickAddBar.tsx` | Same pattern — voice input lazy-load |
+| `apps/mobile/app/_layout.tsx` | Same pattern — Android widget lazy-load |
+| `packages/shared/src/pet-decay.ts` | Pure pet decay/mood/feeding math (Finch model — no overdue penalty) |
 | `packages/api-client/src/pets.ts` | `PetsApi` |
-| `packages/api-client/src/tasks.ts` | Where `actor` flows through to feeding |
-| `apps/web/src/components/pet/Pip.tsx` | Procedural SVG |
-| `apps/web/src/components/pet/PetPanel.tsx` | Panel UI |
-| `apps/web/src/components/pet/PetPanelContainer.tsx` | Client wrapper, polls every 30s |
-| `apps/web/src/app/(app)/layout.tsx` | Layout integration |
+| `apps/web/src/components/pet/Pip.tsx` | Procedural SVG renderer |
+| `apps/web/src/components/pet/PetPanel.tsx` | Right-side panel UI |
+| `apps/web/src/app/(app)/layout.tsx` | Layout integration of PetPanel |
 | `apps/mcp/src/tools/pets.ts` | 5 pet MCP tools |
-| `apps/mcp/src/tools/index.ts` | `actor='claude'` wiring |
-| `supabase/migrations/20260501*` | Pet tables, RLS, indexes |
-
-### Open decisions worth re-litigating only with reason
-
-These were judgment calls. **Don't relitigate without a concrete reason** — but if a real reason appears, this is where to push back.
-
-1. **Mood priority order** when multiple thresholds fire: `sleeping > hungry > tired > sad > happy > content` (`packages/shared/src/pet-decay.ts`). Hunger wins because it's the dominant interaction loop. Reasonable, not the only valid ordering.
-2. **Bonus stats for goal-derived tasks** — not implemented. Plan suggested ~+30% delta. No data yet.
-3. **Mobile pet rendering** — not implemented; mobile sees no Pip. Plan calls this out as v2 explicitly.
-4. **"Maybe later" / decline UI** — `PetsApi.declineGoal` is wired but no UI surfaces declined goals or lets the user re-propose. Probably fine; flag if users complain.
-5. **Typography** — `ui-rounded` system font (SF Pro Rounded on macOS, falls through to system elsewhere). For consistent rendering across platforms, swap to `next/font` with Nunito — single-file change in `PetPanel.tsx`.
-6. **Pip's name is hardcoded "Pip"** — the `pets.name` column allows rename but no UI exposes it. Plan suggested "let Claude propose 3 names at first sign-in based on task corpus" as v2.
+| `supabase/migrations/20260501*` | Pet tables, RLS, indexes (use `gen_random_uuid()`) |
+| `.github/workflows/chromatic.yml` | Visual regression CI (works — passes on push to PR + main) |
 
 ---
 
-## In-flight: Mobile projects work (parked in stash)
-
-Earlier in the session, mobile project pages were partially wired up — but the user reverted them deliberately. Current state:
-
-- **Stashed**: `git stash list` shows `wip: mobile projects + TaskEditModal + lock file`. Stash contains:
-  - `apps/mobile/app/(tabs)/projects.tsx` — wired to `ProjectsApi.listWithCounts()` (real data, not mock)
-  - `apps/mobile/components/TaskEditModal.tsx` — added a project picker chip row
-  - `.claude/scheduled_tasks.lock` — just a lock file deletion
-- **On main**: both files are at their pre-edit state (mock data, no project picker).
-- **System hint flagged the post-stash state as intentional.** **Do not pop the stash unless the user explicitly asks.**
-
-If the user asks to resume that work: `git stash pop` from main, then run `cd apps/mobile && npx tsc --noEmit` to confirm. The stashed work was typechecked clean before being stashed.
-
----
-
-## Other artifacts you might encounter
-
-### `/design-shotgun` comparison HTML
-- `/Users/brian/.gstack/projects/byebrianwong-do-done/designs/pip-pet-panel-20260501/comparison.html` — 7 aesthetic variants for the pet panel. Aesthetic E was selected. Open in a browser if you want context on rejected directions.
-- The gstack `design` binary requires an OpenAI API key that wasn't configured during this session — **fell back to handcrafted HTML/CSS sketches**. To enable AI-generated mockups in the future: `~/.claude/skills/gstack/design/dist/design setup`.
-
-### gstack skills
-- The user has `gstack` skills installed (`/ship`, `/qa`, `/review`, `/design-shotgun`, `/codex`, etc.). They are NOT proactive — only invoke when the user asks or when the explicit trigger words match.
-- `gstack-config get proactive` was `true`, but `proactive` is the global flag; individual skills still have their own trigger logic.
-- An upgrade is available (`UPGRADE_AVAILABLE 0.15.2.1 1.25.1.0`). User declined to engage during this session; don't push.
-
----
-
-## Quirks worth knowing
-
-- **No `.env.local` in the worktree.** `next build` and `next dev` need Supabase env vars. Run them from main checkout, or copy `.env.local` over.
-- **Circular import workaround**: `packages/api-client/src/tasks.ts` lazy-imports `PetsApi` inside `update` to dodge a circular dep at module load. **Don't "fix" this without thinking** — it's intentional. The cleaner long-term path is moving feed-on-done into a Postgres trigger.
-- **Web/mobile have no `typecheck` script** — they're not picked up by `pnpm typecheck` (turbo). Run `npx tsc --noEmit` directly from `apps/web` or `apps/mobile` to type-check those.
-- **`packages/shared/tsconfig.json` excludes `*.test.ts`** from build output (necessary because `composite: true` was including tests in dist).
-- **gitleaks pre-commit hook** runs on every commit on this branch — clean so far. Don't try to commit secrets; investigate any failure rather than `--no-verify`.
-- **`apps/web/AGENTS.md` warns**: "This is NOT the Next.js you know" with a pointer to `node_modules/next/dist/docs/`. Read it before writing Next-specific code.
-
----
-
-## Verify the worktree compiles cleanly
-
-```bash
-cd <repo>/.claude/worktrees/agent-a4c491c2921b01921
-
-pnpm typecheck                                   # 9/9 should pass
-pnpm --filter @do-done/shared test               # 28/28 should pass
-pnpm --filter @do-done/api-client build          # rebuild after API changes
-pnpm --filter @do-done/mcp build                 # rebuild MCP dist
-cd apps/web && npx tsc --noEmit                  # web typecheck (not in turbo)
-pnpm --filter web build-storybook                # exercises pet stories
-```
-
-To see Pip in Storybook:
-```bash
-pnpm --filter web storybook   # http://localhost:6006 → Pet/Pip and Pet/PetPanel
-```
-
----
-
-## Most likely next moves
+## Open work + likely next moves
 
 In priority order:
 
-1. **Apply migrations + run web dev + click around.** Confirm the panel actually looks like Storybook when fed real data. (~10 min)
-2. **Wire MCP into Claude Desktop, do a real task with Claude.** Confirm the activity log shows ✨ for Claude completions. (~15 min)
-3. **Tune `packages/shared/src/pet-decay.ts` numbers** based on feel.
-4. **Open a PR or merge to main.** Branch is clean and stacked; simplest path is `git checkout main && git merge worktree-agent-a4c491c2921b01921`. (Mobile stash stays as-is.)
-5. **Pop the mobile stash** if revisiting that work, or `git stash drop` to discard.
+1. **Rebase + merge PR #2** once user confirms the mobile changes work in Expo Go.
+2. **EAS dev client build** — never done. Path to native feature testing (voice, geofencing, widgets). Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` → `eas build --profile development --platform android`. ~15 min cloud build, free tier. The placeholder `"REPLACE_WITH_EAS_PROJECT_ID"` in `apps/mobile/app.config.ts` gets replaced after `eas init`.
+3. **Apply MCP server to Claude Desktop** — never done. Build via `pnpm --filter @do-done/mcp build`, point Claude Desktop config at `apps/mcp/dist/index.js`, set env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DO_DONE_USER_ID). Then ask Claude to complete a task and watch ✨ Claude show in Pip's activity log.
+4. **DNS cleanups** — remove the wildcard CNAME, add CAA records (`letsencrypt.org`), add DMARC, enable DNSSEC. Optional, none blocking.
+5. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. Current numbers are first-pass; one round of "no overdue penalty" tuning was already done.
 
----
+## Verify the repo compiles cleanly
 
-## If something breaks during day-10 verification
+```bash
+pnpm install
+pnpm typecheck                                   # 9/9 should pass
+pnpm --filter @do-done/shared test               # 29/29 should pass
+cd apps/web && npx tsc --noEmit                  # web typecheck
+cd apps/mobile && npx tsc --noEmit               # mobile typecheck
+pnpm --filter web build-storybook                # exercises pet stories
+```
 
-- **`PetPanelContainer` hides itself silently on error.** That's intentional — pet feature must never break the whole page. So failures are quiet. Check the browser network tab for failed `/rest/v1/pets` calls and Supabase logs.
-- **Migrations not applied** is the most likely failure mode. Symptom: panel never appears (it's stuck in error-hidden state).
-- **Auth not wired up** — `PetsApi.ensurePet` requires a userId; without auth it can't insert.
-- **Claude Desktop tool list stale** — restart Claude Desktop after rebuilding `apps/mcp/dist/`.
-- **Storybook stories show but production doesn't** — likely a server/client component issue. `Pip.tsx` has no `"use client"` (deliberate); `PetPanel.tsx` and `PetPanelContainer.tsx` do. Don't add `"use client"` to `Pip.tsx`.
+## How to run things
+
+```bash
+# Web dev (needs apps/web/.env.local with NEXT_PUBLIC_* Supabase vars)
+pnpm --filter web dev                            # → http://localhost:3000
+
+# Mobile dev (needs Expo Go on phone, or EAS dev client for native features)
+pnpm --filter mobile start                       # then `a` for Android, `i` for iOS
+
+# Storybook (web only)
+pnpm --filter web storybook                      # → http://localhost:6006
+
+# Vercel CLI (already linked from this repo)
+vercel list do-done-web                          # see deployments
+vercel inspect <url> --logs                      # debug failures
+vercel env ls                                    # see env vars
+
+# Supabase CLI (already linked)
+supabase migration list                          # see applied migrations
+supabase db push                                 # apply new migrations
+```
+
+## If something breaks
+
+- **Vercel build fails on `pnpm install`**: probably the corepack/lockfile pattern broke. Check `apps/web/vercel.json` — install command must `cd ../..` and `corepack enable`.
+- **App spins forever on Expo Go**: a new native module got imported without the `IS_EXPO_GO` guard. Read recent diffs and apply the lazy-`require()` pattern.
+- **HTTPS is "not secure"** for a new subdomain: Vercel didn't auto-provision SSL. Run `vercel certs issue <domain>` to trigger manually.
+- **`PetPanelContainer` hides silently**: it suppresses errors by design (panel is non-critical chrome). Check browser network tab for failed `/rest/v1/pets` calls.
+- **Mobile build fails on import**: probably hitting an Expo Go limit. Check the metro bundler output for "Cannot find native module".
