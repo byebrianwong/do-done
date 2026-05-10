@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
@@ -53,6 +54,23 @@ export default function QuickAddBar({
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [listening, setListening] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
+
+  // edgeToEdgeEnabled in app.config.ts disables Android adjustResize, so the
+  // absolute-positioned bar would stay behind the keyboard. Track keyboard
+  // height and lift the bar above it.
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) =>
+      setKbHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Speech recognition events
   useSpeechRecognitionEvent('result', (e) => {
@@ -138,7 +156,12 @@ export default function QuickAddBar({
   }
 
   return (
-    <View style={styles.wrapper}>
+    <View
+      style={[
+        styles.wrapper,
+        kbHeight > 0 && { bottom: kbHeight + 8 },
+      ]}
+    >
       <View style={styles.container}>
         <TextInput
           style={styles.input}

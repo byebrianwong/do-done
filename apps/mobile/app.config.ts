@@ -1,4 +1,18 @@
 import type { ExpoConfig, ConfigContext } from "expo/config";
+import { execSync } from "child_process";
+
+function gitInfo() {
+  try {
+    return {
+      branch: execSync("git rev-parse --abbrev-ref HEAD")
+        .toString()
+        .trim(),
+      sha: execSync("git rev-parse --short HEAD").toString().trim(),
+    };
+  } catch {
+    return { branch: "unknown", sha: "unknown" };
+  }
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -94,5 +108,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     eas: {
       projectId: "REPLACE_WITH_EAS_PROJECT_ID",
     },
+    git: gitInfo(),
   },
 });
