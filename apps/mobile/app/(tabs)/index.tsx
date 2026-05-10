@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl } from 'react-native';
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
@@ -56,7 +56,14 @@ export default function TodayScreen() {
               <View style={styles.focusSection}>
                 <Text style={styles.sectionTitle}>Focus</Text>
                 {focusList.map((task) => (
-                  <View key={task.id} style={styles.focusCard}>
+                  <Pressable
+                    key={task.id}
+                    onPress={() => setEditing(task)}
+                    style={({ pressed }) => [
+                      styles.focusCard,
+                      pressed && styles.focusCardPressed,
+                    ]}
+                  >
                     <View
                       style={[
                         styles.focusDot,
@@ -69,7 +76,7 @@ export default function TodayScreen() {
                     <Text style={styles.focusTitle} numberOfLines={1}>
                       {task.title}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </View>
             )}
@@ -137,6 +144,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
+  },
+  focusCardPressed: {
+    opacity: 0.7,
   },
   focusDot: {
     width: 10,

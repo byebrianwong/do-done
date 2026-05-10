@@ -6,7 +6,6 @@ import {
   Pressable,
   StyleSheet,
   KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
@@ -47,7 +46,7 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       style={styles.container}
     >
       <View style={styles.card}>
