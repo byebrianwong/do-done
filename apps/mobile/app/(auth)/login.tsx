@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   Pressable,
+  ScrollView,
   StyleSheet,
   KeyboardAvoidingView,
   Alert,
@@ -49,7 +50,12 @@ export default function LoginScreen() {
       behavior="padding"
       style={styles.container}
     >
-      <View style={styles.card}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.card}>
         <Text style={styles.logo}>do-done</Text>
         <Text style={styles.subtitle}>
           {mode === 'signin' ? 'Welcome back' : 'Create your account'}
@@ -98,7 +104,8 @@ export default function LoginScreen() {
             {mode === 'signin' ? 'New here? Sign up' : 'Have an account? Sign in'}
           </Text>
         </Pressable>
-      </View>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -107,8 +114,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f9fafb',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   card: {
     backgroundColor: '#fff',
