@@ -128,12 +128,15 @@ export class TasksApi {
   async getToday(): Promise<{ data: Task[]; error: Error | null }> {
     // Today = anything scheduled to be DONE on or before today (when_date),
     // OR DUE on or before today (due_date), OR bucketed as 'today'.
-    // Status must be active (not done/archived).
+    //
+    // Status filter is "anything not closed" (not done, not archived).
+    // Crucially, inbox tasks with a when_date set DO show up here —
+    // scheduling a task no longer requires moving it out of inbox.
     const today = new Date().toISOString().split("T")[0];
     let query = this.supabase
       .from("tasks")
       .select("*")
-      .in("status", ["todo", "in_progress"])
+      .not("status", "in", "(done,archived)")
       .or(
         `when_date.lte.${today},due_date.lte.${today},when_bucket.eq.today`
       )
@@ -152,9 +155,8 @@ export class TasksApi {
     // — overdue tasks live in Today. Bucket-only tasks (when_bucket
     // set, no date) live in their bucket views.
     //
-    // Default range bumped from 7 to 30 days so that a task scheduled
-    // in week 2 of the V2 modal's expandable calendar still appears
-    // here (the modal can pick up to ~14 days out without "Pick day").
+    // Status filter mirrors getToday — inbox tasks with a future date
+    // are upcoming even if the user hasn't promoted them to todo yet.
     const today = new Date().toISOString().split("T")[0];
     const end = new Date();
     end.setDate(end.getDate() + days);
@@ -163,7 +165,7 @@ export class TasksApi {
     let query = this.supabase
       .from("tasks")
       .select("*")
-      .in("status", ["todo", "in_progress"])
+      .not("status", "in", "(done,archived)")
       .or(
         `and(when_date.gte.${today},when_date.lte.${endDate}),and(due_date.gte.${today},due_date.lte.${endDate})`
       )
