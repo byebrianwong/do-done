@@ -5,3 +5,5 @@ export { ProjectsApi } from "./projects.js";
 export { LocationsApi } from "./locations.js";
 export { PetsApi } from "./pets.js";
 export type { PetState } from "./pets.js";
+export { BusynessApi, groupTasksByDate, buildDaysInRange } from "./busyness.js";
+export type { BusyItem, DayBusyness } from "./busyness.js";
