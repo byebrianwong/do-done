@@ -1,3 +1,5 @@
+"use client";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedCallback } from "use-debounce";
 import type { Task, UpdateTaskInput } from "@do-done/shared";
