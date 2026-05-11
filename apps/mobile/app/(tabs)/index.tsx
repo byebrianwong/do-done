@@ -31,9 +31,12 @@ export default function TodayScreen() {
   const focusList = generateFocusList(active, 3);
   const focusIds = new Set(focusList.map((t) => t.id));
   const today = new Date().toISOString().split('T')[0];
-  const otherToday = active.filter(
-    (t) => !focusIds.has(t.id) && t.due_date && t.due_date <= today
-  );
+  const otherToday = active.filter((t) => {
+    if (focusIds.has(t.id)) return false;
+    if (t.when_bucket === 'today') return true;
+    const d = t.when_date ?? t.due_date ?? null;
+    return d !== null && d <= today;
+  });
 
   return (
     <View style={styles.container}>

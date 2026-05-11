@@ -126,12 +126,17 @@ export class TasksApi {
   }
 
   async getToday(): Promise<{ data: Task[]; error: Error | null }> {
+    // Today = anything scheduled to be DONE on or before today (when_date),
+    // OR DUE on or before today (due_date), OR bucketed as 'today'.
+    // Status must be active (not done/archived).
     const today = new Date().toISOString().split("T")[0];
     let query = this.supabase
       .from("tasks")
       .select("*")
       .in("status", ["todo", "in_progress"])
-      .lte("due_date", today)
+      .or(
+        `when_date.lte.${today},due_date.lte.${today},when_bucket.eq.today`
+      )
       .order("priority")
       .order("sort_order");
 
@@ -142,6 +147,9 @@ export class TasksApi {
   }
 
   async getUpcoming(days: number = 7): Promise<{ data: Task[]; error: Error | null }> {
+    // Upcoming = scheduled (when_date) or due (due_date) within the next
+    // `days` days. Tasks with only a bucket aren't listed here — they
+    // appear in their respective bucket views (Later, Someday).
     const end = new Date();
     end.setDate(end.getDate() + days);
     const endDate = end.toISOString().split("T")[0];
@@ -150,9 +158,9 @@ export class TasksApi {
       .from("tasks")
       .select("*")
       .in("status", ["todo", "in_progress"])
-      .not("due_date", "is", null)
-      .lte("due_date", endDate)
-      .order("due_date")
+      .or(`when_date.lte.${endDate},due_date.lte.${endDate}`)
+      .order("when_date", { nullsFirst: false })
+      .order("due_date", { nullsFirst: false })
       .order("priority");
 
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -160,4 +168,13 @@ export class TasksApi {
     const { data, error } = await query;
     return { data: (data as Task[]) ?? [], error: error as Error | null };
   }
+}
+
+/**
+ * Resolve the "effective date" of a task for list views.
+ * Prefer when_date (the explicit user "I'm doing this on …") over due_date
+ * (the hard deadline). Returns YYYY-MM-DD or null.
+ */
+export function taskDate(task: Task): string | null {
+  return task.when_date ?? task.due_date ?? null;
 }

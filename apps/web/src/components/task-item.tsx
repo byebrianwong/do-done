@@ -153,12 +153,40 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           )}
         </div>
 
-        {task.due_date && (
+        {/* Effective scheduling date: when_date if set (V2 "do date"),
+            else due_date (legacy / hard deadline). Show due_date as an
+            extra deadline chip when both are set and they differ. */}
+        {task.when_date && (
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(task.when_date)}`}
+            title={`Scheduled for ${task.when_date}`}
+          >
+            {formatDueDate(task.when_date)}
+          </span>
+        )}
+        {!task.when_date && task.due_date && (
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(task.due_date)}`}
+            title={`Due ${task.due_date}`}
           >
             {formatDueDate(task.due_date)}
             {task.due_time && ` ${task.due_time}`}
+          </span>
+        )}
+        {task.when_date && task.due_date && task.when_date !== task.due_date && (
+          <span
+            className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
+            title={`Hard deadline ${task.due_date}`}
+          >
+            due {formatDueDate(task.due_date)}
+          </span>
+        )}
+        {!task.when_date && !task.due_date && task.when_bucket && (
+          <span
+            className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
+            title={`Bucketed as ${task.when_bucket}`}
+          >
+            {task.when_bucket.replace("_", " ")}
           </span>
         )}
 
