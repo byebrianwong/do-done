@@ -26,7 +26,7 @@ export default async function UpcomingPage() {
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
   const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
-    tasksApi ? tasksApi.getUpcoming(7) : Promise.resolve({ data: [] }),
+    tasksApi ? tasksApi.getUpcoming(30) : Promise.resolve({ data: [] }),
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
   ]);
 
@@ -68,7 +68,7 @@ export default async function UpcomingPage() {
       ) : (
         <div className="py-16 text-center">
           <p className="text-sm text-neutral-400">
-            No upcoming tasks in the next 7 days.
+            No upcoming tasks in the next 30 days.
           </p>
         </div>
       )}

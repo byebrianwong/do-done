@@ -146,10 +146,16 @@ export class TasksApi {
     return { data: (data as Task[]) ?? [], error: error as Error | null };
   }
 
-  async getUpcoming(days: number = 7): Promise<{ data: Task[]; error: Error | null }> {
-    // Upcoming = scheduled (when_date) or due (due_date) within the next
-    // `days` days. Tasks with only a bucket aren't listed here — they
-    // appear in their respective bucket views (Later, Someday).
+  async getUpcoming(days: number = 30): Promise<{ data: Task[]; error: Error | null }> {
+    // Upcoming = scheduled (when_date) OR due (due_date) at some point
+    // BETWEEN today and today+days. Past-dated tasks are not "upcoming"
+    // — overdue tasks live in Today. Bucket-only tasks (when_bucket
+    // set, no date) live in their bucket views.
+    //
+    // Default range bumped from 7 to 30 days so that a task scheduled
+    // in week 2 of the V2 modal's expandable calendar still appears
+    // here (the modal can pick up to ~14 days out without "Pick day").
+    const today = new Date().toISOString().split("T")[0];
     const end = new Date();
     end.setDate(end.getDate() + days);
     const endDate = end.toISOString().split("T")[0];
@@ -158,7 +164,9 @@ export class TasksApi {
       .from("tasks")
       .select("*")
       .in("status", ["todo", "in_progress"])
-      .or(`when_date.lte.${endDate},due_date.lte.${endDate}`)
+      .or(
+        `and(when_date.gte.${today},when_date.lte.${endDate}),and(due_date.gte.${today},due_date.lte.${endDate})`
+      )
       .order("when_date", { nullsFirst: false })
       .order("due_date", { nullsFirst: false })
       .order("priority");

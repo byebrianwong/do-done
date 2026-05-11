@@ -32,7 +32,10 @@ jobs:
         run: pnpm build --filter=@do-done/shared --filter=@do-done/api-client --filter=@do-done/task-engine --filter=@do-done/ui
 
       - name: Run Chromatic
-        uses: chromaui/action@v11
+        # v16 matches the chromatic@^16.6.0 dep in apps/web/package.json.
+        # v11 (previously pinned) triggers an "outdated CLI" warning in
+        # the Chromatic UI on every build.
+        uses: chromaui/action@v16
         with:
           projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
           workingDir: apps/web
