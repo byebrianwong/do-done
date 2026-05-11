@@ -2,16 +2,18 @@
 
 **For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; the project is live in production and there's open work that needs care.
 
-Last updated: 2026-05-06 by Claude (Sonnet 4.5).
+Last updated: 2026-05-10 by Claude (Opus 4.7, 1M context).
 
 ---
 
 ## TL;DR — where things stand right now
 
-- **`main`** has the pet feature merged. HEAD is `b98c7cd` (merge commit of PR #1).
+- **`main`** has pet + mobile real-data + mobile keyboard fixes merged. HEAD is `3b4889b` (squash merge of PR #3).
 - **App is LIVE** at https://dodone.byebrianwong.com. Vercel auto-deploys main as production. SSL via Let's Encrypt, valid through 2 Aug 2026.
-- **PR #2 is open** (`feat/mobile-projects-real-data`) — mobile projects screen wired to real data + project picker in TaskEditModal + Expo Go compatibility patch. Needs rebase against main (it was branched before the pet merge) before it can land.
-- **Mobile testing in progress** via Expo Go on phone. EAS dev client build never done — flagged as "next step" once user finishes web side.
+- **PR #2 merged** (squash `82b9b99`, 2026-05-10) — mobile projects screen wired to real data + project picker in TaskEditModal + Expo Go compatibility patch. Verified on real Android via Expo Go before merge.
+- **PR #3 merged** (squash `3b4889b`, 2026-05-10) — mobile keyboard avoidance (QuickAddBar lifts above keyboard, login/edit modal fix Android `KAV behavior`), tappable Today focus cards, in-app `DevBanner` showing branch + sha while testing.
+- **MCP wired into Claude Code** at user scope via `claude mcp add` — not via `claude_desktop_config.json` (see gotcha #11 below). Verified by calling `mcp__do-done__get_focus_tasks` end-to-end.
+- **Mobile testing path** stays Expo Go for now. EAS dev client build still not done — flagged as "next step" before testing widgets, voice input, or geofencing (none of which run in Expo Go).
 
 This doc is the source of truth for *current execution state*. The pet feature implementation plan is in [`docs/pet-feature.md`](pet-feature.md).
 
@@ -29,7 +31,8 @@ This doc is the source of truth for *current execution state*. The pet feature i
 | Supabase project | `qvglgxixiwoolsxnmsag` (`do-done`, West US — North California) |
 | GitHub repo | byebrianwong/do-done |
 | GitHub PR #1 | merged — pet feature |
-| GitHub PR #2 | open draft — mobile projects + Expo Go compat |
+| GitHub PR #2 | merged 2026-05-10 (squash `82b9b99`) — mobile projects + Expo Go compat |
+| GitHub PR #3 | merged 2026-05-10 (squash `3b4889b`) — mobile keyboard fixes + DevBanner + scrollable login |
 | SSL cert | `cert_a8hWxl7Q5rHsJXDU3Rr5JV6s` — Let's Encrypt, expires 2 Aug 2026 |
 
 ### DNS (Porkbun, but using Cloudflare DNS infrastructure)
@@ -42,7 +45,7 @@ This doc is the source of truth for *current execution state*. The pet feature i
 
 ### Vercel env vars (set via CLI, encrypted)
 
-`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set for Production, Development, and Preview-on-`worktree-agent-a4c491c2921b01921`-branch. **The Preview scope was set per-branch, not all-branches** (see "Quirks" below). For PR #2 to deploy preview successfully you may need to add Preview vars for `feat/mobile-projects-real-data` too.
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set for Production, Development, and Preview-on-`worktree-agent-a4c491c2921b01921`-branch. **The Preview scope is per-branch, not all-branches.** Practical effect: every other branch's Preview deploy fails the build, which shows as a red ❌ Vercel check on the PR. **Production deploys are unaffected** — both PR #2 and PR #3 went green for Production after merge. Treat the Vercel red on a PR as cosmetic unless you also see Production failing in `vercel inspect`.
 
 ### Deploy config
 
@@ -83,53 +86,50 @@ The pet migrations originally used `uuid_generate_v4()`. Supabase installs the `
 
 ---
 
-## PR #2 — open draft, needs rebase
+## PR #2 — merged 2026-05-10 (squash `82b9b99`)
 
-Branch: `feat/mobile-projects-real-data`. Three commits on top of pre-pet main (`19ac733`):
+Mobile projects screen on real Supabase data + project picker in TaskEditModal + Expo Go compatibility patch. Three original commits, rebased onto post-pet main, then squash-merged. Rebase had no `CLAUDE.md` conflict in the end (the lines that worried us didn't actually overlap).
 
-```
-fec34ce  fix(mobile): make app Expo-Go-tolerant (lazy-load native-only modules)
-0101206  docs(claude.md): fix mobile dev command (it's `start`, not `dev`)
-35f732f  feat(mobile): wire projects screen to real data + add project picker
-```
+**Key files now on main**:
+- [`apps/mobile/app/(tabs)/projects.tsx`](../apps/mobile/app/(tabs)/projects.tsx) — `ProjectsApi.listWithCounts()` for the projects screen.
+- [`apps/mobile/components/TaskEditModal.tsx`](../apps/mobile/components/TaskEditModal.tsx) — project chip row.
+- [`apps/mobile/lib/runtime.ts`](../apps/mobile/lib/runtime.ts) — `IS_EXPO_GO` helper. **Use this pattern for any future native-only feature.** Each native-dep file lazy-`require()`s and stubs out the API in Expo Go.
 
-### What each commit does
+Affected files that no-op in Expo Go: `expo-speech-recognition` (mic in `QuickAddBar`), `expo-notifications` (removed from Expo Go in SDK 53), `react-native-android-widget` (custom JNI). Geofence registration also no-ops; Android widget handler skipped.
 
-**`35f732f` — main feature (146 +/19−)**
-- `apps/mobile/app/(tabs)/projects.tsx` — replace `MOCK_PROJECTS` array with `ProjectsApi.listWithCounts()` from `@do-done/api-client`. Real Supabase data, color dots, optional icon glyph, "X open · Y done" counts, pull-to-refresh, empty state.
-- `apps/mobile/components/TaskEditModal.tsx` — add a "Project" chip row between Priority and Due Date. None chip + one chip per project. Persists `project_id` on save.
+## PR #3 — merged 2026-05-10 (squash `3b4889b`)
 
-**`0101206` — CLAUDE.md fix (1 line)**
-The doc said `pnpm --filter mobile dev` but mobile only has `start`/`android`/`ios`/`web` scripts. Fixed to `pnpm --filter mobile start`.
+Mobile keyboard avoidance + tappable Today focus cards + in-app DevBanner + scrollable login + `@types/node` for `app.config.ts`.
 
-**`fec34ce` — Expo Go compatibility (4 files)**
-The app couldn't load in Expo Go because three native-only modules were imported statically:
-- `expo-speech-recognition` — third-party native module
-- `expo-notifications` — removed from Expo Go in SDK 53
-- `react-native-android-widget` — custom Java/Kotlin code
+**What changed**:
+- [`apps/mobile/components/QuickAddBar.tsx`](../apps/mobile/components/QuickAddBar.tsx) — subscribes to `Keyboard.addListener('keyboardWillShow'/'keyboardDidShow')` and lifts the absolute-positioned bar by `kbHeight + 8`. Without this, `edgeToEdgeEnabled: true` in `app.config.ts` made Android skip its default `adjustResize`, leaving the bar (and TextInput) behind the keyboard.
+- [`apps/mobile/components/TaskEditModal.tsx`](../apps/mobile/components/TaskEditModal.tsx) and [`apps/mobile/app/(auth)/login.tsx`](../apps/mobile/app/(auth)/login.tsx) — `KeyboardAvoidingView` had `behavior={Platform.OS === 'ios' ? 'padding' : undefined}`, which is a no-op on Android. Switched to `behavior="padding"` on both platforms.
+- [`apps/mobile/app/(auth)/login.tsx`](../apps/mobile/app/(auth)/login.tsx) — wrapped the centered card in a `ScrollView` with `flexGrow: 1, justifyContent: 'center'` so the Sign-in button stays reachable when a tall keyboard shrinks the centered area.
+- [`apps/mobile/app/(tabs)/index.tsx`](../apps/mobile/app/(tabs)/index.tsx) — focus cards in the Today tab were bare `<View>` with no `onPress` — couldn't tap to edit. Now wrapped in `<Pressable>` calling `setEditing(task)` (mirrors `TaskItem`).
+- New: [`apps/mobile/components/DevBanner.tsx`](../apps/mobile/components/DevBanner.tsx) — small dark pill at the top of every screen, only renders when `__DEV__` is true. Reads `Constants.expoConfig.extra.git` (set in `app.config.ts` via `execSync('git rev-parse ...')` at metro start). Lets a tester confirm at a glance which branch + sha is running, since `pnpm start` from a different checkout silently serves stale code.
+- [`apps/mobile/app.config.ts`](../apps/mobile/app.config.ts) — `extra.git = gitInfo()`. Added `@types/node` so the `child_process` import typechecks.
 
-**Pattern**: new helper [`apps/mobile/lib/runtime.ts`](../apps/mobile/lib/runtime.ts) exports `IS_EXPO_GO` (uses `Constants.appOwnership === 'expo'`). Each problematic file lazy-`require()`s its native dep only when not in Expo Go, with the JS surface stubbed to no-ops in Expo Go. Mic button on QuickAddBar hides; geofence registration becomes a no-op; Android widget handler skipped. Full functionality preserved in dev clients and standalone builds.
+**No follow-ups outstanding** for either PR. Both verified manually on a real Android phone via Expo Go.
 
-**Use this pattern for any future native-only feature.** Don't add `import x from 'native-only-module'` at the top of a file that runs at app boot.
+---
 
-### Rebase needed
+## MCP server in Claude Code
 
-PR #2 was branched from `19ac733` (pre-pet-merge). Main has 13 new commits. To merge cleanly:
+`do-done` MCP is registered at **user scope** via `claude mcp add` so it's available in every Claude Code session anywhere on the machine.
 
 ```bash
-git checkout feat/mobile-projects-real-data
-git rebase origin/main
-# resolve any CLAUDE.md conflict (main now has different content than what PR #2 modified)
-git push --force-with-lease origin feat/mobile-projects-real-data
+claude mcp add -s user do-done \
+  -e SUPABASE_URL=... \
+  -e SUPABASE_SERVICE_ROLE_KEY=... \
+  -e DO_DONE_USER_ID=... \
+  -- node /Users/brian/Projects/do-done/apps/mcp/dist/index.js
 ```
 
-**The rebase will conflict on `CLAUDE.md`** because main has a newer version (with mobile section etc.) and PR #2 changed a different line. Resolve by keeping main's content + applying PR #2's `start` fix.
+Verify: `claude mcp list` should show `do-done: ... ✓ Connected`. End-to-end test: ask Claude to *"List my open do-done tasks"* — should call `mcp__do-done__list_tasks` and return real Supabase data. Completing a task via Claude tags `actor='claude'` so Pip's activity log on the live web app shows ✨ Claude.
 
-After rebase, the diff is small and clean. Mark ready and merge.
+**13 tools** when fully loaded: 8 task tools (`list_tasks`, `create_task`, `update_task`, `complete_task`, `search_tasks`, `get_focus_tasks`, `get_weekly_summary`, `organize_tasks`) + 5 pet tools (`get_pet_state`, `propose_pet_goal`, `accept_pet_goal`, `narrate_task_completion`, `get_pet_history`).
 
-### Manual testing status
-
-User has been running `pnpm --filter mobile start` and loading the app in **Expo Go** on their phone. After commit `fec34ce`, the bundle should succeed. As of last check, user was about to test the projects + picker changes. If they confirm visually, PR #2 is green for merge.
+If pet tools are missing from a fresh session, the dist is stale — see gotcha #12 below.
 
 ---
 
@@ -175,6 +175,31 @@ Any new module that's not in Expo Go's bundled runtime must be lazy-loaded insid
 
 There's no React Native Storybook setup. Pet UI (`Pip`, `PetPanel`) has Storybook coverage. Mobile screens do not. To see mobile changes visually, run the actual app via Expo Go or an EAS dev client.
 
+### 11. `claude_desktop_config.json` `mcpServers` does NOT work in this Claude Desktop
+
+The current Claude Desktop (`com.anthropic.claudefordesktop`, see `Claude Helper` process args) reads `~/Library/Application Support/Claude/claude_desktop_config.json` only for its own preferences schema (`preferences.*`) and **strips unknown top-level keys** when it rewrites the file. Adding `mcpServers` there appears to work, but Claude Desktop's app prefs sync overwrites it and Claude Code never sees it. Logs at `~/Library/Logs/Claude/main.log` will show `[LocalMcpServerManager] Closing all (0 servers)` if you've fallen for this.
+
+Use `claude mcp add -s user ...` instead (writes to `~/.claude.json`). This is what's wired up now — see "MCP server in Claude Code" above.
+
+### 12. MCP `dist/` must be rebuilt after pet feature changes (or any `@do-done/api-client` change)
+
+`apps/mcp/src/tools/index.ts` imports `registerPetTools` from `./pets.js`, which imports `PetsApi` from `@do-done/api-client`. If you build `@do-done/mcp` against a stale `@do-done/api-client/dist`, you get `error TS2305: Module '@do-done/api-client' has no exported member 'PetsApi'`. Order matters:
+
+```bash
+pnpm --filter "./packages/*" build      # rebuild api-client first
+pnpm --filter @do-done/mcp build        # then mcp
+```
+
+Symptom in Claude Code: only 8 tools instead of 13 — pet tools missing. The MCP server you'd registered points at the old `dist/index.js` which never required `pets.js`. Rebuild + restart Claude Code (stdio MCPs cache for the session lifetime).
+
+### 13. Force-push needs explicit per-action user approval
+
+The harness blocks `git push --force-with-lease` to a branch with an open PR even when the action was approved at plan time — it requires fresh confirmation at the moment of execution. Workaround: ask the user, push, continue. PR merges via `gh pr merge` are similarly subject to harness checks. **`gh api -X PUT /repos/.../pulls/N/merge` works as a pure-API path** when local-git paths are blocked (e.g., Xcode license unaccepted, see #14).
+
+### 14. Local `git` may need `sudo xcodebuild -license accept`
+
+After macOS or Xcode updates, every `git` invocation (and anything that shells out to git, including `gh pr merge --delete-branch`) errors with `You have not agreed to the Xcode license agreements`. Fix: `sudo xcodebuild -license accept`. Until then, use `gh api` paths for GitHub ops (no local git).
+
 ---
 
 ## Critical files (cheat sheet)
@@ -194,8 +219,11 @@ There's no React Native Storybook setup. Pet UI (`Pip`, `PetPanel`) has Storyboo
 | `apps/web/src/components/pet/PetPanel.tsx` | Right-side panel UI |
 | `apps/web/src/app/(app)/layout.tsx` | Layout integration of PetPanel |
 | `apps/mcp/src/tools/pets.ts` | 5 pet MCP tools |
+| `apps/mobile/components/DevBanner.tsx` | In-app branch + sha pill (testing aid; `__DEV__`-only) |
+| `apps/mobile/app.config.ts` | Adds `extra.git = gitInfo()` so DevBanner can read it via `Constants.expoConfig.extra` |
 | `supabase/migrations/20260501*` | Pet tables, RLS, indexes (use `gen_random_uuid()`) |
-| `.github/workflows/chromatic.yml` | Visual regression CI (works — passes on push to PR + main) |
+| `.github/workflows/chromatic.yml` | Visual regression CI. Triggers on `push: branches: [main]` and `pull_request: branches: [main]` — i.e. doesn't fire for branches without an open PR |
+| `~/.claude.json` | Where `claude mcp add -s user` writes — the actual MCP config Claude Code reads |
 
 ---
 
@@ -203,11 +231,11 @@ There's no React Native Storybook setup. Pet UI (`Pip`, `PetPanel`) has Storyboo
 
 In priority order:
 
-1. **Rebase + merge PR #2** once user confirms the mobile changes work in Expo Go.
-2. **EAS dev client build** — never done. Path to native feature testing (voice, geofencing, widgets). Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` → `eas build --profile development --platform android`. ~15 min cloud build, free tier. The placeholder `"REPLACE_WITH_EAS_PROJECT_ID"` in `apps/mobile/app.config.ts` gets replaced after `eas init`.
-3. **Apply MCP server to Claude Desktop** — never done. Build via `pnpm --filter @do-done/mcp build`, point Claude Desktop config at `apps/mcp/dist/index.js`, set env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DO_DONE_USER_ID). Then ask Claude to complete a task and watch ✨ Claude show in Pip's activity log.
-4. **DNS cleanups** — remove the wildcard CNAME, add CAA records (`letsencrypt.org`), add DMARC, enable DNSSEC. Optional, none blocking.
-5. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. Current numbers are first-pass; one round of "no overdue penalty" tuning was already done.
+1. **EAS dev client build** — still not done. Required to test widgets (`react-native-android-widget`), voice input (`expo-speech-recognition`), geofencing, push notifications — none of which run in Expo Go. Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` (replaces `"REPLACE_WITH_EAS_PROJECT_ID"` in `app.config.ts`) → `eas build --profile development --platform android`. ~15 min cloud build, free tier. After install on phone, run `pnpm --filter mobile start` and the dev client picks up metro automatically.
+2. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today. Add a `Linking.addEventListener('url', ...)` + `Linking.getInitialURL()` in the root layout that focuses the QuickAddBar input or routes to a `/quick-add` modal.
+3. **DNS cleanups** — remove the wildcard CNAME, add CAA records (`letsencrypt.org`), add DMARC, enable DNSSEC. Optional, none blocking.
+4. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. Current numbers are first-pass; one round of "no overdue penalty" tuning was already done.
+5. **Accept Chromatic baselines** for the mobile-related Storybook builds — PR #2 + PR #3 each flagged 30–40 visual diffs that need explicit acceptance in the Chromatic UI before subsequent builds compare against the new baseline.
 
 ## Verify the repo compiles cleanly
 
@@ -249,3 +277,7 @@ supabase db push                                 # apply new migrations
 - **HTTPS is "not secure"** for a new subdomain: Vercel didn't auto-provision SSL. Run `vercel certs issue <domain>` to trigger manually.
 - **`PetPanelContainer` hides silently**: it suppresses errors by design (panel is non-critical chrome). Check browser network tab for failed `/rest/v1/pets` calls.
 - **Mobile build fails on import**: probably hitting an Expo Go limit. Check the metro bundler output for "Cannot find native module".
+- **Phone shows "Failed to download remote update"** after scanning QR: phone can't reach the Mac on `192.168.50.x` (different WiFi subnet, Mac firewall blocking metro's port, or router client isolation). Fall back to tunnel: `pnpm --filter mobile add -D @expo/ngrok` (one-time, the Expo CLI looks in `node_modules/`, not the global install) then `pnpm --filter mobile start --tunnel`.
+- **Metro shows `Got unexpected undefined` after a `git checkout`**: HMR dependency graph corrupted. Kill metro, restart with `--clear`. Pressing `r` won't help — the bundler is in a bad state, not just stale.
+- **DevBanner says `main · <sha>` when you expected your fix branch**: your local checkout didn't actually switch — `git checkout fix/...` may have failed silently (e.g. the branch is already checked out in a worktree). Run `git status` to confirm.
+- **Pet MCP tools missing in Claude Code**: stale `apps/mcp/dist/`. See gotcha #12 — rebuild `packages/*` first, then `apps/mcp`, then restart Claude Code.
