@@ -3,7 +3,7 @@ import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl } from 'rea
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
-import TaskEditModal from '@/components/TaskEditModal';
+import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { getTasksApi } from '@/lib/supabase';
 import { generateFocusList } from '@do-done/task-engine';
 import type { Task } from '@do-done/shared';
@@ -98,7 +98,7 @@ export default function TodayScreen() {
         contentContainerStyle={styles.listContent}
       />
       <QuickAddBar defaultStatus="todo" onCreated={load} />
-      <TaskEditModal
+      <TaskEditModalV2
         task={editing}
         visible={editing !== null}
         onClose={() => setEditing(null)}
