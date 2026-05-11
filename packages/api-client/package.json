@@ -18,9 +18,20 @@
   },
   "dependencies": {
     "@do-done/shared": "workspace:*",
-    "@supabase/supabase-js": "^2.49.0"
+    "@supabase/supabase-js": "^2.49.0",
+    "use-debounce": "^10.1.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    }
   },
   "devDependencies": {
+    "@types/react": "^19.2.14",
+    "react": "^19.2.6",
     "typescript": "^5.8.0",
     "vitest": "^3.1.0"
   }
