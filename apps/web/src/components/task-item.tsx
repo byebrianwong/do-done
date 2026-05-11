@@ -7,7 +7,7 @@ import type { Task, Project } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { ScheduleButton } from "./schedule-button";
-import { TaskEditDialog } from "./task-edit-dialog";
+import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
 export interface TaskItemProps {
   task: Task;
@@ -199,9 +199,8 @@ export function TaskItem({ task, projects }: TaskItemProps) {
         </div>
       </div>
 
-      <TaskEditDialog
+      <TaskEditModalV2
         task={task}
-        projects={projects}
         open={editing}
         onClose={() => setEditing(false)}
       />
