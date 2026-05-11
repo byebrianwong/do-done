@@ -7,3 +7,8 @@ export { PetsApi } from "./pets.js";
 export type { PetState } from "./pets.js";
 export { BusynessApi, groupTasksByDate, buildDaysInRange } from "./busyness.js";
 export type { BusyItem, DayBusyness } from "./busyness.js";
+export { useAutoSaveTask } from "./use-autosave-task.js";
+export type {
+  UseAutoSaveTaskResult,
+  UseAutoSaveTaskOptions,
+} from "./use-autosave-task.js";
