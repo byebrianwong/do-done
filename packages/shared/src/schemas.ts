@@ -229,6 +229,8 @@ export type TaskFilterInput = z.infer<typeof TaskFilterInput>;
 
 export const ParsedTaskSchema = z.object({
   title: z.string(),
+  when_date: z.string().date().optional(),
+  when_bucket: WhenBucket.optional(),
   due_date: z.string().date().optional(),
   due_time: z.string().optional(),
   priority: TaskPriority.optional(),
