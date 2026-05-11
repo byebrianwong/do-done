@@ -65,10 +65,16 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
         >
           {task.title}
         </Text>
-        {task.due_date ? (
+        {task.when_date ? (
+          <Text style={styles.dueDate}>{formatDueDate(task.when_date)}</Text>
+        ) : task.due_date ? (
           <Text style={styles.dueDate}>
             {formatDueDate(task.due_date)}
             {task.due_time ? ` ${task.due_time}` : ''}
+          </Text>
+        ) : task.when_bucket ? (
+          <Text style={styles.dueDate}>
+            {task.when_bucket.replace('_', ' ')}
           </Text>
         ) : null}
       </View>

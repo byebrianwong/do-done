@@ -3,6 +3,7 @@ import {
   getServerTasksApi,
   getServerProjectsApi,
 } from "@/lib/supabase/tasks-server";
+import { taskDate } from "@do-done/api-client";
 import type { Task } from "@do-done/shared";
 
 function formatDayHeading(dateStr: string): string {
@@ -29,12 +30,15 @@ export default async function UpcomingPage() {
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
   ]);
 
+  // Group by effective date — when_date wins, due_date is fallback.
+  // Tasks with neither (bucket-only or unscheduled) don't show in Upcoming.
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
-    if (!task.due_date) continue;
-    const list = groups.get(task.due_date) ?? [];
+    const d = taskDate(task);
+    if (!d) continue;
+    const list = groups.get(d) ?? [];
     list.push(task);
-    groups.set(task.due_date, list);
+    groups.set(d, list);
   }
   const sortedGroups = [...groups.entries()].sort(([a], [b]) =>
     a.localeCompare(b)

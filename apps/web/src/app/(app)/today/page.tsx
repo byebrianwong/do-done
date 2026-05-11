@@ -4,6 +4,7 @@ import {
   getServerTasksApi,
   getServerProjectsApi,
 } from "@/lib/supabase/tasks-server";
+import { taskDate } from "@do-done/api-client";
 import { generateFocusList } from "@do-done/task-engine";
 
 export default async function TodayPage() {
@@ -24,9 +25,15 @@ export default async function TodayPage() {
   const focusIds = new Set(focusList.map((t) => t.id));
 
   const today = new Date().toISOString().split("T")[0];
-  const otherToday = active.filter(
-    (t) => !focusIds.has(t.id) && t.due_date && t.due_date <= today
-  );
+  // Show tasks that are scheduled (when_date) or due (due_date) on/before
+  // today, plus tasks bucketed as 'today'. when_date takes precedence per
+  // taskDate().
+  const otherToday = active.filter((t) => {
+    if (focusIds.has(t.id)) return false;
+    if (t.when_bucket === "today") return true;
+    const d = taskDate(t);
+    return d !== null && d <= today;
+  });
 
   return (
     <div className="mx-auto max-w-3xl">
