@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Round 7 · Done button + autosave</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --indigo: #6366f1;
+    --indigo-soft: #eef2ff;
+    --indigo-deeper: #4338ca;
+    --grey-50: #f9fafb;
+    --grey-100: #f3f4f6;
+    --grey-200: #e5e7eb;
+    --grey-400: #9ca3af;
+    --grey-500: #6b7280;
+    --grey-700: #374151;
+    --grey-900: #111827;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: 'Inter', -apple-system, sans-serif; color: var(--grey-900); }
+  body { background: #fafafb; min-height: 100vh; padding: 32px; }
+  h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+  p.sub { margin: 0 0 28px; color: var(--grey-500); font-size: 14px; line-height: 1.5; max-width: 880px; }
+  .legend {
+    background: #fff;
+    border: 1px solid var(--grey-200);
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 28px;
+    font-size: 13px;
+    color: var(--grey-700);
+    line-height: 1.6;
+    max-width: 1100px;
+  }
+  .legend b { color: var(--grey-900); }
+  .legend ul { margin: 8px 0 0; padding-left: 20px; }
+  .legend li { margin-bottom: 6px; }
+  .legend code {
+    background: var(--grey-100);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 480px;
+    gap: 28px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid var(--grey-200);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--grey-100);
+  }
+  .head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+  .head .open {
+    text-decoration: none;
+    font-size: 12px;
+    color: var(--indigo);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--indigo-soft);
+    font-weight: 600;
+  }
+  .head .open:hover { background: var(--indigo-soft); }
+  .frame-wrap { position: relative; overflow: hidden; background: var(--grey-50); }
+  .frame-wrap.desktop { height: 940px; }
+  .frame-wrap.mobile { height: 940px; display: flex; align-items: center; justify-content: center; }
+  iframe { width: 100%; height: 100%; border: none; display: block; }
+</style>
+</head>
+<body>
+  <h1>Task input · Round 7 — Done button as exit + saved indicator</h1>
+  <p class="sub">A bottom-right Done button on desktop (and full-width Done at the bottom on mobile) gives users the conventional "exit" affordance they expect, while doubling as the saved confirmation. The green-check-in-a-circle inside the indigo button signals "all good, saved" at a glance.</p>
+
+  <div class="legend">
+    <b>The Done button's anatomy:</b>
+    <ul>
+      <li><b>Green checkmark in a circle</b> — communicates "everything's saved". Briefly pulses on each autosave</li>
+      <li><b>"Done"</b> primary label — the action verb users expect</li>
+      <li><b>"all saved"</b> sub-label — explicit reassurance that nothing's lost on exit</li>
+      <li><b>Esc kbd hint</b> on desktop only — same as clicking</li>
+    </ul>
+    <b>The top-bar autosave indicator got simpler:</b> just the small green pulse + "auto-save" tooltip. The bottom button carries the saved messaging now, so the top bar is just a quiet heartbeat that tells you "yes, this is autosaving" if you ever look at it.
+    <br><br>
+    <b>The cancel path is unchanged:</b> "↶ Undo all changes" (desktop top-right) and "↶ Cancel" (mobile top-left) revert everything since opening. Clicking Done or the X commits the autosaved state.
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="head">
+        <h2>Desktop</h2>
+        <a class="open" href="round7-desktop.html" target="_blank">Open full ↗</a>
+      </div>
+      <div class="frame-wrap desktop"><iframe src="round7-desktop.html" title="Desktop"></iframe></div>
+    </div>
+
+    <div class="card">
+      <div class="head">
+        <h2>Mobile</h2>
+        <a class="open" href="round7-mobile.html" target="_blank">Open full ↗</a>
+      </div>
+      <div class="frame-wrap mobile"><iframe src="round7-mobile.html" title="Mobile"></iframe></div>
+    </div>
+  </div>
+</body>
+</html>
