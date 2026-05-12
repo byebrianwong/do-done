@@ -12,7 +12,7 @@
  * other screens want to reuse them.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -381,17 +381,60 @@ function WhenCalendar({
 
 // ─── Slash-command input ────────────────────────────────────
 
+type ParsedToken = {
+  kind: "priority" | "estimate" | "tag";
+  label: string;
+  toneClass: string;
+  removable?: { tag: string };
+};
+
+// Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
+// `#word` is left alone so the user can keep typing.
+function extractCompletedTags(text: string): {
+  stripped: string;
+  tags: string[];
+} {
+  const tags: string[] = [];
+  const re = /#(\w+)(\s+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    tags.push(m[1]);
+  }
+  if (tags.length === 0) return { stripped: text, tags };
+  // Replace each match with a single space, then collapse double spaces.
+  const stripped = text.replace(/#(\w+)\s+/g, " ").replace(/\s{2,}/g, " ");
+  return { stripped, tags };
+}
+
 function SlashCommandInput({
   value,
   onChange,
   parsedTokens,
+  onRemoveTag,
+  onAddTag,
   autoFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
-  parsedTokens: { kind: string; label: string; toneClass: string }[];
+  parsedTokens: ParsedToken[];
+  onRemoveTag: (tag: string) => void;
+  onAddTag: (tag: string) => void;
   autoFocus?: boolean;
 }) {
+  const [addingTag, setAddingTag] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (addingTag) inputRef.current?.focus();
+  }, [addingTag]);
+
+  const submit = () => {
+    const trimmed = draft.trim().replace(/^#/, "");
+    if (trimmed) onAddTag(trimmed);
+    setDraft("");
+  };
+
   return (
     <div className="rounded-xl border-2 border-indigo-500 bg-white px-3 py-2 shadow-[0_0_0_4px_rgba(99,102,241,0.10)] dark:bg-neutral-950">
       <input
@@ -402,18 +445,72 @@ function SlashCommandInput({
         placeholder="Task title or /command…"
         className="w-full bg-transparent text-[15px] font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
       />
-      {parsedTokens.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {parsedTokens.map((t, i) => (
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        {parsedTokens.map((t, i) =>
+          t.removable ? (
+            <span
+              key={`tag-${t.removable.tag}-${i}`}
+              className={`group inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
+            >
+              {t.label}
+              <button
+                type="button"
+                onClick={() => onRemoveTag(t.removable!.tag)}
+                aria-label={`Remove ${t.label}`}
+                className="-mr-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-[12px] leading-none text-current opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/15"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
             <span
               key={`${t.kind}-${i}`}
               className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
             >
               {t.label}
             </span>
-          ))}
-        </div>
-      )}
+          )
+        )}
+        {addingTag ? (
+          <span className="inline-flex items-center gap-0.5 rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+            <span>#</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.replace(/[^\w]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " " || e.key === ",") {
+                  e.preventDefault();
+                  submit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraft("");
+                  setAddingTag(false);
+                } else if (e.key === "Backspace" && draft === "") {
+                  e.preventDefault();
+                  setAddingTag(false);
+                }
+              }}
+              onBlur={() => {
+                if (draft.trim()) submit();
+                setAddingTag(false);
+              }}
+              placeholder="tag"
+              aria-label="New tag"
+              className="w-14 bg-transparent text-[11px] font-semibold outline-none placeholder:text-indigo-300 dark:placeholder:text-indigo-600"
+            />
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAddingTag(true)}
+            className="inline-flex items-center rounded border border-dashed border-neutral-300 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-400 transition-colors hover:border-indigo-300 hover:text-indigo-500 dark:border-neutral-700 dark:hover:border-indigo-700"
+          >
+            + tag
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -515,10 +612,7 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
     if (bucket !== null) setField("when_date", null);
   };
 
-  // Tokens preview from raw title (for now show priority/tags/etc once
-  // they're set on the task — actual /command parsing is wired via the
-  // parser when the user submits a new task, see QuickAddBar).
-  const tokens: { kind: string; label: string; toneClass: string }[] = [];
+  const tokens: ParsedToken[] = [];
   if (current.priority !== "p4") {
     const toneClass = {
       p1: "bg-red-100 text-red-700",
@@ -536,7 +630,9 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
     tokens.push({
       kind: "tag",
       label: `#${tag}`,
-      toneClass: "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+      toneClass:
+        "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+      removable: { tag },
     });
   }
   if (current.duration_minutes) {
@@ -546,6 +642,32 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
       toneClass: "bg-green-100 text-green-700",
     });
   }
+
+  const handleTitleChange = (v: string) => {
+    const { stripped, tags: extracted } = extractCompletedTags(v);
+    if (extracted.length > 0) {
+      const existing = new Set(current.tags);
+      const fresh = extracted.filter((t) => !existing.has(t));
+      if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      setTitleDraft(stripped);
+      setField("title", stripped);
+    } else {
+      setTitleDraft(v);
+      setField("title", v);
+    }
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setField(
+      "tags",
+      current.tags.filter((t) => t !== tag)
+    );
+  };
+
+  const handleAddTag = (tag: string) => {
+    if (current.tags.includes(tag)) return;
+    setField("tags", [...current.tags, tag]);
+  };
 
   return (
     <div
@@ -588,11 +710,10 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
         <div className="border-b border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
           <SlashCommandInput
             value={titleDraft}
-            onChange={(v) => {
-              setTitleDraft(v);
-              setField("title", v);
-            }}
+            onChange={handleTitleChange}
             parsedTokens={tokens}
+            onRemoveTag={handleRemoveTag}
+            onAddTag={handleAddTag}
             autoFocus
           />
         </div>

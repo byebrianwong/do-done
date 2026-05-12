@@ -12,7 +12,7 @@
  * Mobile busyness shows tasks only.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -79,6 +79,23 @@ function dotWidth(minutes: number): number {
   if (minutes <= 120) return 8;
   if (minutes <= 240) return 12;
   return 17;
+}
+
+// Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
+// `#word` is left alone so the user can keep typing.
+function extractCompletedTags(text: string): {
+  stripped: string;
+  tags: string[];
+} {
+  const tags: string[] = [];
+  const re = /#(\w+)(\s+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    tags.push(m[1]);
+  }
+  if (tags.length === 0) return { stripped: text, tags };
+  const stripped = text.replace(/#(\w+)\s+/g, " ").replace(/\s{2,}/g, " ");
+  return { stripped, tags };
 }
 
 function shortDateLabel(date: string | null, bucket: WhenBucket | null): string {
@@ -351,6 +368,76 @@ function WhenCalendar({
   );
 }
 
+function TagRow({
+  tags,
+  onAdd,
+  onRemove,
+}: {
+  tags: string[];
+  onAdd: (tag: string) => void;
+  onRemove: (tag: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<TextInput | null>(null);
+
+  useEffect(() => {
+    if (adding) inputRef.current?.focus();
+  }, [adding]);
+
+  const submit = () => {
+    const trimmed = draft.trim().replace(/^#/, "");
+    if (trimmed) onAdd(trimmed);
+    setDraft("");
+  };
+
+  return (
+    <View style={styles.tagRow}>
+      {tags.map((tag) => (
+        <View key={tag} style={styles.tagChip}>
+          <Text style={styles.tagChipLabel}>#{tag}</Text>
+          <Pressable
+            onPress={() => onRemove(tag)}
+            hitSlop={6}
+            accessibilityLabel={`Remove tag ${tag}`}
+            style={styles.tagChipRemove}
+          >
+            <Text style={styles.tagChipRemoveText}>×</Text>
+          </Pressable>
+        </View>
+      ))}
+      {adding ? (
+        <View style={[styles.tagChip, styles.tagChipEditing]}>
+          <Text style={styles.tagChipLabel}>#</Text>
+          <TextInput
+            ref={inputRef}
+            value={draft}
+            onChangeText={(v) => setDraft(v.replace(/[^\w]/g, ""))}
+            onSubmitEditing={() => {
+              submit();
+              if (!draft.trim()) setAdding(false);
+            }}
+            blurOnSubmit={false}
+            onBlur={() => {
+              if (draft.trim()) submit();
+              setAdding(false);
+            }}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="tag"
+            placeholderTextColor="#a5b4fc"
+            style={styles.tagChipInput}
+          />
+        </View>
+      ) : (
+        <Pressable onPress={() => setAdding(true)} style={styles.tagAddChip}>
+          <Text style={styles.tagAddChipText}>+ tag</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 // ─── Main modal ─────────────────────────────────────────────
 
 interface Props {
@@ -434,6 +521,30 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
     if (bucket !== null) setField("when_date", null);
   };
 
+  const handleTitleChange = (v: string) => {
+    const { stripped, tags: extracted } = extractCompletedTags(v);
+    if (extracted.length > 0) {
+      const existing = new Set(current.tags);
+      const fresh = extracted.filter((t) => !existing.has(t));
+      if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      setField("title", stripped);
+    } else {
+      setField("title", v);
+    }
+  };
+
+  const handleAddTag = (tag: string) => {
+    if (current.tags.includes(tag)) return;
+    setField("tags", [...current.tags, tag]);
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setField(
+      "tags",
+      current.tags.filter((t) => t !== tag)
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -458,11 +569,16 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         <View style={styles.inputWrap}>
           <TextInput
             value={current.title}
-            onChangeText={(t) => setField("title", t)}
+            onChangeText={handleTitleChange}
             placeholder="Task title…"
             placeholderTextColor="#9ca3af"
             style={styles.titleInput}
             autoFocus
+          />
+          <TagRow
+            tags={current.tags}
+            onAdd={handleAddTag}
+            onRemove={handleRemoveTag}
           />
         </View>
 
@@ -600,6 +716,65 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
     backgroundColor: "#fff",
+  },
+
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  tagChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: "#eef2ff",
+    borderRadius: 5,
+    paddingLeft: 8,
+    paddingRight: 4,
+    paddingVertical: 3,
+  },
+  tagChipEditing: {
+    paddingRight: 8,
+  },
+  tagChipLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#4338ca",
+  },
+  tagChipRemove: {
+    width: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 3,
+  },
+  tagChipRemoveText: {
+    fontSize: 14,
+    color: "#6366f1",
+    fontWeight: "600",
+    lineHeight: 14,
+  },
+  tagChipInput: {
+    minWidth: 50,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#4338ca",
+    padding: 0,
+  },
+  tagAddChip: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#d1d5db",
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tagAddChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9ca3af",
   },
 
   rowHead: {
