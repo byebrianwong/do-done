@@ -130,10 +130,32 @@ export const UserPreferencesSchema = z.object({
   timezone: z.string().default("America/New_York"),
   focus_hours_start: z.number().int().min(0).max(23).default(9),
   focus_hours_end: z.number().int().min(0).max(23).default(17),
+  hunger_daily_decay: z.number().int().min(0).max(50).default(3),
+  happiness_weekly_decay: z.number().int().min(0).max(100).default(10),
+  // 0 = Sunday, 6 = Saturday. Default Sunday matches the spec's
+  // "default is end is Sunday" — the once-per-week happiness tick fires at
+  // the end of this weekday in the user's local timezone.
+  week_end_day: z.number().int().min(0).max(6).default(0),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+
+// Pure decay-settings projection used by pet-decay.ts. Decouples the math
+// from the shape of UserPreferences so tests can pass plain literals.
+export interface PetDecayPreferences {
+  timezone: string;
+  hunger_daily_decay: number;
+  happiness_weekly_decay: number;
+  week_end_day: number;
+}
+
+export const DEFAULT_DECAY_PREFERENCES: PetDecayPreferences = {
+  timezone: "America/New_York",
+  hunger_daily_decay: 3,
+  happiness_weekly_decay: 10,
+  week_end_day: 0,
+};
 
 // ── Input Schemas (for create/update operations) ───────
 
@@ -261,15 +283,32 @@ export type WeeklySummary = z.infer<typeof WeeklySummarySchema>;
 
 // ── Pet ("Pip") ────────────────────────────────────────
 
+// Pip is intentionally a positive companion — there is no "sad" mood.
+// Stat thresholds (hungry/tired) remain as soft "needs care" cues; everything
+// else cycles among positive expression variants over the course of the day.
 export const PetMoodEnum = z.enum([
   "happy",
   "content",
+  "curious",
+  "playful",
+  "cozy",
+  "thoughtful",
   "tired",
   "hungry",
-  "sad",
   "sleeping",
 ]);
 export type PetMood = z.infer<typeof PetMoodEnum>;
+
+// Moods that cycle randomly throughout the day when no stat threshold triggers
+// a care cue. `deriveMood` picks one of these by time bucket.
+export const ROTATING_POSITIVE_MOODS: PetMood[] = [
+  "happy",
+  "content",
+  "curious",
+  "playful",
+  "cozy",
+  "thoughtful",
+];
 
 export const PetEventActorEnum = z.enum(["user", "claude", "system"]);
 export type PetEventActor = z.infer<typeof PetEventActorEnum>;

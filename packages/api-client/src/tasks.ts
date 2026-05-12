@@ -5,7 +5,9 @@ import type {
   UpdateTaskInput,
   TaskFilterInput,
   PetEventActor,
+  TrackedField,
 } from "@do-done/shared";
+import { TRACKED_FIELDS } from "@do-done/shared";
 
 export class TasksApi {
   constructor(
@@ -54,7 +56,22 @@ export class TasksApi {
       .insert(row)
       .select()
       .single();
-    return { data: data as Task | null, error: error as Error | null };
+    if (error || !data) {
+      return { data: null, error: error as Error | null };
+    }
+    const created = data as Task;
+    // Feed Pip an energy bump for the create. Best-effort — never block or
+    // fail the task insert if pet plumbing has problems.
+    void (async () => {
+      try {
+        const { PetsApi } = await import("./pets.js");
+        const pets = new PetsApi(this.supabase, this.userId);
+        await pets.feedFromTaskCreate({ task: created, actor: "user" });
+      } catch {
+        // swallow — pet plumbing must never break task writes
+      }
+    })();
+    return { data: created, error: null };
   }
 
   async update(
@@ -62,20 +79,24 @@ export class TasksApi {
     input: UpdateTaskInput,
     actor: PetEventActor = "user"
   ): Promise<{ data: Task | null; error: Error | null }> {
-    // Detect status→done transition so we can feed Pip after the write.
-    let priorStatus: string | null = null;
-    if (input.status === "done") {
-      const prev = await this.supabase
-        .from("tasks")
-        .select("status")
-        .eq("id", id)
-        .single();
-      priorStatus = (prev.data as { status: string } | null)?.status ?? null;
-    }
+    // Read the prior row so we can (a) detect a status→done transition for
+    // completion feeding, and (b) compute which tracked fields are about to
+    // transition from unset → set for energy feeding. One extra SELECT per
+    // update is the price of stateless dedupe — the autosave hook fires at
+    // most ~4/sec, well within Supabase headroom.
+    const prevRes = await this.supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    const prior = (prevRes.data as Task | null) ?? null;
+    const priorStatus = prior?.status ?? null;
 
     // Stamp completed_at on first transition to done.
     const patch: Record<string, unknown> = { ...input };
-    if (input.status === "done" && priorStatus !== "done") {
+    const isCompletionTransition =
+      input.status === "done" && priorStatus !== "done";
+    if (isCompletionTransition) {
       patch.completed_at = new Date().toISOString();
     }
 
@@ -88,18 +109,39 @@ export class TasksApi {
     if (error || !data) {
       return { data: null, error: error as Error | null };
     }
-
     const updated = data as Task;
-    if (input.status === "done" && priorStatus !== "done") {
-      // Lazy import to avoid a circular dep at module load time.
-      const { PetsApi } = await import("./pets.js");
-      const pets = new PetsApi(this.supabase, this.userId);
-      // Best-effort; never block or fail the task update if feeding fails.
-      try {
-        await pets.feedFromTask({ task: updated, actor });
-      } catch {
-        // swallow — pet plumbing must never break task writes
-      }
+
+    // Pet feeding — completion + edit are independent and may both fire on
+    // the same write (e.g. user saves the task with a new description AND
+    // marks it done in one PATCH).
+    const userId = this.userId;
+    const supabase = this.supabase;
+    if (isCompletionTransition || prior !== null) {
+      void (async () => {
+        try {
+          const { PetsApi } = await import("./pets.js");
+          const pets = new PetsApi(supabase, userId);
+          if (isCompletionTransition) {
+            await pets.feedFromTask({ task: updated, actor });
+          }
+          if (prior) {
+            const before: Partial<Record<TrackedField, unknown>> = {};
+            const after: Partial<Record<TrackedField, unknown>> = {};
+            for (const f of TRACKED_FIELDS) {
+              before[f] = (prior as unknown as Record<string, unknown>)[f];
+              after[f] = (updated as unknown as Record<string, unknown>)[f];
+            }
+            await pets.feedFromTaskEdit({
+              before,
+              after,
+              task_id: updated.id,
+              actor,
+            });
+          }
+        } catch {
+          // swallow — pet plumbing must never break task writes
+        }
+      })();
     }
 
     return { data: updated, error: null };
