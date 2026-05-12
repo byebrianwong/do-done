@@ -3,13 +3,6 @@
 /**
  * Task edit modal V2 — round-7 design.
  * See docs/task-input-design/round7-desktop.html for the visual reference.
- *
- * Replaces task-edit-dialog.tsx via task-item.tsx swap. The old dialog is
- * kept in the codebase as a fallback until V2 is verified across all flows.
- *
- * Sub-components (PrioritySignal, EstimateEqualizer, etc.) are defined
- * inline in this file for the first ship. They can be extracted later if
- * other screens want to reuse them.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

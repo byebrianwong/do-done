@@ -2,15 +2,17 @@
 
 **For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; the project is live in production and there's open work that needs care.
 
-Last updated: 2026-05-11 by Claude (Opus 4.7, 1M context).
+Last updated: 2026-05-11 by Claude (Opus 4.7, 1M context). Most recent ship: PRs #17 + #18 (V1 cleanup + tag editing UI).
 
 ---
 
 ## TL;DR — where things stand right now
 
-- **`main`** has the task input redesign fully shipped across web + mobile. HEAD is `69e2bcf` (PR #15, last bug-fix in the series).
+- **`main`** has the task input redesign fully shipped across web + mobile, plus V1 cleanup and tag editing. HEAD is `70e01fb` (PR #18, tag editor).
 - **App is LIVE** at https://dodone.byebrianwong.com. Vercel auto-deploys main as production. SSL via Let's Encrypt, valid through 2 Aug 2026.
-- **Task input redesign series (PRs #5–#15) all merged** 2026-05-11 — see "Task input redesign" section below. The new V2 modal is live on every task click on both web and mobile; old TaskEditDialog / TaskEditModal still in the codebase as fallback (cleanup PR pending).
+- **Task input redesign series (PRs #5–#15) all merged** 2026-05-11 — see "Task input redesign" section below. The new V2 modal is live on every task click on both web and mobile.
+- **V1 modal removed (PR #17)** — `task-edit-dialog.tsx` (web), its stories, and `TaskEditModal.tsx` (mobile) deleted. V2 has no fallback.
+- **Tag editing in V2 (PR #18)** — three editing paths: click × on chip, click `+ tag` for inline input, or type `#tag<space>` in title (live-parsed out of the title into `tags`). Web + mobile.
 - **New schema concepts in `tasks` table**: `when_date` (specific calendar day, separate from `due_date` which is now a hard deadline), `when_bucket` (fuzzy window — today/tomorrow/this_week/next_week/later/someday, mutually exclusive with `when_date`), `parent_task_id` + `depth` (subtask tree, max 3 levels deep, enforced by trigger). Migrations `20260512000001` and `20260512000002` applied to prod.
 - **MCP wired into Claude Code** at user scope via `claude mcp add` — not via `claude_desktop_config.json` (see gotcha #11 below).
 - **Mobile testing path** stays Expo Go for now. EAS dev client build still not done — flagged as next step before testing widgets, voice input, or geofencing.
@@ -37,6 +39,8 @@ This doc is the source of truth for *current execution state*. Reference docs in
 | GitHub PR #3 | merged 2026-05-10 (squash `3b4889b`) — mobile keyboard fixes + DevBanner + scrollable login |
 | GitHub PR #4 | merged 2026-05-10 (squash `8b78b55`) — HANDOFF docs update |
 | GitHub PRs #5–#15 | merged 2026-05-11 — task input redesign series (see section below) |
+| GitHub PR #17 | merged 2026-05-11 (squash `a84a48e`) — V1 modal cleanup (deleted task-edit-dialog.* + TaskEditModal.tsx) |
+| GitHub PR #18 | merged 2026-05-11 (squash `70e01fb`) — V2 tag editing UI (web + mobile) |
 | SSL cert | `cert_a8hWxl7Q5rHsJXDU3Rr5JV6s` — Let's Encrypt, expires 2 Aug 2026 |
 
 ### DNS (Porkbun, but using Cloudflare DNS infrastructure)
@@ -329,16 +333,17 @@ In priority order:
 
 1. **V2 modal feature gaps** — the modal ships with several deferred capabilities. Most-requested first:
    - **Subtasks UI** — the data model supports them (`parent_task_id` + `depth`) but the modal doesn't yet render the subtask list or the "+ add subtask" affordance. Per the design, subtasks should be inline checkboxes that open the same modal recursively (max 3 levels). See round 7 mockup.
-   - **Tag editing UI** — currently read-only display in V2. Tags still come in via slash-command parsing on create (`#urgent`). Need an inline chip editor.
+   - ~~**Tag editing UI**~~ — shipped in PR #18 (2026-05-11). Three editing paths: click × on chip, click `+ tag` for inline input, or type `#tag<space>` in the title (live-parsed). Web + mobile.
    - **Recurrence editing** — V2 has no recurrence UI yet. Recurrence rules stored on tasks still serialize/deserialize correctly, just no UI control.
    - **Mobile calendar events** — busyness dots on mobile are tasks-only. Adding events would need either a server proxy callable from RN, or sync calendar events into a Supabase table.
-2. **V1 cleanup** — `apps/web/src/components/task-edit-dialog.tsx` and `apps/mobile/components/TaskEditModal.tsx` are no longer wired to any call site. They remain in the codebase as a fallback. After a week or so of V2 in production with no regressions, delete them + their stories + their tests.
+   - **Tag autocomplete from prior tasks** — the `+ tag` inline input today accepts free text only. No distinct-tags query exists; future PR could add a Supabase RPC (or client-side tally) and an autocomplete dropdown.
+2. ~~**V1 cleanup**~~ — shipped in PR #17 (2026-05-11). Deleted `task-edit-dialog.tsx`, `task-edit-dialog.stories.tsx`, and mobile `TaskEditModal.tsx`. V2 has no fallback now.
 3. **`due_date` editing in V2** — currently `due_date` is shown as a deferred "+ deadline" link with no editor. For tasks that have a hard deadline (separate from when_date), a date picker would help. Defer until users actually report needing it.
 4. **EAS dev client build** — still not done. Required to test widgets, voice input, geofencing, push notifications — none of which run in Expo Go. Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` (replaces `"REPLACE_WITH_EAS_PROJECT_ID"` in `app.config.ts`) → `eas build --profile development --platform android`. ~15 min cloud build, free tier.
 5. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today.
 6. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
 7. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage.
-8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI.
+8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. PR #18 added two new stories (`ManyTagsEditing`, `NoTagsAffordance`) that also need baseline approval.
 
 ## Verify the repo compiles cleanly
 
