@@ -22,17 +22,6 @@ import { createClientSupabase } from "@/lib/supabase/client";
 
 // ─── Constants ─────────────────────────────────────────────
 
-const PRIORITIES: TaskPriority[] = ["p1", "p2", "p3", "p4"];
-
-const ESTIMATE_BUCKETS: { minutes: number; label: string }[] = [
-  { minutes: 30, label: "≤30m" },
-  { minutes: 60, label: "1h" },
-  { minutes: 120, label: "2h" },
-  { minutes: 240, label: "4h" },
-  { minutes: 480, label: "8h" },
-  { minutes: 960, label: "≥16h" },
-];
-
 // Map minutes → bar index for display.
 function estimateBarIndex(minutes: number | null): number {
   if (!minutes) return -1;
@@ -99,6 +88,48 @@ function SaveStatusDot({
   );
 }
 
+// ── Priority / Estimate metadata ───────────────────────
+
+const PRIORITY_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
+  { value: "p1", code: "P1", label: "Urgent" },
+  { value: "p2", code: "P2", label: "High" },
+  { value: "p3", code: "P3", label: "Medium" },
+  { value: "p4", code: "P4", label: "Low" },
+];
+
+const ESTIMATE_OPTIONS: {
+  minutes: number;
+  code: string;
+  label: string;
+  short: string;
+}[] = [
+  { minutes: 30, code: "XS", label: "30 min or less", short: "≤30m" },
+  { minutes: 60, code: "S", label: "~1 hr", short: "1h" },
+  { minutes: 120, code: "M", label: "~2 hr", short: "2h" },
+  { minutes: 240, code: "ML", label: "~4 hr", short: "4h" },
+  { minutes: 480, code: "L", label: "~8 hr", short: "8h" },
+  { minutes: 960, code: "XL", label: "16 hrs or more", short: "≥16h" },
+];
+
+// Hitbox tuning — column hitbox is much larger than the visible bar so a
+// click anywhere in the vertical column (even above a short target) selects
+// that value. Previously bars were 4×17px → 68px² targets; now they're
+// 14×28px → 392px² each.
+const PRI_COL_WIDTH = 14;
+const PRI_COL_HEIGHT = 28;
+const PRI_BAR_HEIGHTS = ["h-[8px]", "h-[14px]", "h-[20px]", "h-[26px]"];
+
+const EST_COL_WIDTH = 14;
+const EST_COL_HEIGHT = 28;
+const EST_BAR_HEIGHTS = [
+  "h-[6px]",
+  "h-[11px]",
+  "h-[15px]",
+  "h-[19px]",
+  "h-[23px]",
+  "h-[26px]",
+];
+
 function PrioritySignal({
   value,
   onChange,
@@ -114,9 +145,13 @@ function PrioritySignal({
     p3: "bg-indigo-500",
     p4: "bg-neutral-400",
   }[value];
-  const heights = ["h-[5px]", "h-[9px]", "h-[13px]", "h-[17px]"];
   return (
-    <div className="inline-flex items-end gap-[2px]" role="radiogroup" aria-label="Priority">
+    <div
+      className="inline-flex items-end gap-[3px]"
+      role="radiogroup"
+      aria-label="Priority"
+      style={{ height: PRI_COL_HEIGHT }}
+    >
       {[0, 1, 2, 3].map((i) => {
         const p = (["p4", "p3", "p2", "p1"] as TaskPriority[])[i];
         const lit = i < litCount;
@@ -127,10 +162,22 @@ function PrioritySignal({
             onClick={() => onChange(p)}
             aria-label={`Set priority ${PRIORITY_CONFIG[p].label}`}
             aria-pressed={value === p}
-            className={`w-[4px] rounded-[1.5px] transition-colors hover:bg-neutral-300 dark:hover:bg-neutral-700 ${heights[i]} ${
-              lit ? colorClass : "bg-neutral-200 dark:bg-neutral-800"
-            }`}
-          />
+            title={`P${4 - i} · ${PRIORITY_CONFIG[p].label}`}
+            className="group flex items-end justify-center rounded-md p-0 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            style={{
+              width: PRI_COL_WIDTH,
+              height: PRI_COL_HEIGHT,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              className={`block w-[6px] rounded-[2px] transition-all group-hover:brightness-110 ${PRI_BAR_HEIGHTS[i]} ${
+                lit ? colorClass : "bg-neutral-200 dark:bg-neutral-800"
+              }`}
+            />
+          </button>
         );
       })}
     </div>
@@ -145,29 +192,238 @@ function EstimateEqualizer({
   onChange: (minutes: number) => void;
 }) {
   const activeIdx = estimateBarIndex(value);
-  const heights = ["h-[4px]", "h-[7px]", "h-[10px]", "h-[13px]", "h-[16px]", "h-[18px]"];
   return (
-    <div className="inline-flex items-end gap-[2px]" role="radiogroup" aria-label="Estimate">
-      {ESTIMATE_BUCKETS.map((b, i) => {
+    <div
+      className="inline-flex items-end gap-[3px]"
+      role="radiogroup"
+      aria-label="Estimate"
+      style={{ height: EST_COL_HEIGHT }}
+    >
+      {ESTIMATE_OPTIONS.map((b, i) => {
         const lit = i <= activeIdx;
         return (
           <button
             key={b.minutes}
             type="button"
             onClick={() => onChange(b.minutes)}
-            title={b.label}
-            aria-label={`Set estimate to ${b.label}`}
+            aria-label={`Set estimate to ${b.code} (${b.label})`}
             aria-pressed={i === activeIdx}
-            className={`w-[4px] rounded-[1.5px] transition-colors hover:bg-neutral-300 dark:hover:bg-neutral-700 ${heights[i]} ${
-              lit
-                ? "bg-indigo-500"
-                : "bg-neutral-200 dark:bg-neutral-800"
-            }`}
-          />
+            title={`${b.code} · ${b.label}`}
+            className="group flex items-end justify-center rounded-md p-0 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            style={{
+              width: EST_COL_WIDTH,
+              height: EST_COL_HEIGHT,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              className={`block w-[6px] rounded-[2px] transition-all group-hover:brightness-110 ${EST_BAR_HEIGHTS[i]} ${
+                lit ? "bg-indigo-500" : "bg-neutral-200 dark:bg-neutral-800"
+              }`}
+            />
+          </button>
         );
       })}
     </div>
   );
+}
+
+// ── Priority / Estimate field wrappers (label opens popover picker) ────────
+
+function PriorityField({
+  value,
+  onChange,
+}: {
+  value: TaskPriority;
+  onChange: (p: TaskPriority) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+      >
+        Pri
+      </button>
+      <PrioritySignal value={value} onChange={onChange} />
+      <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+        {PRIORITY_CONFIG[value].label}
+      </span>
+      {open ? (
+        <PickerPopover
+          ariaLabel="Priority options"
+          options={PRIORITY_OPTIONS.map((p) => ({
+            key: p.value,
+            code: p.code,
+            label: p.label,
+            selected: p.value === value,
+            onSelect: () => {
+              onChange(p.value);
+              setOpen(false);
+            },
+            accentClass: {
+              p1: "bg-red-500",
+              p2: "bg-amber-500",
+              p3: "bg-indigo-500",
+              p4: "bg-neutral-400",
+            }[p.value],
+          }))}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EstimateField({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (minutes: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const activeIdx = estimateBarIndex(value);
+
+  return (
+    <div ref={ref} className="relative flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+      >
+        Est
+      </button>
+      <EstimateEqualizer value={value} onChange={onChange} />
+      <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+        {value
+          ? value >= 60
+            ? `${Math.round(value / 60)}h`
+            : `${value}m`
+          : "—"}
+      </span>
+      {open ? (
+        <PickerPopover
+          ariaLabel="Estimate options"
+          options={ESTIMATE_OPTIONS.map((b, i) => ({
+            key: String(b.minutes),
+            code: b.code,
+            label: b.label,
+            selected: i === activeIdx,
+            onSelect: () => {
+              onChange(b.minutes);
+              setOpen(false);
+            },
+            accentClass: "bg-indigo-500",
+          }))}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ── Picker popover ─────────────────────────────────────
+
+interface PickerOption {
+  key: string;
+  code: string;
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+  accentClass: string;
+}
+
+function PickerPopover({
+  options,
+  onClose,
+  ariaLabel,
+}: {
+  options: PickerOption[];
+  onClose: () => void;
+  ariaLabel: string;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="listbox"
+      aria-label={ariaLabel}
+      className="absolute left-0 top-full z-20 mt-2 min-w-[180px] overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          type="button"
+          role="option"
+          aria-selected={opt.selected}
+          onClick={opt.onSelect}
+          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 ${
+            opt.selected ? "bg-indigo-50/60 dark:bg-indigo-950/40" : ""
+          }`}
+        >
+          <span
+            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${opt.accentClass}`}
+            aria-hidden
+          />
+          <span className="w-[26px] text-[11px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+            {opt.code}
+          </span>
+          <span className="text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
+            {opt.label}
+          </span>
+          {opt.selected ? (
+            <span
+              aria-hidden
+              className="ml-auto text-[11px] font-semibold text-indigo-600 dark:text-indigo-400"
+            >
+              ✓
+            </span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Closes the popover when the user clicks anywhere outside `ref`.
+function useClickOutside(
+  ref: React.RefObject<HTMLElement | null>,
+  onOutside: () => void
+) {
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const el = ref.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        onOutside();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [ref, onOutside]);
 }
 
 function DoneButton({ onClick }: { onClick: () => void }) {
@@ -741,36 +997,16 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
           </div>
 
           {/* Inline meta */}
-          <div className="flex flex-wrap items-center gap-3 border-y border-neutral-100 py-2.5 dark:border-neutral-900">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                Pri
-              </span>
-              <PrioritySignal
-                value={current.priority}
-                onChange={(p) => setField("priority", p)}
-              />
-              <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                {PRIORITY_CONFIG[current.priority].label}
-              </span>
-            </div>
-            <div className="border-l border-neutral-100 pl-3 dark:border-neutral-800" />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                Est
-              </span>
-              <EstimateEqualizer
-                value={current.duration_minutes}
-                onChange={(m) => setField("duration_minutes", m)}
-              />
-              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-                {current.duration_minutes
-                  ? current.duration_minutes >= 60
-                    ? `${Math.round(current.duration_minutes / 60)}h`
-                    : `${current.duration_minutes}m`
-                  : "—"}
-              </span>
-            </div>
+          <div className="flex flex-wrap items-center gap-4 border-y border-neutral-100 py-3 dark:border-neutral-900">
+            <PriorityField
+              value={current.priority}
+              onChange={(p) => setField("priority", p)}
+            />
+            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
+            <EstimateField
+              value={current.duration_minutes}
+              onChange={(m) => setField("duration_minutes", m)}
+            />
           </div>
 
           {/* Notes */}
