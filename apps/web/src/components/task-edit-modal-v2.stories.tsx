@@ -69,3 +69,28 @@ export const HighPriorityToday: Story = {
     onClose: () => {},
   },
 };
+
+export const ManyTagsEditing: Story = {
+  args: {
+    task: makeTask({
+      title: "Refactor onboarding",
+      priority: "p3",
+      when_bucket: "this_week",
+      tags: ["frontend", "growth", "experiment", "needs-review"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+};
+
+export const NoTagsAffordance: Story = {
+  args: {
+    task: makeTask({
+      title: "Write release notes",
+      priority: "p4",
+      tags: [],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+};
