@@ -113,6 +113,40 @@ function shortDateLabel(date: string | null, bucket: WhenBucket | null): string 
 
 // ─── Sub-components ─────────────────────────────────────────
 
+// ── Picker option metadata ─────────────────────────────
+
+const PRIORITY_PICKER_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
+  { value: "p1", code: "P1", label: "Urgent" },
+  { value: "p2", code: "P2", label: "High" },
+  { value: "p3", code: "P3", label: "Medium" },
+  { value: "p4", code: "P4", label: "Low" },
+];
+
+const ESTIMATE_PICKER_OPTIONS: {
+  minutes: number;
+  code: string;
+  label: string;
+}[] = [
+  { minutes: 30, code: "XS", label: "30 min or less" },
+  { minutes: 60, code: "S", label: "~1 hr" },
+  { minutes: 120, code: "M", label: "~2 hr" },
+  { minutes: 240, code: "ML", label: "~4 hr" },
+  { minutes: 480, code: "L", label: "~8 hr" },
+  { minutes: 960, code: "XL", label: "16 hrs or more" },
+];
+
+// Hitbox tuning: column hitboxes are larger than the visible bar so a tap
+// anywhere in the vertical column (even above a short bar) selects that
+// value. Previously bars were 5×18 → ~90px² taps; now columns are 16×30 →
+// 480px².
+const PRI_COL_W = 16;
+const PRI_COL_H = 30;
+const PRI_BAR_HEIGHTS = [10, 16, 22, 28];
+
+const EST_COL_W = 14;
+const EST_COL_H = 30;
+const EST_BAR_HEIGHTS = [8, 13, 17, 21, 25, 28];
+
 function PrioritySignal({
   value,
   onChange,
@@ -122,9 +156,7 @@ function PrioritySignal({
 }) {
   const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[value];
   const color = PRIORITY_COLORS[value];
-  const heights = [6, 10, 14, 18];
-  // Visual bars left-to-right: short → tall. The priority associated with
-  // each bar position (left to right) is p4, p3, p2, p1.
+  // Bars are positioned left-to-right short→tall: indices 0..3 map to p4..p1.
   const barPriorities: TaskPriority[] = ["p4", "p3", "p2", "p1"];
   return (
     <View style={styles.barsRow}>
@@ -134,11 +166,24 @@ function PrioritySignal({
           <Pressable
             key={p}
             onPress={() => onChange(p)}
-            style={[
-              styles.priBar,
-              { height: heights[i], backgroundColor: lit ? color : "#e5e7eb" },
-            ]}
-          />
+            hitSlop={4}
+            style={{
+              width: PRI_COL_W,
+              height: PRI_COL_H,
+              alignItems: "center",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={[
+                styles.priBar,
+                {
+                  height: PRI_BAR_HEIGHTS[i],
+                  backgroundColor: lit ? color : "#e5e7eb",
+                },
+              ]}
+            />
+          </Pressable>
         );
       })}
     </View>
@@ -153,7 +198,6 @@ function EstimateEqualizer({
   onChange: (minutes: number) => void;
 }) {
   const activeIdx = estimateBarIndex(value);
-  const heights = [5, 8, 11, 14, 17, 19];
   return (
     <View style={styles.barsRow}>
       {ESTIMATE_BUCKETS.map((minutes, i) => {
@@ -162,17 +206,88 @@ function EstimateEqualizer({
           <Pressable
             key={minutes}
             onPress={() => onChange(minutes)}
-            style={[
-              styles.estBar,
-              {
-                height: heights[i],
-                backgroundColor: lit ? "#6366f1" : "#e5e7eb",
-              },
-            ]}
-          />
+            hitSlop={4}
+            style={{
+              width: EST_COL_W,
+              height: EST_COL_H,
+              alignItems: "center",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={[
+                styles.estBar,
+                {
+                  height: EST_BAR_HEIGHTS[i],
+                  backgroundColor: lit ? "#6366f1" : "#e5e7eb",
+                },
+              ]}
+            />
+          </Pressable>
         );
       })}
     </View>
+  );
+}
+
+// ── Mobile bottom-sheet pickers ─────────────────────────
+
+function PickerSheet({
+  visible,
+  title,
+  options,
+  selectedKey,
+  onSelect,
+  onClose,
+  accentByKey,
+}: {
+  visible: boolean;
+  title: string;
+  options: { key: string; code: string; label: string }[];
+  selectedKey: string;
+  onSelect: (key: string) => void;
+  onClose: () => void;
+  accentByKey?: (key: string) => string;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
+        <Pressable onPress={() => {}} style={styles.pickerSheet}>
+          <Text style={styles.pickerTitle}>{title}</Text>
+          {options.map((opt) => {
+            const selected = opt.key === selectedKey;
+            return (
+              <Pressable
+                key={opt.key}
+                onPress={() => onSelect(opt.key)}
+                style={[
+                  styles.pickerRow,
+                  selected && styles.pickerRowSelected,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.pickerDot,
+                    {
+                      backgroundColor:
+                        accentByKey?.(opt.key) ?? "#6366f1",
+                    },
+                  ]}
+                />
+                <Text style={styles.pickerCode}>{opt.code}</Text>
+                <Text style={styles.pickerLabel}>{opt.label}</Text>
+                {selected && <Text style={styles.pickerCheck}>✓</Text>}
+              </Pressable>
+            );
+          })}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -545,6 +660,9 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
     );
   };
 
+  const [priPickerOpen, setPriPickerOpen] = useState(false);
+  const [estPickerOpen, setEstPickerOpen] = useState(false);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -603,7 +721,13 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         <View style={styles.metaCard}>
           <View style={styles.metaRow}>
             <View style={styles.metaGroup}>
-              <Text style={styles.metaLabel}>Pri</Text>
+              <Pressable
+                onPress={() => setPriPickerOpen(true)}
+                hitSlop={6}
+                style={styles.metaLabelButton}
+              >
+                <Text style={styles.metaLabel}>Pri</Text>
+              </Pressable>
               <PrioritySignal
                 value={current.priority}
                 onChange={(p) => setField("priority", p)}
@@ -618,7 +742,13 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
               </Text>
             </View>
             <View style={styles.metaGroup}>
-              <Text style={styles.metaLabel}>Est</Text>
+              <Pressable
+                onPress={() => setEstPickerOpen(true)}
+                hitSlop={6}
+                style={styles.metaLabelButton}
+              >
+                <Text style={styles.metaLabel}>Est</Text>
+              </Pressable>
               <EstimateEqualizer
                 value={current.duration_minutes}
                 onChange={(m) => setField("duration_minutes", m)}
@@ -633,6 +763,41 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             </View>
           </View>
         </View>
+
+        <PickerSheet
+          visible={priPickerOpen}
+          title="Priority"
+          options={PRIORITY_PICKER_OPTIONS.map((p) => ({
+            key: p.value,
+            code: p.code,
+            label: p.label,
+          }))}
+          selectedKey={current.priority}
+          onSelect={(key) => {
+            setField("priority", key as TaskPriority);
+            setPriPickerOpen(false);
+          }}
+          onClose={() => setPriPickerOpen(false)}
+          accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
+        />
+        <PickerSheet
+          visible={estPickerOpen}
+          title="Estimate"
+          options={ESTIMATE_PICKER_OPTIONS.map((b) => ({
+            key: String(b.minutes),
+            code: b.code,
+            label: b.label,
+          }))}
+          selectedKey={(() => {
+            const idx = estimateBarIndex(current.duration_minutes);
+            return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
+          })()}
+          onSelect={(key) => {
+            setField("duration_minutes", parseInt(key, 10));
+            setEstPickerOpen(false);
+          }}
+          onClose={() => setEstPickerOpen(false)}
+        />
 
         {/* Notes */}
         <View style={{ marginTop: 18 }}>
@@ -900,11 +1065,74 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     minWidth: 22,
   },
+  metaLabelButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    borderRadius: 6,
+  },
   metaValue: { fontSize: 12, fontWeight: "700" },
 
-  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 2.5 },
-  priBar: { width: 5, borderRadius: 1.5 },
-  estBar: { width: 5, borderRadius: 1.5 },
+  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
+  priBar: { width: 7, borderRadius: 2 },
+  estBar: { width: 7, borderRadius: 2 },
+
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(17,24,39,0.45)",
+    justifyContent: "flex-end",
+  },
+  pickerSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 14,
+    paddingBottom: 28,
+    paddingHorizontal: 16,
+  },
+  pickerTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  pickerRowSelected: {
+    backgroundColor: "#eef2ff",
+  },
+  pickerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pickerCode: {
+    width: 32,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  pickerLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  pickerCheck: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#4338ca",
+  },
 
   notesInput: {
     backgroundColor: "#f9fafb",
