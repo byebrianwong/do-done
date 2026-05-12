@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import type {
   AppearanceSeed,
   PetEvent,
   PetGoal,
   PetMood,
 } from "@do-done/shared";
-import type { PetState } from "@do-done/api-client";
+import type { PetState, PetSettingsPatch } from "@do-done/api-client";
 import { Pip } from "./Pip";
 
 // ── PetPanel ───────────────────────────────────────────
@@ -25,10 +26,22 @@ import { Pip } from "./Pip";
 //   - Rounded sans typography via `ui-rounded` system font (SF Pro Rounded
 //     on Apple, falls through to system on others)
 
+export interface PetSettingsValues {
+  hunger_daily_decay: number;
+  happiness_weekly_decay: number;
+  week_end_day: number;
+}
+
 export interface PetPanelProps {
   state: PetState;
   onAcceptGoal?: (goalId: string) => void;
   onDismissGoal?: (goalId: string) => void;
+  /**
+   * Current decay-settings subset. When provided alongside `onSavePetSettings`,
+   * the panel renders a small Settings card. Omit both to hide the section.
+   */
+  petSettings?: PetSettingsValues;
+  onSavePetSettings?: (patch: PetSettingsPatch) => Promise<void> | void;
   className?: string;
 }
 
@@ -39,6 +52,8 @@ export function PetPanel({
   state,
   onAcceptGoal,
   onDismissGoal,
+  petSettings,
+  onSavePetSettings,
   className,
 }: PetPanelProps) {
   const { pet, current_stats, mood, goals, recent_events } = state;
@@ -68,6 +83,12 @@ export function PetPanel({
           goal={activeGoal}
           onAccept={() => onAcceptGoal?.(activeGoal.id)}
           onDismiss={() => onDismissGoal?.(activeGoal.id)}
+        />
+      ) : null}
+      {petSettings && onSavePetSettings ? (
+        <SettingsCard
+          values={petSettings}
+          onSave={onSavePetSettings}
         />
       ) : null}
       <RecentLog events={recent_events} />
@@ -113,12 +134,18 @@ function moodEmoji(mood: PetMood): string {
       return "👋";
     case "content":
       return "🌼";
+    case "curious":
+      return "🔎";
+    case "playful":
+      return "✨";
+    case "cozy":
+      return "☁️";
+    case "thoughtful":
+      return "💭";
     case "hungry":
       return "🍎";
     case "tired":
       return "🥱";
-    case "sad":
-      return "💧";
     case "sleeping":
       return "💤";
   }
@@ -282,6 +309,199 @@ function GoalCard({
             : "🌼 From Pip"}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+// ── Settings card ───────────────────────────────────────
+
+const WEEK_DAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+function SettingsCard({
+  values,
+  onSave,
+}: {
+  values: PetSettingsValues;
+  onSave: (patch: PetSettingsPatch) => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<PetSettingsValues>(values);
+  const [pending, setPending] = useState(false);
+  const dirty =
+    draft.hunger_daily_decay !== values.hunger_daily_decay ||
+    draft.happiness_weekly_decay !== values.happiness_weekly_decay ||
+    draft.week_end_day !== values.week_end_day;
+
+  return (
+    <div
+      className="rounded-2xl"
+      style={{ backgroundColor: "#fff5dd", overflow: "hidden" }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[12px] font-extrabold transition-colors"
+        style={{
+          color: "#4a3f1f",
+          fontFamily: ROUNDED_SANS,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+        }}
+      >
+        <span aria-hidden>⚙️</span>
+        <span className="flex-1">Pip settings</span>
+        <span aria-hidden style={{ opacity: 0.55 }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-3 px-4 pb-4 pt-1">
+          <SettingRow
+            label="Daily hunger drop"
+            help="At local midnight"
+            unit="pts/day"
+            value={draft.hunger_daily_decay}
+            min={0}
+            max={50}
+            onChange={(v) =>
+              setDraft((d) => ({ ...d, hunger_daily_decay: v }))
+            }
+          />
+          <SettingRow
+            label="Weekly happiness drop"
+            help="At end of your week"
+            unit="pts/wk"
+            value={draft.happiness_weekly_decay}
+            min={0}
+            max={100}
+            onChange={(v) =>
+              setDraft((d) => ({ ...d, happiness_weekly_decay: v }))
+            }
+          />
+          <div className="flex items-center gap-2 text-[12px]">
+            <span
+              className="w-[120px] font-semibold"
+              style={{ color: "#4a3f1f" }}
+            >
+              Week ends on
+            </span>
+            <select
+              value={draft.week_end_day}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  week_end_day: parseInt(e.target.value, 10),
+                }))
+              }
+              className="rounded-full px-3 py-1 text-[12px] font-semibold"
+              style={{
+                backgroundColor: "#fffbe6",
+                color: "#4a3f1f",
+                border: "1px solid #ead7a8",
+                fontFamily: ROUNDED_SANS,
+              }}
+            >
+              {WEEK_DAYS.map((name, idx) => (
+                <option key={name} value={idx}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            disabled={!dirty || pending}
+            onClick={async () => {
+              setPending(true);
+              try {
+                await onSave({
+                  hunger_daily_decay: draft.hunger_daily_decay,
+                  happiness_weekly_decay: draft.happiness_weekly_decay,
+                  week_end_day: draft.week_end_day,
+                });
+              } finally {
+                setPending(false);
+              }
+            }}
+            className="self-end rounded-full px-4 py-2 text-[12px] font-bold transition-opacity"
+            style={{
+              backgroundColor: dirty ? "#9bd9b1" : "#e5dfc4",
+              color: dirty ? "#2d6e44" : "#8a7860",
+              border: "none",
+              cursor: dirty && !pending ? "pointer" : "default",
+              fontFamily: ROUNDED_SANS,
+              opacity: pending ? 0.6 : 1,
+            }}
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SettingRow({
+  label,
+  help,
+  unit,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  unit: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <div className="w-[120px]">
+        <div className="font-semibold" style={{ color: "#4a3f1f" }}>
+          {label}
+        </div>
+        <div className="text-[10px]" style={{ color: "#8a7860" }}>
+          {help}
+        </div>
+      </div>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          if (Number.isFinite(n)) {
+            onChange(Math.max(min, Math.min(max, n)));
+          }
+        }}
+        className="w-14 rounded-md px-2 py-1 text-right font-bold"
+        style={{
+          backgroundColor: "#fffbe6",
+          color: "#4a3f1f",
+          border: "1px solid #ead7a8",
+          fontFamily: ROUNDED_SANS,
+        }}
+      />
+      <span className="text-[10px]" style={{ color: "#8a7860" }}>
+        {unit}
+      </span>
     </div>
   );
 }

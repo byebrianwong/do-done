@@ -7,9 +7,12 @@ import type { AppearanceSeed, PetMood } from "@do-done/shared";
 // soft pastel-styled creature in SVG. No hooks, no side effects, no client
 // directive — safe to render in server components and Storybook alike.
 //
-// Aesthetic E (Apple Notes / Tweek): pastel saturation, soft drop shadow,
-// rounded everything. Body color comes from seed.bodyHue at HSL(h, 55%, 75%)
-// — saturated enough to read as a color but soft enough to feel friendly.
+// Pip is intentionally positive — there is no `sad` mood. Instead, when stats
+// are healthy, the renderer cycles through expression variants: happy,
+// content, curious, playful, cozy, thoughtful. Stat thresholds still surface
+// gentle "needs care" cues (hungry, tired) and overnight idleness shows
+// sleeping. Subtle CSS animations (blink, breathe, occasional head tilt) make
+// the face feel alive even within a single expression.
 
 export interface PipProps {
   seed: AppearanceSeed;
@@ -20,6 +23,12 @@ export interface PipProps {
   className?: string;
   /** Stable id suffix to disambiguate gradient/filter ids when multiple Pips render. */
   idSuffix?: string;
+  /**
+   * Disable the breathing/blink/head-tilt CSS animations. Useful in
+   * Chromatic snapshots so visual diffs aren't noise from animation frame
+   * timing.
+   */
+  animate?: boolean;
 }
 
 const VIEWBOX = 100;
@@ -31,6 +40,7 @@ export function Pip({
   bare = false,
   className,
   idSuffix,
+  animate = true,
 }: PipProps) {
   const sfx = idSuffix ?? Math.random().toString(36).slice(2, 8);
   const bodyFill = `hsl(${seed.bodyHue}, 55%, 75%)`;
@@ -38,11 +48,12 @@ export function Pip({
   const bodyShadow = `hsl(${seed.bodyHue}, 45%, 60%)`;
   const ink = "#1f2937";
 
-  // Mood-specific color/saturation tweaks. We keep the same geometry and
-  // overlay mood-specific eyes/mouth, but desaturate slightly for downer moods.
-  const desaturated =
-    mood === "hungry" || mood === "sad" || mood === "tired";
-  const moodFilter = desaturated ? "saturate(70%)" : undefined;
+  // Soft saturation pullback for the two "needs care" cues. The positive
+  // variants render at full saturation.
+  const desaturated = mood === "hungry" || mood === "tired";
+  const moodFilter = desaturated ? "saturate(80%)" : undefined;
+
+  const animClass = animate ? "pip-anim" : undefined;
 
   return (
     <svg
@@ -74,6 +85,7 @@ export function Pip({
         >
           <feGaussianBlur stdDeviation="1.4" />
         </filter>
+        {animate ? <PipAnimationStyle /> : null}
       </defs>
 
       {/* Soft halo background (skipped when bare) */}
@@ -96,7 +108,14 @@ export function Pip({
         fill="rgba(60,40,20,0.18)"
       />
 
-      <g style={{ filter: moodFilter }}>
+      <g
+        className={animClass}
+        style={{
+          filter: moodFilter,
+          transformOrigin: "50px 70px",
+          transformBox: "fill-box",
+        }}
+      >
         <BodyShape
           shape={seed.bodyShape}
           mood={mood}
@@ -114,10 +133,52 @@ export function Pip({
           eyeStyle={seed.eyeStyle}
           ink={ink}
           highlight="#ffffff"
+          animate={animate}
         />
         <SleepingZ mood={mood} ink={ink} />
+        {mood === "curious" ? <CuriousQuestionMark ink={ink} /> : null}
+        {mood === "playful" ? <PlayfulSparks /> : null}
+        {mood === "cozy" ? <CozyBlanket bodyShadow={bodyShadow} /> : null}
+        {mood === "thoughtful" ? <ThoughtBubble ink={ink} /> : null}
       </g>
     </svg>
+  );
+}
+
+// ── Animations ─────────────────────────────────────────
+//
+// Subtle breathing on the body group, slow blink overlay across the eyes,
+// occasional head-tilt rotation. All CSS keyframes scoped to `.pip-anim`
+// so they only apply when `animate` is true.
+
+function PipAnimationStyle() {
+  return (
+    <style>{`
+      @keyframes pip-breathe {
+        0%, 100% { transform: scale(1) translateY(0); }
+        50% { transform: scale(1.015) translateY(-0.5px); }
+      }
+      @keyframes pip-tilt {
+        0%, 60%, 100% { transform: rotate(0deg); }
+        70% { transform: rotate(-2.5deg); }
+        85% { transform: rotate(1.5deg); }
+      }
+      @keyframes pip-blink {
+        0%, 92%, 100% { transform: scaleY(1); }
+        94%, 97% { transform: scaleY(0.1); }
+      }
+      .pip-anim {
+        animation:
+          pip-breathe 3.4s ease-in-out infinite,
+          pip-tilt 11s ease-in-out infinite;
+        transform-origin: 50px 70px;
+      }
+      .pip-eyes-anim {
+        animation: pip-blink 6s ease-in-out infinite;
+        transform-origin: 50px 53px;
+        transform-box: fill-box;
+      }
+    `}</style>
   );
 }
 
@@ -134,8 +195,10 @@ function BodyShape({
   gradientId: string;
   bodyShadow: string;
 }) {
-  // Tired/sleeping pets sit a few px lower (sleepy slump).
-  const yShift = mood === "sleeping" ? 4 : mood === "tired" ? 2 : 0;
+  // Tired/sleeping pets sit a few px lower (sleepy slump). Playful pets perk
+  // up slightly.
+  const yShift =
+    mood === "sleeping" ? 4 : mood === "tired" ? 2 : mood === "playful" ? -1 : 0;
   const fill = `url(#${gradientId})`;
   const stroke = bodyShadow;
   const sw = 0.6;
@@ -179,7 +242,6 @@ function BodyShape({
         />
       );
     case "wisp":
-      // Tall narrow drop with wavy bottom.
       return (
         <path
           d={`M 50 ${20 + yShift}
@@ -195,7 +257,6 @@ function BodyShape({
         />
       );
     case "sprout":
-      // Blob with a single leaf on top.
       return (
         <>
           <path
@@ -226,7 +287,6 @@ function BodyShape({
         </>
       );
     case "tuft":
-      // Blob with three little hair tufts on top.
       return (
         <>
           <ellipse
@@ -273,7 +333,6 @@ function ShapeAccents({
   highlight: string;
   ink: string;
 }) {
-  // A small highlight blob to suggest dimensionality.
   if (shape === "wisp") return null;
   return (
     <ellipse
@@ -287,11 +346,21 @@ function ShapeAccents({
   );
 }
 
-// ── Cheeks (only visible for happy/content) ────────────
+// ── Cheeks ─────────────────────────────────────────────
 
 function Cheeks({ mood }: { mood: PetMood }) {
-  if (mood !== "happy" && mood !== "content") return null;
-  const opacity = mood === "happy" ? 0.7 : 0.4;
+  // Cheek blush is part of the positive expression vocabulary. Stronger on
+  // happy/playful, lighter on the others. Skipped entirely for sleeping +
+  // care cues.
+  const opacity =
+    mood === "happy" || mood === "playful"
+      ? 0.7
+      : mood === "content" || mood === "cozy" || mood === "curious"
+        ? 0.45
+        : mood === "thoughtful"
+          ? 0.3
+          : 0;
+  if (opacity === 0) return null;
   return (
     <>
       <ellipse
@@ -321,15 +390,19 @@ function Face({
   eyeStyle,
   ink,
   highlight,
+  animate,
 }: {
   mood: PetMood;
   eyeStyle: AppearanceSeed["eyeStyle"];
   ink: string;
   highlight: string;
+  animate: boolean;
 }) {
   return (
     <>
-      <Eyes mood={mood} eyeStyle={eyeStyle} ink={ink} highlight={highlight} />
+      <g className={animate && mood !== "sleeping" ? "pip-eyes-anim" : undefined}>
+        <Eyes mood={mood} eyeStyle={eyeStyle} ink={ink} highlight={highlight} />
+      </g>
       <Mouth mood={mood} ink={ink} />
     </>
   );
@@ -350,7 +423,6 @@ function Eyes({
   ink: string;
   highlight: string;
 }) {
-  // Mood overrides eyeStyle for sleeping, tired, hungry.
   if (mood === "sleeping") {
     return (
       <>
@@ -396,35 +468,96 @@ function Eyes({
     );
   }
   if (mood === "hungry") {
-    // Droopy eyes — short downward-slanted lines on the outer edges.
+    // Soft round eyes looking up — still cute, not droopy. Removes the
+    // downer-X look from the prior version.
     return (
       <>
-        <line
-          x1={EYE_LEFT_X - 5}
-          y1={EYE_Y - 1}
-          x2={EYE_LEFT_X + 5}
-          y2={EYE_Y + 2}
+        <circle cx={EYE_LEFT_X} cy={EYE_Y} r={2.8} fill={ink} />
+        <circle cx={EYE_RIGHT_X} cy={EYE_Y} r={2.8} fill={ink} />
+        <circle
+          cx={EYE_LEFT_X + 0.5}
+          cy={EYE_Y - 1.2}
+          r={0.9}
+          fill={highlight}
+        />
+        <circle
+          cx={EYE_RIGHT_X + 0.5}
+          cy={EYE_Y - 1.2}
+          r={0.9}
+          fill={highlight}
+        />
+      </>
+    );
+  }
+  if (mood === "curious") {
+    // One eye slightly bigger than the other (asymmetric "tilted head" feel).
+    return (
+      <>
+        <circle cx={EYE_LEFT_X} cy={EYE_Y} r={3.4} fill={ink} />
+        <circle cx={EYE_RIGHT_X} cy={EYE_Y - 0.6} r={3.8} fill={ink} />
+        <circle
+          cx={EYE_LEFT_X + 1}
+          cy={EYE_Y - 1}
+          r={1.1}
+          fill={highlight}
+        />
+        <circle
+          cx={EYE_RIGHT_X + 1.2}
+          cy={EYE_Y - 1.6}
+          r={1.3}
+          fill={highlight}
+        />
+      </>
+    );
+  }
+  if (mood === "playful") {
+    // ^^ closed-curve "joyful squint" eyes.
+    return (
+      <>
+        <path
+          d={`M ${EYE_LEFT_X - 4} ${EYE_Y + 1} Q ${EYE_LEFT_X} ${EYE_Y - 3} ${EYE_LEFT_X + 4} ${EYE_Y + 1}`}
           stroke={ink}
-          strokeWidth={1.6}
+          strokeWidth={1.8}
+          fill="none"
           strokeLinecap="round"
         />
-        <line
-          x1={EYE_RIGHT_X - 5}
-          y1={EYE_Y + 2}
-          x2={EYE_RIGHT_X + 5}
-          y2={EYE_Y - 1}
+        <path
+          d={`M ${EYE_RIGHT_X - 4} ${EYE_Y + 1} Q ${EYE_RIGHT_X} ${EYE_Y - 3} ${EYE_RIGHT_X + 4} ${EYE_Y + 1}`}
           stroke={ink}
-          strokeWidth={1.6}
+          strokeWidth={1.8}
+          fill="none"
           strokeLinecap="round"
         />
       </>
     );
   }
+  if (mood === "cozy") {
+    // Soft half-moon eyes — content with a sleepy edge.
+    return (
+      <>
+        <path
+          d={`M ${EYE_LEFT_X - 3} ${EYE_Y} A 3 3 0 0 1 ${EYE_LEFT_X + 3} ${EYE_Y}`}
+          fill={ink}
+        />
+        <path
+          d={`M ${EYE_RIGHT_X - 3} ${EYE_Y} A 3 3 0 0 1 ${EYE_RIGHT_X + 3} ${EYE_Y}`}
+          fill={ink}
+        />
+      </>
+    );
+  }
+  if (mood === "thoughtful") {
+    // Eyes glancing up-right.
+    return (
+      <>
+        <circle cx={EYE_LEFT_X + 0.8} cy={EYE_Y - 0.6} r={2.6} fill={ink} />
+        <circle cx={EYE_RIGHT_X + 0.8} cy={EYE_Y - 0.6} r={2.6} fill={ink} />
+      </>
+    );
+  }
 
-  // Happy/content/sad use the seed eye style at full size for happy/content,
-  // slightly smaller for sad.
-  const r = mood === "sad" ? 2.4 : 3.2;
-
+  // happy / content: use seed eye style.
+  const r = 3.2;
   switch (eyeStyle) {
     case "dot":
       return (
@@ -450,7 +583,6 @@ function Eyes({
             r={1}
             fill={highlight}
           />
-          {/* Tiny stars to the side */}
           <text
             x={EYE_LEFT_X - 9}
             y={EYE_Y - 4}
@@ -463,7 +595,6 @@ function Eyes({
         </>
       );
     case "sleepy":
-      // Half-closed eyes: an arc + lash.
       return (
         <>
           <path
@@ -520,6 +651,56 @@ function Mouth({ mood, ink }: { mood: PetMood; ink: string }) {
           strokeLinecap="round"
         />
       );
+    case "curious":
+      // Small "o" mouth.
+      return (
+        <ellipse
+          cx={50}
+          cy={66}
+          rx={1.8}
+          ry={2.2}
+          fill={ink}
+          opacity={0.85}
+        />
+      );
+    case "playful":
+      // Wide grin with little tongue dot.
+      return (
+        <>
+          <path
+            d="M 39 64 Q 50 73 61 64"
+            stroke={ink}
+            strokeWidth={1.8}
+            fill="none"
+            strokeLinecap="round"
+          />
+          <circle cx={50} cy={70} r={1.4} fill="#f97a8a" />
+        </>
+      );
+    case "cozy":
+      // Soft tilted smile.
+      return (
+        <path
+          d="M 43 65 Q 50 68 56 64"
+          stroke={ink}
+          strokeWidth={1.6}
+          fill="none"
+          strokeLinecap="round"
+        />
+      );
+    case "thoughtful":
+      // Small line off-center, lips pursed.
+      return (
+        <line
+          x1={47}
+          y1={65}
+          x2={53}
+          y2={65}
+          stroke={ink}
+          strokeWidth={1.6}
+          strokeLinecap="round"
+        />
+      );
     case "tired":
       return (
         <line
@@ -533,23 +714,16 @@ function Mouth({ mood, ink }: { mood: PetMood; ink: string }) {
         />
       );
     case "hungry":
+      // Small open oval mouth (waiting for food). Friendlier than the prior
+      // downward-curving "hungry" line.
       return (
-        <path
-          d="M 43 67 Q 50 63 57 67"
-          stroke={ink}
-          strokeWidth={1.6}
-          fill="none"
-          strokeLinecap="round"
-        />
-      );
-    case "sad":
-      return (
-        <path
-          d="M 44 67 Q 50 63 56 67"
-          stroke={ink}
-          strokeWidth={1.6}
-          fill="none"
-          strokeLinecap="round"
+        <ellipse
+          cx={50}
+          cy={67}
+          rx={2.2}
+          ry={1.6}
+          fill={ink}
+          opacity={0.75}
         />
       );
     case "sleeping":
@@ -584,7 +758,62 @@ function SleepingZ({ mood, ink }: { mood: PetMood; ink: string }) {
   );
 }
 
-// ── Mood-tinted halo backgrounds (aesthetic E pastels) ──
+// ── Mood-specific accents ──────────────────────────────
+
+function CuriousQuestionMark({ ink }: { ink: string }) {
+  return (
+    <text
+      x={74}
+      y={34}
+      fontSize={12}
+      fill={ink}
+      opacity={0.55}
+      style={{ fontFamily: "ui-rounded, system-ui, sans-serif", fontWeight: 700 }}
+    >
+      ?
+    </text>
+  );
+}
+
+function PlayfulSparks() {
+  return (
+    <>
+      <text x={18} y={34} fontSize={9} fill="#f59e0b" opacity={0.7}>
+        ✦
+      </text>
+      <text x={78} y={42} fontSize={7} fill="#f59e0b" opacity={0.6}>
+        ✦
+      </text>
+      <text x={22} y={70} fontSize={6} fill="#f59e0b" opacity={0.5}>
+        ✦
+      </text>
+    </>
+  );
+}
+
+function CozyBlanket({ bodyShadow }: { bodyShadow: string }) {
+  // A soft horizontal blanket band across the lower body.
+  return (
+    <path
+      d="M 14 74 Q 50 82 86 74 L 86 84 Q 50 88 14 84 Z"
+      fill={bodyShadow}
+      opacity={0.32}
+    />
+  );
+}
+
+function ThoughtBubble({ ink }: { ink: string }) {
+  // Two small clouds drifting up + right.
+  return (
+    <>
+      <circle cx={76} cy={32} r={3.5} fill="#ffffff" stroke={ink} strokeWidth={0.6} opacity={0.85} />
+      <circle cx={82} cy={26} r={2.5} fill="#ffffff" stroke={ink} strokeWidth={0.6} opacity={0.85} />
+      <circle cx={85} cy={22} r={1.4} fill="#ffffff" stroke={ink} strokeWidth={0.6} opacity={0.85} />
+    </>
+  );
+}
+
+// ── Mood-tinted halo backgrounds ───────────────────────
 
 function haloFromMood(mood: PetMood): string {
   switch (mood) {
@@ -592,12 +821,18 @@ function haloFromMood(mood: PetMood): string {
       return "#fff5dd"; // cream
     case "content":
       return "#fff5dd";
+    case "curious":
+      return "#dff4ff"; // soft sky
+    case "playful":
+      return "#fff0e0"; // peach
+    case "cozy":
+      return "#f4e8d8"; // soft taupe
+    case "thoughtful":
+      return "#ebe4f5"; // soft lavender
     case "hungry":
       return "#fde0e9"; // soft pink
     case "tired":
       return "#e9dcf6"; // soft purple
-    case "sad":
-      return "#e0e7f4"; // muted blue
     case "sleeping":
       return "#dfe7d8"; // soft moss
   }

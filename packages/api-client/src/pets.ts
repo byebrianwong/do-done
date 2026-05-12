@@ -9,19 +9,21 @@ import type {
   AppearanceSeed,
   Task,
   Project,
+  PetDecayPreferences,
 } from "@do-done/shared";
 import {
   computeCurrentStats,
   deriveMood,
   applyTaskDeltas,
+  applyCreateEnergy,
+  applyEditEnergy,
   taskToDeltaProps,
+  taskToCreateEnergyInput,
+  DEFAULT_DECAY_PREFERENCES,
   type CurrentStats,
+  type TrackedField,
 } from "@do-done/shared";
 import { TasksApi } from "./tasks.js";
-
-// ── Helpers ────────────────────────────────────────────
-
-const DEFAULT_TIMEZONE = "America/New_York";
 
 function hexToHue(hex: string): number {
   // Parse "#rrggbb" → HSL hue 0–360. Falls back to indigo (~239) on bad input.
@@ -144,7 +146,7 @@ export class PetsApi {
     const [eventsRes, goalsRes, prefsRes, lastTaskRes] = await Promise.all([
       this._recentEvents(10),
       this._openGoals(),
-      this._userTimezone(),
+      this._decayPreferences(),
       this._lastUserActivityAt(),
     ]);
 
@@ -152,13 +154,9 @@ export class PetsApi {
     if (goalsRes.error) return { data: null, error: goalsRes.error };
 
     const now = new Date();
-    const current_stats = computeCurrentStats(pet, now);
-    const mood = deriveMood(
-      current_stats,
-      lastTaskRes.data,
-      prefsRes.data ?? DEFAULT_TIMEZONE,
-      now
-    );
+    const prefs = prefsRes.data ?? DEFAULT_DECAY_PREFERENCES;
+    const current_stats = computeCurrentStats(pet, prefs, now);
+    const mood = deriveMood(current_stats, lastTaskRes.data, prefs, now);
 
     return {
       data: {
@@ -183,22 +181,149 @@ export class PetsApi {
     actor: PetEventActor;
   }): Promise<{ data: PetEvent | null; error: Error | null }> {
     const { task, actor } = args;
-    const ensured = await this.ensurePet();
-    if (ensured.error) return { data: null, error: ensured.error };
-    if (!ensured.data) {
-      return { data: null, error: new Error("Failed to load or create pet") };
+    const ctx = await this._loadFeedContext();
+    if (ctx.error || !ctx.pet) {
+      return { data: null, error: ctx.error };
     }
-    const pet = ensured.data;
+    const { pet, prefs } = ctx;
 
     const now = new Date();
-    const current = computeCurrentStats(pet, now);
+    const current = computeCurrentStats(pet, prefs, now);
     const { deltas, narrative_hint } = applyTaskDeltas(
       current,
       taskToDeltaProps(task),
       actor,
+      prefs,
       now
     );
 
+    return this._persistDelta({
+      pet,
+      current,
+      deltas,
+      now,
+      event: {
+        event_type: "fed",
+        task_id: task.id,
+        actor,
+        narrative: narrative_hint,
+      },
+    });
+  }
+
+  /**
+   * Feed Pip a small energy boost when a new task is created. +5 for a plain
+   * create, +10 if the task already has effort+priority filled in or a
+   * description set (per pet-decay.applyCreateEnergy).
+   *
+   * Silently no-ops when there's no pet row yet — task creation must not
+   * block on pet provisioning.
+   */
+  async feedFromTaskCreate(args: {
+    task: Task;
+    actor: PetEventActor;
+  }): Promise<{ data: PetEvent | null; error: Error | null }> {
+    const { task, actor } = args;
+    const ctx = await this._loadFeedContext();
+    if (ctx.error || !ctx.pet) return { data: null, error: ctx.error };
+    const { pet, prefs } = ctx;
+
+    const { energy, narrative_hint } = applyCreateEnergy(
+      taskToCreateEnergyInput(task)
+    );
+    if (energy === 0) return { data: null, error: null };
+
+    const now = new Date();
+    const current = computeCurrentStats(pet, prefs, now);
+    return this._persistDelta({
+      pet,
+      current,
+      deltas: { hunger: 0, happiness: 0, energy, xp: 0 },
+      now,
+      event: {
+        event_type: "fed",
+        task_id: task.id,
+        actor,
+        narrative: narrative_hint,
+      },
+    });
+  }
+
+  /**
+   * Feed Pip energy for an edit that fills previously-unset fields. +1 per
+   * tracked field that transitioned from unset → set. Editing already-set
+   * fields yields 0 (per spec).
+   */
+  async feedFromTaskEdit(args: {
+    before: Partial<Record<TrackedField, unknown>>;
+    after: Partial<Record<TrackedField, unknown>>;
+    task_id: string;
+    actor: PetEventActor;
+  }): Promise<{ data: PetEvent | null; error: Error | null }> {
+    const { energy, narrative_hint } = applyEditEnergy(args.before, args.after);
+    if (energy === 0) return { data: null, error: null };
+
+    const ctx = await this._loadFeedContext();
+    if (ctx.error || !ctx.pet) return { data: null, error: ctx.error };
+    const { pet, prefs } = ctx;
+
+    const now = new Date();
+    const current = computeCurrentStats(pet, prefs, now);
+    return this._persistDelta({
+      pet,
+      current,
+      deltas: { hunger: 0, happiness: 0, energy, xp: 0 },
+      now,
+      event: {
+        event_type: "fed",
+        task_id: args.task_id,
+        actor: args.actor,
+        narrative: narrative_hint,
+      },
+    });
+  }
+
+  private async _loadFeedContext(): Promise<{
+    pet: Pet | null;
+    prefs: PetDecayPreferences;
+    error: Error | null;
+  }> {
+    const ensured = await this.ensurePet();
+    if (ensured.error) {
+      return {
+        pet: null,
+        prefs: DEFAULT_DECAY_PREFERENCES,
+        error: ensured.error,
+      };
+    }
+    if (!ensured.data) {
+      return {
+        pet: null,
+        prefs: DEFAULT_DECAY_PREFERENCES,
+        error: new Error("Failed to load or create pet"),
+      };
+    }
+    const prefsRes = await this._decayPreferences();
+    return {
+      pet: ensured.data,
+      prefs: prefsRes.data ?? DEFAULT_DECAY_PREFERENCES,
+      error: null,
+    };
+  }
+
+  private async _persistDelta(args: {
+    pet: Pet;
+    current: CurrentStats;
+    deltas: { hunger: number; happiness: number; energy: number; xp: number };
+    now: Date;
+    event: {
+      event_type: string;
+      task_id?: string | null;
+      actor: PetEventActor;
+      narrative: string;
+    };
+  }): Promise<{ data: PetEvent | null; error: Error | null }> {
+    const { pet, current, deltas, now, event } = args;
     const newHunger = clampInt(current.hunger + deltas.hunger);
     const newHappiness = clampInt(current.happiness + deltas.happiness);
     const newEnergy = clampInt(current.energy + deltas.energy);
@@ -222,18 +347,17 @@ export class PetsApi {
       .from("pet_events")
       .insert({
         user_id: pet.user_id,
-        event_type: "fed",
-        task_id: task.id,
-        actor,
+        event_type: event.event_type,
+        task_id: event.task_id ?? null,
+        actor: event.actor,
         delta_hunger: deltas.hunger,
         delta_happiness: deltas.happiness,
         delta_energy: deltas.energy,
         delta_xp: deltas.xp,
-        narrative: narrative_hint,
+        narrative: event.narrative,
       })
       .select()
       .single();
-
     return {
       data: (insertRes.data as PetEvent | null) ?? null,
       error: insertRes.error as Error | null,
@@ -547,19 +671,37 @@ export class PetsApi {
     };
   }
 
-  private async _userTimezone(): Promise<{
-    data: string | null;
+  private async _decayPreferences(): Promise<{
+    data: PetDecayPreferences | null;
     error: Error | null;
   }> {
     let query = this.supabase
       .from("user_preferences")
-      .select("timezone")
+      .select("timezone, hunger_daily_decay, happiness_weekly_decay, week_end_day")
       .limit(1);
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query.maybeSingle();
+    if (error || !data) {
+      return { data: null, error: error as Error | null };
+    }
+    const row = data as {
+      timezone?: string;
+      hunger_daily_decay?: number;
+      happiness_weekly_decay?: number;
+      week_end_day?: number;
+    };
     return {
-      data: (data as { timezone?: string } | null)?.timezone ?? null,
-      error: error as Error | null,
+      data: {
+        timezone: row.timezone ?? DEFAULT_DECAY_PREFERENCES.timezone,
+        hunger_daily_decay:
+          row.hunger_daily_decay ?? DEFAULT_DECAY_PREFERENCES.hunger_daily_decay,
+        happiness_weekly_decay:
+          row.happiness_weekly_decay ??
+          DEFAULT_DECAY_PREFERENCES.happiness_weekly_decay,
+        week_end_day:
+          row.week_end_day ?? DEFAULT_DECAY_PREFERENCES.week_end_day,
+      },
+      error: null,
     };
   }
 

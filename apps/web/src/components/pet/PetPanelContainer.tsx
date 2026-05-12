@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PetState } from "@do-done/api-client";
+import type { PetSettingsPatch, PetState } from "@do-done/api-client";
+import type { PetSettingsValues } from "./PetPanel";
 import { PetPanel } from "./PetPanel";
 import { getClientPetsApi } from "@/lib/supabase/pets-client";
+import { getClientUserPrefsApi } from "@/lib/supabase/user-prefs-client";
 
 // Polling interval per the plan: state refetches every 30s and after any
 // goal action. No realtime — keeps the dependency surface small.
@@ -22,24 +24,54 @@ export function PetPanelContainer({
   className?: string;
 }) {
   const [state, setState] = useState<PetState | null>(null);
+  const [petSettings, setPetSettings] = useState<PetSettingsValues | null>(null);
   const [errored, setErrored] = useState(false);
   const cancelledRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
-      const api = await getClientPetsApi();
-      const { data, error } = await api.getState();
+      const [petsApi, prefsApi] = await Promise.all([
+        getClientPetsApi(),
+        getClientUserPrefsApi(),
+      ]);
+      const [stateRes, prefsRes] = await Promise.all([
+        petsApi.getState(),
+        prefsApi.get(),
+      ]);
       if (cancelledRef.current) return;
-      if (error || !data) {
+      if (stateRes.error || !stateRes.data) {
         setErrored(true);
         return;
       }
-      setState(data);
+      setState(stateRes.data);
+      if (prefsRes.data) {
+        setPetSettings({
+          hunger_daily_decay: prefsRes.data.hunger_daily_decay,
+          happiness_weekly_decay: prefsRes.data.happiness_weekly_decay,
+          week_end_day: prefsRes.data.week_end_day,
+        });
+      }
       setErrored(false);
     } catch {
       if (!cancelledRef.current) setErrored(true);
     }
   }, []);
+
+  const handleSavePetSettings = useCallback(
+    async (patch: PetSettingsPatch) => {
+      const api = await getClientUserPrefsApi();
+      const { data } = await api.updatePetSettings(patch);
+      if (data) {
+        setPetSettings({
+          hunger_daily_decay: data.hunger_daily_decay,
+          happiness_weekly_decay: data.happiness_weekly_decay,
+          week_end_day: data.week_end_day,
+        });
+      }
+      await load();
+    },
+    [load]
+  );
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -84,6 +116,8 @@ export function PetPanelContainer({
           state={state}
           onAcceptGoal={handleAcceptGoal}
           onDismissGoal={handleDismissGoal}
+          petSettings={petSettings ?? undefined}
+          onSavePetSettings={handleSavePetSettings}
         />
       ) : (
         <PetPanelSkeleton />

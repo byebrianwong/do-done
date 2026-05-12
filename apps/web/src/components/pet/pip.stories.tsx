@@ -13,6 +13,9 @@ const meta: Meta<typeof Pip> = {
     seed: SAMPLE_APPEARANCE_SEED,
     mood: "happy",
     size: 180,
+    // Disable CSS animations in Storybook so Chromatic snapshots aren't
+    // dependent on animation-frame timing.
+    animate: false,
   },
   decorators: [
     (Story) => (
@@ -33,9 +36,12 @@ type Story = StoryObj<typeof meta>;
 
 export const Happy: Story = { args: { mood: "happy" } };
 export const Content: Story = { args: { mood: "content" } };
+export const Curious: Story = { args: { mood: "curious" } };
+export const Playful: Story = { args: { mood: "playful" } };
+export const Cozy: Story = { args: { mood: "cozy" } };
+export const Thoughtful: Story = { args: { mood: "thoughtful" } };
 export const Hungry: Story = { args: { mood: "hungry" } };
 export const Tired: Story = { args: { mood: "tired" } };
-export const Sad: Story = { args: { mood: "sad" } };
 export const Sleeping: Story = { args: { mood: "sleeping" } };
 
 // ── Side-by-side mood gallery ─────────────────────────
@@ -50,7 +56,17 @@ export const AllMoods: Story = {
       }}
     >
       {(
-        ["happy", "content", "hungry", "tired", "sad", "sleeping"] as const
+        [
+          "happy",
+          "content",
+          "curious",
+          "playful",
+          "cozy",
+          "thoughtful",
+          "hungry",
+          "tired",
+          "sleeping",
+        ] as const
       ).map((m) => (
         <div key={m} className="flex flex-col items-center gap-2">
           <Pip
@@ -58,6 +74,7 @@ export const AllMoods: Story = {
             mood={m}
             size={140}
             idSuffix={m}
+            animate={false}
           />
           <span
             className="text-xs font-bold uppercase tracking-wider"
@@ -69,6 +86,21 @@ export const AllMoods: Story = {
       ))}
     </div>
   ),
+};
+
+// ── Animated variant ──────────────────────────────────
+
+export const AnimatedHappy: Story = {
+  args: { mood: "happy", animate: true },
+  parameters: {
+    chromatic: { disableSnapshot: true },
+    docs: {
+      description: {
+        story:
+          "Pip with breathing, blink, and head-tilt animations enabled. Snapshot disabled in Chromatic since the frame timing isn't deterministic.",
+      },
+    },
+  },
 };
 
 // ── Body shape gallery (all happy) ────────────────────

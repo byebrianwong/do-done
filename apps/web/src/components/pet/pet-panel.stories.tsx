@@ -118,11 +118,38 @@ export const Tired: Story = {
   },
 };
 
-export const Sad: Story = {
+export const Curious: Story = {
   args: {
     state: makePetState({
-      mood: "sad",
-      current_stats: { hunger: 60, happiness: 22, energy: 50 },
+      mood: "curious",
+      current_stats: { hunger: 65, happiness: 70, energy: 60 },
+    }),
+  },
+};
+
+export const Playful: Story = {
+  args: {
+    state: makePetState({
+      mood: "playful",
+      current_stats: { hunger: 70, happiness: 80, energy: 75 },
+    }),
+  },
+};
+
+export const Cozy: Story = {
+  args: {
+    state: makePetState({
+      mood: "cozy",
+      current_stats: { hunger: 60, happiness: 70, energy: 45 },
+    }),
+  },
+};
+
+export const Thoughtful: Story = {
+  args: {
+    state: makePetState({
+      mood: "thoughtful",
+      current_stats: { hunger: 60, happiness: 65, energy: 55 },
     }),
   },
 };
@@ -297,5 +324,24 @@ export const StatsAllZero: Story = {
       mood: "hungry",
       current_stats: { hunger: 0, happiness: 0, energy: 0 },
     }),
+  },
+};
+
+// ── Settings panel ────────────────────────────────────
+
+export const WithSettings: Story = {
+  args: {
+    state: makePetState({
+      mood: "content",
+      current_stats: { hunger: 60, happiness: 60, energy: 60 },
+    }),
+    petSettings: {
+      hunger_daily_decay: 3,
+      happiness_weekly_decay: 10,
+      week_end_day: 0,
+    },
+    onSavePetSettings: async () => {
+      // no-op for stories
+    },
   },
 };
