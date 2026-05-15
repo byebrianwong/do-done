@@ -2,23 +2,26 @@
 
 **For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; the project is live in production and there's open work that needs care.
 
-Last updated: 2026-05-11 by Claude (Opus 4.7, 1M context). Most recent ship: PRs #17 + #18 (V1 cleanup + tag editing UI).
+Last updated: 2026-05-14 by Claude (Opus 4.7, 1M context). Most recent ship: PRs #20 + #21 (Pip positive redesign + priority/estimate hitbox fix).
 
 ---
 
 ## TL;DR — where things stand right now
 
-- **`main`** has the task input redesign fully shipped across web + mobile, plus V1 cleanup and tag editing. HEAD is `70e01fb` (PR #18, tag editor).
+- **`main`** has the task input redesign + V1 cleanup + tag editing + Pip positive redesign + priority/estimate UI polish all shipped. HEAD is `d69cc88` (PR #21).
 - **App is LIVE** at https://dodone.byebrianwong.com. Vercel auto-deploys main as production. SSL via Let's Encrypt, valid through 2 Aug 2026.
 - **Task input redesign series (PRs #5–#15) all merged** 2026-05-11 — see "Task input redesign" section below. The new V2 modal is live on every task click on both web and mobile.
 - **V1 modal removed (PR #17)** — `task-edit-dialog.tsx` (web), its stories, and `TaskEditModal.tsx` (mobile) deleted. V2 has no fallback.
 - **Tag editing in V2 (PR #18)** — three editing paths: click × on chip, click `+ tag` for inline input, or type `#tag<space>` in title (live-parsed out of the title into `tags`). Web + mobile.
+- **Pip positive redesign (PR #20)** — Pip is unambiguously positive now. Dropped the `sad` mood entirely; added four rotating positive variants (`curious`, `playful`, `cozy`, `thoughtful`) that cycle by 30-min time bucket when stats are healthy. Subtle CSS animations (breathe / blink / head tilt). Decay model rewritten: hunger ticks once per local midnight, happiness ticks once per local week-end-day, energy decays 1pt/hr only during waking hours (8a–8p local). Feeding is action-driven — hunger from completions sized by effort estimate, happiness from completions + on-time bonus, energy from creates (+5 plain / +10 rich) and from each tracked field that transitions from unset → set on an edit (+1). Settings panel exposes daily hunger drop, weekly happiness drop, and week-end-day. See "Pet redesign" section.
+- **Priority/Estimate UI polish (PR #21)** — bar selectors in the V2 modal got bigger (6-7×26-28 px) and column-wide hitboxes (clicking *anywhere* above a bar selects that value). The `PRI` and `EST` labels are now popover triggers that open a t-shirt picker (`P1 Urgent / P2 High / P3 Medium / P4 Low` and `XS 30 min or less / S ~1 hr / … / XL 16 hrs or more`). Web + mobile.
 - **New schema concepts in `tasks` table**: `when_date` (specific calendar day, separate from `due_date` which is now a hard deadline), `when_bucket` (fuzzy window — today/tomorrow/this_week/next_week/later/someday, mutually exclusive with `when_date`), `parent_task_id` + `depth` (subtask tree, max 3 levels deep, enforced by trigger). Migrations `20260512000001` and `20260512000002` applied to prod.
+- **New `user_preferences` columns (PR #20)**: `hunger_daily_decay` (default 3), `happiness_weekly_decay` (default 10), `week_end_day` (0=Sun..6=Sat, default 0). Migration `20260513000001` applied to prod 2026-05-14.
 - **MCP wired into Claude Code** at user scope via `claude mcp add` — not via `claude_desktop_config.json` (see gotcha #11 below).
 - **Mobile testing path** stays Expo Go for now. EAS dev client build still not done — flagged as next step before testing widgets, voice input, or geofencing.
 
 This doc is the source of truth for *current execution state*. Reference docs in `docs/`:
-- [`docs/pet-feature.md`](pet-feature.md) — pet feature plan (shipped)
+- [`docs/pet-feature.md`](pet-feature.md) — original pet feature plan (shipped; superseded by the "Pet redesign" section below for current mechanics)
 - [`docs/task-input-design/`](task-input-design/) — the round-7 task input redesign + 6-PR plan
 
 ---
@@ -41,6 +44,9 @@ This doc is the source of truth for *current execution state*. Reference docs in
 | GitHub PRs #5–#15 | merged 2026-05-11 — task input redesign series (see section below) |
 | GitHub PR #17 | merged 2026-05-11 (squash `a84a48e`) — V1 modal cleanup (deleted task-edit-dialog.* + TaskEditModal.tsx) |
 | GitHub PR #18 | merged 2026-05-11 (squash `70e01fb`) — V2 tag editing UI (web + mobile) |
+| GitHub PR #19 | merged 2026-05-11 (squash `2206424`) — HANDOFF docs update after #17 + #18 |
+| GitHub PR #20 | merged 2026-05-12 (squash `f4d6789`) — Pip positive redesign (mood enum changes, decay rewrite, settings panel, migration `20260513000001`) |
+| GitHub PR #21 | merged 2026-05-12 (squash `d69cc88`) — bigger priority/estimate hitboxes + t-shirt label pickers (web + mobile) |
 | SSL cert | `cert_a8hWxl7Q5rHsJXDU3Rr5JV6s` — Let's Encrypt, expires 2 Aug 2026 |
 
 ### DNS (Porkbun, but using Cloudflare DNS infrastructure)
@@ -189,6 +195,50 @@ New columns on `tasks`:
 | #13 | views respect `when_date` | `getToday` / `getUpcoming` query both columns; `task-item.tsx` displays when_date chip |
 | #14 | Upcoming range + Chromatic | Upcoming was unbounded on the past and capped at 7d → fixed to `BETWEEN today AND today+30`; bumped Chromatic action to v16 |
 | #15 | include inbox tasks in date views | Status filter was `IN (todo, in_progress)` — excluded inbox-status tasks with `when_date`; now `NOT IN (done, archived)` |
+
+---
+
+## Pet redesign (PR #20, merged 2026-05-12)
+
+Reworked Pip into an intentionally positive companion and rebuilt the decay + feeding mechanics from scratch.
+
+### Mood model
+
+- `PetMoodEnum` now: `happy`, `content`, `curious`, `playful`, `cozy`, `thoughtful`, `tired`, `hungry`, `sleeping`. **No `sad`** — it's gone from the enum, the renderer, and the goal flow. A new `ROTATING_POSITIVE_MOODS` constant lists the six positive variants.
+- `deriveMood` priority order: sleeping (idle >8h + nighttime local) → hungry (`hunger < 30`) → tired (`energy < 30`) → rotating positive. The rotating mood is picked deterministically from a 30-min time bucket so the face changes throughout the day without flickering.
+
+### Decay model
+
+All decay is computed on-read in the user's local timezone — no background scheduler. See [`packages/shared/src/pet-decay.ts`](../packages/shared/src/pet-decay.ts).
+
+- **Hunger** decays by `user_preferences.hunger_daily_decay` (default 3) once per local midnight.
+- **Happiness** decays by `user_preferences.happiness_weekly_decay` (default 10) once per "end of `user_preferences.week_end_day`" (default 0 = Sunday).
+- **Energy** decays 1 pt/hr during waking hours only (local 8a–8p), so an inactive day costs at most 12 energy. No penalty overnight.
+
+### Feeding model
+
+- **Task completion** (`applyTaskDeltas`): hunger += `hungerFromEstimate(duration_minutes)` (30m=1, 1h=2, 2h=3, 4h=4, 8h=5, ≥16h=6, null=1). Happiness += 2 base + `priorityHappinessBonus(priority)` (p4=+1, p3=+2, p2=+3, p1=+4) + 5 if completed on or before When/Due. Energy: 0 from completion.
+- **Task create** (`applyCreateEnergy`): +5 plain, +10 if (effort estimate AND non-default priority) or description set.
+- **Task edit** (`applyEditEnergy`): +1 per tracked field that transitions from unset → set. Tracked fields: priority (p4 → other counts), duration_minutes, when_date, when_bucket, due_date, description, tags ([] → non-empty). Re-editing an already-set field gives 0 (prevents farming).
+
+`TasksApi.create` and `TasksApi.update` both fire these feedings behind a best-effort try/catch so pet plumbing can never break task writes. Update does one extra SELECT for the prior row so transitions can be diffed.
+
+### Migration (`20260513000001_pet_decay_settings.sql`)
+
+Adds three columns to `user_preferences` — `hunger_daily_decay`, `happiness_weekly_decay`, `week_end_day` — each with CHECK constraints and the defaults above. **Applied to prod 2026-05-14.** Code falls back to `DEFAULT_DECAY_PREFERENCES` if the columns are missing.
+
+### Files
+
+| Path | Purpose |
+|---|---|
+| [`packages/shared/src/pet-decay.ts`](../packages/shared/src/pet-decay.ts) | All decay + feeding math. Pure, deterministic, no side effects. |
+| [`packages/shared/src/schemas.ts`](../packages/shared/src/schemas.ts) | `PetMoodEnum`, `ROTATING_POSITIVE_MOODS`, `PetDecayPreferences`, `DEFAULT_DECAY_PREFERENCES`, `TRACKED_FIELDS`, `TrackedField`. |
+| [`packages/api-client/src/pets.ts`](../packages/api-client/src/pets.ts) | `PetsApi.feedFromTask` / `feedFromTaskCreate` / `feedFromTaskEdit`; shared `_persistDelta` helper; `_decayPreferences` (replaces `_userTimezone`). |
+| [`packages/api-client/src/user-prefs.ts`](../packages/api-client/src/user-prefs.ts) | `UserPrefsApi.get` / `updatePetSettings` for the settings panel. |
+| [`packages/api-client/src/tasks.ts`](../packages/api-client/src/tasks.ts) | `create` fires `feedFromTaskCreate`; `update` does one prior-row SELECT then fires both `feedFromTask` (on status→done) and `feedFromTaskEdit` (on field transitions). Best-effort try/catch. |
+| [`apps/web/src/components/pet/Pip.tsx`](../apps/web/src/components/pet/Pip.tsx) | New mood variants + CSS keyframes (`pip-breathe`, `pip-tilt`, `pip-blink`). `animate` prop defaults true; Storybook stories pass `animate={false}` so Chromatic frames are stable. |
+| [`apps/web/src/components/pet/PetPanel.tsx`](../apps/web/src/components/pet/PetPanel.tsx) | `SettingsCard` with three controls. Renders when `petSettings` + `onSavePetSettings` are passed. |
+| [`apps/web/src/components/pet/PetPanelContainer.tsx`](../apps/web/src/components/pet/PetPanelContainer.tsx) | Loads `petSettings` alongside `PetState` via `UserPrefsApi`; wires `onSavePetSettings`. |
 
 ---
 
@@ -342,15 +392,19 @@ In priority order:
 4. **EAS dev client build** — still not done. Required to test widgets, voice input, geofencing, push notifications — none of which run in Expo Go. Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` (replaces `"REPLACE_WITH_EAS_PROJECT_ID"` in `app.config.ts`) → `eas build --profile development --platform android`. ~15 min cloud build, free tier.
 5. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today.
 6. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
-7. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage.
-8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. PR #18 added two new stories (`ManyTagsEditing`, `NoTagsAffordance`) that also need baseline approval.
+7. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. See also the open experiment branch below.
+8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. Stories needing approval: PR #18's `ManyTagsEditing` + `NoTagsAffordance`, PR #20's `Curious` / `Playful` / `Cozy` / `Thoughtful` / `WithSettings`, and PR #21's resized priority/estimate bars + popovers.
+
+### Open experiment branches (not yet PR'd)
+
+- **`experiment/lower-hungry-threshold`** — lowers `deriveMood`'s hungry trigger from `hunger < 30` to `hunger <= 10`, plus two boundary tests. Pushed but no PR opened — Brian wanted to see Pip's rotating positive faces sooner during testing without feeding tasks. Decide whether to ship, tune further, or revert before merging.
 
 ## Verify the repo compiles cleanly
 
 ```bash
 pnpm install
 pnpm typecheck                                   # 9/9 should pass
-pnpm --filter @do-done/shared test               # 45/45 should pass (pet-decay + schemas)
+pnpm --filter @do-done/shared test               # 83/83 should pass (pet-decay rewrite + schemas)
 pnpm --filter @do-done/task-engine test          # 52/52 should pass (parser slash commands etc.)
 pnpm --filter @do-done/api-client test           # 17/17 should pass (busyness + autosave helpers)
 cd apps/web && npx tsc --noEmit                  # web typecheck
