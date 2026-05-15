@@ -8,7 +8,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     user_id: "00000000-0000-0000-0000-000000000001",
     title: "Test task",
     description: null,
-    status: "todo",
+    status: "not_started",
     priority: "p4",
     project_id: null,
     when_date: null,
@@ -63,7 +63,7 @@ describe("generateFocusList", () => {
 
   it("excludes done tasks", () => {
     const tasks = [
-      makeTask({ title: "active", status: "todo" }),
+      makeTask({ title: "active", status: "not_started" }),
       makeTask({ title: "completed", status: "done" }),
     ];
     const result = generateFocusList(tasks);
@@ -71,10 +71,10 @@ describe("generateFocusList", () => {
     expect(result[0].title).toBe("active");
   });
 
-  it("excludes archived tasks", () => {
+  it("excludes cancelled tasks", () => {
     const tasks = [
       makeTask({ title: "active", status: "in_progress" }),
-      makeTask({ title: "archived", status: "archived" }),
+      makeTask({ title: "cancelled", status: "cancelled" }),
     ];
     const result = generateFocusList(tasks);
     expect(result).toHaveLength(1);

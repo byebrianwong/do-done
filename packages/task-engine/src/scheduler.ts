@@ -61,7 +61,7 @@ export function scheduleTasks(
       (t) =>
         t.duration_minutes &&
         t.status !== "done" &&
-        t.status !== "archived"
+        t.status !== "cancelled"
     )
     .sort((a, b) => {
       const order = { p1: 0, p2: 1, p3: 2, p4: 3 };

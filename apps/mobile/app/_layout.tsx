@@ -10,9 +10,12 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
+import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
+import { UndoToastProvider } from '@/components/UndoToast';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { registerUserGeofences } from '@/lib/geofencing';
@@ -63,9 +66,13 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <UndoToastProvider>
+          <RootLayoutNav />
+        </UndoToastProvider>
+      </AuthProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -101,6 +108,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="completed" options={{ title: 'Completed' }} />
       </Stack>
       <DevBanner />
     </ThemeProvider>

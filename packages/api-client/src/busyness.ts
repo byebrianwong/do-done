@@ -96,7 +96,7 @@ export class BusynessApi {
 
   /**
    * Fetch all open tasks scheduled (via when_date) in the given range and
-   * return a DayBusyness[] keyed by YYYY-MM-DD date. Skips done/archived
+   * return a DayBusyness[] keyed by YYYY-MM-DD date. Skips done/cancelled
    * tasks since they aren't part of the "what's coming up" view.
    *
    * Date range is inclusive on both ends. Pass start = today and
@@ -119,8 +119,7 @@ export class BusynessApi {
       .not("when_date", "is", null)
       .gte("when_date", startDate)
       .lte("when_date", endDate)
-      .neq("status", "done")
-      .neq("status", "archived");
+      .not("status", "in", "(done,cancelled,archived)");
 
     if (this.userId) query = query.eq("user_id", this.userId);
 

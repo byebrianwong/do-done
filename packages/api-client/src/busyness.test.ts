@@ -8,7 +8,7 @@ function makeTask(overrides: Partial<Task>): Task {
     user_id: "00000000-0000-0000-0000-000000000099",
     title: "T",
     description: null,
-    status: "todo",
+    status: "not_started",
     priority: "p3",
     project_id: null,
     when_date: null,

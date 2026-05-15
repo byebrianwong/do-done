@@ -20,7 +20,7 @@ export function generateFocusList(
   maxItems: number = 7
 ): Task[] {
   const activeTasks = tasks.filter(
-    (t) => t.status !== "done" && t.status !== "archived"
+    (t) => t.status !== "done" && t.status !== "cancelled"
   );
 
   return activeTasks

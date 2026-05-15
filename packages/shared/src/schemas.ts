@@ -4,10 +4,11 @@ import { z } from "zod";
 
 export const TaskStatus = z.enum([
   "inbox",
-  "todo",
+  "not_started",
+  "next",
   "in_progress",
   "done",
-  "archived",
+  "cancelled",
 ]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 

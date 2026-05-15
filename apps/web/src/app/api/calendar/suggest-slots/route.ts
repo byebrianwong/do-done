@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       t.due_time &&
       t.duration_minutes &&
       t.status !== "done" &&
-      t.status !== "archived" &&
+      t.status !== "cancelled" &&
       (!body.task_id || t.id !== body.task_id)
     ) {
       const tStart = new Date(`${t.due_date}T${t.due_time}:00`);

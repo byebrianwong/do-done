@@ -160,7 +160,7 @@ export const CompletedTasks: Story = {
       makeTask({
         title: "Deep work block",
         priority: "p1",
-        status: "todo",
+        status: "not_started",
         due_date: dayOffset(0),
         due_time: "10:30",
         duration_minutes: 120,

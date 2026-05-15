@@ -1,0 +1,250 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { Task, Project, UpdateTaskInput } from "@do-done/shared";
+import { PRIORITY_CONFIG } from "@do-done/shared";
+import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+
+export interface OverdueSectionProps {
+  tasks: Task[];
+  projects?: Project[];
+}
+
+function todayISO(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+function addDaysISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+/**
+ * Build an UpdateTaskInput that moves an overdue task to a target when_date /
+ * when_bucket, sliding any past due_date forward to keep the deadline plausible.
+ */
+function buildRescheduleInput(
+  task: Task,
+  target:
+    | { kind: "date"; date: string }
+    | { kind: "bucket"; bucket: "this_week" | "today" | "tomorrow" }
+    | { kind: "remove" }
+): UpdateTaskInput {
+  const today = todayISO();
+  if (target.kind === "remove") {
+    return {
+      when_date: null,
+      when_bucket: null,
+      due_date: null,
+      due_time: null,
+    };
+  }
+  if (target.kind === "date") {
+    const input: UpdateTaskInput = {
+      when_date: target.date,
+      when_bucket: null,
+    };
+    if (task.due_date && task.due_date < target.date) {
+      input.due_date = target.date;
+    }
+    return input;
+  }
+  // bucket
+  const input: UpdateTaskInput = {
+    when_date: null,
+    when_bucket: target.bucket,
+  };
+  if (task.due_date && task.due_date < today) {
+    input.due_date = today;
+  }
+  return input;
+}
+
+function OverdueRow({
+  task,
+  onSelect,
+}: {
+  task: Task;
+  onSelect: (target: Parameters<typeof buildRescheduleInput>[1]) => void;
+}) {
+  const priorityColor = PRIORITY_CONFIG[task.priority].color;
+  const lateBy =
+    task.when_date && task.when_date < todayISO()
+      ? task.when_date
+      : task.due_date && task.due_date < todayISO()
+      ? task.due_date
+      : null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-900">
+      <span
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: priorityColor }}
+      />
+      <span className="min-w-0 flex-1 truncate text-sm text-neutral-900 dark:text-neutral-100">
+        {task.title}
+      </span>
+      {lateBy && (
+        <span className="text-xs text-red-500" title={`Was ${lateBy}`}>
+          {lateBy}
+        </span>
+      )}
+      <div className="flex shrink-0 gap-1">
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "date", date: todayISO() })}
+          className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "date", date: addDaysISO(1) })}
+          className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          Tomorrow
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "bucket", bucket: "this_week" })}
+          className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          This week
+        </button>
+        <DatePickerChip
+          value={task.when_date ?? task.due_date ?? todayISO()}
+          onPick={(date) => onSelect({ kind: "date", date })}
+        />
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "remove" })}
+          className="rounded-full px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          title="Remove dates"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DatePickerChip({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (date: string) => void;
+}) {
+  return (
+    <label className="cursor-pointer rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
+      Pick…
+      <input
+        type="date"
+        defaultValue={value}
+        min={todayISO()}
+        onChange={(e) => onPick(e.target.value)}
+        className="sr-only"
+      />
+    </label>
+  );
+}
+
+export function OverdueSection({ tasks }: OverdueSectionProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [open, setOpen] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  if (tasks.length === 0) return null;
+  const visible = tasks.filter((t) => !hidden.has(t.id));
+  if (visible.length === 0) return null;
+
+  async function applyOne(
+    task: Task,
+    target: Parameters<typeof buildRescheduleInput>[1]
+  ) {
+    setBusy(true);
+    const api = await getClientTasksApi();
+    const { error } = await api.update(
+      task.id,
+      buildRescheduleInput(task, target)
+    );
+    setBusy(false);
+    if (error) {
+      console.error("Reschedule failed:", error);
+      return;
+    }
+    setHidden((prev) => new Set(prev).add(task.id));
+    startTransition(() => router.refresh());
+  }
+
+  async function rescheduleAllToToday() {
+    setBusy(true);
+    const api = await getClientTasksApi();
+    const target = { kind: "date" as const, date: todayISO() };
+    const updates = visible.map((t) => ({
+      id: t.id,
+      input: buildRescheduleInput(t, target),
+    }));
+    const { error } = await api.bulkUpdate(updates);
+    setBusy(false);
+    if (error) {
+      console.error("Bulk reschedule failed:", error);
+      return;
+    }
+    setHidden((prev) => {
+      const next = new Set(prev);
+      visible.forEach((t) => next.add(t.id));
+      return next;
+    });
+    startTransition(() => router.refresh());
+  }
+
+  return (
+    <section className="mb-6 rounded-xl border border-red-100 bg-red-50/40 p-3 dark:border-red-950/60 dark:bg-red-950/20">
+      <header className="mb-2 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-700 dark:text-red-400"
+        >
+          <svg
+            className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+          Overdue ({visible.length})
+        </button>
+        <button
+          type="button"
+          onClick={rescheduleAllToToday}
+          disabled={busy}
+          className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
+        >
+          Reschedule all to today
+        </button>
+      </header>
+      {open && (
+        <div className="space-y-0.5">
+          {visible.map((task) => (
+            <OverdueRow
+              key={task.id}
+              task={task}
+              onSelect={(target) => applyOne(task, target)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

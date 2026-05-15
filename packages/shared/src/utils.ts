@@ -1,11 +1,11 @@
 import type { Task } from "./schemas.js";
 
 export function isOverdue(task: Task): boolean {
-  if (!task.due_date || task.status === "done" || task.status === "archived") {
-    return false;
-  }
+  if (task.status === "done" || task.status === "cancelled") return false;
   const today = new Date().toISOString().split("T")[0];
-  return task.due_date < today;
+  if (task.due_date && task.due_date < today) return true;
+  if (task.when_date && task.when_date < today) return true;
+  return false;
 }
 
 export function isDueToday(task: Task): boolean {

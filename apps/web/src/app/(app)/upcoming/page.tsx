@@ -1,4 +1,4 @@
-import { TaskItem } from "@/components/task-item";
+import { DraggableUpcoming } from "@/components/draggable-upcoming-client";
 import {
   getServerTasksApi,
   getServerProjectsApi,
@@ -32,17 +32,38 @@ export default async function UpcomingPage() {
 
   // Group by effective date — when_date wins, due_date is fallback.
   // Tasks with neither (bucket-only or unscheduled) don't show in Upcoming.
-  const groups = new Map<string, Task[]>();
+  const byDate = new Map<string, Task[]>();
   for (const task of tasks) {
     const d = taskDate(task);
     if (!d) continue;
-    const list = groups.get(d) ?? [];
+    const list = byDate.get(d) ?? [];
     list.push(task);
-    groups.set(d, list);
+    byDate.set(d, list);
   }
-  const sortedGroups = [...groups.entries()].sort(([a], [b]) =>
-    a.localeCompare(b)
-  );
+
+  // Always seed the next 14 days as drop targets, even if empty, so the user
+  // has somewhere to drag a task to.
+  const groups: Array<{ date: string; label: string; tasks: Task[] }> = [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const key = d.toISOString().split("T")[0];
+    groups.push({
+      date: key,
+      label: formatDayHeading(key),
+      tasks: byDate.get(key) ?? [],
+    });
+    byDate.delete(key);
+  }
+  // Add any remaining future dates (15+ days out) that have tasks.
+  const remaining = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
+  for (const [date, dayTasks] of remaining) {
+    groups.push({ date, label: formatDayHeading(date), tasks: dayTasks });
+  }
+
+  const hasAny = groups.some((g) => g.tasks.length > 0);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -50,25 +71,12 @@ export default async function UpcomingPage() {
         Upcoming
       </h1>
 
-      {sortedGroups.length > 0 ? (
-        <div className="space-y-6">
-          {sortedGroups.map(([date, dayTasks]) => (
-            <section key={date}>
-              <h2 className="mb-2 border-b border-neutral-100 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:border-neutral-800">
-                {formatDayHeading(date)}
-              </h2>
-              <div className="space-y-0.5">
-                {dayTasks.map((task) => (
-                  <TaskItem key={task.id} task={task} projects={projects} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+      {hasAny ? (
+        <DraggableUpcoming groups={groups} projects={projects} />
       ) : (
         <div className="py-16 text-center">
           <p className="text-sm text-neutral-400">
-            No upcoming tasks in the next 30 days.
+            No upcoming tasks. Schedule one to see it here.
           </p>
         </div>
       )}

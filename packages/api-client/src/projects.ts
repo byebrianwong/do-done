@@ -90,7 +90,12 @@ export class ProjectsApi {
       if (!t.project_id) continue;
       const c = counts.get(t.project_id) ?? { task_count: 0, open_count: 0 };
       c.task_count++;
-      if (t.status !== "done" && t.status !== "archived") c.open_count++;
+      if (
+        t.status !== "done" &&
+        t.status !== "cancelled" &&
+        t.status !== "archived"
+      )
+        c.open_count++;
       counts.set(t.project_id, c);
     }
 

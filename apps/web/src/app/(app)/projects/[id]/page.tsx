@@ -33,7 +33,7 @@ export default async function ProjectDetailPage({
   }
 
   const open = tasks.filter(
-    (t) => t.status !== "done" && t.status !== "archived"
+    (t) => t.status !== "done" && t.status !== "cancelled"
   );
   const done = tasks.filter((t) => t.status === "done");
 
@@ -62,7 +62,7 @@ export default async function ProjectDetailPage({
         <ProjectActions project={project} />
       </div>
 
-      <TaskForm defaultStatus="todo" />
+      <TaskForm defaultStatus="not_started" />
 
       {open.length > 0 ? (
         <section className="mb-8">

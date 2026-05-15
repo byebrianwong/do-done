@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   } else {
     for (const task of pushable) {
       if (!task.due_date || !task.duration_minutes) continue;
-      if (task.status === "done" || task.status === "archived") continue;
+      if (task.status === "done" || task.status === "cancelled") continue;
 
       try {
         const eventId = await pushTaskToCalendar(
