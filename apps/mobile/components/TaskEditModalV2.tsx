@@ -14,6 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Modal,
   View,
   Text,
@@ -818,6 +819,33 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
       </ScrollView>
 
       <View style={styles.bottomBar}>
+        <Pressable
+          onPress={() => {
+            Alert.alert(
+              "Delete task?",
+              `“${current.title}” will be permanently deleted.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: async () => {
+                    const { error } = await tasksApiMemo.delete(task.id);
+                    if (error) {
+                      console.error("Delete failed:", error);
+                      return;
+                    }
+                    onClose();
+                  },
+                },
+              ]
+            );
+          }}
+          hitSlop={8}
+          style={styles.deleteBtn}
+        >
+          <Text style={styles.deleteBtnLabel}>Delete</Text>
+        </Pressable>
         <Pressable onPress={onClose} style={styles.doneBtn}>
           <View style={styles.doneBtnCheck}>
             <Text style={styles.doneBtnCheckMark}>✓</Text>
@@ -1145,13 +1173,22 @@ const styles = StyleSheet.create({
   },
 
   bottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 22,
     borderTopWidth: 1,
     borderTopColor: "#f3f4f6",
   },
+  deleteBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  deleteBtnLabel: { color: "#dc2626", fontSize: 14, fontWeight: "700" },
   doneBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

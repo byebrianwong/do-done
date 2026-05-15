@@ -14,7 +14,7 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 export function TaskForm({
   defaultStatus = "inbox",
 }: {
-  defaultStatus?: "inbox" | "todo";
+  defaultStatus?: "inbox" | "not_started";
 }) {
   const router = useRouter();
   const [input, setInput] = useState("");

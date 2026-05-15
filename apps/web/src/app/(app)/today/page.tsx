@@ -1,10 +1,13 @@
 import { TaskForm } from "@/components/task-form";
 import { TaskItem } from "@/components/task-item";
+import { OverdueSection } from "@/components/overdue-section";
+import { SortableTaskList } from "@/components/sortable-task-list-client";
 import {
   getServerTasksApi,
   getServerProjectsApi,
 } from "@/lib/supabase/tasks-server";
 import { taskDate } from "@do-done/api-client";
+import { isOverdue } from "@do-done/shared";
 import { generateFocusList } from "@do-done/task-engine";
 
 export default async function TodayPage() {
@@ -18,17 +21,21 @@ export default async function TodayPage() {
   ]);
 
   const active = allTasks.filter(
-    (t) => t.status !== "done" && t.status !== "archived"
+    (t) => t.status !== "done" && t.status !== "cancelled"
   );
 
-  const focusList = generateFocusList(active, 3);
+  const overdue = active.filter(isOverdue);
+  const overdueIds = new Set(overdue.map((t) => t.id));
+  const fresh = active.filter((t) => !overdueIds.has(t.id));
+
+  const focusList = generateFocusList(fresh, 3);
   const focusIds = new Set(focusList.map((t) => t.id));
 
   const today = new Date().toISOString().split("T")[0];
   // Show tasks that are scheduled (when_date) or due (due_date) on/before
   // today, plus tasks bucketed as 'today'. when_date takes precedence per
-  // taskDate().
-  const otherToday = active.filter((t) => {
+  // taskDate(). Overdue tasks are surfaced in their own section above.
+  const otherToday = fresh.filter((t) => {
     if (focusIds.has(t.id)) return false;
     if (t.when_bucket === "today") return true;
     const d = taskDate(t);
@@ -41,7 +48,9 @@ export default async function TodayPage() {
         Today
       </h1>
 
-      <TaskForm defaultStatus="todo" />
+      <TaskForm defaultStatus="not_started" />
+
+      <OverdueSection tasks={overdue} projects={projects} />
 
       {focusList.length > 0 && (
         <section className="mb-8">
@@ -76,21 +85,19 @@ export default async function TodayPage() {
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400">
             Other tasks
           </h2>
-          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            {otherToday.map((task) => (
-              <TaskItem key={task.id} task={task} projects={projects} />
-            ))}
-          </div>
+          <SortableTaskList tasks={otherToday} projects={projects} />
         </section>
       )}
 
-      {focusList.length === 0 && otherToday.length === 0 && (
-        <div className="py-16 text-center">
-          <p className="text-sm text-neutral-400">
-            Nothing scheduled for today. Add a task above.
-          </p>
-        </div>
-      )}
+      {focusList.length === 0 &&
+        otherToday.length === 0 &&
+        overdue.length === 0 && (
+          <div className="py-16 text-center">
+            <p className="text-sm text-neutral-400">
+              Nothing scheduled for today. Add a task above.
+            </p>
+          </div>
+        )}
     </div>
   );
 }

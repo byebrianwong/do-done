@@ -2,16 +2,48 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { PRIORITY_CONFIG } from "@do-done/shared";
-import type { Task, Project } from "@do-done/shared";
+import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from "@do-done/shared";
+import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { ScheduleButton } from "./schedule-button";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
+import { useUndoToast } from "./undo-toast";
 
 export interface TaskItemProps {
   task: Task;
   projects?: Project[];
+}
+
+/**
+ * Compact priority indicator: 4 vertical bars with increasing heights.
+ * Bars lit count = 5 − priority number (so p1 lights all 4, p4 lights one).
+ * Static, non-interactive — the editor uses the bigger PrioritySignal.
+ */
+function PriorityBars({ priority }: { priority: TaskPriority }) {
+  const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[priority];
+  const color = PRIORITY_CONFIG[priority].color;
+  const heights = ["h-1", "h-1.5", "h-2", "h-2.5"];
+  return (
+    <span
+      className="inline-flex items-end gap-[2px]"
+      title={`Priority: ${PRIORITY_CONFIG[priority].label}`}
+      aria-label={`Priority ${PRIORITY_CONFIG[priority].label}`}
+    >
+      {[0, 1, 2, 3].map((i) => {
+        const lit = i < litCount;
+        return (
+          <span
+            key={i}
+            className={`block w-[3px] rounded-[1px] ${heights[i]} ${
+              lit ? "" : "bg-neutral-200 dark:bg-neutral-700"
+            }`}
+            style={lit ? { backgroundColor: color } : undefined}
+          />
+        );
+      })}
+    </span>
+  );
 }
 
 function formatDueDate(dateStr: string): string {
@@ -50,8 +82,24 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   const [hovering, setHovering] = useState(false);
   const [editing, setEditing] = useState(false);
   const [, startTransition] = useTransition();
-  const priorityColor = PRIORITY_CONFIG[task.priority].color;
+  const toast = useUndoToast();
   const canSchedule = !!task.duration_minutes && !task.due_time;
+  const project = task.project_id
+    ? projects?.find((p) => p.id === task.project_id)
+    : null;
+  // STATUS_CONFIG[task.status] can be undefined for an unmigrated DB still
+  // serving legacy 'todo' / 'archived' values — guard before reading .color.
+  const statusCfg = STATUS_CONFIG[task.status];
+  // The checkbox circle now reflects status (not priority). Fall back to a
+  // neutral gray if the status is unknown.
+  const statusColor = statusCfg?.color ?? "#94a3b8";
+  // Show a status text chip for everything that isn't the boring default —
+  // the circle color already encodes status, so this is redundant for the
+  // default cases. Kept for `next`, `in_progress`, `done`, `cancelled`.
+  const showStatusBadge =
+    !!statusCfg &&
+    task.status !== "not_started" &&
+    task.status !== "inbox";
 
   async function handleToggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -61,12 +109,24 @@ export function TaskItem({ task, projects }: TaskItemProps) {
     const tasks = await getClientTasksApi();
     const { error } = next
       ? await tasks.complete(task.id)
-      : await tasks.update(task.id, { status: "todo" });
+      : await tasks.reopen(task.id);
 
     if (error) {
       setCompleted(!next);
       console.error("Failed to update task:", error);
       return;
+    }
+
+    if (next) {
+      toast.show({
+        message: `Completed “${task.title}”`,
+        undo: async () => {
+          const api = await getClientTasksApi();
+          await api.reopen(task.id);
+          setCompleted(false);
+          startTransition(() => router.refresh());
+        },
+      });
     }
 
     startTransition(() => router.refresh());
@@ -88,7 +148,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           <span
             className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
             style={{
-              borderColor: completed ? "#d4d4d4" : priorityColor,
+              borderColor: completed ? "#d4d4d4" : statusColor,
               backgroundColor: completed ? "#d4d4d4" : "transparent",
             }}
           >
@@ -109,6 +169,8 @@ export function TaskItem({ task, projects }: TaskItemProps) {
             )}
           </span>
         </button>
+
+        <PriorityBars priority={task.priority} />
 
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
@@ -149,6 +211,41 @@ export function TaskItem({ task, projects }: TaskItemProps) {
                 />
               </svg>
               {formatRrule(task.recurrence_rule)}
+            </span>
+          )}
+
+          {project && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"
+              title={`Project: ${project.name}`}
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: project.color }}
+              />
+              {project.name}
+            </span>
+          )}
+
+          {task.duration_minutes && (
+            <span
+              className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+              title="Time estimate"
+            >
+              ~{formatDuration(task.duration_minutes)}
+            </span>
+          )}
+
+          {showStatusBadge && statusCfg && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+              style={{
+                color: statusCfg.color,
+                backgroundColor: `${statusCfg.color}1a`,
+              }}
+              title={statusCfg.label}
+            >
+              {statusCfg.label}
             </span>
           )}
         </div>

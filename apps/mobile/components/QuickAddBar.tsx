@@ -43,12 +43,12 @@ if (!IS_EXPO_GO) {
 const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 
 interface QuickAddBarProps {
-  defaultStatus?: 'inbox' | 'todo';
+  defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
 }
 
 export default function QuickAddBar({
-  defaultStatus = 'todo',
+  defaultStatus = 'not_started',
   onCreated,
 }: QuickAddBarProps) {
   const [text, setText] = useState('');

@@ -26,5 +26,5 @@ export const InboxMode: Story = {
 };
 
 export const TodoMode: Story = {
-  args: { defaultStatus: "todo" },
+  args: { defaultStatus: "not_started" },
 };

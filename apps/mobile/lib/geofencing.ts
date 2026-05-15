@@ -67,7 +67,7 @@ if (!IS_EXPO_GO) {
 
         for (const link of taskLocations) {
           const { data: task } = await tasksApi.getById(link.task_id);
-          if (!task || task.status === 'done' || task.status === 'archived')
+          if (!task || task.status === 'done' || task.status === 'cancelled')
             continue;
 
           const locationName =

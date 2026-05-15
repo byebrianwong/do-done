@@ -1,6 +1,7 @@
 import { SidebarNav } from "@/components/sidebar-nav";
 import { CommandPalette } from "@/components/command-palette";
 import { PetPanelContainer } from "@/components/pet/PetPanelContainer";
+import { UndoToastProvider } from "@/components/undo-toast";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi } from "@do-done/api-client";
 import type { Project } from "@do-done/shared";
@@ -23,6 +24,7 @@ export default async function AppLayout({
   }
 
   return (
+    <UndoToastProvider>
     <div className="flex min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex h-14 items-center px-5">
@@ -81,5 +83,6 @@ export default async function AppLayout({
 
       <CommandPalette projects={projects} />
     </div>
+    </UndoToastProvider>
   );
 }

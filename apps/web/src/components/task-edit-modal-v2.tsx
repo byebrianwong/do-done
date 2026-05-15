@@ -9,8 +9,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
+  STATUS_CONFIG,
+  STATUS_ORDER,
   type Task,
   type TaskPriority,
+  type TaskStatus,
   type WhenBucket,
 } from "@do-done/shared";
 import {
@@ -231,6 +234,78 @@ function EstimateEqualizer({
 }
 
 // ── Priority / Estimate field wrappers (label opens popover picker) ────────
+
+function StatusField({
+  value,
+  onChange,
+}: {
+  value: TaskStatus;
+  onChange: (s: TaskStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const cfg = STATUS_CONFIG[value];
+
+  return (
+    <div ref={ref} className="relative flex items-center gap-2">
+      <span className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+        Status
+      </span>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+      >
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: cfg.color }}
+        />
+        {cfg.label}
+        <span className="text-neutral-400">▾</span>
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label="Status options"
+          className="absolute left-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          {STATUS_ORDER.map((s) => {
+            const c = STATUS_CONFIG[s];
+            const selected = s === value;
+            return (
+              <button
+                key={s}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  onChange(s);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                  selected
+                    ? "bg-neutral-100 dark:bg-neutral-900"
+                    : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: c.color }}
+                />
+                <span className="text-neutral-800 dark:text-neutral-200">
+                  {c.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function PriorityField({
   value,
@@ -998,6 +1073,11 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
 
           {/* Inline meta */}
           <div className="flex flex-wrap items-center gap-4 border-y border-neutral-100 py-3 dark:border-neutral-900">
+            <StatusField
+              value={current.status}
+              onChange={(s) => setField("status", s)}
+            />
+            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
             <PriorityField
               value={current.priority}
               onChange={(p) => setField("priority", p)}
@@ -1026,11 +1106,28 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
-          <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
-            <Kbd>1</Kbd>-<Kbd>4</Kbd>
-            <span className="mx-1">priority</span>
-            <Kbd>Esc</Kbd>
-            <span className="mx-1">close</span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm(`Delete “${current.title}”? This cannot be undone.`)) return;
+                const { error } = await tasksApi.delete(task.id);
+                if (error) {
+                  console.error("Delete failed:", error);
+                  return;
+                }
+                handleClose();
+              }}
+              className="rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              Delete
+            </button>
+            <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+              <Kbd>1</Kbd>-<Kbd>4</Kbd>
+              <span className="mx-1">priority</span>
+              <Kbd>Esc</Kbd>
+              <span className="mx-1">close</span>
+            </div>
           </div>
           <DoneButton onClick={handleClose} />
         </div>

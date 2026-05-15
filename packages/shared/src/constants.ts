@@ -12,14 +12,31 @@ export const PRIORITY_CONFIG: Record<
 
 export const STATUS_CONFIG: Record<
   TaskStatus,
-  { label: string; icon: string }
+  { label: string; icon: string; color: string }
 > = {
-  inbox: { label: "Inbox", icon: "tray" },
-  todo: { label: "To Do", icon: "circle" },
-  in_progress: { label: "In Progress", icon: "play" },
-  done: { label: "Done", icon: "check" },
-  archived: { label: "Archived", icon: "archive" },
+  inbox: { label: "Inbox", icon: "tray", color: "#6b7280" },
+  not_started: { label: "Not started", icon: "circle", color: "#94a3b8" },
+  next: { label: "Next", icon: "arrow-right", color: "#6366f1" },
+  in_progress: { label: "In progress", icon: "play", color: "#f59e0b" },
+  done: { label: "Done", icon: "check", color: "#16a34a" },
+  cancelled: { label: "Cancelled", icon: "x", color: "#9ca3af" },
 };
+
+// Status ordering for pickers / sort. Mirrors the natural lifecycle.
+export const STATUS_ORDER: readonly TaskStatus[] = [
+  "inbox",
+  "not_started",
+  "next",
+  "in_progress",
+  "done",
+  "cancelled",
+] as const;
+
+// "Terminal" statuses — task is finished (either done or cancelled).
+export const TERMINAL_STATUSES: readonly TaskStatus[] = [
+  "done",
+  "cancelled",
+] as const;
 
 export const FOCUS_SCORES = {
   OVERDUE: 100,

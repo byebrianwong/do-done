@@ -1,5 +1,6 @@
 import { getServerTasksApi, getServerProjectsApi } from "@/lib/supabase/tasks-server";
-import { WeekView } from "@/components/week-view";
+import { WeekView } from "@/components/week-view-client";
+import { taskDate } from "@do-done/api-client";
 import type { Task, Project } from "@do-done/shared";
 
 function getWeekStart(date: Date): Date {
@@ -31,18 +32,19 @@ export default async function CalendarPage({
   let tasks: Task[] = [];
   let projects: Project[] = [];
   if (tasksApi && projectsApi) {
-    const startStr = weekStart.toISOString().split("T")[0];
-    const endStr = weekEnd.toISOString().split("T")[0];
-    const [tasksRes, projectsRes] = await Promise.all([
-      tasksApi.list({
-        due_after: startStr,
-        due_before: endStr,
-        limit: 200,
-        offset: 0,
-      }),
+    // The list() helper filters by due_date only — that's too narrow for the
+    // calendar because most tasks use when_date (the Things-style "do date").
+    // Fetch the full active set and filter by effective date client-side.
+    const [allRes, projectsRes] = await Promise.all([
+      tasksApi.list({ limit: 200, offset: 0 }),
       projectsApi.list(),
     ]);
-    tasks = tasksRes.data;
+    const startStr = weekStart.toISOString().split("T")[0];
+    const endStr = weekEnd.toISOString().split("T")[0];
+    tasks = allRes.data.filter((t) => {
+      const d = taskDate(t);
+      return d !== null && d >= startStr && d < endStr;
+    });
     projects = projectsRes.data;
   }
 

@@ -9,6 +9,26 @@ import type {
 } from "@do-done/shared";
 import { TRACKED_FIELDS } from "@do-done/shared";
 
+/**
+ * Map legacy DB status values to the new enum so old rows render correctly
+ * the moment the new code deploys, even if the SQL migration hasn't run yet.
+ * `todo` → `not_started`, `archived` → `cancelled`. Once the migration
+ * runs, no row matches the legacy strings and these helpers are no-ops.
+ *
+ * Note: WRITES of `not_started`, `next`, or `cancelled` will fail the
+ * unmigrated CHECK constraint. Apply migration `20260515000001` first.
+ */
+function normalizeTask<T extends { status: string } | null>(row: T): T {
+  if (!row) return row;
+  let s = row.status as string;
+  if (s === "todo") s = "not_started";
+  else if (s === "archived") s = "cancelled";
+  return { ...row, status: s } as T;
+}
+function normalizeTasks<T extends { status: string }>(rows: T[]): T[] {
+  return rows.map((r) => normalizeTask(r) as T);
+}
+
 export class TasksApi {
   constructor(
     private supabase: SupabaseClient,
@@ -34,7 +54,10 @@ export class TasksApi {
       .range(filters?.offset ?? 0, (filters?.offset ?? 0) + (filters?.limit ?? 50) - 1);
 
     const { data, error } = await query;
-    return { data: (data as Task[]) ?? [], error: error as Error | null };
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
   }
 
   async getById(id: string): Promise<{ data: Task | null; error: Error | null }> {
@@ -43,7 +66,10 @@ export class TasksApi {
       .select("*")
       .eq("id", id)
       .single();
-    return { data: data as Task | null, error: error as Error | null };
+    return {
+      data: normalizeTask(data as Task | null),
+      error: error as Error | null,
+    };
   }
 
   async create(input: CreateTaskInput): Promise<{ data: Task | null; error: Error | null }> {
@@ -59,7 +85,7 @@ export class TasksApi {
     if (error || !data) {
       return { data: null, error: error as Error | null };
     }
-    const created = data as Task;
+    const created = normalizeTask(data as Task);
     // Feed Pip an energy bump for the create. Best-effort — never block or
     // fail the task insert if pet plumbing has problems.
     void (async () => {
@@ -109,7 +135,7 @@ export class TasksApi {
     if (error || !data) {
       return { data: null, error: error as Error | null };
     }
-    const updated = data as Task;
+    const updated = normalizeTask(data as Task);
 
     // Pet feeding — completion + edit are independent and may both fire on
     // the same write (e.g. user saves the task with a new description AND
@@ -154,13 +180,96 @@ export class TasksApi {
     return this.update(id, { status: "done" }, actor);
   }
 
+  async delete(id: string): Promise<{ error: Error | null }> {
+    // Hard delete. FKs handle cleanup: task_locations cascade,
+    // pet_events.task_id sets null, child tasks (parent_task_id) cascade.
+    const { error } = await this.supabase.from("tasks").delete().eq("id", id);
+    return { error: error as Error | null };
+  }
+
+  async reopen(id: string): Promise<{ data: Task | null; error: Error | null }> {
+    // Move a done task back to active (not_started) and clear completed_at.
+    // We don't route through update() because we want completed_at cleared
+    // regardless of the input shape, which update()'s patch logic doesn't
+    // handle on its own.
+    const { data, error } = await this.supabase
+      .from("tasks")
+      .update({ status: "not_started", completed_at: null })
+      .eq("id", id)
+      .select()
+      .single();
+    return {
+      data: normalizeTask(data as Task | null),
+      error: error as Error | null,
+    };
+  }
+
+  async bulkUpdate(
+    updates: Array<{ id: string; input: UpdateTaskInput }>
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    // Fan out to individual updates so each one stamps completed_at, fires pet
+    // events, etc. Supabase has no native batch-update for distinct patches.
+    // Runs in parallel to amortize round-trip cost.
+    const results = await Promise.all(
+      updates.map(({ id, input }) => this.update(id, input))
+    );
+    const data: Task[] = [];
+    for (const r of results) {
+      if (r.error) return { data: [], error: r.error };
+      if (r.data) data.push(r.data);
+    }
+    return { data, error: null };
+  }
+
+  async listCompleted(opts?: {
+    limit?: number;
+    before?: string;
+  }): Promise<{ data: Task[]; error: Error | null }> {
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .eq("status", "done")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(opts?.limit ?? 200);
+    if (opts?.before) query = query.lt("completed_at", opts.before);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
+  async listOverdue(): Promise<{ data: Task[]; error: Error | null }> {
+    // Tasks whose when_date OR due_date is strictly before today,
+    // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.
+    const today = new Date().toISOString().split("T")[0];
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .not("status", "in", "(done,cancelled,archived)")
+      .or(`when_date.lt.${today},due_date.lt.${today}`)
+      .order("priority")
+      .order("sort_order");
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
   async search(query: string): Promise<{ data: Task[]; error: Error | null }> {
     const { data, error } = await this.supabase
       .from("tasks")
       .select("*")
       .textSearch("fts", query)
       .limit(20);
-    return { data: (data as Task[]) ?? [], error: error as Error | null };
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
   }
 
   async getInbox(): Promise<{ data: Task[]; error: Error | null }> {
@@ -171,14 +280,14 @@ export class TasksApi {
     // Today = anything scheduled to be DONE on or before today (when_date),
     // OR DUE on or before today (due_date), OR bucketed as 'today'.
     //
-    // Status filter is "anything not closed" (not done, not archived).
+    // Status filter is "anything not closed" (not done, not cancelled).
     // Crucially, inbox tasks with a when_date set DO show up here —
     // scheduling a task no longer requires moving it out of inbox.
     const today = new Date().toISOString().split("T")[0];
     let query = this.supabase
       .from("tasks")
       .select("*")
-      .not("status", "in", "(done,archived)")
+      .not("status", "in", "(done,cancelled,archived)")
       .or(
         `when_date.lte.${today},due_date.lte.${today},when_bucket.eq.today`
       )
@@ -188,7 +297,10 @@ export class TasksApi {
     if (this.userId) query = query.eq("user_id", this.userId);
 
     const { data, error } = await query;
-    return { data: (data as Task[]) ?? [], error: error as Error | null };
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
   }
 
   async getUpcoming(days: number = 30): Promise<{ data: Task[]; error: Error | null }> {
@@ -207,7 +319,7 @@ export class TasksApi {
     let query = this.supabase
       .from("tasks")
       .select("*")
-      .not("status", "in", "(done,archived)")
+      .not("status", "in", "(done,cancelled,archived)")
       .or(
         `and(when_date.gte.${today},when_date.lte.${endDate}),and(due_date.gte.${today},due_date.lte.${endDate})`
       )
@@ -218,7 +330,10 @@ export class TasksApi {
     if (this.userId) query = query.eq("user_id", this.userId);
 
     const { data, error } = await query;
-    return { data: (data as Task[]) ?? [], error: error as Error | null };
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
   }
 }
 

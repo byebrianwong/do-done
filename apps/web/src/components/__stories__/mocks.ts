@@ -49,7 +49,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     id: `task-${Math.random().toString(36).slice(2, 9)}`,
     title: "Sample task",
     priority: "p3",
-    status: "todo",
+    status: "not_started",
     ...overrides,
   } as Task;
 }
@@ -58,7 +58,7 @@ export const SAMPLE_TASKS: Task[] = [
   makeTask({
     title: "Fix critical login bug",
     priority: "p1",
-    status: "todo",
+    status: "not_started",
     due_date: TODAY,
     tags: ["urgent", "work"],
   }),
@@ -81,7 +81,7 @@ export const SAMPLE_TASKS: Task[] = [
   makeTask({
     title: "Team standup",
     priority: "p2",
-    status: "todo",
+    status: "not_started",
     due_date: TODAY,
     due_time: "09:30",
     duration_minutes: 30,
@@ -95,14 +95,14 @@ export const SAMPLE_TASKS: Task[] = [
   makeTask({
     title: "Pay credit card bill",
     priority: "p1",
-    status: "todo",
+    status: "not_started",
     due_date: YESTERDAY,
     tags: ["finance"],
   }),
   makeTask({
     title: "Plan weekend trip",
     priority: "p4",
-    status: "todo",
+    status: "not_started",
     due_date: TOMORROW,
     tags: ["personal"],
   }),

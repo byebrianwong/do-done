@@ -24,7 +24,7 @@ export function generateWeeklySummary(
       t.due_date &&
       t.due_date < new Date().toISOString().split("T")[0] &&
       t.status !== "done" &&
-      t.status !== "archived"
+      t.status !== "cancelled"
   );
 
   // Priority distribution of completed tasks
