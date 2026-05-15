@@ -191,8 +191,16 @@ describe("deriveMood", () => {
     return { hunger: h, happiness: ha, energy: e };
   }
 
-  it("hungry when hunger < 30", () => {
-    expect(deriveMood(stats(20, 80, 80), null, PREFS, noon)).toBe("hungry");
+  it("hungry when hunger ≤ 10", () => {
+    expect(deriveMood(stats(10, 80, 80), null, PREFS, noon)).toBe("hungry");
+    expect(deriveMood(stats(5, 80, 80), null, PREFS, noon)).toBe("hungry");
+  });
+
+  it("NOT hungry when hunger is 11+ (Pip stays positive through normal fluctuations)", () => {
+    const m1 = deriveMood(stats(11, 80, 80), null, PREFS, noon);
+    const m2 = deriveMood(stats(25, 80, 80), null, PREFS, noon);
+    expect(m1).not.toBe("hungry");
+    expect(m2).not.toBe("hungry");
   });
 
   it("tired when energy < 30 (and hunger ok)", () => {

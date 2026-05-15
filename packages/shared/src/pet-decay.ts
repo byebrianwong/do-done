@@ -284,7 +284,8 @@ function rotatingMoodIndex(now: Date, salt: number = 0): number {
  *
  * Priority order:
  *   1. sleeping  — last user activity > 8h AND it's nighttime in user's tz
- *   2. hungry    — hunger < 30
+ *   2. hungry    — hunger ≤ 10 (only at critically low stat — Pip stays
+ *                  positive through normal fluctuations)
  *   3. tired     — energy < 30
  *   4. (rotate)  — pseudo-random positive expression from ROTATING_POSITIVE_MOODS
  *
@@ -307,7 +308,7 @@ export function deriveMood(
     }
   }
 
-  if (stats.hunger < 30) return "hungry";
+  if (stats.hunger <= 10) return "hungry";
   if (stats.energy < 30) return "tired";
 
   return ROTATING_POSITIVE_MOODS[rotatingMoodIndex(now)];
