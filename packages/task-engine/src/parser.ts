@@ -9,6 +9,19 @@ const PRIORITY_PATTERNS: [RegExp, TaskPriority][] = [
   [/\bp4\b/i, "p4"],
 ];
 
+// T-shirt-size hashtag shortcuts for estimates. The # is REQUIRED — bare
+// "s", "m", "l" are far too common in English to read as size codes.
+// Order doesn't matter because each literal `#xxl`, `#xs` etc. is disjoint
+// (e.g. "#xl" does not appear inside "#xxl").
+const ESTIMATE_SHORTCUT_PATTERNS: [RegExp, number][] = [
+  [/#xxl\b/i, 960],
+  [/#xl\b/i, 480],
+  [/#xs\b/i, 30],
+  [/#s\b/i, 60],
+  [/#m\b/i, 120],
+  [/#l\b/i, 240],
+];
+
 // /<command> slash commands for "when" scheduling.
 // Two flavors:
 //   - WHEN_DATE_PATTERNS resolve to a specific calendar date relative to ref
@@ -102,6 +115,19 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     }
   }
 
+  // Extract estimate shortcuts (#xs, #s, #m, #l, #xl, #xxl) BEFORE
+  // generic tag extraction — otherwise the tag pattern would consume
+  // them as tag names. First match wins (and we already ordered them so
+  // there are no substring conflicts).
+  let shortcutDuration: number | undefined;
+  for (const [pattern, mins] of ESTIMATE_SHORTCUT_PATTERNS) {
+    if (pattern.test(text)) {
+      shortcutDuration = mins;
+      text = text.replace(pattern, " ").trim();
+      break;
+    }
+  }
+
   // Extract tags
   const tags: string[] = [];
   let tagMatch: RegExpExecArray | null;
@@ -121,8 +147,9 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     text = text.replace(PROJECT_PATTERN, "").trim();
   }
 
-  // Extract duration. Prefer the explicit ~ prefix (matches the round-7
-  // UI vocabulary) and fall back to bare "1.5h" for backwards compat.
+  // Extract duration. Precedence: explicit ~ prefix > bare "1.5h" >
+  // size-hashtag shortcut. An explicit numeric estimate beats a size
+  // hashtag if the user happened to type both.
   let durationMinutes: number | undefined;
   const estPrefixMatch = ESTIMATE_PREFIX_PATTERN.exec(text);
   if (estPrefixMatch) {
@@ -138,6 +165,9 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
       durationMinutes = unit.startsWith("h") ? Math.round(value * 60) : Math.round(value);
       text = text.replace(DURATION_PATTERN, "").trim();
     }
+  }
+  if (durationMinutes === undefined && shortcutDuration !== undefined) {
+    durationMinutes = shortcutDuration;
   }
 
   // Extract recurrence (before chrono-node, since "every monday" overlaps)
@@ -171,8 +201,13 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     text = text.replace(result.text, "").trim();
   }
 
-  // Clean up extra whitespace
-  const title = text.replace(/\s+/g, " ").trim();
+  // Clean up extra whitespace and orphan `#` chars left over when a
+  // shortcut consumed only the body of a `#token` (e.g. priority match
+  // `\bp2\b` strips "p2" out of "#p2" but leaves the leading `#`).
+  const title = text
+    .replace(/(^|\s)#(?=\s|$)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return {
     title: title || raw.trim(),

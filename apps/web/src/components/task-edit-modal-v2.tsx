@@ -1241,22 +1241,62 @@ type ParsedToken = {
   removable?: { tag: string };
 };
 
-// Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
-// `#word` is left alone so the user can keep typing.
+// Shortcut maps — `#xs`/`#s`/`#m`/`#l`/`#xl`/`#xxl` set duration_minutes;
+// `#p1`/`#p2`/`#p3`/`#p4` set priority. Anything else becomes a regular tag.
+const ESTIMATE_SHORTCUTS: Record<string, number> = {
+  xs: 30,
+  s: 60,
+  m: 120,
+  l: 240,
+  xl: 480,
+  xxl: 960,
+};
+const PRIORITY_SHORTCUTS: Record<string, TaskPriority> = {
+  p1: "p1",
+  p2: "p2",
+  p3: "p3",
+  p4: "p4",
+};
+
+// Extract whitespace-terminated `#token` from text. Tokens are classified:
+//   - estimate shortcut → durationMinutes
+//   - priority shortcut → priority
+//   - otherwise → tag
+// Partial (unterminated) `#word` is left alone so the user can keep typing.
 function extractCompletedTags(text: string): {
   stripped: string;
   tags: string[];
+  priority?: TaskPriority;
+  durationMinutes?: number;
 } {
   const tags: string[] = [];
+  let priority: TaskPriority | undefined;
+  let durationMinutes: number | undefined;
   const re = /#(\w+)(\s+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    tags.push(m[1]);
+    const token = m[1].toLowerCase();
+    if (token in ESTIMATE_SHORTCUTS) {
+      durationMinutes = ESTIMATE_SHORTCUTS[token];
+    } else if (token in PRIORITY_SHORTCUTS) {
+      priority = PRIORITY_SHORTCUTS[token];
+    } else {
+      tags.push(m[1]);
+    }
   }
-  if (tags.length === 0) return { stripped: text, tags };
-  // Replace each match with a single space, then collapse double spaces.
-  const stripped = text.replace(/#(\w+)\s+/g, " ").replace(/\s{2,}/g, " ");
-  return { stripped, tags };
+  if (
+    tags.length === 0 &&
+    priority === undefined &&
+    durationMinutes === undefined
+  ) {
+    return { stripped: text, tags };
+  }
+  // Strip every completed `#token\s+` match — whether tag, priority, or
+  // estimate — then collapse the resulting double spaces.
+  const stripped = text
+    .replace(/#(\w+)\s+/g, " ")
+    .replace(/\s{2,}/g, " ");
+  return { stripped, tags, priority, durationMinutes };
 }
 
 function SlashCommandInput({
@@ -1497,11 +1537,24 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
   }
 
   const handleTitleChange = (v: string) => {
-    const { stripped, tags: extracted } = extractCompletedTags(v);
-    if (extracted.length > 0) {
-      const existing = new Set(current.tags);
-      const fresh = extracted.filter((t) => !existing.has(t));
-      if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+    const {
+      stripped,
+      tags: extracted,
+      priority: extractedPriority,
+      durationMinutes: extractedDuration,
+    } = extractCompletedTags(v);
+    const consumed =
+      extracted.length > 0 ||
+      extractedPriority !== undefined ||
+      extractedDuration !== undefined;
+    if (consumed) {
+      if (extracted.length > 0) {
+        const existing = new Set(current.tags);
+        const fresh = extracted.filter((t) => !existing.has(t));
+        if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      }
+      if (extractedPriority) setField("priority", extractedPriority);
+      if (extractedDuration) setField("duration_minutes", extractedDuration);
       setTitleDraft(stripped);
       setField("title", stripped);
     } else {

@@ -158,4 +158,57 @@ describe("parseTaskInput", () => {
       expect(result.duration_minutes).toBe(60);
     });
   });
+
+  describe("t-shirt-size hashtag shortcuts", () => {
+    it("#xs → 30 min", () => {
+      const result = parseTaskInput("triage tickets #xs", REF_DATE);
+      expect(result.duration_minutes).toBe(30);
+      expect(result.title).toBe("triage tickets");
+      expect(result.tags ?? []).not.toContain("xs");
+    });
+
+    it("#s → 60 min", () => {
+      const result = parseTaskInput("review PR #s", REF_DATE);
+      expect(result.duration_minutes).toBe(60);
+    });
+
+    it("#m → 120 min", () => {
+      const result = parseTaskInput("draft proposal #m", REF_DATE);
+      expect(result.duration_minutes).toBe(120);
+    });
+
+    it("#l → 240 min", () => {
+      const result = parseTaskInput("write spec #l", REF_DATE);
+      expect(result.duration_minutes).toBe(240);
+    });
+
+    it("#xl → 480 min", () => {
+      const result = parseTaskInput("ship feature #xl", REF_DATE);
+      expect(result.duration_minutes).toBe(480);
+    });
+
+    it("#xxl → 960 min", () => {
+      const result = parseTaskInput("rewrite engine #xxl", REF_DATE);
+      expect(result.duration_minutes).toBe(960);
+    });
+
+    it("size shortcut coexists with #p2 priority", () => {
+      const result = parseTaskInput("ship feature #p2 #m", REF_DATE);
+      expect(result.priority).toBe("p2");
+      expect(result.duration_minutes).toBe(120);
+      expect(result.title).toBe("ship feature");
+    });
+
+    it("explicit ~2h overrides #xl shortcut", () => {
+      // ~ prefix wins; #xl is left as a tag because shortcut already
+      // consumed it before tag extraction, so the title is clean.
+      const result = parseTaskInput("big task ~2h #xl", REF_DATE);
+      expect(result.duration_minutes).toBe(120);
+    });
+
+    it("bare 's' in a title is NOT a size shortcut (requires #)", () => {
+      const result = parseTaskInput("read s notes", REF_DATE);
+      expect(result.duration_minutes).toBeUndefined();
+    });
+  });
 });
