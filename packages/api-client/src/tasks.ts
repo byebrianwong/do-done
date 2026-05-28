@@ -256,6 +256,27 @@ export class TasksApi {
     };
   }
 
+  async listUndated(): Promise<{ data: Task[]; error: Error | null }> {
+    // Tasks with no when_date AND no due_date that aren't in a terminal
+    // state. Bucket-only tasks (later/someday) belong here — they have
+    // no concrete date, just a fuzzy intent. Used as a drag source in the
+    // Upcoming view so the user can pull undated work onto a real day.
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .is("when_date", null)
+      .is("due_date", null)
+      .not("status", "in", "(done,cancelled,archived)")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: false });
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
   async listOverdue(): Promise<{ data: Task[]; error: Error | null }> {
     // Tasks whose when_date OR due_date is strictly before today,
     // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.

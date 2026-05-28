@@ -58,32 +58,38 @@ function SortableRow({
       ref={setNodeRef}
       style={style}
       suppressHydrationWarning
-      className="group flex items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800"
+      {...attributes}
+      {...listeners}
+      className="group flex items-stretch border-b border-neutral-100 last:border-b-0 touch-none dark:border-neutral-800"
     >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label="Drag to reorder"
-        className="flex w-5 cursor-grab items-center justify-center text-neutral-300 opacity-0 transition-opacity hover:text-neutral-500 group-hover:opacity-100 active:cursor-grabbing dark:text-neutral-700"
-      >
-        <svg
-          className="h-3.5 w-3.5"
-          fill="currentColor"
-          viewBox="0 0 20 20"
-          aria-hidden="true"
-        >
-          <circle cx="7" cy="5" r="1.5" />
-          <circle cx="13" cy="5" r="1.5" />
-          <circle cx="7" cy="10" r="1.5" />
-          <circle cx="13" cy="10" r="1.5" />
-          <circle cx="7" cy="15" r="1.5" />
-          <circle cx="13" cy="15" r="1.5" />
-        </svg>
-      </button>
+      <DragHandleIndicator />
       <div className="min-w-0 flex-1">
         <TaskItem task={task} projects={projects} />
       </div>
+    </div>
+  );
+}
+
+// Visual-only indicator. The drag listeners live on the row itself
+// (PointerSensor's 4px distance constraint distinguishes click from drag).
+function DragHandleIndicator() {
+  return (
+    <div
+      aria-hidden
+      className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 dark:text-neutral-700"
+    >
+      <svg
+        className="h-3.5 w-3.5"
+        fill="currentColor"
+        viewBox="0 0 20 20"
+      >
+        <circle cx="7" cy="5" r="1.5" />
+        <circle cx="13" cy="5" r="1.5" />
+        <circle cx="7" cy="10" r="1.5" />
+        <circle cx="13" cy="10" r="1.5" />
+        <circle cx="7" cy="15" r="1.5" />
+        <circle cx="13" cy="15" r="1.5" />
+      </svg>
     </div>
   );
 }

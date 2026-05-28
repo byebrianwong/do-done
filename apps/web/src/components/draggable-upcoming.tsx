@@ -23,7 +23,12 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { TaskItem } from "./task-item";
 
 export interface DraggableUpcomingProps {
-  groups: Array<{ date: string; label: string; tasks: Task[] }>;
+  groups: Array<{
+    date: string;
+    label: string;
+    tasks: Task[];
+    emptyHint?: string;
+  }>;
   projects?: Project[];
 }
 
@@ -52,29 +57,11 @@ function SortableRow({
       ref={setNodeRef}
       style={style}
       suppressHydrationWarning
-      className="group flex items-stretch"
+      {...attributes}
+      {...listeners}
+      className="group flex items-stretch touch-none"
     >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label="Drag"
-        className="flex w-5 cursor-grab items-center justify-center text-neutral-300 opacity-0 transition-opacity hover:text-neutral-500 group-hover:opacity-100 active:cursor-grabbing dark:text-neutral-700"
-      >
-        <svg
-          className="h-3.5 w-3.5"
-          fill="currentColor"
-          viewBox="0 0 20 20"
-          aria-hidden="true"
-        >
-          <circle cx="7" cy="5" r="1.5" />
-          <circle cx="13" cy="5" r="1.5" />
-          <circle cx="7" cy="10" r="1.5" />
-          <circle cx="13" cy="10" r="1.5" />
-          <circle cx="7" cy="15" r="1.5" />
-          <circle cx="13" cy="15" r="1.5" />
-        </svg>
-      </button>
+      <DragHandleIndicator />
       <div className="min-w-0 flex-1">
         <TaskItem task={task} projects={projects} />
       </div>
@@ -82,18 +69,43 @@ function SortableRow({
   );
 }
 
+function DragHandleIndicator() {
+  return (
+    <div
+      aria-hidden
+      className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 dark:text-neutral-700"
+    >
+      <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <circle cx="7" cy="5" r="1.5" />
+        <circle cx="13" cy="5" r="1.5" />
+        <circle cx="7" cy="10" r="1.5" />
+        <circle cx="13" cy="10" r="1.5" />
+        <circle cx="7" cy="15" r="1.5" />
+        <circle cx="13" cy="15" r="1.5" />
+      </svg>
+    </div>
+  );
+}
+
+// Sentinel "date" for the No-date group. Treated specially in the drag
+// handler: dropping a task here clears when_date / when_bucket; dragging
+// FROM here onto a real date sets when_date on the target.
+export const NO_DATE_KEY = "unscheduled";
+
 function DateGroup({
   date,
   label,
   taskIds,
   tasks,
   projects,
+  emptyHint,
 }: {
   date: string;
   label: string;
   taskIds: string[];
   tasks: Map<string, Task>;
   projects?: Project[];
+  emptyHint?: string;
 }) {
   // Empty groups still need to be drop targets — use a fixed placeholder id
   // so SortableContext has something, but mark it as non-draggable.
@@ -116,7 +128,7 @@ function DateGroup({
         >
           {taskIds.length === 0 && (
             <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
-              Drop here
+              {emptyHint ?? "Drop here"}
             </div>
           )}
           {taskIds.map((id) => {
@@ -202,7 +214,9 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
       }
     } else {
       // Cross-section move: pull from `fromDate`, insert into `toDate`, and
-      // update when_date on the moved task.
+      // update when_date on the moved task. Both ends can be the No-date
+      // sentinel — moving INTO no-date clears when_date; moving OUT of
+      // no-date sets when_date to the target day.
       const fromIds = [...(nextByDate.get(fromDate) ?? [])];
       const toIds = [...(nextByDate.get(toDate) ?? [])];
       const oldIndex = fromIds.indexOf(activeId);
@@ -215,10 +229,17 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
       nextByDate.set(toDate, toIds);
       setByDate(nextByDate);
 
+      const toNoDate = toDate === NO_DATE_KEY;
+      const nextWhenDate = toNoDate ? null : toDate;
+
       // Update the moved task locally so the title still renders correctly.
       const moved = tasks.get(activeId);
       if (moved) {
-        const updated = { ...moved, when_date: toDate, when_bucket: null };
+        const updated = {
+          ...moved,
+          when_date: nextWhenDate,
+          when_bucket: toNoDate ? moved.when_bucket : null,
+        };
         const nextTasks = new Map(tasks);
         nextTasks.set(activeId, updated);
         setTasks(nextTasks);
@@ -227,11 +248,17 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
       const api = await getClientTasksApi();
       const updates: Array<{
         id: string;
-        input: { sort_order?: number; when_date?: string; when_bucket?: null };
+        input: {
+          sort_order?: number;
+          when_date?: string | null;
+          when_bucket?: null;
+        };
       }> = [
         {
           id: activeId,
-          input: { when_date: toDate, when_bucket: null },
+          input: toNoDate
+            ? { when_date: null }
+            : { when_date: nextWhenDate as string, when_bucket: null },
         },
       ];
       toIds.forEach((id, i) =>
@@ -264,6 +291,7 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
             taskIds={byDate.get(g.date) ?? []}
             tasks={tasks}
             projects={projects}
+            emptyHint={g.emptyHint}
           />
         ))}
       </div>

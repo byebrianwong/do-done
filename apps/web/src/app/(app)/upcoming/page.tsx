@@ -1,4 +1,5 @@
 import { DraggableUpcoming } from "@/components/draggable-upcoming-client";
+import { NO_DATE_KEY } from "@/components/draggable-upcoming";
 import {
   getServerTasksApi,
   getServerProjectsApi,
@@ -25,13 +26,17 @@ function formatDayHeading(dateStr: string): string {
 export default async function UpcomingPage() {
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
-  const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
+  const [
+    { data: tasks = [] },
+    { data: undated = [] },
+    { data: projects = [] },
+  ] = await Promise.all([
     tasksApi ? tasksApi.getUpcoming(30) : Promise.resolve({ data: [] }),
+    tasksApi ? tasksApi.listUndated() : Promise.resolve({ data: [] }),
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
   ]);
 
   // Group by effective date — when_date wins, due_date is fallback.
-  // Tasks with neither (bucket-only or unscheduled) don't show in Upcoming.
   const byDate = new Map<string, Task[]>();
   for (const task of tasks) {
     const d = taskDate(task);
@@ -41,9 +46,23 @@ export default async function UpcomingPage() {
     byDate.set(d, list);
   }
 
+  // No-date section first so the user always sees the inbox of work to
+  // schedule. Drag from here onto any day to set a when_date.
+  const groups: Array<{
+    date: string;
+    label: string;
+    tasks: Task[];
+    emptyHint?: string;
+  }> = [
+    {
+      date: NO_DATE_KEY,
+      label: "No date",
+      tasks: undated,
+      emptyHint: "Nothing unscheduled — drag here to clear a date",
+    },
+  ];
   // Always seed the next 14 days as drop targets, even if empty, so the user
   // has somewhere to drag a task to.
-  const groups: Array<{ date: string; label: string; tasks: Task[] }> = [];
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   for (let i = 0; i < 14; i++) {
