@@ -1659,15 +1659,20 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
             error={lastError}
           />
           <div className="flex items-center gap-3.5">
-            {hasChanges && (
-              <button
-                type="button"
-                onClick={undoAll}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900"
-              >
-                <span>↶</span>Undo all changes
-              </button>
-            )}
+            {/* Always rendered so the top bar height is stable; toggled via
+              opacity + pointer-events so the layout below it doesn't shift
+              when the user starts editing. */}
+            <button
+              type="button"
+              onClick={undoAll}
+              tabIndex={hasChanges ? 0 : -1}
+              aria-hidden={!hasChanges}
+              className={`inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-opacity hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900 ${
+                hasChanges ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              <span>↶</span>Undo all changes
+            </button>
             <button
               type="button"
               onClick={handleClose}
