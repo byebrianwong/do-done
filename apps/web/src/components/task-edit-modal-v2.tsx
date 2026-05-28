@@ -53,6 +53,32 @@ function startOfWeek(d: Date): Date {
   return out;
 }
 
+// English relative-date phrase from a YYYY-MM-DD string. Returns null if
+// the input isn't parseable. Pure function — `todayStr` is injected so
+// tests can pin "now".
+function formatRelative(dateStr: string, todayStr: string): string {
+  if (dateStr === todayStr) return "today";
+  const d1 = new Date(dateStr + "T00:00:00");
+  const d2 = new Date(todayStr + "T00:00:00");
+  const diff = Math.round((d1.getTime() - d2.getTime()) / 86400000);
+  if (diff === 1) return "tomorrow";
+  if (diff === -1) return "yesterday";
+  if (diff >= 2 && diff <= 6) return `in ${diff} days`;
+  if (diff === 7) return "in 1 week";
+  if (diff > 7 && diff <= 27) {
+    const w = Math.round(diff / 7);
+    return `in ${w} weeks`;
+  }
+  if (diff > 27) {
+    const m = Math.round(diff / 30);
+    return m === 1 ? "in 1 month" : `in ${m} months`;
+  }
+  if (diff <= -2 && diff >= -6) return `${-diff} days ago`;
+  if (diff < -6 && diff >= -27) return `${Math.round(-diff / 7)} weeks ago`;
+  const m = Math.round(-diff / 30);
+  return m === 1 ? "1 month ago" : `${m} months ago`;
+}
+
 // ─── Sub-components ────────────────────────────────────────
 
 function SaveStatusDot({
@@ -546,20 +572,119 @@ function busyDotWidthClass(minutes: number): string {
   return "w-[28px]";
 }
 
+// ── Month grid for the "See more dates" scroll view ──
+
+function MonthGrid({
+  year,
+  month,
+  todayStr,
+  selectedDate,
+  busyByDate,
+  onPick,
+}: {
+  year: number;
+  month: number; // 0-indexed
+  todayStr: string;
+  selectedDate: string | null;
+  busyByDate: Map<string, DayBusyness>;
+  onPick: (date: string) => void;
+}) {
+  const first = new Date(year, month, 1);
+  const firstDow = first.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells: Array<{ date: string | null; day: number }> = [];
+  for (let i = 0; i < firstDow; i++) cells.push({ date: null, day: 0 });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(
+      d
+    ).padStart(2, "0")}`;
+    cells.push({ date, day: d });
+  }
+  // Pad trailing cells so each month ends on a complete week.
+  while (cells.length % 7 !== 0) cells.push({ date: null, day: 0 });
+
+  const monthLabel = first.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="pt-1.5">
+      <div className="sticky top-0 z-10 -mx-2 mb-1 bg-neutral-50/95 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-500 backdrop-blur dark:bg-neutral-900/95 dark:text-neutral-400">
+        {monthLabel}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((c, i) => {
+          if (!c.date) {
+            return <div key={`pad-${i}`} className="h-7" />;
+          }
+          const date = c.date;
+          const isPast = date < todayStr;
+          const isToday = date === todayStr;
+          const isActive = selectedDate === date;
+          const day = busyByDate.get(date);
+          const hasBusy = (day?.items?.length ?? 0) > 0;
+          return (
+            <button
+              type="button"
+              key={date}
+              disabled={isPast}
+              onClick={() => {
+                if (!isPast) onPick(date);
+              }}
+              className={`relative flex h-7 items-center justify-center rounded-md text-[12px] font-medium transition-colors ${
+                isPast
+                  ? "cursor-not-allowed text-neutral-300 dark:text-neutral-700"
+                  : isActive
+                    ? "bg-indigo-500 text-white shadow-sm shadow-indigo-500/40"
+                    : isToday
+                      ? "ring-1 ring-inset ring-indigo-400 text-indigo-700 dark:text-indigo-300"
+                      : "text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:ring-neutral-700"
+              }`}
+            >
+              {c.day}
+              {hasBusy && !isActive && !isPast ? (
+                <span
+                  className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${
+                    isToday ? "bg-indigo-500" : "bg-neutral-400 dark:bg-neutral-500"
+                  }`}
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Progressive disclosure for the date picker.
+type CalendarExpansion = "collapsed" | "two-weeks" | "months";
+
 function WhenCalendar({
   whenDate,
   whenBucket,
+  dueDate,
   busyness,
   onPickDate,
   onPickBucket,
+  onChangeDueDate,
 }: {
   whenDate: string | null;
   whenBucket: WhenBucket | null;
+  dueDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
   onPickBucket: (bucket: WhenBucket | null) => void;
+  onChangeDueDate: (v: string | null) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<CalendarExpansion>("collapsed");
+  // Number of months visible in the scroll view. Grows when the user
+  // scrolls near the bottom.
+  const [monthsAhead, setMonthsAhead] = useState(6);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
   const today = useMemo(() => {
     const t = new Date();
     t.setHours(0, 0, 0, 0);
@@ -568,10 +693,45 @@ function WhenCalendar({
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
 
-  // Build cells: 7 for week 1, 7 for week 2 if expanded.
+  // Special-date labels. Order = priority (active > today > tomorrow > …).
+  // Each entry: { date: YYYY-MM-DD, label: short text }. The set is rendered
+  // beneath the day number; only one label per cell.
+  const specialLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    labels.set(ymd(tomorrow), "tomorrow");
+
+    // "This weekend" = upcoming Saturday in the current Sunday-start week.
+    // Skip when today IS Saturday (covered by "today").
+    if (today.getDay() !== 6) {
+      const sat = new Date(weekStart);
+      sat.setDate(sat.getDate() + 6);
+      const key = ymd(sat);
+      // Don't override "tomorrow" if today is Friday.
+      if (!labels.has(key)) labels.set(key, "weekend");
+    }
+
+    const nextWk = new Date(today);
+    nextWk.setDate(nextWk.getDate() + 7);
+    labels.set(ymd(nextWk), "next wk");
+
+    // "Next weekend" = the Saturday after this weekend.
+    const nextWknd = new Date(weekStart);
+    nextWknd.setDate(nextWknd.getDate() + 13);
+    const nextWkndKey = ymd(nextWknd);
+    if (!labels.has(nextWkndKey)) labels.set(nextWkndKey, "next wknd");
+
+    // Always-set "today" last so it wins over any same-date entries above.
+    labels.set(todayStr, "today");
+    return labels;
+  }, [today, weekStart, todayStr]);
+
+  // Visible week rows depend on expansion. "months" still shows the current
+  // week as an at-a-glance row above the scrollable months.
   const cells = useMemo(() => {
+    const weeks = expanded === "two-weeks" ? 2 : 1;
     const out: { date: string; weekday: number; weekIdx: number }[] = [];
-    const weeks = expanded ? 2 : 1;
     for (let w = 0; w < weeks; w++) {
       for (let i = 0; i < 7; i++) {
         const d = new Date(weekStart);
@@ -582,12 +742,32 @@ function WhenCalendar({
     return out;
   }, [weekStart, expanded]);
 
-  // Lookup busyness by date.
+  // Months for the scroll view — start at the current month so the user
+  // sees context for the visible week.
+  const months = useMemo(() => {
+    const out: { year: number; month: number }[] = [];
+    const startY = today.getFullYear();
+    const startM = today.getMonth();
+    for (let i = 0; i <= monthsAhead; i++) {
+      const d = new Date(startY, startM + i, 1);
+      out.push({ year: d.getFullYear(), month: d.getMonth() });
+    }
+    return out;
+  }, [today, monthsAhead]);
+
   const busyByDate = useMemo(() => {
     const m = new Map<string, DayBusyness>();
     for (const d of busyness) m.set(d.date, d);
     return m;
   }, [busyness]);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+      setMonthsAhead((n) => n + 3);
+    }
+  }, []);
 
   return (
     <div>
@@ -606,7 +786,7 @@ function WhenCalendar({
           </div>
         ))}
       </div>
-      {/* Cells */}
+      {/* Current-week cells */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((c) => {
           const isWeekend = c.weekday === 0 || c.weekday === 6;
@@ -615,7 +795,16 @@ function WhenCalendar({
           const isActive = whenDate === c.date;
           const numLabel = parseInt(c.date.split("-")[2], 10);
           const day = busyByDate.get(c.date);
-          const dots = (day?.items ?? []).slice(0, 8); // soft cap
+          const dots = (day?.items ?? []).slice(0, 8);
+          const specialLabel = isActive
+            ? "selected"
+            : specialLabels.get(c.date) ?? null;
+          // Highlight tone for the label.
+          const labelTone = isActive
+            ? "text-indigo-100"
+            : isToday
+              ? "text-indigo-600 dark:text-indigo-400"
+              : "text-neutral-400 dark:text-neutral-500";
           return (
             <button
               type="button"
@@ -628,7 +817,7 @@ function WhenCalendar({
                 isPast
                   ? "opacity-30 cursor-not-allowed border-transparent bg-neutral-50 dark:bg-neutral-900"
                   : isActive
-                    ? "border-indigo-500 bg-indigo-50 shadow-md shadow-indigo-500/25 dark:bg-indigo-950/40"
+                    ? "border-indigo-500 bg-indigo-500 shadow-lg shadow-indigo-500/40 ring-2 ring-indigo-500/20 dark:bg-indigo-500"
                     : isToday
                       ? "border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-900"
                       : isWeekend
@@ -636,35 +825,35 @@ function WhenCalendar({
                         : "border-transparent bg-neutral-50 hover:border-neutral-200 hover:bg-white dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
               }`}
             >
-              {isToday && (
+              {isToday && !isActive && (
                 <span className="absolute top-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-500" />
               )}
               <span
                 className={`text-sm font-semibold leading-none ${
                   isActive
-                    ? "text-indigo-700 dark:text-indigo-300"
+                    ? "text-white"
                     : "text-neutral-900 dark:text-neutral-100"
                 }`}
               >
                 {numLabel}
               </span>
-              {(isToday || isActive) && (
+              {specialLabel ? (
                 <span
-                  className={`mt-0.5 text-[9px] font-medium leading-none tracking-wider ${
-                    isActive
-                      ? "text-indigo-600 dark:text-indigo-400"
-                      : "text-neutral-400"
-                  }`}
+                  className={`mt-0.5 text-[9px] font-medium leading-none tracking-wider ${labelTone}`}
                 >
-                  {isActive ? "selected" : "today"}
+                  {specialLabel}
                 </span>
-              )}
+              ) : null}
               <div className="mt-auto flex w-full flex-wrap items-end justify-center gap-[2px] pb-0.5 min-h-[14px]">
                 {dots.map((item) => (
                   <span
                     key={item.id}
                     title={`${item.title} · ${item.duration_minutes}m`}
-                    className={`h-[5px] rounded-[2.5px] ${busyDotClass(item)} ${busyDotWidthClass(item.duration_minutes)}`}
+                    className={`h-[5px] rounded-[2.5px] ${
+                      isActive
+                        ? "bg-white/70"
+                        : busyDotClass(item)
+                    } ${busyDotWidthClass(item.duration_minutes)}`}
                   />
                 ))}
               </div>
@@ -673,17 +862,34 @@ function WhenCalendar({
         })}
       </div>
 
-      {/* Alt-row: expand + buckets */}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {!expanded && (
+      {/* Action row: progressive expand + buckets + due date */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {expanded !== "collapsed" ? (
           <button
             type="button"
-            onClick={() => setExpanded(true)}
-            className="flex-1 rounded-lg bg-indigo-50 px-2 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300"
+            onClick={() =>
+              setExpanded((e) =>
+                e === "months" ? "two-weeks" : "collapsed"
+              )
+            }
+            className="rounded-lg bg-neutral-50 px-3 py-2 text-xs font-medium text-neutral-600 transition-colors hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            + next week ⇣
+            See less ⇡
           </button>
-        )}
+        ) : null}
+        {expanded !== "months" ? (
+          <button
+            type="button"
+            onClick={() =>
+              setExpanded((e) =>
+                e === "collapsed" ? "two-weeks" : "months"
+              )
+            }
+            className="flex-1 min-w-[140px] rounded-lg bg-indigo-50 px-2 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300"
+          >
+            See more dates ⇣
+          </button>
+        ) : null}
         {(["later", "someday"] as const).map((b) => (
           <button
             key={b}
@@ -698,7 +904,330 @@ function WhenCalendar({
             {b === "later" ? "⏳ Later" : "∞ Someday"}
           </button>
         ))}
+        <DueDateField value={dueDate} onChange={onChangeDueDate} />
       </div>
+
+      {/* Expanded month scroll view */}
+      {expanded === "months" ? (
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="mt-3 max-h-[280px] overflow-y-auto overscroll-contain rounded-lg border border-neutral-100 bg-neutral-50/60 px-2 pb-2 dark:border-neutral-900 dark:bg-neutral-900/40 [scrollbar-color:rgb(212_212_212)_transparent] [scrollbar-width:thin] dark:[scrollbar-color:rgb(64_64_64)_transparent]"
+        >
+          {months.map((m) => (
+            <MonthGrid
+              key={`${m.year}-${m.month}`}
+              year={m.year}
+              month={m.month}
+              todayStr={todayStr}
+              selectedDate={whenDate}
+              busyByDate={busyByDate}
+              onPick={onPickDate}
+            />
+          ))}
+          <div className="mt-2 text-center text-[10px] text-neutral-400">
+            scroll for more
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Subtasks section ───────────────────────────────────────
+
+function SubtaskRow({
+  task,
+  onToggle,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const done = task.status === "done" || task.status === "cancelled";
+  return (
+    <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-900">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={done ? "Mark not done" : "Mark done"}
+        aria-pressed={done}
+        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] transition-colors ${
+          done
+            ? "border-indigo-500 bg-indigo-500 text-white"
+            : "border-neutral-300 hover:border-indigo-500 dark:border-neutral-700"
+        }`}
+      >
+        {done ? <span className="text-[10px] leading-none">✓</span> : null}
+      </button>
+      <span
+        className={`flex-1 truncate text-[13px] ${
+          done
+            ? "text-neutral-400 line-through dark:text-neutral-600"
+            : "text-neutral-800 dark:text-neutral-200"
+        }`}
+      >
+        {task.title}
+      </span>
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Delete ${task.title}`}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-[14px] leading-none text-neutral-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-red-950"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function SubtasksSection({
+  parentTask,
+  tasksApi,
+}: {
+  parentTask: Task;
+  tasksApi: TasksApi;
+}) {
+  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await tasksApi.listSubtasks(parentTask.id);
+      if (!cancelled) {
+        setSubtasks(data);
+        setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [parentTask.id, tasksApi]);
+
+  useEffect(() => {
+    if (adding) inputRef.current?.focus();
+  }, [adding]);
+
+  // DB trigger enforces depth ≤ 2, so depth 2 tasks can't have children.
+  const canAdd = parentTask.depth < 2;
+
+  const handleAdd = async () => {
+    const title = draft.trim();
+    if (!title) {
+      setAdding(false);
+      return;
+    }
+    const { data } = await tasksApi.create({
+      title,
+      parent_task_id: parentTask.id,
+    });
+    if (data) setSubtasks((prev) => [...prev, data]);
+    setDraft("");
+    // Keep the input open for rapid entry.
+  };
+
+  const handleToggle = async (st: Task) => {
+    const next = st.status === "done" ? "not_started" : "done";
+    const { data } = await tasksApi.update(st.id, { status: next });
+    if (data) {
+      setSubtasks((prev) => prev.map((s) => (s.id === data.id ? data : s)));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const { error } = await tasksApi.delete(id);
+    if (!error) setSubtasks((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  if (!canAdd && subtasks.length === 0 && loaded) return null;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline gap-2.5">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+          Subtasks
+        </span>
+        {subtasks.length > 0 ? (
+          <span className="text-[11px] font-medium text-neutral-500">
+            {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
+          </span>
+        ) : null}
+      </div>
+      <div className="rounded-lg border border-neutral-100 bg-neutral-50/60 px-1.5 py-1.5 dark:border-neutral-900 dark:bg-neutral-900/40">
+        {subtasks.map((st) => (
+          <SubtaskRow
+            key={st.id}
+            task={st}
+            onToggle={() => handleToggle(st)}
+            onDelete={() => handleDelete(st.id)}
+          />
+        ))}
+        {canAdd ? (
+          adding ? (
+            <div className="flex items-center gap-2 px-2 py-1.5">
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-dashed border-neutral-300 dark:border-neutral-700" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAdd();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setDraft("");
+                    setAdding(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (draft.trim()) void handleAdd();
+                  setAdding(false);
+                }}
+                placeholder="Subtask title…"
+                className="flex-1 bg-transparent text-[13px] text-neutral-800 outline-none placeholder:text-neutral-400 dark:text-neutral-200"
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-neutral-500 transition-colors hover:bg-white hover:text-indigo-600 dark:hover:bg-neutral-900 dark:hover:text-indigo-400"
+            >
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-dashed border-neutral-300 text-[11px] leading-none dark:border-neutral-700">
+                +
+              </span>
+              Add subtask
+            </button>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ─── Due date field ─────────────────────────────────────────
+
+function CheckeredFlagIcon({ className }: { className?: string }) {
+  // Minimal checkered flag: pole on left, 4×3 checkerboard panel.
+  // Squares alternate currentColor / transparent — the parent's text color
+  // drives the dark squares.
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      className={className}
+    >
+      <path
+        d="M3 2.25v11.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      {/* Row 1 */}
+      <rect x="3.75" y="2.75" width="2" height="1.75" fill="currentColor" />
+      <rect x="7.75" y="2.75" width="2" height="1.75" fill="currentColor" />
+      <rect x="11.75" y="2.75" width="1.5" height="1.75" fill="currentColor" />
+      {/* Row 2 (offset) */}
+      <rect x="5.75" y="4.5" width="2" height="1.75" fill="currentColor" />
+      <rect x="9.75" y="4.5" width="2" height="1.75" fill="currentColor" />
+      {/* Row 3 */}
+      <rect x="3.75" y="6.25" width="2" height="1.75" fill="currentColor" />
+      <rect x="7.75" y="6.25" width="2" height="1.75" fill="currentColor" />
+      <rect x="11.75" y="6.25" width="1.5" height="1.75" fill="currentColor" />
+      {/* Flag outline */}
+      <path
+        d="M3.5 2.75h9.75v5.25H3.5z"
+        stroke="currentColor"
+        strokeWidth="0.85"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+function formatDueShort(value: string): string {
+  const d = new Date(value + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function DueDateField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const active = !!value;
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={value ? `Due ${formatDueShort(value)}` : "Set due date"}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+          active
+            ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-900"
+            : "bg-neutral-50 text-neutral-500 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        }`}
+      >
+        <CheckeredFlagIcon className="h-3.5 w-3.5" />
+        {active ? <span>Due {formatDueShort(value!)}</span> : null}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Due date"
+          className="absolute right-0 top-full z-20 mt-2 w-56 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+            <CheckeredFlagIcon className="h-3 w-3" /> Due date
+          </div>
+          <input
+            ref={inputRef}
+            type="date"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value || null)}
+            className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-amber-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+          />
+          <div className="mt-1.5 text-[10px] leading-snug text-neutral-400">
+            Hard deadline — separate from when you plan to do it.
+          </div>
+          {value ? (
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              aria-label="Clear due date"
+              className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              × Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1061,13 +1590,20 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
                     ? current.when_bucket.replace("_", " ")
                     : "Not scheduled"}
               </span>
+              {current.when_date ? (
+                <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">
+                  · {formatRelative(current.when_date, ymd(new Date()))}
+                </span>
+              ) : null}
             </div>
             <WhenCalendar
               whenDate={current.when_date}
               whenBucket={current.when_bucket}
+              dueDate={current.due_date}
               busyness={busyness}
               onPickDate={onPickDate}
               onPickBucket={onPickBucket}
+              onChangeDueDate={(v) => setField("due_date", v)}
             />
           </div>
 
@@ -1088,6 +1624,9 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
               onChange={(m) => setField("duration_minutes", m)}
             />
           </div>
+
+          {/* Subtasks */}
+          <SubtasksSection parentTask={current} tasksApi={tasksApi} />
 
           {/* Notes */}
           <div>
