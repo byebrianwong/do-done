@@ -1,5 +1,6 @@
 import { DraggableUpcoming } from "@/components/draggable-upcoming-client";
 import { NO_DATE_KEY } from "@/components/draggable-upcoming";
+import { InboxFilterToggle } from "@/components/inbox-filter-toggle";
 import {
   getServerTasksApi,
   getServerProjectsApi,
@@ -23,18 +24,37 @@ function formatDayHeading(dateStr: string): string {
   });
 }
 
-export default async function UpcomingPage() {
+export default async function UpcomingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ inbox?: string }>;
+}) {
+  const params = await searchParams;
+  const hideInbox = params.inbox === "hide";
+
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
   const [
-    { data: tasks = [] },
-    { data: undated = [] },
+    { data: rawTasks = [] },
+    { data: rawUndated = [] },
     { data: projects = [] },
   ] = await Promise.all([
     tasksApi ? tasksApi.getUpcoming(30) : Promise.resolve({ data: [] }),
     tasksApi ? tasksApi.listUndated() : Promise.resolve({ data: [] }),
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
   ]);
+
+  // Inbox task count is computed pre-filter so the toggle pill can show
+  // "how many would reappear if I un-hide them".
+  const inboxCount =
+    rawTasks.filter((t) => t.status === "inbox").length +
+    rawUndated.filter((t) => t.status === "inbox").length;
+  const tasks = hideInbox
+    ? rawTasks.filter((t) => t.status !== "inbox")
+    : rawTasks;
+  const undated = hideInbox
+    ? rawUndated.filter((t) => t.status !== "inbox")
+    : rawUndated;
 
   // Group by effective date — when_date wins, due_date is fallback.
   const byDate = new Map<string, Task[]>();
@@ -86,16 +106,21 @@ export default async function UpcomingPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-6 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-        Upcoming
-      </h1>
+      <div className="mb-6 flex items-center gap-3">
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+          Upcoming
+        </h1>
+        <InboxFilterToggle count={inboxCount} />
+      </div>
 
       {hasAny ? (
         <DraggableUpcoming groups={groups} projects={projects} />
       ) : (
         <div className="py-16 text-center">
           <p className="text-sm text-neutral-400">
-            No upcoming tasks. Schedule one to see it here.
+            {hideInbox && inboxCount > 0
+              ? "No upcoming tasks with the inbox filter on."
+              : "No upcoming tasks. Schedule one to see it here."}
           </p>
         </div>
       )}
