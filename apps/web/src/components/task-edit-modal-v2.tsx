@@ -159,27 +159,38 @@ const EST_BAR_HEIGHTS = [
   "h-[26px]",
 ];
 
+const PRIORITY_BAR_COUNTS = { p1: 4, p2: 3, p3: 2, p4: 1 } as const;
+const PRIORITY_BAR_COLORS = {
+  p1: "bg-red-500",
+  p2: "bg-amber-500",
+  p3: "bg-indigo-500",
+  p4: "bg-neutral-400",
+} as const;
+
 function PrioritySignal({
   value,
+  hovered,
   onChange,
+  onHover,
 }: {
   value: TaskPriority;
+  hovered: TaskPriority | null;
   onChange: (p: TaskPriority) => void;
+  onHover: (p: TaskPriority | null) => void;
 }) {
-  // p1 = 4 lit bars, p2 = 3, p3 = 2, p4 = 1
-  const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[value];
-  const colorClass = {
-    p1: "bg-red-500",
-    p2: "bg-amber-500",
-    p3: "bg-indigo-500",
-    p4: "bg-neutral-400",
-  }[value];
+  // While hovering, show what the priority WOULD look like if clicked
+  // (faded). Mouseleave restores the actual selection.
+  const display = hovered ?? value;
+  const litCount = PRIORITY_BAR_COUNTS[display];
+  const colorClass = PRIORITY_BAR_COLORS[display];
+  const previewing = hovered !== null && hovered !== value;
   return (
     <div
       className="inline-flex items-end gap-[3px]"
       role="radiogroup"
       aria-label="Priority"
       style={{ height: PRI_COL_HEIGHT }}
+      onMouseLeave={() => onHover(null)}
     >
       {[0, 1, 2, 3].map((i) => {
         const p = (["p4", "p3", "p2", "p1"] as TaskPriority[])[i];
@@ -189,6 +200,7 @@ function PrioritySignal({
             key={i}
             type="button"
             onClick={() => onChange(p)}
+            onMouseEnter={() => onHover(p)}
             aria-label={`Set priority ${PRIORITY_CONFIG[p].label}`}
             aria-pressed={value === p}
             title={`P${4 - i} · ${PRIORITY_CONFIG[p].label}`}
@@ -202,8 +214,10 @@ function PrioritySignal({
             }}
           >
             <span
-              className={`block w-[6px] rounded-[2px] transition-all group-hover:brightness-110 ${PRI_BAR_HEIGHTS[i]} ${
-                lit ? colorClass : "bg-neutral-200 dark:bg-neutral-800"
+              className={`block w-[6px] rounded-[2px] transition-all ${PRI_BAR_HEIGHTS[i]} ${
+                lit
+                  ? `${colorClass} ${previewing ? "opacity-50" : ""}`
+                  : "bg-neutral-200 dark:bg-neutral-800"
               }`}
             />
           </button>
@@ -215,26 +229,36 @@ function PrioritySignal({
 
 function EstimateEqualizer({
   value,
+  hovered,
   onChange,
+  onHover,
 }: {
   value: number | null;
+  hovered: number | null;
   onChange: (minutes: number) => void;
+  onHover: (minutes: number | null) => void;
 }) {
+  // While hovering, preview which bars WOULD light at faded opacity.
+  const displayMinutes = hovered ?? value;
+  const displayIdx = estimateBarIndex(displayMinutes);
   const activeIdx = estimateBarIndex(value);
+  const previewing = hovered !== null && hovered !== value;
   return (
     <div
       className="inline-flex items-end gap-[3px]"
       role="radiogroup"
       aria-label="Estimate"
       style={{ height: EST_COL_HEIGHT }}
+      onMouseLeave={() => onHover(null)}
     >
       {ESTIMATE_OPTIONS.map((b, i) => {
-        const lit = i <= activeIdx;
+        const lit = i <= displayIdx;
         return (
           <button
             key={b.minutes}
             type="button"
             onClick={() => onChange(b.minutes)}
+            onMouseEnter={() => onHover(b.minutes)}
             aria-label={`Set estimate to ${b.code} (${b.label})`}
             aria-pressed={i === activeIdx}
             title={`${b.code} · ${b.label}`}
@@ -248,8 +272,10 @@ function EstimateEqualizer({
             }}
           >
             <span
-              className={`block w-[6px] rounded-[2px] transition-all group-hover:brightness-110 ${EST_BAR_HEIGHTS[i]} ${
-                lit ? "bg-indigo-500" : "bg-neutral-200 dark:bg-neutral-800"
+              className={`block w-[6px] rounded-[2px] transition-all ${EST_BAR_HEIGHTS[i]} ${
+                lit
+                  ? `bg-indigo-500 ${previewing ? "opacity-50" : ""}`
+                  : "bg-neutral-200 dark:bg-neutral-800"
               }`}
             />
           </button>
@@ -341,8 +367,20 @@ function PriorityField({
   onChange: (p: TaskPriority) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState<TaskPriority | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
+
+  // Clicking the current value clears to p4 (the "no priority" default —
+  // the priority chip in the title bar is hidden for p4).
+  const handleChange = (p: TaskPriority) => {
+    onChange(p === value ? "p4" : p);
+  };
+
+  const previewLabel =
+    hovered !== null && hovered !== value
+      ? PRIORITY_CONFIG[hovered].label
+      : null;
 
   return (
     <div ref={ref} className="relative flex items-center gap-2">
@@ -355,10 +393,20 @@ function PriorityField({
       >
         Pri
       </button>
-      <PrioritySignal value={value} onChange={onChange} />
+      <PrioritySignal
+        value={value}
+        hovered={hovered}
+        onChange={handleChange}
+        onHover={setHovered}
+      />
       <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
         {PRIORITY_CONFIG[value].label}
       </span>
+      {previewLabel ? (
+        <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+          → {previewLabel}
+        </span>
+      ) : null}
       {open ? (
         <PickerPopover
           ariaLabel="Priority options"
@@ -368,7 +416,7 @@ function PriorityField({
             label: p.label,
             selected: p.value === value,
             onSelect: () => {
-              onChange(p.value);
+              handleChange(p.value);
               setOpen(false);
             },
             accentClass: {
@@ -385,17 +433,30 @@ function PriorityField({
   );
 }
 
+function formatEstimateShort(minutes: number): string {
+  return minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`;
+}
+
 function EstimateField({
   value,
   onChange,
 }: {
   value: number | null;
-  onChange: (minutes: number) => void;
+  onChange: (minutes: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
   const activeIdx = estimateBarIndex(value);
+
+  // Clicking the current bar clears to null. Otherwise set to the new value.
+  const handleChange = (minutes: number) => {
+    onChange(minutes === value ? null : minutes);
+  };
+
+  const previewLabel =
+    hovered !== null && hovered !== value ? formatEstimateShort(hovered) : null;
 
   return (
     <div ref={ref} className="relative flex items-center gap-2">
@@ -408,14 +469,20 @@ function EstimateField({
       >
         Est
       </button>
-      <EstimateEqualizer value={value} onChange={onChange} />
+      <EstimateEqualizer
+        value={value}
+        hovered={hovered}
+        onChange={handleChange}
+        onHover={setHovered}
+      />
       <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-        {value
-          ? value >= 60
-            ? `${Math.round(value / 60)}h`
-            : `${value}m`
-          : "—"}
+        {value ? formatEstimateShort(value) : "—"}
       </span>
+      {previewLabel ? (
+        <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+          → {previewLabel}
+        </span>
+      ) : null}
       {open ? (
         <PickerPopover
           ariaLabel="Estimate options"
@@ -425,7 +492,7 @@ function EstimateField({
             label: b.label,
             selected: i === activeIdx,
             onSelect: () => {
-              onChange(b.minutes);
+              handleChange(b.minutes);
               setOpen(false);
             },
             accentClass: "bg-indigo-500",
@@ -1592,15 +1659,20 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
             error={lastError}
           />
           <div className="flex items-center gap-3.5">
-            {hasChanges && (
-              <button
-                type="button"
-                onClick={undoAll}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900"
-              >
-                <span>↶</span>Undo all changes
-              </button>
-            )}
+            {/* Always rendered so the top bar height is stable; toggled via
+              opacity + pointer-events so the layout below it doesn't shift
+              when the user starts editing. */}
+            <button
+              type="button"
+              onClick={undoAll}
+              tabIndex={hasChanges ? 0 : -1}
+              aria-hidden={!hasChanges}
+              className={`inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-opacity hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900 ${
+                hasChanges ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              <span>↶</span>Undo all changes
+            </button>
             <button
               type="button"
               onClick={handleClose}
