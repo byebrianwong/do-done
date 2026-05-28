@@ -159,14 +159,18 @@ export function useAutoSaveTask(
     // Cancel any pending save so a flushed PATCH can't clobber the revert.
     debouncedSave.cancel();
     const snapshot = snapshotRef.current;
+    // Optimistic: revert local state immediately so the UI snaps back. The
+    // user wanted to undo, so the visible state should reflect that on the
+    // next paint — not after the round-trip. A subsequent network failure
+    // surfaces via `lastError` but the local revert stands.
+    setTask(snapshot);
+    setLastError(null);
     setIsSaving(true);
     try {
       const { error } = await api.update(snapshot.id, toUpdateInput(snapshot));
       if (error) {
         setLastError(error as Error);
       } else {
-        setLastError(null);
-        setTask(snapshot);
         setLastSavedAt(new Date());
       }
     } catch (err) {
