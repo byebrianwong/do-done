@@ -241,6 +241,21 @@ export class TasksApi {
     };
   }
 
+  async listSubtasks(parentId: string): Promise<{ data: Task[]; error: Error | null }> {
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .eq("parent_task_id", parentId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
   async listOverdue(): Promise<{ data: Task[]; error: Error | null }> {
     // Tasks whose when_date OR due_date is strictly before today,
     // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.
