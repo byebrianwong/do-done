@@ -18,8 +18,8 @@ export function QuickAddWidget() {
         alignItems: 'center',
         padding: 12,
       }}
-      clickAction="OPEN_APP"
-      clickActionData={{ deepLink: 'dodone://quick-add' }}
+      clickAction="OPEN_URI"
+      clickActionData={{ uri: 'dodone://quick-add' }}
     >
       <FlexWidget
         style={{

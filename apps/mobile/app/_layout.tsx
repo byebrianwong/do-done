@@ -109,6 +109,15 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         <Stack.Screen name="completed" options={{ title: 'Completed' }} />
+        <Stack.Screen name="today" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="quick-add"
+          options={{
+            presentation: 'transparentModal',
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
       </Stack>
       <DevBanner />
     </ThemeProvider>
