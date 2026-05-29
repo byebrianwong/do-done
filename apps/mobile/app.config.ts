@@ -24,6 +24,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "dodone",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
+  runtimeVersion: {
+    policy: "appVersion",
+  },
+  updates: {
+    url: "https://u.expo.dev/e987bcc6-0e98-4b76-960c-40756e452fef",
+  },
   splash: {
     image: "./assets/images/splash-icon.png",
     resizeMode: "contain",
@@ -106,7 +112,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     eas: {
-      projectId: "REPLACE_WITH_EAS_PROJECT_ID",
+      projectId: "e987bcc6-0e98-4b76-960c-40756e452fef",
     },
     git: gitInfo(),
   },
