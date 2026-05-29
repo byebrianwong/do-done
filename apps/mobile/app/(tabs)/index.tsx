@@ -10,7 +10,7 @@ import DraggableFlatList, {
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import TaskItem from '@/components/TaskItem';
 import OverdueSection from '@/components/OverdueSection';
@@ -36,9 +36,14 @@ export default function TodayScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Reload whenever the screen regains focus — initial mount, returning from a
+  // detail screen, or coming back from the quick-add widget modal — so newly
+  // created tasks appear without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const active = allTasks.filter(
     (t) => t.status !== 'done' && t.status !== 'cancelled'

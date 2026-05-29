@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   TextInput,
@@ -45,16 +45,23 @@ const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 interface QuickAddBarProps {
   defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
+  /**
+   * Focus the input as soon as the bar mounts. Used by the quick-add widget
+   * deep link so a home-screen tap lands directly in task capture.
+   */
+  autoFocus?: boolean;
 }
 
 export default function QuickAddBar({
   defaultStatus = 'not_started',
   onCreated,
+  autoFocus = false,
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [listening, setListening] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
+  const inputRef = useRef<TextInput>(null);
 
   // edgeToEdgeEnabled in app.config.ts disables Android adjustResize, so the
   // absolute-positioned bar would stay behind the keyboard. Track keyboard
@@ -71,6 +78,14 @@ export default function QuickAddBar({
       hideSub.remove();
     };
   }, []);
+
+  // Pre-focus the input when launched via the quick-add widget. A short delay
+  // lets the modal transition settle so the keyboard reliably comes up.
+  useEffect(() => {
+    if (!autoFocus) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 150);
+    return () => clearTimeout(t);
+  }, [autoFocus]);
 
   // Speech recognition events
   useSpeechRecognitionEvent('result', (e) => {
@@ -164,6 +179,7 @@ export default function QuickAddBar({
     >
       <View style={styles.container}>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           placeholder={listening ? 'Listening...' : 'Add a task...'}
           placeholderTextColor="#9ca3af"

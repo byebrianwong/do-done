@@ -29,8 +29,8 @@ export function TodayWidget({ tasks = [] }: TodayWidgetProps) {
         padding: 12,
         flexDirection: 'column',
       }}
-      clickAction="OPEN_APP"
-      clickActionData={{ deepLink: 'dodone://today' }}
+      clickAction="OPEN_URI"
+      clickActionData={{ uri: 'dodone://today' }}
     >
       <FlexWidget
         style={{
