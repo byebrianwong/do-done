@@ -3,6 +3,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -72,6 +73,7 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
   const completed = task.status === 'done';
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const toast = useUndoToast();
 
   async function handleToggle() {
@@ -122,54 +124,39 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
     );
   }
 
-  function openLongPressMenu() {
-    const labels = [
-      'Move to Today',
-      'Move to Tomorrow',
-      'Move to This week',
-      'Remove dates',
-      'Delete',
-      'Cancel',
-    ];
-    const cancel = labels.length - 1;
-    const destructive = 4;
-    const choose = (i: number) => {
-      switch (i) {
-        case 0:
-          return applyTarget({ kind: 'date', date: todayISO() });
-        case 1:
-          return applyTarget({ kind: 'date', date: addDaysISO(1) });
-        case 2:
-          return applyTarget({ kind: 'bucket', bucket: 'this_week' });
-        case 3:
-          return applyTarget({ kind: 'remove' });
-        case 4:
-          return confirmDelete();
-        default:
-          return;
-      }
-    };
+  const rescheduleActions: {
+    label: string;
+    run: () => void;
+    destructive?: boolean;
+  }[] = [
+    { label: 'Move to Today', run: () => applyTarget({ kind: 'date', date: todayISO() }) },
+    { label: 'Move to Tomorrow', run: () => applyTarget({ kind: 'date', date: addDaysISO(1) }) },
+    { label: 'Move to This week', run: () => applyTarget({ kind: 'bucket', bucket: 'this_week' }) },
+    { label: 'Remove dates', run: () => applyTarget({ kind: 'remove' }) },
+    { label: 'Delete', run: confirmDelete, destructive: true },
+  ];
 
+  function openLongPressMenu() {
     if (Platform.OS === 'ios') {
+      const labels = [...rescheduleActions.map((a) => a.label), 'Cancel'];
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: labels,
-          cancelButtonIndex: cancel,
-          destructiveButtonIndex: destructive,
+          cancelButtonIndex: labels.length - 1,
+          destructiveButtonIndex: rescheduleActions.findIndex(
+            (a) => a.destructive
+          ),
           title: task.title,
         },
-        choose
+        (i) => {
+          if (i < rescheduleActions.length) rescheduleActions[i].run();
+        }
       );
       return;
     }
-    Alert.alert(task.title, 'Reschedule', [
-      { text: labels[0], onPress: () => choose(0) },
-      { text: labels[1], onPress: () => choose(1) },
-      { text: labels[2], onPress: () => choose(2) },
-      { text: labels[3], onPress: () => choose(3) },
-      { text: labels[4], onPress: () => choose(4), style: 'destructive' },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    // Android: a native Alert with >3 buttons renders malformed and can't be
+    // reliably dismissed, so present a custom bottom sheet instead.
+    setMenuOpen(true);
   }
 
   return (
@@ -258,6 +245,48 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
           </Text>
         ) : null}
       </View>
+      <Modal
+        visible={menuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuOpen(false)}
+      >
+        <Pressable
+          style={styles.menuBackdrop}
+          onPress={() => setMenuOpen(false)}
+        >
+          <Pressable style={styles.menuSheet} onPress={() => {}}>
+            <Text style={styles.menuTitle} numberOfLines={1}>
+              {task.title}
+            </Text>
+            {rescheduleActions.map((a) => (
+              <Pressable
+                key={a.label}
+                style={styles.menuRow}
+                onPress={() => {
+                  setMenuOpen(false);
+                  a.run();
+                }}
+              >
+                <Text
+                  style={[
+                    styles.menuRowText,
+                    a.destructive && styles.menuRowDestructive,
+                  ]}
+                >
+                  {a.label}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={[styles.menuRow, styles.menuCancel]}
+              onPress={() => setMenuOpen(false)}
+            >
+              <Text style={styles.menuCancelText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Pressable>
   );
 }
@@ -323,6 +352,41 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, color: '#111827', flexShrink: 1 },
   titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
   dueDate: { fontSize: 13, color: '#6b7280' },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(17,24,39,0.45)',
+    justifyContent: 'flex-end',
+  },
+  menuSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 14,
+    paddingBottom: 28,
+    paddingHorizontal: 16,
+  },
+  menuTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  menuRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  menuRowText: { fontSize: 16, color: '#111827', fontWeight: '500' },
+  menuRowDestructive: { color: '#dc2626' },
+  menuCancel: {
+    marginTop: 6,
+    backgroundColor: '#f9fafb',
+    alignItems: 'center',
+  },
+  menuCancelText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
   metaChip: {
     backgroundColor: '#f3f4f6',
     paddingHorizontal: 6,

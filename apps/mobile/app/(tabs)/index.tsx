@@ -11,6 +11,7 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
 import OverdueSection from '@/components/OverdueSection';
@@ -24,6 +25,7 @@ import { PRIORITY_CONFIG } from '@do-done/shared';
 
 export default function TodayScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Task | null>(null);
@@ -93,7 +95,7 @@ export default function TodayScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Today</Text>
         <Pressable
           onPress={() => router.push('/completed' as never)}

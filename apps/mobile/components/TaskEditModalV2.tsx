@@ -333,15 +333,17 @@ function WhenCalendar({
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
 
-  const cells = useMemo(() => {
-    const out: { date: string; weekday: number }[] = [];
-    const weeks = expanded ? 2 : 1;
-    for (let w = 0; w < weeks; w++) {
+  const weekRows = useMemo(() => {
+    const numWeeks = expanded ? 2 : 1;
+    const out: { date: string; weekday: number }[][] = [];
+    for (let w = 0; w < numWeeks; w++) {
+      const row: { date: string; weekday: number }[] = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(weekStart);
         d.setDate(d.getDate() + w * 7 + i);
-        out.push({ date: ymd(d), weekday: i });
+        row.push({ date: ymd(d), weekday: i });
       }
+      out.push(row);
     }
     return out;
   }, [weekStart, expanded]);
@@ -368,7 +370,9 @@ function WhenCalendar({
         ))}
       </View>
       <View style={styles.calGrid}>
-        {cells.map((c) => {
+        {weekRows.map((week, wi) => (
+          <View key={wi} style={styles.calWeekRow}>
+            {week.map((c) => {
           const isWeekend = c.weekday === 0 || c.weekday === 6;
           const isPast = c.date < todayStr;
           const isToday = c.date === todayStr;
@@ -445,7 +449,9 @@ function WhenCalendar({
               </View>
             </Pressable>
           );
-        })}
+            })}
+          </View>
+        ))}
       </View>
 
       <View style={styles.altRow}>
@@ -989,7 +995,7 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
 
-  calHeader: { flexDirection: "row", marginBottom: 4 },
+  calHeader: { flexDirection: "row", gap: 3, marginBottom: 4 },
   colHead: {
     flex: 1,
     textAlign: "center",
@@ -1003,12 +1009,14 @@ const styles = StyleSheet.create({
   colHeadWeekend: { color: "#6b7280" },
 
   calGrid: {
+    gap: 3,
+  },
+  calWeekRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 3,
   },
   cell: {
-    width: "13.7%",
+    flex: 1,
     aspectRatio: 0.77, // taller than wide so dots can wrap to 2 rows
     borderRadius: 7,
     borderWidth: 1.5,
