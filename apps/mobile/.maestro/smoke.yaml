@@ -5,31 +5,31 @@
 # manually against an already-running app:
 #   maestro test -e EMAIL=you@example.com -e PASSWORD=secret apps/mobile/.maestro/smoke.yaml
 #
-# NOTE: the email/password field taps use screen-percentage coordinates tuned
-# for the "dodone" Pixel-7 AVD (1080x2400) because the login TextInputs have no
-# testIDs. Adding testID props (see .maestro/README.md) would make this
-# resolution-independent and far more robust.
+# Targets login + quick-add by testID (resolution-independent). Task rows are
+# matched by their title text.
 appId: com.beamer408.dodone
 ---
 - extendedWaitUntil:
     visible: "Welcome back"
     timeout: 90000
 - tapOn:
-    point: "50%,43%"
+    id: "login-email"
 - inputText: ${EMAIL}
 - hideKeyboard
 - tapOn:
-    point: "50%,52%"
+    id: "login-password"
 - inputText: ${PASSWORD}
 - hideKeyboard
-- tapOn: "Sign in"
+- tapOn:
+    id: "login-submit"
 - extendedWaitUntil:
     visible: "Today"
     timeout: 30000
 - tapOn:
-    point: "40%,87%"
+    id: "quick-add-input"
 - inputText: "E2E smoke task today #test"
-- pressKey: Enter
+- tapOn:
+    id: "quick-add-submit"
 - tapOn: "E2E smoke task"
 - assertVisible: "When"
 - assertVisible: "Notes"

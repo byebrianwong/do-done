@@ -180,6 +180,7 @@ export default function QuickAddBar({
       <View style={styles.container}>
         <TextInput
           ref={inputRef}
+          testID="quick-add-input"
           style={styles.input}
           placeholder={listening ? 'Listening...' : 'Add a task...'}
           placeholderTextColor="#9ca3af"
@@ -207,6 +208,7 @@ export default function QuickAddBar({
           </Pressable>
         ) : null}
         <Pressable
+          testID="quick-add-submit"
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={handleSubmit}
           disabled={submitting}

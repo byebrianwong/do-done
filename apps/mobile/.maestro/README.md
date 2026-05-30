@@ -58,18 +58,18 @@ them. In CI, store them as repository secrets. Use a dedicated test account.
   synthetic swipe doesn't drive it. Use a raw touch swipe instead:
   `adb shell input swipe 540 420 540 1950 500`. (Tapping the ×, the backdrop, or
   the back button all dismiss it normally and are Maestro-friendly.)
-- **Login fields are targeted by screen-% coordinates**, tuned for the `dodone`
-  Pixel-7 AVD (1080×2400), because the `TextInput`s have no `testID`s and their
-  placeholders aren't in the accessibility tree. This is the main fragility.
-- **RN placeholders aren't reliably findable** by Maestro `tapOn: "<placeholder>"`.
+- **RN placeholders aren't reliably findable** by Maestro `tapOn: "<placeholder>"` —
+  which is why the login and quick-add inputs are targeted by `testID`
+  (`login-email`, `login-password`, `login-submit`, `quick-add-input`,
+  `quick-add-submit`) rather than placeholder text or screen coordinates.
 
-## Recommended follow-up: add `testID`s
+## testIDs
 
-Adding `testID` props to the key inputs/rows would make these flows
-resolution-independent and let us drop the coordinate taps entirely:
+The login screen and quick-add bar expose `testID`s so flows are
+resolution-independent:
 
-- `apps/mobile/app/(auth)/login.tsx` — email + password `TextInput`s, "Sign in" button
-- `apps/mobile/components/QuickAddBar.tsx` — the task `TextInput` + submit button
-- `apps/mobile/components/TaskItem.tsx` — the row container
+- `app/(auth)/login.tsx` — `login-email`, `login-password`, `login-submit`
+- `components/QuickAddBar.tsx` — `quick-add-input`, `quick-add-submit`
 
-Then flows can use `tapOn: { id: "login-email" }` etc.
+Task rows are matched by title text. To target a specific row deterministically,
+add `testID={\`task-${task.id}\`}` to the row `Pressable` in `components/TaskItem.tsx`.
