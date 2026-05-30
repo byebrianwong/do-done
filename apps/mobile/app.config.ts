@@ -89,8 +89,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             name: "QuickAdd",
             label: "do-done — Quick Add",
             description: "Tap to quickly add a task",
-            minWidth: "180dp",
-            minHeight: "60dp",
+            // 1x1 square (≈ one launcher cell), fixed size like Todoist's
+            // add-task widget. targetCell* pins it to 1x1 on Android 12+.
+            minWidth: "40dp",
+            minHeight: "40dp",
+            targetCellWidth: 1,
+            targetCellHeight: 1,
+            resizeMode: "none",
             previewImage: "./assets/images/icon.png",
             updatePeriodMillis: 0,
           },
@@ -106,6 +111,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         ],
       },
     ],
+    // Translucent QuickAddActivity for the 1x1 widget (floats over the home
+    // screen). See plugins/withQuickAddActivity.js.
+    "./plugins/withQuickAddActivity",
   ],
   experiments: {
     typedRoutes: true,

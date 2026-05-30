@@ -2,14 +2,13 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddComposer from '@/components/QuickAddComposer';
 
 /**
- * Deep-link target for the "Quick Add" home-screen widget
- * (dodone://quick-add). Presents the quick-add bar over a dimmed backdrop
- * with the input pre-focused, so tapping the widget drops you straight into
- * task capture. Closing returns to wherever you were — or the Today tab on a
- * cold launch where there's no back stack.
+ * In-app deep-link target (`dodone://quick-add`). Presents the same
+ * QuickAddComposer used by the home-screen widget over a dimmed backdrop with
+ * the input pre-focused. Closing returns to wherever you were — or the Today
+ * tab on a cold launch where there's no back stack.
  */
 export default function QuickAddModal() {
   const router = useRouter();
@@ -22,7 +21,12 @@ export default function QuickAddModal() {
   return (
     <View style={styles.root}>
       <Pressable style={styles.backdrop} onPress={close} />
-      <QuickAddBar defaultStatus="not_started" autoFocus onCreated={close} />
+      <QuickAddComposer
+        defaultStatus="not_started"
+        autoFocus
+        onCreated={close}
+        onClose={close}
+      />
     </View>
   );
 }
