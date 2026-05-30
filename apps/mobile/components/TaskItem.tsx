@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from '@do-done/shared';
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
@@ -21,6 +22,8 @@ interface TaskItemProps {
   task: Task;
   onChange?: () => void;
   onPress?: (task: Task) => void;
+  /** When provided, renders a drag handle that calls this to begin reordering. */
+  onDragHandle?: () => void;
 }
 
 function todayISO(): string {
@@ -66,7 +69,7 @@ function buildReschedule(
   return input;
 }
 
-export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
+export default function TaskItem({ task, onChange, onPress, onDragHandle }: TaskItemProps) {
   const statusCfg = STATUS_CONFIG[task.status];
   const statusColor = statusCfg?.color ?? '#94a3b8';
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
@@ -245,6 +248,16 @@ export default function TaskItem({ task, onChange, onPress }: TaskItemProps) {
           </Text>
         ) : null}
       </View>
+      {onDragHandle ? (
+        <Pressable
+          onLongPress={onDragHandle}
+          delayLongPress={150}
+          hitSlop={8}
+          style={styles.dragHandle}
+        >
+          <Ionicons name="reorder-three" size={22} color="#cbd5e1" />
+        </Pressable>
+      ) : null}
       <Modal
         visible={menuOpen}
         transparent
@@ -352,6 +365,13 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, color: '#111827', flexShrink: 1 },
   titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
   dueDate: { fontSize: 13, color: '#6b7280' },
+  dragHandle: {
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    marginLeft: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   menuBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(17,24,39,0.45)',

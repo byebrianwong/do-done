@@ -20,11 +20,8 @@ import {
   Text,
   TextInput,
   Pressable,
-  ScrollView,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
-  Dimensions,
 } from "react-native";
 import {
   PRIORITY_CONFIG,
@@ -38,20 +35,14 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
-  Gesture,
-  GestureDetector,
-  GestureHandlerRootView,
-} from "react-native-gesture-handler";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  runOnJS,
-} from "react-native-reanimated";
-
-const SCREEN_HEIGHT = Dimensions.get("window").height;
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetScrollView,
+  BottomSheetTextInput,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -622,28 +613,57 @@ interface Props {
   onSaved?: () => void;
 }
 
+const SNAP_POINTS = ["90%"];
+
 export default function TaskEditModalV2({
   task,
   visible,
   onClose,
   onSaved,
 }: Props) {
-  if (!task) return null;
-  const handleClose = () => {
+  const sheetRef = useRef<BottomSheetModal>(null);
+
+  const handleClose = useCallback(() => {
     onClose();
     onSaved?.();
-  };
+  }, [onClose, onSaved]);
+
+  // Present / dismiss the sheet in response to the `visible` prop.
+  useEffect(() => {
+    if (visible && task) sheetRef.current?.present();
+    else sheetRef.current?.dismiss();
+  }, [visible, task]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+        opacity={0.4}
+      />
+    ),
+    []
+  );
+
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleClose}
+    <BottomSheetModal
+      ref={sheetRef}
+      snapPoints={SNAP_POINTS}
+      enablePanDownToClose
+      onDismiss={handleClose}
+      backdropComponent={renderBackdrop}
+      handleIndicatorStyle={styles.handleIndicator}
+      backgroundStyle={styles.sheetBackground}
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
     >
-      <GestureHandlerRootView style={styles.flex1}>
-        <Inner task={task} onClose={handleClose} />
-      </GestureHandlerRootView>
-    </Modal>
+      {task ? (
+        <Inner task={task} onClose={() => sheetRef.current?.dismiss()} />
+      ) : null}
+    </BottomSheetModal>
   );
 }
 
@@ -720,38 +740,8 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
 
-  // Swipe-down-to-dismiss. Android has no native sheet-swipe; iOS pageSheet
-  // provides it, so the gesture is enabled on Android only.
-  const translateY = useSharedValue(0);
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-  const dismissPan = Gesture.Pan()
-    .enabled(Platform.OS === "android")
-    .onUpdate((e) => {
-      translateY.value = Math.max(0, e.translationY);
-    })
-    .onEnd((e) => {
-      if (e.translationY > 120 || e.velocityY > 800) {
-        translateY.value = withTiming(SCREEN_HEIGHT, { duration: 220 }, () => {
-          runOnJS(onClose)();
-        });
-      } else {
-        translateY.value = withSpring(0, { damping: 20 });
-      }
-    });
-
   return (
-    <Animated.View style={[styles.screen, sheetStyle]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.flex1}
-      >
-        <GestureDetector gesture={dismissPan}>
-          <View style={styles.grabberArea}>
-            <View style={styles.grabber} />
-          </View>
-        </GestureDetector>
+    <View style={styles.sheetContent}>
       <View style={styles.topBar}>
         {hasChanges ? (
           <Pressable onPress={handleUndo} style={styles.cancelBtn}>
@@ -766,16 +756,15 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         </Pressable>
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <BottomSheetScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {/* Title input */}
         <View style={styles.inputWrap}>
-          <TextInput
+          <BottomSheetTextInput
             value={current.title}
             onChangeText={handleTitleChange}
             placeholder="Task title…"
             placeholderTextColor="#9ca3af"
             style={styles.titleInput}
-            autoFocus
           />
           <TagRow
             tags={current.tags}
@@ -888,7 +877,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Notes</Text>
           </View>
-          <TextInput
+          <BottomSheetTextInput
             value={current.description ?? ""}
             onChangeText={(v) =>
               setField("description", v.length === 0 ? null : v)
@@ -899,7 +888,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             style={styles.notesInput}
           />
         </View>
-      </ScrollView>
+      </BottomSheetScrollView>
 
       <View style={styles.bottomBar}>
         <Pressable
@@ -939,27 +928,20 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           </View>
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
-    </Animated.View>
+    </View>
   );
 }
 
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#fff" },
-  flex1: { flex: 1 },
-  grabberArea: {
-    paddingTop: 8,
-    paddingBottom: 4,
-    alignItems: "center",
+  sheetContent: { flex: 1, backgroundColor: "#fff" },
+  sheetBackground: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
-  grabber: {
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#d1d5db",
-  },
+  handleIndicator: { backgroundColor: "#d1d5db", width: 40 },
 
   topBar: {
     flexDirection: "row",
