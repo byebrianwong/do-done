@@ -22,7 +22,6 @@ import {
   Text,
   TextInput,
   Pressable,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Platform,
@@ -39,7 +38,11 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -635,7 +638,7 @@ export default function TaskEditModalV2({
       Animated.timing(translateY, {
         toValue: 0,
         duration: 280,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }).start();
     }
   }, [visible, task, translateY]);
@@ -645,35 +648,35 @@ export default function TaskEditModalV2({
     Animated.timing(translateY, {
       toValue: SCREEN_H,
       duration: 220,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start(() => closeRef.current());
   };
 
-  // Drag the grab handle down to dismiss (RN core gesture — reliable in Modals).
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy > 120 || g.vy > 0.8) {
-          Animated.timing(translateY, {
-            toValue: SCREEN_H,
-            duration: 220,
-            useNativeDriver: true,
-          }).start(() => closeRef.current());
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 0,
-          }).start();
-        }
-      },
+  // Drag the sheet down to dismiss. gesture-handler (the slider's stack — it
+  // reliably detects touches here) drives a plain RN Animated.Value, so we
+  // steer clear of Reanimated. activeOffsetY makes it claim only downward
+  // drags, leaving taps and the horizontal sliders alone.
+  const dismissPan = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetY(12)
+    .onUpdate((e) => {
+      if (e.translationY > 0) translateY.setValue(e.translationY);
     })
-  ).current;
+    .onEnd((e) => {
+      if (e.translationY > 120 || e.velocityY > 800) {
+        Animated.timing(translateY, {
+          toValue: SCREEN_H,
+          duration: 220,
+          useNativeDriver: false,
+        }).start(() => closeRef.current());
+      } else {
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: false,
+          bounciness: 0,
+        }).start();
+      }
+    });
 
   return (
     <Modal
@@ -685,14 +688,18 @@ export default function TaskEditModalV2({
     >
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={animatedClose} />
-        <Animated.View
-          style={[styles.sheet, { transform: [{ translateY }] }]}
-        >
-          <View style={styles.grabberWrap} {...panResponder.panHandlers}>
-            <View style={styles.grabber} />
-          </View>
-          {task ? <Inner task={task} onClose={animatedClose} /> : null}
-        </Animated.View>
+        <GestureHandlerRootView style={styles.ghRoot}>
+          <GestureDetector gesture={dismissPan}>
+            <Animated.View
+              style={[styles.sheet, { transform: [{ translateY }] }]}
+            >
+              <View style={styles.grabberWrap}>
+                <View style={styles.grabber} />
+              </View>
+              {task ? <Inner task={task} onClose={animatedClose} /> : null}
+            </Animated.View>
+          </GestureDetector>
+        </GestureHandlerRootView>
       </View>
     </Modal>
   );
@@ -971,8 +978,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(17,24,39,0.4)",
   },
+  ghRoot: { height: "92%" },
   sheet: {
-    height: "92%",
+    flex: 1,
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
