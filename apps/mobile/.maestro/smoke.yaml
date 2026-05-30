@@ -1,0 +1,36 @@
+# Smoke test: login -> create a task -> open its detail bottom sheet.
+#
+# Run via `scripts/e2e-android.sh` (which boots the emulator, installs the
+# dev client, starts Metro, and launches the app pointed at Metro first), or
+# manually against an already-running app:
+#   maestro test -e EMAIL=you@example.com -e PASSWORD=secret apps/mobile/.maestro/smoke.yaml
+#
+# NOTE: the email/password field taps use screen-percentage coordinates tuned
+# for the "dodone" Pixel-7 AVD (1080x2400) because the login TextInputs have no
+# testIDs. Adding testID props (see .maestro/README.md) would make this
+# resolution-independent and far more robust.
+appId: com.beamer408.dodone
+---
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- tapOn:
+    point: "50%,43%"
+- inputText: ${EMAIL}
+- hideKeyboard
+- tapOn:
+    point: "50%,52%"
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000
+- tapOn:
+    point: "40%,87%"
+- inputText: "E2E smoke task today #test"
+- pressKey: Enter
+- tapOn: "E2E smoke task"
+- assertVisible: "When"
+- assertVisible: "Notes"
+- takeScreenshot: e2e-task-sheet
