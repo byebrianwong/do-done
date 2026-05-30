@@ -24,6 +24,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from "react-native";
 import {
   PRIORITY_CONFIG,
@@ -37,6 +38,20 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from "react-native-reanimated";
+
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -148,6 +163,80 @@ const EST_COL_W = 14;
 const EST_COL_H = 30;
 const EST_BAR_HEIGHTS = [8, 13, 17, 21, 25, 28];
 
+/**
+ * A row of bars that can be set either by tapping a bar or by dragging
+ * left/right across the row (drag maps horizontal position → bar index).
+ * Backs the priority and estimate selectors.
+ */
+function BarSelector({
+  litCount,
+  barHeights,
+  colW,
+  colH,
+  litColor,
+  onSelectIndex,
+}: {
+  litCount: number;
+  barHeights: number[];
+  colW: number;
+  colH: number;
+  litColor: string;
+  onSelectIndex: (index: number) => void;
+}) {
+  const widthRef = useRef(0);
+  const count = barHeights.length;
+
+  const selectFromX = (x: number) => {
+    const w = widthRef.current;
+    if (w <= 0) return;
+    const idx = Math.min(count - 1, Math.max(0, Math.floor((x / w) * count)));
+    onSelectIndex(idx);
+  };
+
+  // Tap selects the bar under the finger; horizontal drag scrubs the value.
+  // activeOffsetX lets vertical scroll pass through to the parent ScrollView.
+  const pan = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetX([-10, 10])
+    .onUpdate((e) => selectFromX(e.x));
+  const tap = Gesture.Tap()
+    .runOnJS(true)
+    .onEnd((e) => selectFromX(e.x));
+  const gesture = Gesture.Race(tap, pan);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <View
+        style={styles.barsRow}
+        onLayout={(e) => {
+          widthRef.current = e.nativeEvent.layout.width;
+        }}
+      >
+        {barHeights.map((h, i) => (
+          <View
+            key={i}
+            style={{
+              width: colW,
+              height: colH,
+              alignItems: "center",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                width: 7,
+                borderRadius: 2,
+                height: h,
+                backgroundColor: i < litCount ? litColor : "#e5e7eb",
+              }}
+            />
+          </View>
+        ))}
+      </View>
+    </GestureDetector>
+  );
+}
+
 function PrioritySignal({
   value,
   onChange,
@@ -156,38 +245,17 @@ function PrioritySignal({
   onChange: (p: TaskPriority) => void;
 }) {
   const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[value];
-  const color = PRIORITY_COLORS[value];
-  // Bars are positioned left-to-right short→tall: indices 0..3 map to p4..p1.
+  // Bars run left→right short→tall: indices 0..3 map to p4..p1.
   const barPriorities: TaskPriority[] = ["p4", "p3", "p2", "p1"];
   return (
-    <View style={styles.barsRow}>
-      {barPriorities.map((p, i) => {
-        const lit = i < litCount;
-        return (
-          <Pressable
-            key={p}
-            onPress={() => onChange(p)}
-            hitSlop={4}
-            style={{
-              width: PRI_COL_W,
-              height: PRI_COL_H,
-              alignItems: "center",
-              justifyContent: "flex-end",
-            }}
-          >
-            <View
-              style={[
-                styles.priBar,
-                {
-                  height: PRI_BAR_HEIGHTS[i],
-                  backgroundColor: lit ? color : "#e5e7eb",
-                },
-              ]}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
+    <BarSelector
+      litCount={litCount}
+      barHeights={PRI_BAR_HEIGHTS}
+      colW={PRI_COL_W}
+      colH={PRI_COL_H}
+      litColor={PRIORITY_COLORS[value]}
+      onSelectIndex={(i) => onChange(barPriorities[i])}
+    />
   );
 }
 
@@ -200,34 +268,14 @@ function EstimateEqualizer({
 }) {
   const activeIdx = estimateBarIndex(value);
   return (
-    <View style={styles.barsRow}>
-      {ESTIMATE_BUCKETS.map((minutes, i) => {
-        const lit = i <= activeIdx;
-        return (
-          <Pressable
-            key={minutes}
-            onPress={() => onChange(minutes)}
-            hitSlop={4}
-            style={{
-              width: EST_COL_W,
-              height: EST_COL_H,
-              alignItems: "center",
-              justifyContent: "flex-end",
-            }}
-          >
-            <View
-              style={[
-                styles.estBar,
-                {
-                  height: EST_BAR_HEIGHTS[i],
-                  backgroundColor: lit ? "#6366f1" : "#e5e7eb",
-                },
-              ]}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
+    <BarSelector
+      litCount={activeIdx + 1}
+      barHeights={EST_BAR_HEIGHTS}
+      colW={EST_COL_W}
+      colH={EST_COL_H}
+      litColor="#6366f1"
+      onSelectIndex={(i) => onChange(ESTIMATE_BUCKETS[i])}
+    />
   );
 }
 
@@ -592,7 +640,9 @@ export default function TaskEditModalV2({
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
-      <Inner task={task} onClose={handleClose} />
+      <GestureHandlerRootView style={styles.flex1}>
+        <Inner task={task} onClose={handleClose} />
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -670,11 +720,38 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
 
+  // Swipe-down-to-dismiss. Android has no native sheet-swipe; iOS pageSheet
+  // provides it, so the gesture is enabled on Android only.
+  const translateY = useSharedValue(0);
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+  const dismissPan = Gesture.Pan()
+    .enabled(Platform.OS === "android")
+    .onUpdate((e) => {
+      translateY.value = Math.max(0, e.translationY);
+    })
+    .onEnd((e) => {
+      if (e.translationY > 120 || e.velocityY > 800) {
+        translateY.value = withTiming(SCREEN_HEIGHT, { duration: 220 }, () => {
+          runOnJS(onClose)();
+        });
+      } else {
+        translateY.value = withSpring(0, { damping: 20 });
+      }
+    });
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.screen}
-    >
+    <Animated.View style={[styles.screen, sheetStyle]}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.flex1}
+      >
+        <GestureDetector gesture={dismissPan}>
+          <View style={styles.grabberArea}>
+            <View style={styles.grabber} />
+          </View>
+        </GestureDetector>
       <View style={styles.topBar}>
         {hasChanges ? (
           <Pressable onPress={handleUndo} style={styles.cancelBtn}>
@@ -863,6 +940,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         </Pressable>
       </View>
     </KeyboardAvoidingView>
+    </Animated.View>
   );
 }
 
@@ -870,6 +948,18 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#fff" },
+  flex1: { flex: 1 },
+  grabberArea: {
+    paddingTop: 8,
+    paddingBottom: 4,
+    alignItems: "center",
+  },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#d1d5db",
+  },
 
   topBar: {
     flexDirection: "row",
@@ -1109,8 +1199,6 @@ const styles = StyleSheet.create({
   metaValue: { fontSize: 12, fontWeight: "700" },
 
   barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
-  priBar: { width: 7, borderRadius: 2 },
-  estBar: { width: 7, borderRadius: 2 },
 
   pickerBackdrop: {
     flex: 1,
