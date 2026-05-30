@@ -20,6 +20,7 @@ import {
   Text,
   TextInput,
   Pressable,
+  ScrollView,
   StyleSheet,
   Platform,
 } from "react-native";
@@ -36,13 +37,6 @@ import {
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import {
-  BottomSheetModal,
-  BottomSheetBackdrop,
-  BottomSheetScrollView,
-  BottomSheetTextInput,
-  type BottomSheetBackdropProps,
-} from "@gorhom/bottom-sheet";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -613,67 +607,35 @@ interface Props {
   onSaved?: () => void;
 }
 
-const SNAP_POINTS = ["90%"];
-
 export default function TaskEditModalV2({
   task,
   visible,
   onClose,
   onSaved,
 }: Props) {
-  const sheetRef = useRef<BottomSheetModal>(null);
-
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     onClose();
     onSaved?.();
-  }, [onClose, onSaved]);
-
-  // Present / dismiss the sheet in response to the `visible` prop.
-  useEffect(() => {
-    console.log('[TaskModal] effect', {
-      visible,
-      hasTask: !!task,
-      hasRef: !!sheetRef.current,
-    });
-    if (visible && task) {
-      console.log('[TaskModal] -> present()');
-      sheetRef.current?.present();
-    } else {
-      sheetRef.current?.dismiss();
-    }
-  }, [visible, task]);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        pressBehavior="close"
-        opacity={0.4}
-      />
-    ),
-    []
-  );
+  };
 
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      snapPoints={SNAP_POINTS}
-      enableDynamicSizing={false}
-      enablePanDownToClose
-      onDismiss={handleClose}
-      backdropComponent={renderBackdrop}
-      handleIndicatorStyle={styles.handleIndicator}
-      backgroundStyle={styles.sheetBackground}
-      keyboardBehavior="interactive"
-      keyboardBlurBehavior="restore"
-      android_keyboardInputMode="adjustResize"
+    <Modal
+      visible={visible && !!task}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={handleClose}
     >
-      {task ? (
-        <Inner task={task} onClose={() => sheetRef.current?.dismiss()} />
-      ) : null}
-    </BottomSheetModal>
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={handleClose} />
+        <View style={styles.sheet}>
+          <View style={styles.grabberWrap}>
+            <View style={styles.grabber} />
+          </View>
+          {task ? <Inner task={task} onClose={handleClose} /> : null}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -766,10 +728,10 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         </Pressable>
       </View>
 
-      <BottomSheetScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {/* Title input */}
         <View style={styles.inputWrap}>
-          <BottomSheetTextInput
+          <TextInput
             value={current.title}
             onChangeText={handleTitleChange}
             placeholder="Task title…"
@@ -887,7 +849,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Notes</Text>
           </View>
-          <BottomSheetTextInput
+          <TextInput
             value={current.description ?? ""}
             onChangeText={(v) =>
               setField("description", v.length === 0 ? null : v)
@@ -898,7 +860,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             style={styles.notesInput}
           />
         </View>
-      </BottomSheetScrollView>
+      </ScrollView>
 
       <View style={styles.bottomBar}>
         <Pressable
@@ -945,13 +907,26 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  sheetContent: { flex: 1, backgroundColor: "#fff" },
-  sheetBackground: {
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(17,24,39,0.4)",
+  },
+  sheet: {
+    height: "92%",
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    overflow: "hidden",
   },
-  handleIndicator: { backgroundColor: "#d1d5db", width: 40 },
+  grabberWrap: { paddingTop: 8, paddingBottom: 4, alignItems: "center" },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#d1d5db",
+  },
+  sheetContent: { flex: 1, backgroundColor: "#fff" },
 
   topBar: {
     flexDirection: "row",

@@ -12,7 +12,6 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -68,13 +67,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>
-        <AuthProvider>
-          <UndoToastProvider>
-            <RootLayoutNav />
-          </UndoToastProvider>
-        </AuthProvider>
-      </BottomSheetModalProvider>
+      <AuthProvider>
+        <UndoToastProvider>
+          <RootLayoutNav />
+        </UndoToastProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 }
