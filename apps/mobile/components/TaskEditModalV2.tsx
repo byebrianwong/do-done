@@ -651,6 +651,7 @@ export default function TaskEditModalV2({
     <BottomSheetModal
       ref={sheetRef}
       snapPoints={SNAP_POINTS}
+      enableDynamicSizing={false}
       enablePanDownToClose
       onDismiss={handleClose}
       backdropComponent={renderBackdrop}
