@@ -99,7 +99,7 @@ cd apps/mobile && eas init
 eas build --profile development --platform android
 
 # Install the APK on your Android device, then start metro:
-pnpm --filter mobile dev
+pnpm --filter mobile start
 # Open the dev client app, scan the QR code → app loads with native modules
 ```
 
