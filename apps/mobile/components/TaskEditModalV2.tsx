@@ -15,11 +15,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Dimensions,
   Modal,
   View,
   Text,
   TextInput,
   Pressable,
+  PanResponder,
   ScrollView,
   StyleSheet,
   Platform,
@@ -607,33 +610,89 @@ interface Props {
   onSaved?: () => void;
 }
 
+const SCREEN_H = Dimensions.get("window").height;
+
 export default function TaskEditModalV2({
   task,
   visible,
   onClose,
   onSaved,
 }: Props) {
-  const handleClose = () => {
+  // Keep the latest close handler in a ref so the once-created PanResponder
+  // always calls the current one.
+  const closeRef = useRef<() => void>(() => {});
+  closeRef.current = () => {
     onClose();
     onSaved?.();
   };
+
+  const translateY = useRef(new Animated.Value(SCREEN_H)).current;
+
+  // Slide the sheet up whenever it becomes visible.
+  useEffect(() => {
+    if (visible && task) {
+      translateY.setValue(SCREEN_H);
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 280,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, task, translateY]);
+
+  // Animate the sheet down, then actually close.
+  const animatedClose = () => {
+    Animated.timing(translateY, {
+      toValue: SCREEN_H,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => closeRef.current());
+  };
+
+  // Drag the grab handle down to dismiss (RN core gesture — reliable in Modals).
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 120 || g.vy > 0.8) {
+          Animated.timing(translateY, {
+            toValue: SCREEN_H,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(() => closeRef.current());
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   return (
     <Modal
       visible={visible && !!task}
       transparent
-      animationType="slide"
+      animationType="none"
       statusBarTranslucent
-      onRequestClose={handleClose}
+      onRequestClose={animatedClose}
     >
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={handleClose} />
-        <View style={styles.sheet}>
-          <View style={styles.grabberWrap}>
+        <Pressable style={styles.backdrop} onPress={animatedClose} />
+        <Animated.View
+          style={[styles.sheet, { transform: [{ translateY }] }]}
+        >
+          <View style={styles.grabberWrap} {...panResponder.panHandlers}>
             <View style={styles.grabber} />
           </View>
-          {task ? <Inner task={task} onClose={handleClose} /> : null}
-        </View>
+          {task ? <Inner task={task} onClose={animatedClose} /> : null}
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -919,7 +978,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     overflow: "hidden",
   },
-  grabberWrap: { paddingTop: 8, paddingBottom: 4, alignItems: "center" },
+  grabberWrap: { paddingVertical: 12, alignItems: "center" },
   grabber: {
     width: 40,
     height: 5,
