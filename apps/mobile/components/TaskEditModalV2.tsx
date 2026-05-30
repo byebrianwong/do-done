@@ -630,8 +630,17 @@ export default function TaskEditModalV2({
 
   // Present / dismiss the sheet in response to the `visible` prop.
   useEffect(() => {
-    if (visible && task) sheetRef.current?.present();
-    else sheetRef.current?.dismiss();
+    console.log('[TaskModal] effect', {
+      visible,
+      hasTask: !!task,
+      hasRef: !!sheetRef.current,
+    });
+    if (visible && task) {
+      console.log('[TaskModal] -> present()');
+      sheetRef.current?.present();
+    } else {
+      sheetRef.current?.dismiss();
+    }
   }, [visible, task]);
 
   const renderBackdrop = useCallback(
