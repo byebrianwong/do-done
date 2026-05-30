@@ -224,8 +224,11 @@ export default function QuickAddBar({
 
 const styles = StyleSheet.create({
   wrapper: {
+    // Sits just above the tab bar. The Today screen's content area already
+    // stops at the top of the tab bar, so this is the gap above it (was 90,
+    // which floated the bar too high).
     position: 'absolute',
-    bottom: 90,
+    bottom: 16,
     left: 16,
     right: 16,
   },

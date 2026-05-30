@@ -15,6 +15,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Dimensions,
   Modal,
   View,
   Text,
@@ -22,7 +24,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
 } from "react-native";
 import {
@@ -37,6 +38,11 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -148,6 +154,80 @@ const EST_COL_W = 14;
 const EST_COL_H = 30;
 const EST_BAR_HEIGHTS = [8, 13, 17, 21, 25, 28];
 
+/**
+ * A row of bars that can be set either by tapping a bar or by dragging
+ * left/right across the row (drag maps horizontal position → bar index).
+ * Backs the priority and estimate selectors.
+ */
+function BarSelector({
+  litCount,
+  barHeights,
+  colW,
+  colH,
+  litColor,
+  onSelectIndex,
+}: {
+  litCount: number;
+  barHeights: number[];
+  colW: number;
+  colH: number;
+  litColor: string;
+  onSelectIndex: (index: number) => void;
+}) {
+  const widthRef = useRef(0);
+  const count = barHeights.length;
+
+  const selectFromX = (x: number) => {
+    const w = widthRef.current;
+    if (w <= 0) return;
+    const idx = Math.min(count - 1, Math.max(0, Math.floor((x / w) * count)));
+    onSelectIndex(idx);
+  };
+
+  // Tap selects the bar under the finger; horizontal drag scrubs the value.
+  // activeOffsetX lets vertical scroll pass through to the parent ScrollView.
+  const pan = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetX([-10, 10])
+    .onUpdate((e) => selectFromX(e.x));
+  const tap = Gesture.Tap()
+    .runOnJS(true)
+    .onEnd((e) => selectFromX(e.x));
+  const gesture = Gesture.Race(tap, pan);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <View
+        style={styles.barsRow}
+        onLayout={(e) => {
+          widthRef.current = e.nativeEvent.layout.width;
+        }}
+      >
+        {barHeights.map((h, i) => (
+          <View
+            key={i}
+            style={{
+              width: colW,
+              height: colH,
+              alignItems: "center",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                width: 7,
+                borderRadius: 2,
+                height: h,
+                backgroundColor: i < litCount ? litColor : "#e5e7eb",
+              }}
+            />
+          </View>
+        ))}
+      </View>
+    </GestureDetector>
+  );
+}
+
 function PrioritySignal({
   value,
   onChange,
@@ -156,38 +236,17 @@ function PrioritySignal({
   onChange: (p: TaskPriority) => void;
 }) {
   const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[value];
-  const color = PRIORITY_COLORS[value];
-  // Bars are positioned left-to-right short→tall: indices 0..3 map to p4..p1.
+  // Bars run left→right short→tall: indices 0..3 map to p4..p1.
   const barPriorities: TaskPriority[] = ["p4", "p3", "p2", "p1"];
   return (
-    <View style={styles.barsRow}>
-      {barPriorities.map((p, i) => {
-        const lit = i < litCount;
-        return (
-          <Pressable
-            key={p}
-            onPress={() => onChange(p)}
-            hitSlop={4}
-            style={{
-              width: PRI_COL_W,
-              height: PRI_COL_H,
-              alignItems: "center",
-              justifyContent: "flex-end",
-            }}
-          >
-            <View
-              style={[
-                styles.priBar,
-                {
-                  height: PRI_BAR_HEIGHTS[i],
-                  backgroundColor: lit ? color : "#e5e7eb",
-                },
-              ]}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
+    <BarSelector
+      litCount={litCount}
+      barHeights={PRI_BAR_HEIGHTS}
+      colW={PRI_COL_W}
+      colH={PRI_COL_H}
+      litColor={PRIORITY_COLORS[value]}
+      onSelectIndex={(i) => onChange(barPriorities[i])}
+    />
   );
 }
 
@@ -200,34 +259,14 @@ function EstimateEqualizer({
 }) {
   const activeIdx = estimateBarIndex(value);
   return (
-    <View style={styles.barsRow}>
-      {ESTIMATE_BUCKETS.map((minutes, i) => {
-        const lit = i <= activeIdx;
-        return (
-          <Pressable
-            key={minutes}
-            onPress={() => onChange(minutes)}
-            hitSlop={4}
-            style={{
-              width: EST_COL_W,
-              height: EST_COL_H,
-              alignItems: "center",
-              justifyContent: "flex-end",
-            }}
-          >
-            <View
-              style={[
-                styles.estBar,
-                {
-                  height: EST_BAR_HEIGHTS[i],
-                  backgroundColor: lit ? "#6366f1" : "#e5e7eb",
-                },
-              ]}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
+    <BarSelector
+      litCount={activeIdx + 1}
+      barHeights={EST_BAR_HEIGHTS}
+      colW={EST_COL_W}
+      colH={EST_COL_H}
+      litColor="#6366f1"
+      onSelectIndex={(i) => onChange(ESTIMATE_BUCKETS[i])}
+    />
   );
 }
 
@@ -574,25 +613,94 @@ interface Props {
   onSaved?: () => void;
 }
 
+const SCREEN_H = Dimensions.get("window").height;
+
 export default function TaskEditModalV2({
   task,
   visible,
   onClose,
   onSaved,
 }: Props) {
-  if (!task) return null;
-  const handleClose = () => {
+  // Keep the latest close handler in a ref so the once-created PanResponder
+  // always calls the current one.
+  const closeRef = useRef<() => void>(() => {});
+  closeRef.current = () => {
     onClose();
     onSaved?.();
   };
+
+  const translateY = useRef(new Animated.Value(SCREEN_H)).current;
+
+  // Slide the sheet up whenever it becomes visible.
+  useEffect(() => {
+    if (visible && task) {
+      translateY.setValue(SCREEN_H);
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 280,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [visible, task, translateY]);
+
+  // Animate the sheet down, then actually close.
+  const animatedClose = () => {
+    Animated.timing(translateY, {
+      toValue: SCREEN_H,
+      duration: 220,
+      useNativeDriver: false,
+    }).start(() => closeRef.current());
+  };
+
+  // Drag the sheet down to dismiss. gesture-handler (the slider's stack — it
+  // reliably detects touches here) drives a plain RN Animated.Value, so we
+  // steer clear of Reanimated. activeOffsetY makes it claim only downward
+  // drags, leaving taps and the horizontal sliders alone.
+  const dismissPan = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetY(12)
+    .onUpdate((e) => {
+      if (e.translationY > 0) translateY.setValue(e.translationY);
+    })
+    .onEnd((e) => {
+      if (e.translationY > 120 || e.velocityY > 800) {
+        Animated.timing(translateY, {
+          toValue: SCREEN_H,
+          duration: 220,
+          useNativeDriver: false,
+        }).start(() => closeRef.current());
+      } else {
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: false,
+          bounciness: 0,
+        }).start();
+      }
+    });
+
   return (
     <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleClose}
+      visible={visible && !!task}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={animatedClose}
     >
-      <Inner task={task} onClose={handleClose} />
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={animatedClose} />
+        <GestureHandlerRootView style={styles.ghRoot}>
+          <GestureDetector gesture={dismissPan}>
+            <Animated.View
+              style={[styles.sheet, { transform: [{ translateY }] }]}
+            >
+              <View style={styles.grabberWrap}>
+                <View style={styles.grabber} />
+              </View>
+              {task ? <Inner task={task} onClose={animatedClose} /> : null}
+            </Animated.View>
+          </GestureDetector>
+        </GestureHandlerRootView>
+      </View>
     </Modal>
   );
 }
@@ -671,10 +779,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
   const [estPickerOpen, setEstPickerOpen] = useState(false);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.screen}
-    >
+    <View style={styles.sheetContent}>
       <View style={styles.topBar}>
         {hasChanges ? (
           <Pressable onPress={handleUndo} style={styles.cancelBtn}>
@@ -698,7 +803,6 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             placeholder="Task title…"
             placeholderTextColor="#9ca3af"
             style={styles.titleInput}
-            autoFocus
           />
           <TagRow
             tags={current.tags}
@@ -862,14 +966,34 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           </View>
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#fff" },
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(17,24,39,0.4)",
+  },
+  ghRoot: { height: "92%" },
+  sheet: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: "hidden",
+  },
+  grabberWrap: { paddingVertical: 12, alignItems: "center" },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#d1d5db",
+  },
+  sheetContent: { flex: 1, backgroundColor: "#fff" },
 
   topBar: {
     flexDirection: "row",
@@ -1109,8 +1233,6 @@ const styles = StyleSheet.create({
   metaValue: { fontSize: 12, fontWeight: "700" },
 
   barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
-  priBar: { width: 7, borderRadius: 2 },
-  estBar: { width: 7, borderRadius: 2 },
 
   pickerBackdrop: {
     flex: 1,

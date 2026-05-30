@@ -80,15 +80,16 @@ export default function TodayScreen() {
 
   const renderDraggable = useCallback(
     ({ item, drag, isActive }: RenderItemParams<Task>) => (
-      <Pressable
-        onLongPress={drag}
-        delayLongPress={250}
-        style={[
-          isActive && { opacity: 0.85, backgroundColor: '#f1f5f9' },
-        ]}
+      <View
+        style={isActive ? { opacity: 0.9, backgroundColor: '#f1f5f9' } : undefined}
       >
-        <TaskItem task={item} onChange={load} onPress={(t) => setEditing(t)} />
-      </Pressable>
+        <TaskItem
+          task={item}
+          onChange={load}
+          onPress={(t) => setEditing(t)}
+          onDragHandle={drag}
+        />
+      </View>
     ),
     [load]
   );
