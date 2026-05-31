@@ -90,8 +90,8 @@ jobs:
             npx --yes wait-on http://localhost:8081/status -t 120000
             adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
             adb reverse tcp:8081 tcp:8081
-            adb shell am start -a android.intent.action.VIEW \
-              -d "dodone://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
+            adb shell am start -a android.intent.action.VIEW -d "dodone://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
+            sleep 5
             maestro test -e EMAIL="$E2E_EMAIL" -e PASSWORD="$E2E_PASSWORD" apps/mobile/.maestro/
 
       - name: Upload Maestro screenshots
