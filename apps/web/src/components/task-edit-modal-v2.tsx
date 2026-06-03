@@ -1644,11 +1644,11 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/30 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/30 p-3 backdrop-blur-sm sm:p-6"
       onClick={handleClose}
     >
       <div
-        className="w-[640px] max-w-full overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.10),0_4px_12px_rgba(17,24,39,0.04)] dark:bg-neutral-950"
+        className="flex max-h-[calc(100dvh-1.5rem)] w-[640px] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.10),0_4px_12px_rgba(17,24,39,0.04)] sm:max-h-[90vh] dark:bg-neutral-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top bar */}
@@ -1684,6 +1684,9 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
           </div>
         </div>
 
+        {/* Scrollable region — keeps the modal within the viewport on short
+            screens (phones) instead of overflowing off the bottom. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Input */}
         <div className="border-b border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
           <SlashCommandInput
@@ -1766,6 +1769,7 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
               className="w-full rounded-lg border border-neutral-100 bg-neutral-50 px-3.5 py-2.5 text-[13px] text-neutral-700 outline-none transition-colors focus:border-indigo-300 focus:bg-white dark:border-neutral-900 dark:bg-neutral-900 dark:text-neutral-300 dark:focus:border-indigo-700 dark:focus:bg-neutral-950"
             />
           </div>
+        </div>
         </div>
 
         {/* Footer */}

@@ -4,7 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCenter,
@@ -60,7 +61,7 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group flex items-stretch border-b border-neutral-100 last:border-b-0 touch-none dark:border-neutral-800"
+      className="group flex touch-manipulation items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800"
     >
       <DragHandleIndicator />
       <div className="min-w-0 flex-1">
@@ -101,8 +102,13 @@ export function SortableTaskList({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [items, setItems] = useState(tasks);
+  // Mouse: drag after a 4px move. Touch: drag only after a short press, so a
+  // normal vertical swipe scrolls the page instead of reordering.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    })
   );
 
   // Resync local order whenever the server returns a new set of ids.
