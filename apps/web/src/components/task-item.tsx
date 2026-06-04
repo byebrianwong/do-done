@@ -79,7 +79,6 @@ function dueDateColor(dateStr: string): string {
 export function TaskItem({ task, projects }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
-  const [hovering, setHovering] = useState(false);
   const [editing, setEditing] = useState(false);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
@@ -136,8 +135,6 @@ export function TaskItem({ task, projects }: TaskItemProps) {
     <>
       <div
         className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
         onClick={() => setEditing(true)}
       >
         <button
@@ -287,10 +284,10 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           </span>
         )}
 
+        {/* Always visible on touch (no hover); reveal on hover for pointer
+            devices to keep the desktop list calm. */}
         <div
-          className={`flex shrink-0 gap-1 transition-opacity ${
-            hovering ? "opacity-100" : "opacity-0"
-          }`}
+          className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           {canSchedule && task.duration_minutes && (

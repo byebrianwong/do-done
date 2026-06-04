@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDraggable,
@@ -33,8 +34,14 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
   const [, startTransition] = useTransition();
   const [localTasks, setLocalTasks] = useState(tasks);
   useEffect(() => setLocalTasks(tasks), [tasks]);
+  // Mouse drags start after a small move (distinguishes click from drag).
+  // Touch drags start after a short press so a normal swipe scrolls the
+  // (horizontally scrollable) week grid instead of grabbing a task.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    })
   );
 
   const start = useMemo(() => new Date(weekStart), [weekStart]);
@@ -128,6 +135,10 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
           </Link>
         </div>
 
+        {/* On phones a 7-day grid can't fit; let it scroll horizontally with
+            a sensible minimum column width instead of crushing each day. */}
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="min-w-[640px]">
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-neutral-200 dark:border-neutral-800">
           <div />
           {days.map((d) => {
@@ -183,6 +194,8 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
               projectColors={projectColors}
             />
           ))}
+        </div>
+        </div>
         </div>
       </div>
     </DndContext>

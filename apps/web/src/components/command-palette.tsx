@@ -7,6 +7,10 @@ import type { Project, Task } from "@do-done/shared";
 import { TasksApi } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
 
+// Window event other components (e.g. the mobile top-bar search button) can
+// dispatch to open the palette without a physical keyboard.
+export const OPEN_COMMAND_PALETTE_EVENT = "do-done:open-command-palette";
+
 type CommandKind = "nav" | "project" | "task" | "action";
 
 interface Command {
@@ -107,6 +111,13 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
+
+  // Allow opening the palette via a custom event (mobile has no ⌘K).
+  useEffect(() => {
+    const open = () => setOpen(true);
+    window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, open);
+    return () => window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, open);
+  }, []);
 
   // Focus input when opened
   useEffect(() => {

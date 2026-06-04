@@ -90,7 +90,7 @@ function OverdueRow({
           {lateBy}
         </span>
       )}
-      <div className="flex shrink-0 gap-1">
+      <div className="flex flex-wrap justify-end gap-1">
         <button
           type="button"
           onClick={() => onSelect({ kind: "date", date: todayISO() })}
