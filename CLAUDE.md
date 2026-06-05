@@ -116,6 +116,31 @@ After the dev client is installed, you can iterate on native code without rebuil
 - Background handler `widget-task-handler.ts` is registered at app launch
 - Widgets use AsyncStorage (shared with main app) to read the Supabase session
 
+### Quick-add widget (floats over the home screen)
+The 1×1 "Quick Add" widget mimics Todoist's add-task widget: tapping it opens a
+quick-add sheet over the live home screen without launching the main app.
+
+- The widget (`widgets/QuickAddWidget.tsx`) taps `dodoneadd://open` — a scheme
+  distinct from the app's `dodone` scheme so it resolves *only* to the translucent
+  activity (no disambiguation chooser; `react-native-android-widget` can't target
+  an activity by component, hence the dedicated scheme).
+- `plugins/withQuickAddActivity.js` is a config plugin that, on every `expo prebuild`,
+  generates a translucent **`QuickAddActivity`** (`QuickAddActivity.kt`), registers it
+  in `AndroidManifest.xml` with `Theme.App.QuickAddTranslucent` + the `dodoneadd`
+  intent-filter, and adds that style. The activity runs in its own task
+  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`).
+- `QuickAddActivity` mounts a **second** registered JS root, `"QuickAdd"` (see
+  `index.js`, the custom bundle entry that also imports `expo-router/entry` for the
+  main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
+  session is shared.
+- That root is `quick-add-root.tsx` → renders `components/QuickAddComposer.tsx` (the
+  Todoist-style title + When/Priority/Estimate chips, reusing selectors exported from
+  `components/TaskEditModalV2.tsx`). It dismisses with `BackHandler.exitApp()`, which
+  finishes only the quick-add task and returns to the launcher.
+- Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
+  launches in debug builds. After changing the widget's size, remove and re-add it
+  on the device.
+
 ### Geofencing setup
 - `apps/mobile/lib/geofencing.ts` defines the background TaskManager task
 - `registerUserGeofences()` is called automatically after sign-in
