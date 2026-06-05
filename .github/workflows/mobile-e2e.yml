@@ -1,21 +1,19 @@
 name: Mobile E2E (Android)
 
 # Runs the Maestro smoke flow against a real Android emulator and uploads
-# screenshots. Triggered manually and on PRs that touch the mobile app.
+# screenshots.
 #
-# NOTE: This is a first-pass workflow — Android emulator E2E in CI is finicky
-# (build times, emulator boot, flakiness). Do NOT make it a required status
-# check until it has run green a few times. Required repository secrets:
+# MANUAL-ONLY for now (workflow_dispatch). Android emulator E2E in CI is finicky
+# (build times, emulator boot, JS-bundle-from-Metro, flakiness) and the run needs
+# repository secrets that aren't wired up yet:
 #   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY  (app build/runtime)
 #   E2E_EMAIL, E2E_PASSWORD                                  (test account)
+# Once those secrets exist and the flow has run green a few times via
+# `workflow_dispatch`, re-enable the `pull_request` trigger (paths: apps/mobile/**,
+# packages/**, this file) — and only then consider making it a required check.
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'apps/mobile/**'
-      - 'packages/**'
-      - '.github/workflows/mobile-e2e.yml'
 
 concurrency:
   group: mobile-e2e-${{ github.ref }}
