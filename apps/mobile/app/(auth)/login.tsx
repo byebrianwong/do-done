@@ -63,6 +63,7 @@ export default function LoginScreen() {
 
         <Text style={styles.label}>Email</Text>
         <TextInput
+          testID="login-email"
           style={styles.input}
           placeholder="you@example.com"
           placeholderTextColor="#9ca3af"
@@ -75,6 +76,7 @@ export default function LoginScreen() {
 
         <Text style={styles.label}>Password</Text>
         <TextInput
+          testID="login-password"
           style={styles.input}
           placeholder="••••••••"
           placeholderTextColor="#9ca3af"
@@ -85,6 +87,7 @@ export default function LoginScreen() {
         />
 
         <Pressable
+          testID="login-submit"
           style={({ pressed }) => [
             styles.button,
             (loading || pressed) && styles.buttonPressed,

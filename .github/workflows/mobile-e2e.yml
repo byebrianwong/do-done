@@ -1,0 +1,101 @@
+name: Mobile E2E (Android)
+
+# Runs the Maestro smoke flow against a real Android emulator and uploads
+# screenshots.
+#
+# MANUAL-ONLY for now (workflow_dispatch). Android emulator E2E in CI is finicky
+# (build times, emulator boot, JS-bundle-from-Metro, flakiness) and the run needs
+# repository secrets that aren't wired up yet:
+#   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY  (app build/runtime)
+#   E2E_EMAIL, E2E_PASSWORD                                  (test account)
+# Once those secrets exist and the flow has run green a few times via
+# `workflow_dispatch`, re-enable the `pull_request` trigger (paths: apps/mobile/**,
+# packages/**, this file) — and only then consider making it a required check.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: >
+          pnpm --filter "@do-done/shared" --filter "@do-done/task-engine"
+          --filter "@do-done/api-client" --filter "@do-done/ui" build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate native android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM (hardware accel for the emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Maestro on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_7
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 900
+          script: |
+            # Start Metro (the debug build loads JS from it) and wait for it.
+            (cd apps/mobile && npx expo start > /tmp/metro.log 2>&1 &)
+            npx --yes wait-on http://localhost:8081/status -t 120000
+            adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            adb reverse tcp:8081 tcp:8081
+            adb shell am start -a android.intent.action.VIEW -d "dodone://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
+            sleep 5
+            maestro test -e EMAIL="$E2E_EMAIL" -e PASSWORD="$E2E_PASSWORD" apps/mobile/.maestro/
+
+      - name: Upload Maestro screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-screenshots
+          path: ~/.maestro/tests/
+          if-no-files-found: ignore
