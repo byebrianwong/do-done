@@ -47,16 +47,16 @@ import {
 // ─── Constants ──────────────────────────────────────────────
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-const PRIORITY_COLORS: Record<TaskPriority, string> = {
+export const PRIORITY_COLORS: Record<TaskPriority, string> = {
   p1: "#ef4444",
   p2: "#f59e0b",
   p3: "#6366f1",
   p4: "#9ca3af",
 };
 
-const ESTIMATE_BUCKETS = [30, 60, 120, 240, 480, 960];
+export const ESTIMATE_BUCKETS = [30, 60, 120, 240, 480, 960];
 
-function estimateBarIndex(minutes: number | null): number {
+export function estimateBarIndex(minutes: number | null): number {
   if (!minutes) return -1;
   if (minutes <= 30) return 0;
   if (minutes <= 60) return 1;
@@ -90,7 +90,7 @@ function dotWidth(minutes: number): number {
 
 // Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
 // `#word` is left alone so the user can keep typing.
-function extractCompletedTags(text: string): {
+export function extractCompletedTags(text: string): {
   stripped: string;
   tags: string[];
 } {
@@ -105,7 +105,7 @@ function extractCompletedTags(text: string): {
   return { stripped, tags };
 }
 
-function shortDateLabel(date: string | null, bucket: WhenBucket | null): string {
+export function shortDateLabel(date: string | null, bucket: WhenBucket | null): string {
   if (date) {
     const d = new Date(date + "T00:00:00");
     return d.toLocaleDateString(undefined, {
@@ -122,14 +122,14 @@ function shortDateLabel(date: string | null, bucket: WhenBucket | null): string 
 
 // ── Picker option metadata ─────────────────────────────
 
-const PRIORITY_PICKER_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
+export const PRIORITY_PICKER_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
   { value: "p1", code: "P1", label: "Urgent" },
   { value: "p2", code: "P2", label: "High" },
   { value: "p3", code: "P3", label: "Medium" },
   { value: "p4", code: "P4", label: "Low" },
 ];
 
-const ESTIMATE_PICKER_OPTIONS: {
+export const ESTIMATE_PICKER_OPTIONS: {
   minutes: number;
   code: string;
   label: string;
@@ -272,7 +272,7 @@ function EstimateEqualizer({
 
 // ── Mobile bottom-sheet pickers ─────────────────────────
 
-function PickerSheet({
+export function PickerSheet({
   visible,
   title,
   options,
@@ -280,6 +280,7 @@ function PickerSheet({
   onSelect,
   onClose,
   accentByKey,
+  header,
 }: {
   visible: boolean;
   title: string;
@@ -288,6 +289,8 @@ function PickerSheet({
   onSelect: (key: string) => void;
   onClose: () => void;
   accentByKey?: (key: string) => string;
+  /** Optional content rendered between the title and the option rows. */
+  header?: React.ReactNode;
 }) {
   return (
     <Modal
@@ -299,6 +302,7 @@ function PickerSheet({
       <Pressable onPress={onClose} style={styles.pickerBackdrop}>
         <Pressable onPress={() => {}} style={styles.pickerSheet}>
           <Text style={styles.pickerTitle}>{title}</Text>
+          {header}
           {options.map((opt) => {
             const selected = opt.key === selectedKey;
             return (
@@ -349,7 +353,7 @@ function SaveStatusDot({
   );
 }
 
-function WhenCalendar({
+export function WhenCalendar({
   whenDate,
   whenBucket,
   busyness,
@@ -529,7 +533,7 @@ function WhenCalendar({
   );
 }
 
-function TagRow({
+export function TagRow({
   tags,
   onAdd,
   onRemove,

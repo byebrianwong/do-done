@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -59,7 +60,7 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group flex items-stretch touch-none"
+      className="group flex touch-manipulation items-stretch"
     >
       <DragHandleIndicator />
       <div className="min-w-0 flex-1">
@@ -164,8 +165,13 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
     setTasks(initial.tasks);
   }, [initial]);
 
+  // Mouse drags after a 4px move; touch drags after a short press so a swipe
+  // scrolls the page rather than picking up a task.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    })
   );
 
   function findDateOf(id: string): string | null {

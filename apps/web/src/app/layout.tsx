@@ -1,9 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "do-done",
   description: "A task manager that gets things done",
+};
+
+// Explicit mobile viewport. Without `width=device-width` mobile browsers
+// fall back to a ~980px layout viewport and render the desktop UI zoomed
+// out — the root cause of the app being unusable on phones. `viewportFit`
+// keeps content clear of notches; max-scale is left at the browser default
+// so users can still pinch-zoom.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
