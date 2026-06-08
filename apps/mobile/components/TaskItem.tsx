@@ -13,7 +13,13 @@ import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
-import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from '@do-done/shared';
+import {
+  PRIORITY_CONFIG,
+  STATUS_CONFIG,
+  addDaysLocalISO,
+  formatDuration,
+  todayLocalISO,
+} from '@do-done/shared';
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
 import { deleteTask, toggleComplete, updateTask } from '@/lib/task-queries';
@@ -28,15 +34,6 @@ interface TaskItemProps {
   onDragHandle?: () => void;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
-}
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
-
 function buildReschedule(
   task: Task,
   target:
@@ -44,7 +41,7 @@ function buildReschedule(
     | { kind: 'bucket'; bucket: 'today' | 'tomorrow' | 'this_week' }
     | { kind: 'remove' }
 ): UpdateTaskInput {
-  const today = todayISO();
+  const today = todayLocalISO();
   if (target.kind === 'remove') {
     return {
       when_date: null,
@@ -124,8 +121,8 @@ function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
     run: () => void;
     destructive?: boolean;
   }[] = [
-    { label: 'Move to Today', run: () => applyTarget({ kind: 'date', date: todayISO() }) },
-    { label: 'Move to Tomorrow', run: () => applyTarget({ kind: 'date', date: addDaysISO(1) }) },
+    { label: 'Move to Today', run: () => applyTarget({ kind: 'date', date: todayLocalISO() }) },
+    { label: 'Move to Tomorrow', run: () => applyTarget({ kind: 'date', date: addDaysLocalISO(1) }) },
     { label: 'Move to This week', run: () => applyTarget({ kind: 'bucket', bucket: 'this_week' }) },
     { label: 'Remove dates', run: () => applyTarget({ kind: 'remove' }) },
     { label: 'Delete', run: confirmDelete, destructive: true },
@@ -175,7 +172,7 @@ function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
           style={[styles.swipeAction, styles.swipeTodayAction]}
           onPress={() => {
             swipeRef.current?.close();
-            applyTarget({ kind: 'date', date: todayISO() });
+            applyTarget({ kind: 'date', date: todayLocalISO() });
           }}
         >
           <Ionicons name="today-outline" size={20} color="#fff" />
@@ -262,6 +259,9 @@ function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
                 ~{formatDuration(task.duration_minutes)}
               </Text>
             </View>
+          ) : null}
+          {task.recurrence_rule ? (
+            <Ionicons name="repeat" size={13} color="#9ca3af" />
           ) : null}
           {task.status !== 'not_started' && task.status !== 'inbox' ? (
             <View

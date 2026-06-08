@@ -105,13 +105,17 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
 
 ## Phase 3 — Capture & AI input (P1 — the product's wedge)
 
-- **3.1 — Live parse preview in quick-add.** Mobile's `QuickAddBar` submits blind;
-  show parsed chips (date/priority/tags) before submit. **Effort: S–M.**
+- **3.1 — Live parse preview in quick-add.** ✅ `QuickAddBar` shows a live row of
+  parsed chips (date / deadline / priority / estimate / repeat / tags) above the
+  input as you type — new `components/ParsePreview.tsx`. **Effort: S–M.**
+  _(Status: ✅ done.)_
 - **3.2 — Voice capture, finished.** Voice only works in a dev-client, only fills the
   textbox, never auto-confirms (`QuickAddBar.tsx`). Make it first-class: transcript →
   parse → confirm chips → save. **Effort: M.**
-- **3.3 — Recurrence UI.** `detectRecurrence` understands rich patterns, but mobile's
-  editor has _no_ recurrence field. Add a repeat picker. **Effort: S–M.**
+- **3.3 — Recurrence UI.** ✅ The editor has a Repeat row with preset chips
+  (None / Daily / Weekdays / Weekly / Monthly) that set `recurrence_rule`, plus a ↻
+  badge on recurring task rows. Typed `every …` syntax still parses. **Effort: S–M.**
+  _(Status: ✅ done.)_
 - **3.4 — Location-based tasks UI.** Geofencing is fully wired in the background
   (`geofencing.ts`) and `LocationsApi` exists, but there's **no UI** to create a
   location or attach one to a task. The plumbing is done; the surface is missing.
@@ -124,11 +128,12 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
 - **4.1 — Dark mode is claimed but not implemented.** Every screen hardcodes light
   hex; `useColorScheme` is imported but unused in screens; the `@do-done/ui` token
   package isn't consumed. Implement real theming or stop advertising it. **Effort: M.**
-- **4.2 — Timezone bug in "Today" filtering.** List screens compute today with
-  `new Date().toISOString().split('T')[0]` (**UTC** — `index.tsx`, `TaskItem.tsx`),
-  but the editor's `ymd()` uses **local** date (`TaskEditModalV2.tsx`). A task
-  scheduled "today" can fail to appear in the Today list near midnight in non-UTC
-  zones. Unify on local. **Effort: S.**
+- **4.2 — Timezone bug in "Today" filtering.** ✅ Fixed at the source:
+  `@do-done/shared` now exports `todayLocalISO` / `addDaysLocalISO` and `isOverdue` /
+  `isDueToday` use local date instead of UTC `toISOString()`. Mobile screens
+  (`index.tsx`, `TaskItem.tsx`, `OverdueSection.tsx`) all use the shared helpers, so
+  "today" is consistent across the app. (Also fixes the same UTC bug on web.)
+  **Effort: S.** _(Status: ✅ done.)_
 - **4.3 — Inconsistent staleness.** `Inbox` uses `useEffect` (mount-only) so it goes
   stale after a widget add; `Today` uses `useFocusEffect`. Standardize (moot once 0.3
   lands). **Effort: S.**

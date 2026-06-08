@@ -603,6 +603,53 @@ export function TagRow({
   );
 }
 
+// ── Recurrence ──────────────────────────────────────────
+
+const RECURRENCE_PRESETS: { label: string; rule: string | null }[] = [
+  { label: "None", rule: null },
+  { label: "Daily", rule: "FREQ=DAILY" },
+  { label: "Weekdays", rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
+  { label: "Weekly", rule: "FREQ=WEEKLY" },
+  { label: "Monthly", rule: "FREQ=MONTHLY" },
+];
+
+export function recurrenceShortLabel(rule: string | null): string {
+  if (!rule) return "None";
+  return RECURRENCE_PRESETS.find((p) => p.rule === rule)?.label ?? "Custom";
+}
+
+function RepeatRow({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (rule: string | null) => void;
+}) {
+  return (
+    <View style={styles.repeatRow}>
+      {RECURRENCE_PRESETS.map((p) => {
+        const active = (value ?? null) === p.rule;
+        return (
+          <Pressable
+            key={p.label}
+            onPress={() => onChange(p.rule)}
+            style={[styles.repeatChip, active && styles.repeatChipActive]}
+          >
+            <Text
+              style={[
+                styles.repeatChipText,
+                active && styles.repeatChipTextActive,
+              ]}
+            >
+              {p.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 // ─── Main modal ─────────────────────────────────────────────
 
 interface Props {
@@ -914,6 +961,20 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           onClose={() => setEstPickerOpen(false)}
         />
 
+        {/* Repeat */}
+        <View style={{ marginTop: 18 }}>
+          <View style={styles.rowHead}>
+            <Text style={styles.sectionLabel}>Repeat</Text>
+            <Text style={styles.sectionValue}>
+              {recurrenceShortLabel(current.recurrence_rule)}
+            </Text>
+          </View>
+          <RepeatRow
+            value={current.recurrence_rule}
+            onChange={(rule) => setField("recurrence_rule", rule)}
+          />
+        </View>
+
         {/* Notes */}
         <View style={{ marginTop: 18 }}>
           <View style={styles.rowHead}>
@@ -1207,6 +1268,22 @@ const styles = StyleSheet.create({
   bucketChipActive: { backgroundColor: "#eef2ff" },
   bucketChipText: { fontSize: 11, color: "#374151", fontWeight: "500" },
   bucketChipTextActive: { color: "#4338ca", fontWeight: "700" },
+
+  repeatRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  repeatChip: {
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  repeatChipActive: {
+    backgroundColor: "#eef2ff",
+    borderColor: "#c7d2fe",
+  },
+  repeatChipText: { fontSize: 12, color: "#374151", fontWeight: "600" },
+  repeatChipTextActive: { color: "#4338ca", fontWeight: "700" },
 
   metaCard: {
     marginTop: 18,

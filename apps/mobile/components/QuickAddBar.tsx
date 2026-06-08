@@ -13,6 +13,7 @@ import { parseTaskInput } from '@do-done/task-engine';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { IS_EXPO_GO } from '@/lib/runtime';
+import ParsePreview from './ParsePreview';
 
 // expo-speech-recognition has custom native code, not in Expo Go's bundled
 // runtime. Lazy-load it only when we have a dev client / standalone build,
@@ -183,6 +184,7 @@ export default function QuickAddBar({
         kbHeight > 0 && { bottom: kbHeight + 8 },
       ]}
     >
+      <ParsePreview text={text} />
       <View style={styles.container}>
         <TextInput
           ref={inputRef}
