@@ -24,16 +24,58 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-export async function getTasksApi() {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return new TasksApi(supabase, user?.id);
+// ─── Cached current-user id ─────────────────────────────────────────────
+// `getUser()` hits the auth server on every call. On the hot path (every list
+// load and every task mutation) that round-trip is pure latency. Keep the id
+// in a module-level cache, primed from the local session and kept fresh by the
+// auth-state listener, so getTasksApi()/getProjectsApi() resolve without a
+// network hop once the session is known.
+let cachedUserId: string | undefined;
+
+if (isClient) {
+  void supabase.auth
+    .getSession()
+    .then(({ data }) => {
+      cachedUserId = data.session?.user?.id;
+    })
+    .catch(() => {
+      // ignore — getUserId() falls back to a local getSession() read
+    });
+  supabase.auth.onAuthStateChange((_event, session) => {
+    cachedUserId = session?.user?.id;
+  });
 }
 
-export async function getProjectsApi() {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return new ProjectsApi(supabase, user?.id);
+async function getUserId(): Promise<string | undefined> {
+  if (cachedUserId) return cachedUserId;
+  // Cold cache (e.g. first call before the listener primes it): read the
+  // session from local storage — still no network, unlike getUser().
+  const { data } = await supabase.auth.getSession();
+  cachedUserId = data.session?.user?.id;
+  return cachedUserId;
+}
+
+// Memoize the API instances per user so callers don't allocate a new client on
+// every tap. Rebuilt only when the signed-in user changes.
+let tasksApi: TasksApi | undefined;
+let tasksApiUserId: string | undefined;
+let projectsApi: ProjectsApi | undefined;
+let projectsApiUserId: string | undefined;
+
+export async function getTasksApi(): Promise<TasksApi> {
+  const userId = await getUserId();
+  if (!tasksApi || tasksApiUserId !== userId) {
+    tasksApi = new TasksApi(supabase, userId);
+    tasksApiUserId = userId;
+  }
+  return tasksApi;
+}
+
+export async function getProjectsApi(): Promise<ProjectsApi> {
+  const userId = await getUserId();
+  if (!projectsApi || projectsApiUserId !== userId) {
+    projectsApi = new ProjectsApi(supabase, userId);
+    projectsApiUserId = userId;
+  }
+  return projectsApi;
 }

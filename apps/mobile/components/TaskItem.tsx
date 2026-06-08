@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -20,10 +19,23 @@ export type Task = SharedTask;
 
 interface TaskItemProps {
   task: Task;
+  /**
+   * Reconcile the parent list against server truth. Used after undo and to
+   * recover from a failed optimistic mutation — NOT on the happy path, where
+   * `onOptimisticToggle` already updated the list.
+   */
   onChange?: () => void;
   onPress?: (task: Task) => void;
   /** When provided, renders a drag handle that calls this to begin reordering. */
   onDragHandle?: () => void;
+  /**
+   * Reflect a complete/reopen in the parent list immediately, before the
+   * network call settles. `completed` is the task's next state. Typically the
+   * parent removes the row (completing on Today/Inbox, reopening on Completed).
+   * When omitted, the row flips in place via internal optimistic state and the
+   * parent reconciles via `onChange`.
+   */
+  onOptimisticToggle?: (task: Task, completed: boolean) => void;
 }
 
 function todayISO(): string {
@@ -69,36 +81,62 @@ function buildReschedule(
   return input;
 }
 
-export default function TaskItem({ task, onChange, onPress, onDragHandle }: TaskItemProps) {
+export default function TaskItem({
+  task,
+  onChange,
+  onPress,
+  onDragHandle,
+  onOptimisticToggle,
+}: TaskItemProps) {
   const statusCfg = STATUS_CONFIG[task.status];
   const statusColor = statusCfg?.color ?? '#94a3b8';
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
-  const completed = task.status === 'done';
-  const [busy, setBusy] = useState(false);
+  // `null` = follow server state; a boolean overrides it optimistically.
+  const [optimisticDone, setOptimisticDone] = useState<boolean | null>(null);
+  const completed = optimisticDone ?? task.status === 'done';
   const [menuOpen, setMenuOpen] = useState(false);
   const toast = useUndoToast();
 
+  // Guard against double-taps and against setState after the row unmounts
+  // (the parent typically removes the row on optimistic completion).
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+
   async function handleToggle() {
-    setBusy(true);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const nextCompleted = !completed;
+
+    // Flip instantly — no spinner, no waiting on the network.
+    setOptimisticDone(nextCompleted);
+    onOptimisticToggle?.(task, nextCompleted);
+
     const tasks = await getTasksApi();
-    if (completed) {
-      await tasks.reopen(task.id);
-    } else {
-      const { error } = await tasks.complete(task.id);
-      if (!error) {
-        toast.show({
-          message: `Completed “${task.title}”`,
-          undo: async () => {
-            const api = await getTasksApi();
-            await api.reopen(task.id);
-            onChange?.();
-          },
-        });
-      }
+    const { error } = nextCompleted
+      ? await tasks.complete(task.id)
+      : await tasks.reopen(task.id);
+
+    inFlight.current = false;
+
+    if (error) {
+      // Roll back: revert the local flip and let the parent re-sync from truth.
+      if (mounted.current) setOptimisticDone(null);
+      onChange?.();
+      return;
     }
-    setBusy(false);
-    onChange?.();
+
+    if (nextCompleted) {
+      toast.show({
+        message: `Completed “${task.title}”`,
+        undo: async () => {
+          const api = await getTasksApi();
+          await api.reopen(task.id);
+          onChange?.();
+        },
+      });
+    }
   }
 
   async function applyTarget(target: Parameters<typeof buildReschedule>[1]) {
@@ -171,7 +209,6 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
     >
       <Pressable
         onPress={handleToggle}
-        disabled={busy}
         hitSlop={8}
         style={[
           styles.checkbox,
@@ -181,11 +218,7 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
           },
         ]}
       >
-        {busy ? (
-          <ActivityIndicator size="small" color={statusColor} />
-        ) : completed ? (
-          <Text style={styles.check}>✓</Text>
-        ) : null}
+        {completed ? <Text style={styles.check}>✓</Text> : null}
       </Pressable>
       <View style={styles.priorityBars}>
         {[0, 1, 2, 3].map((i) => {

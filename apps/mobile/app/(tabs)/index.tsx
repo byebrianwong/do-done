@@ -78,6 +78,18 @@ export default function TodayScreen() {
     load();
   }
 
+  // Completing a task removes it from every active section (Focus / Overdue /
+  // Other are all derived from allTasks), so drop it here for an instant update
+  // instead of waiting on a refetch.
+  const handleOptimisticToggle = useCallback(
+    (task: Task, nextCompleted: boolean) => {
+      if (nextCompleted) {
+        setAllTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+    },
+    []
+  );
+
   const renderDraggable = useCallback(
     ({ item, drag, isActive }: RenderItemParams<Task>) => (
       <View
@@ -88,10 +100,11 @@ export default function TodayScreen() {
           onChange={load}
           onPress={(t) => setEditing(t)}
           onDragHandle={drag}
+          onOptimisticToggle={handleOptimisticToggle}
         />
       </View>
     ),
-    [load]
+    [load, handleOptimisticToggle]
   );
 
   return (

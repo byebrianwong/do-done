@@ -27,6 +27,16 @@ export default function InboxScreen() {
     load();
   }, [load]);
 
+  // Completing an inbox task moves it out of the inbox view — drop it instantly.
+  const handleOptimisticToggle = useCallback(
+    (task: Task, nextCompleted: boolean) => {
+      if (nextCompleted) {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+    },
+    []
+  );
+
   return (
     <View style={styles.container}>
       <FlatList
@@ -37,6 +47,7 @@ export default function InboxScreen() {
             task={item}
             onChange={load}
             onPress={(t) => setEditing(t)}
+            onOptimisticToggle={handleOptimisticToggle}
           />
         )}
         refreshControl={

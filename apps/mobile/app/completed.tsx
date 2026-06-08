@@ -64,6 +64,16 @@ export default function CompletedScreen() {
     load();
   }, [load]);
 
+  // Reopening a task here moves it out of the completed list — drop it instantly.
+  const handleOptimisticToggle = useCallback(
+    (task: Task, nextCompleted: boolean) => {
+      if (!nextCompleted) {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+    },
+    []
+  );
+
   const sections = groupByDay(tasks);
 
   return (
@@ -72,7 +82,13 @@ export default function CompletedScreen() {
       <SectionList
         sections={sections}
         keyExtractor={(t) => t.id}
-        renderItem={({ item }) => <TaskItem task={item} onChange={load} />}
+        renderItem={({ item }) => (
+          <TaskItem
+            task={item}
+            onChange={load}
+            onOptimisticToggle={handleOptimisticToggle}
+          />
+        )}
         renderSectionHeader={({ section: { title, data } }) => (
           <View style={styles.header}>
             <Text style={styles.headerText}>
