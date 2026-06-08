@@ -10,14 +10,19 @@ import DraggableFlatList, {
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
 import OverdueSection from '@/components/OverdueSection';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
-import { getTasksApi } from '@/lib/supabase';
+import {
+  invalidateTasks,
+  reorderTasks,
+  useTodayTasks,
+} from '@/lib/task-queries';
+import { useRefreshOnFocus } from '@/lib/query-client';
 import { generateFocusList } from '@do-done/task-engine';
 import { isOverdue } from '@do-done/shared';
 import type { Task } from '@do-done/shared';
@@ -26,26 +31,13 @@ import { PRIORITY_CONFIG } from '@do-done/shared';
 export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: allTasks = [], isRefetching, refetch } = useTodayTasks();
   const [editing, setEditing] = useState<Task | null>(null);
   const [otherOrder, setOtherOrder] = useState<Task[]>([]);
 
-  const load = useCallback(async () => {
-    const api = await getTasksApi();
-    const { data } = await api.list({ limit: 100, offset: 0 });
-    setAllTasks(data ?? []);
-    setLoading(false);
-  }, []);
-
-  // Reload whenever the screen regains focus — initial mount, returning from a
-  // detail screen, or coming back from the quick-add widget modal — so newly
-  // created tasks appear without a manual pull-to-refresh.
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  // Refetch on focus so tasks created elsewhere (quick-add widget, web) appear
+  // when returning to the tab; the shared cache shows the last data instantly.
+  useRefreshOnFocus(refetch);
 
   const active = allTasks.filter(
     (t) => t.status !== 'done' && t.status !== 'cancelled'
@@ -70,25 +62,11 @@ export default function TodayScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computedOther.map((t) => t.id).join(',')]);
 
-  async function persistOrder(next: Task[]) {
-    const api = await getTasksApi();
-    await api.bulkUpdate(
-      next.map((t, i) => ({ id: t.id, input: { sort_order: (i + 1) * 1000 } }))
-    );
-    load();
+  // Optimistic local order; reorderTasks persists sort_order + reconciles.
+  function persistOrder(next: Task[]) {
+    setOtherOrder(next);
+    void reorderTasks(next.map((t) => t.id)).catch(() => {});
   }
-
-  // Completing a task removes it from every active section (Focus / Overdue /
-  // Other are all derived from allTasks), so drop it here for an instant update
-  // instead of waiting on a refetch.
-  const handleOptimisticToggle = useCallback(
-    (task: Task, nextCompleted: boolean) => {
-      if (nextCompleted) {
-        setAllTasks((prev) => prev.filter((t) => t.id !== task.id));
-      }
-    },
-    []
-  );
 
   // Stable so memoized TaskItem rows don't re-render when `editing` changes.
   const handlePress = useCallback((t: Task) => setEditing(t), []);
@@ -98,16 +76,10 @@ export default function TodayScreen() {
       <View
         style={isActive ? { opacity: 0.9, backgroundColor: '#f1f5f9' } : undefined}
       >
-        <TaskItem
-          task={item}
-          onChange={load}
-          onPress={handlePress}
-          onDragHandle={drag}
-          onOptimisticToggle={handleOptimisticToggle}
-        />
+        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
       </View>
     ),
-    [load, handlePress, handleOptimisticToggle]
+    [handlePress]
   );
 
   return (
@@ -127,20 +99,17 @@ export default function TodayScreen() {
         data={otherOrder}
         keyExtractor={(item) => item.id}
         renderItem={renderDraggable}
-        onDragEnd={({ data }) => {
-          setOtherOrder(data);
-          persistOrder(data);
-        }}
+        onDragEnd={({ data }) => persistOrder(data)}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
-            onRefresh={load}
+            refreshing={isRefetching}
+            onRefresh={refetch}
             tintColor="#6366f1"
           />
         }
         ListHeaderComponent={
           <View>
-            <OverdueSection tasks={overdue} onChange={load} />
+            <OverdueSection tasks={overdue} onChange={invalidateTasks} />
             {focusList.length > 0 && (
               <View style={styles.focusSection}>
                 <Text style={styles.sectionTitle}>Focus</Text>
@@ -177,7 +146,6 @@ export default function TodayScreen() {
           </View>
         }
         ListEmptyComponent={
-          !loading &&
           focusList.length === 0 &&
           overdue.length === 0 &&
           otherOrder.length === 0 ? (
@@ -189,12 +157,12 @@ export default function TodayScreen() {
         }
         contentContainerStyle={styles.listContent}
       />
-      <QuickAddBar defaultStatus="not_started" onCreated={load} />
+      <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
         onClose={() => setEditing(null)}
-        onSaved={load}
+        onSaved={invalidateTasks}
       />
     </View>
   );

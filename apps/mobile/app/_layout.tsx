@@ -12,11 +12,13 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { QueryClientProvider } from '@tanstack/react-query';
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
 import { UndoToastProvider } from '@/components/UndoToast';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { queryClient } from '@/lib/query-client';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { registerUserGeofences } from '@/lib/geofencing';
 
@@ -67,11 +69,13 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <UndoToastProvider>
-          <RootLayoutNav />
-        </UndoToastProvider>
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <UndoToastProvider>
+            <RootLayoutNav />
+          </UndoToastProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     </GestureHandlerRootView>
   );
 }
@@ -109,6 +113,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         <Stack.Screen name="completed" options={{ title: 'Completed' }} />
+        <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />
         <Stack.Screen name="today" options={{ headerShown: false }} />
         <Stack.Screen
           name="quick-add"

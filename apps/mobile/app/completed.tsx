@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import {
   RefreshControl,
   SectionList,
@@ -8,7 +8,8 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import TaskItem from '@/components/TaskItem';
-import { getTasksApi } from '@/lib/supabase';
+import { useCompletedTasks } from '@/lib/task-queries';
+import { useRefreshOnFocus } from '@/lib/query-client';
 import type { Task } from '@do-done/shared';
 
 type Section = { title: string; data: Task[] };
@@ -50,29 +51,9 @@ function groupByDay(tasks: Task[]): Section[] {
 }
 
 export default function CompletedScreen() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    const api = await getTasksApi();
-    const { data } = await api.listCompleted({ limit: 200 });
-    setTasks(data ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Reopening a task here moves it out of the completed list — drop it instantly.
-  const handleOptimisticToggle = useCallback(
-    (task: Task, nextCompleted: boolean) => {
-      if (!nextCompleted) {
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
-      }
-    },
-    []
-  );
+  const { data: tasks = [], isLoading, isRefetching, refetch } =
+    useCompletedTasks();
+  useRefreshOnFocus(refetch);
 
   const sections = groupByDay(tasks);
 
@@ -82,13 +63,7 @@ export default function CompletedScreen() {
       <SectionList
         sections={sections}
         keyExtractor={(t) => t.id}
-        renderItem={({ item }) => (
-          <TaskItem
-            task={item}
-            onChange={load}
-            onOptimisticToggle={handleOptimisticToggle}
-          />
-        )}
+        renderItem={({ item }) => <TaskItem task={item} />}
         renderSectionHeader={({ section: { title, data } }) => (
           <View style={styles.header}>
             <Text style={styles.headerText}>
@@ -97,7 +72,7 @@ export default function CompletedScreen() {
           </View>
         )}
         ListEmptyComponent={
-          !loading ? (
+          !isLoading ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
                 Nothing here yet — complete a task and it’ll land here.
@@ -107,8 +82,8 @@ export default function CompletedScreen() {
         }
         refreshControl={
           <RefreshControl
-            refreshing={loading}
-            onRefresh={load}
+            refreshing={isRefetching}
+            onRefresh={refetch}
             tintColor="#6366f1"
           />
         }
