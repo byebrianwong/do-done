@@ -63,16 +63,18 @@ single-round-trip. **Effort: M.**
 The web app leans on drag-and-drop; mobile copied it (drag handle on Today) but
 skipped the gestures phones are good at.
 
-- **1.1 — Swipe actions on rows.** Swipe-right = complete, swipe-left =
-  schedule/delete. _The_ missing mobile interaction. Use `react-native-gesture-handler`
-  Swipeable (already a dep). **Effort: M.**
-- **1.2 — Haptics.** Zero haptic feedback anywhere. Add `expo-haptics` on complete,
-  reorder pickup/drop, swipe-commit, and slider detents. **Effort: S.**
-- **1.3 — Memoize `TaskItem` + stabilize callbacks.** Not `React.memo`'d, so every
-  `load()` re-renders the whole list. **Effort: S.**
+- **1.1 — Swipe actions on rows.** Swipe-right = complete/reopen, swipe-left =
+  Today + Delete. _The_ missing mobile interaction. Uses `ReanimatedSwipeable` from
+  `react-native-gesture-handler`. **Effort: M.** _(Status: ✅ done — `TaskItem.tsx`.)_
+- **1.2 — Haptics.** Added `expo-haptics` (`lib/haptics.ts`): success on complete +
+  quick-add, light on reschedule, medium on delete + drag pickup. **Effort: S.**
+  _(Status: ✅ done.)_
+- **1.3 — Memoize `TaskItem` + stabilize callbacks.** `React.memo` + `useCallback`'d
+  `onPress` per list, so opening the editor / one row's flip no longer re-renders the
+  whole list. **Effort: S.** _(Status: ✅ done.)_
 - **1.4 — Consistent reorder.** Today's drag persists via `bulkUpdate` then a **full
   reload** (`index.tsx`) — janky. Patch the cache, persist in background.
-  **Effort: S.**
+  **Effort: S.** _(Status: pending — pairs with Phase 0.3.)_
 
 ---
 
