@@ -90,6 +90,9 @@ export default function TodayScreen() {
     []
   );
 
+  // Stable so memoized TaskItem rows don't re-render when `editing` changes.
+  const handlePress = useCallback((t: Task) => setEditing(t), []);
+
   const renderDraggable = useCallback(
     ({ item, drag, isActive }: RenderItemParams<Task>) => (
       <View
@@ -98,13 +101,13 @@ export default function TodayScreen() {
         <TaskItem
           task={item}
           onChange={load}
-          onPress={(t) => setEditing(t)}
+          onPress={handlePress}
           onDragHandle={drag}
           onOptimisticToggle={handleOptimisticToggle}
         />
       </View>
     ),
-    [load, handleOptimisticToggle]
+    [load, handlePress, handleOptimisticToggle]
   );
 
   return (
