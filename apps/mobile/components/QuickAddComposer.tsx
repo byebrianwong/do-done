@@ -32,6 +32,8 @@ import {
 } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
+import { useVoiceInput } from '@/lib/useVoiceInput';
+import VoiceMicButton from './VoiceMicButton';
 import {
   PickerSheet,
   WhenCalendar,
@@ -79,6 +81,11 @@ export default function QuickAddComposer({
   const [submitting, setSubmitting] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
+
+  const voice = useVoiceInput({
+    onResult: (transcript) => setText(transcript),
+    onStart: () => setText(''),
+  });
 
   // edgeToEdgeEnabled disables Android adjustResize, so the absolute-positioned
   // card stays behind the keyboard unless we lift it ourselves.
@@ -186,7 +193,7 @@ export default function QuickAddComposer({
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="Add a task…"
+            placeholder={voice.listening ? 'Listening…' : 'Add a task…'}
             placeholderTextColor="#9ca3af"
             value={text}
             onChangeText={handleChangeText}
@@ -195,6 +202,13 @@ export default function QuickAddComposer({
             blurOnSubmit={false}
             editable={!submitting}
           />
+          {voice.supported ? (
+            <VoiceMicButton
+              listening={voice.listening}
+              onPress={voice.toggle}
+              disabled={submitting}
+            />
+          ) : null}
           <Pressable
             style={({ pressed }) => [
               styles.sendBtn,

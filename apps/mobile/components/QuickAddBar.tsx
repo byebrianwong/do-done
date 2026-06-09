@@ -12,37 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
-import { IS_EXPO_GO } from '@/lib/runtime';
+import { useVoiceInput } from '@/lib/useVoiceInput';
 import ParsePreview from './ParsePreview';
-
-// expo-speech-recognition has custom native code, not in Expo Go's bundled
-// runtime. Lazy-load it only when we have a dev client / standalone build,
-// and stub out the API in Expo Go so the mic button can hide gracefully.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let ExpoSpeechRecognitionModule: any = {
-  start: () => {},
-  stop: () => {},
-  requestPermissionsAsync: async () => ({ granted: false }),
-};
-type SpeechEventName = 'result' | 'end' | 'error';
-let useSpeechRecognitionEvent: (
-  name: SpeechEventName,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cb: (e: any) => void
-) => void = () => {};
-
-if (!IS_EXPO_GO) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('expo-speech-recognition');
-    ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule;
-    useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
-  } catch {
-    // module not available — mic stays hidden
-  }
-}
-
-const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
+import VoiceMicButton from './VoiceMicButton';
 
 interface QuickAddBarProps {
   defaultStatus?: 'inbox' | 'not_started';
@@ -64,9 +36,13 @@ export default function QuickAddBar({
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [listening, setListening] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
+
+  const voice = useVoiceInput({
+    onResult: (transcript) => setText(transcript),
+    onStart: () => setText(''),
+  });
 
   // edgeToEdgeEnabled in app.config.ts disables Android adjustResize, so the
   // absolute-positioned bar would stay behind the keyboard. Track keyboard
@@ -91,29 +67,6 @@ export default function QuickAddBar({
     const t = setTimeout(() => inputRef.current?.focus(), 150);
     return () => clearTimeout(t);
   }, [autoFocus]);
-
-  // Speech recognition events
-  useSpeechRecognitionEvent('result', (e) => {
-    const transcript = e.results?.[0]?.transcript;
-    if (transcript) {
-      setText(transcript);
-    }
-  });
-  useSpeechRecognitionEvent('end', () => setListening(false));
-  useSpeechRecognitionEvent('error', () => setListening(false));
-
-  useEffect(() => {
-    return () => {
-      // Stop listening if component unmounts
-      if (listening) {
-        try {
-          ExpoSpeechRecognitionModule.stop();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, [listening]);
 
   async function handleSubmit() {
     const trimmed = text.trim();
@@ -146,37 +99,6 @@ export default function QuickAddBar({
     }
   }
 
-  async function toggleListening() {
-    if (listening) {
-      try {
-        ExpoSpeechRecognitionModule.stop();
-      } catch {
-        // ignore
-      }
-      setListening(false);
-      return;
-    }
-
-    if (Platform.OS === 'web') {
-      // Web Speech API isn't reliable cross-browser; tell the user.
-      return;
-    }
-
-    const result =
-      await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!result.granted) {
-      return;
-    }
-
-    setListening(true);
-    setText('');
-    ExpoSpeechRecognitionModule.start({
-      lang: 'en-US',
-      interimResults: true,
-      continuous: false,
-    });
-  }
-
   return (
     <View
       style={[
@@ -190,7 +112,7 @@ export default function QuickAddBar({
           ref={inputRef}
           testID="quick-add-input"
           style={styles.input}
-          placeholder={listening ? 'Listening...' : 'Add a task...'}
+          placeholder={voice.listening ? 'Listening…' : 'Add a task...'}
           placeholderTextColor="#9ca3af"
           value={text}
           onChangeText={setText}
@@ -198,22 +120,12 @@ export default function QuickAddBar({
           returnKeyType="done"
           editable={!submitting}
         />
-        {VOICE_ENABLED ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.iconButton,
-              (pressed || listening) && styles.iconButtonActive,
-            ]}
-            onPress={toggleListening}
+        {voice.supported ? (
+          <VoiceMicButton
+            listening={voice.listening}
+            onPress={voice.toggle}
             disabled={submitting}
-            hitSlop={4}
-          >
-            <Ionicons
-              name={listening ? 'mic' : 'mic-outline'}
-              size={20}
-              color={listening ? '#6366f1' : '#6b7280'}
-            />
-          </Pressable>
+          />
         ) : null}
         <Pressable
           testID="quick-add-submit"
@@ -261,17 +173,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     paddingVertical: 10,
-  },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 4,
-  },
-  iconButtonActive: {
-    backgroundColor: '#eef2ff',
   },
   button: {
     width: 40,

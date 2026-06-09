@@ -126,9 +126,14 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
   parsed chips (date / deadline / priority / estimate / repeat / tags) above the
   input as you type — new `components/ParsePreview.tsx`. **Effort: S–M.**
   _(Status: ✅ done.)_
-- **3.2 — Voice capture, finished.** Voice only works in a dev-client, only fills the
-  textbox, never auto-confirms (`QuickAddBar.tsx`). Make it first-class: transcript →
-  parse → confirm chips → save. **Effort: M.**
+- **3.2 — Voice capture, finished.** ✅ Extracted a reusable `lib/useVoiceInput`
+  hook + `components/VoiceMicButton` (pulses while listening, haptic on start,
+  permission Alert). Live transcript fills the field → `ParsePreview` chips show the
+  parse → user taps send (no auto-submit, to avoid acting on a misrecognition).
+  Voice now works on **both** the QuickAddBar and the QuickAddComposer (the sheet /
+  widget surface), not just the bar. **Still requires a dev-client build** —
+  `expo-speech-recognition` is a native module absent from Expo Go. **Effort: M.**
+  _(Status: ✅ done — needs on-device verification in a dev build.)_
 - **3.3 — Recurrence UI.** ✅ The editor has a Repeat row with preset chips
   (None / Daily / Weekdays / Weekly / Monthly) that set `recurrence_rule`, plus a ↻
   badge on recurring task rows. Typed `every …` syntax still parses. **Effort: S–M.**
