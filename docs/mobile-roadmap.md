@@ -78,6 +78,11 @@ skipped the gestures phones are good at.
 - **1.4 — Consistent reorder.** Today's drag now sets the local order immediately and
   persists `sort_order` in the background via `reorderTasks` (no full reload).
   **Effort: S.** _(Status: ✅ done.)_
+- **1.5 — Interactive rows everywhere.** ✅ Focus rows are now real `TaskItem`s
+  (swipe / complete / tap) instead of dead cards; Inbox is drag-reorderable
+  (`DraggableFlatList`) and All is drag-reorderable within each status group
+  (`NestableDraggableFlatList`). Added a one-swipe **Tomorrow** action alongside
+  Today/Delete. **Effort: M.** _(Status: ✅ done.)_
 
 ---
 

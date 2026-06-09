@@ -1,30 +1,52 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, RefreshControl } from 'react-native';
+import DraggableFlatList, {
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist';
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
-import { invalidateTasks, useInboxTasks } from '@/lib/task-queries';
+import { invalidateTasks, reorderTasks, useInboxTasks } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import type { Task } from '@do-done/shared';
 
 export default function InboxScreen() {
   const { data: tasks = [], isLoading, isRefetching, refetch } = useInboxTasks();
+  const [order, setOrder] = useState<Task[]>([]);
   const [editing, setEditing] = useState<Task | null>(null);
 
   useRefreshOnFocus(refetch);
 
-  // Stable so memoized TaskItem rows don't re-render when `editing` changes.
+  // Mirror the server-derived list into a drag-reorderable copy.
+  useEffect(() => {
+    setOrder(tasks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks.map((t) => t.id).join(',')]);
+
+  function persistOrder(next: Task[]) {
+    setOrder(next);
+    void reorderTasks(next.map((t) => t.id)).catch(() => {});
+  }
+
   const handlePress = useCallback((t: Task) => setEditing(t), []);
+
+  const renderItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<Task>) => (
+      <View style={isActive ? styles.activeRow : undefined}>
+        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
+      </View>
+    ),
+    [handlePress]
+  );
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={tasks}
+      <DraggableFlatList
+        data={order}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TaskItem task={item} onPress={handlePress} />
-        )}
+        renderItem={renderItem}
+        onDragEnd={({ data }) => persistOrder(data)}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -60,6 +82,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
+  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: {
     paddingBottom: 140,
     flexGrow: 1,

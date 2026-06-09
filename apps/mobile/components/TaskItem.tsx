@@ -164,20 +164,32 @@ function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
     </View>
   );
 
-  // Swipe-left reveals tappable Today + Delete buttons.
+  // Swipe-left reveals tappable Today + Tomorrow + Delete buttons.
   const renderRightActions = () => (
     <View style={styles.swipeRightActions}>
       {!completed ? (
-        <Pressable
-          style={[styles.swipeAction, styles.swipeTodayAction]}
-          onPress={() => {
-            swipeRef.current?.close();
-            applyTarget({ kind: 'date', date: todayLocalISO() });
-          }}
-        >
-          <Ionicons name="today-outline" size={20} color="#fff" />
-          <Text style={styles.swipeActionText}>Today</Text>
-        </Pressable>
+        <>
+          <Pressable
+            style={[styles.swipeAction, styles.swipeTodayAction]}
+            onPress={() => {
+              swipeRef.current?.close();
+              applyTarget({ kind: 'date', date: todayLocalISO() });
+            }}
+          >
+            <Ionicons name="today-outline" size={20} color="#fff" />
+            <Text style={styles.swipeActionText}>Today</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.swipeAction, styles.swipeTomorrowAction]}
+            onPress={() => {
+              swipeRef.current?.close();
+              applyTarget({ kind: 'date', date: addDaysLocalISO(1) });
+            }}
+          >
+            <Ionicons name="arrow-forward-outline" size={20} color="#fff" />
+            <Text style={styles.swipeActionText}>Tomorrow</Text>
+          </Pressable>
+        </>
       ) : null}
       <Pressable
         style={[styles.swipeAction, styles.swipeDeleteAction]}
@@ -398,11 +410,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   swipeTodayAction: {
-    width: 84,
+    width: 80,
     backgroundColor: '#6366f1',
   },
+  swipeTomorrowAction: {
+    width: 92,
+    backgroundColor: '#f59e0b',
+  },
   swipeDeleteAction: {
-    width: 84,
+    width: 80,
     backgroundColor: '#dc2626',
   },
   checkbox: {

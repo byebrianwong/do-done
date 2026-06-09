@@ -26,7 +26,6 @@ import { useRefreshOnFocus } from '@/lib/query-client';
 import { generateFocusList } from '@do-done/task-engine';
 import { isOverdue, todayLocalISO } from '@do-done/shared';
 import type { Task } from '@do-done/shared';
-import { PRIORITY_CONFIG } from '@do-done/shared';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -121,36 +120,17 @@ export default function TodayScreen() {
             <OverdueSection tasks={overdue} onChange={invalidateTasks} />
             {focusList.length > 0 && (
               <View style={styles.focusSection}>
-                <Text style={styles.sectionTitle}>Focus</Text>
+                <View style={styles.focusHeader}>
+                  <Ionicons name="star" size={13} color="#6366f1" />
+                  <Text style={styles.focusTitleLabel}>Focus</Text>
+                </View>
                 {focusList.map((task) => (
-                  <Pressable
-                    key={task.id}
-                    onPress={() => setEditing(task)}
-                    style={({ pressed }) => [
-                      styles.focusCard,
-                      pressed && styles.focusCardPressed,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.focusDot,
-                        {
-                          backgroundColor:
-                            PRIORITY_CONFIG[task.priority].color,
-                        },
-                      ]}
-                    />
-                    <Text style={styles.focusTitle} numberOfLines={1}>
-                      {task.title}
-                    </Text>
-                  </Pressable>
+                  <TaskItem key={task.id} task={task} onPress={handlePress} />
                 ))}
               </View>
             )}
             {otherOrder.length > 0 && (
-              <Text style={[styles.sectionTitle, styles.allTasksTitle]}>
-                Other tasks
-              </Text>
+              <Text style={styles.otherTitle}>Other tasks</Text>
             )}
           </View>
         }
@@ -199,44 +179,30 @@ const styles = StyleSheet.create({
   },
   focusSection: {
     marginBottom: 8,
-    paddingHorizontal: 16,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 12,
-    paddingHorizontal: 16,
-  },
-  allTasksTitle: {
-    marginTop: 12,
-  },
-  focusCard: {
+  focusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 14,
+    gap: 5,
+    paddingHorizontal: 16,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  focusCardPressed: {
-    opacity: 0.7,
+  focusTitleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6366f1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  focusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 12,
-  },
-  focusTitle: {
-    fontSize: 15,
-    color: '#1f2937',
-    flex: 1,
+  otherTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
   },
   empty: {
     flex: 1,
