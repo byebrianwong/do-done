@@ -46,6 +46,8 @@ const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 interface QuickAddBarProps {
   defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
+  /** Assign created tasks to this project (e.g. on the project detail screen). */
+  projectId?: string;
   /**
    * Focus the input as soon as the bar mounts. Used by the quick-add widget
    * deep link so a home-screen tap lands directly in task capture.
@@ -56,6 +58,7 @@ interface QuickAddBarProps {
 export default function QuickAddBar({
   defaultStatus = 'not_started',
   onCreated,
+  projectId,
   autoFocus = false,
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
@@ -121,6 +124,7 @@ export default function QuickAddBar({
     const { error } = await tasks.create({
       title: parsed.title,
       status: defaultStatus,
+      ...(projectId && { project_id: projectId }),
       ...(parsed.priority && { priority: parsed.priority }),
       ...(parsed.due_date && { due_date: parsed.due_date }),
       ...(parsed.due_time && { due_time: parsed.due_time }),

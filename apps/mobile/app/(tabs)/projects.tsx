@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -7,26 +7,17 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
-import { getProjectsApi } from '@/lib/supabase';
-import type { Project } from '@do-done/shared';
-
-type ProjectWithCounts = Project & { task_count: number; open_count: number };
+import { useProjectsWithCounts } from '@/lib/task-queries';
+import { useRefreshOnFocus } from '@/lib/query-client';
 
 export default function ProjectsScreen() {
-  const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    const api = await getProjectsApi();
-    const { data } = await api.listWithCounts();
-    setProjects(data ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const router = useRouter();
+  const { data: projects = [], isLoading, isRefetching, refetch } =
+    useProjectsWithCounts();
+  useRefreshOnFocus(refetch);
 
   return (
     <View style={styles.container}>
@@ -35,6 +26,7 @@ export default function ProjectsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <Pressable
+            onPress={() => router.push(`/projects/${item.id}` as never)}
             style={({ pressed }) => [
               styles.projectRow,
               pressed && styles.pressed,
@@ -55,17 +47,18 @@ export default function ProjectsScreen() {
                   : ''}
               </Text>
             </View>
+            <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
           </Pressable>
         )}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
-            onRefresh={load}
+            refreshing={isRefetching}
+            onRefresh={refetch}
             tintColor="#6366f1"
           />
         }
         ListEmptyComponent={
-          !loading ? (
+          !isLoading ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No projects yet</Text>
               <Text style={styles.emptyHint}>

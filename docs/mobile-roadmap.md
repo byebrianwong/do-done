@@ -45,11 +45,14 @@ _immediately_ and reconcile in the background — never spin and wait. Replace t
 spinner checkbox with an instant check + animated strike-through/fade.
 **Effort: M.** _(Status: ✅ complete/reopen done; reschedule + reorder follow.)_
 
-### 0.3 — Introduce a shared client cache (TanStack Query or a Zustand store)
-Today the `Today`, `Inbox`, `Completed`, `Projects` screens each hold their own
-`useState` list and re-fetch in full on focus. A single normalized task cache means:
-tabs share data, mutations patch the cache (no full refetch), and refetches become
-background + deduped. This is the backbone for 0.2 generalised. **Effort: M–L.**
+### 0.3 — Introduce a shared client cache (TanStack Query) ✅
+All list screens now read from a single TanStack Query cache (`lib/task-queries.ts`,
+`lib/query-client.ts`). Tabs share data and show instantly; refetch is background +
+deduped, with an AppState focus integration. Mutations are module-level functions
+that run through the singleton client (so an optimistic row removal that unmounts
+the row can't strand the rollback/reconcile on a dead observer). This generalises
+0.2 — the per-screen `onOptimisticToggle` plumbing is gone. **Effort: M–L.**
+_(Status: ✅ done.)_
 
 ### 0.4 — Move pet feeding off the write path
 The extra `SELECT` before every `update` (`tasks.ts:113`) doubles mobile write
@@ -72,9 +75,9 @@ skipped the gestures phones are good at.
 - **1.3 — Memoize `TaskItem` + stabilize callbacks.** `React.memo` + `useCallback`'d
   `onPress` per list, so opening the editor / one row's flip no longer re-renders the
   whole list. **Effort: S.** _(Status: ✅ done.)_
-- **1.4 — Consistent reorder.** Today's drag persists via `bulkUpdate` then a **full
-  reload** (`index.tsx`) — janky. Patch the cache, persist in background.
-  **Effort: S.** _(Status: pending — pairs with Phase 0.3.)_
+- **1.4 — Consistent reorder.** Today's drag now sets the local order immediately and
+  persists `sort_order` in the background via `reorderTasks` (no full reload).
+  **Effort: S.** _(Status: ✅ done.)_
 
 ---
 
@@ -86,12 +89,12 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
   `TasksApi.search()` exists; web has ⌘K. Add a search affordance. **Effort: M.**
 - **2.2 — Upcoming view (14-day).** Exists on web, absent on mobile.
   `TasksApi.getUpcoming()` is ready. **Effort: M.**
-- **2.3 — Project detail.** Projects-tab rows **aren't tappable** — `Pressable` has no
-  `onPress` (`projects.tsx`). Can't open a project, see its tasks, or create one.
-  **Effort: M.**
-- **2.4 — Settings is a dead mockup.** Every `SettingsRow` and "Connect Google
-  Calendar" have no `onPress` (`settings.tsx`); only sign-out works. Wire them up or
-  hide them. **Effort: M.**
+- **2.3 — Project detail.** ✅ Project rows are now tappable and route to
+  `app/projects/[id].tsx` — a scoped Open/Done task list with quick-add that captures
+  into the project. **Effort: M.** _(Status: ✅ done.)_
+- **2.4 — Settings.** ✅ Replaced the dead mockup rows with working ones: Completed
+  (nav), Google Calendar (honest "web only" note), and an About/version row; sign-out
+  unchanged. **Effort: M.** _(Status: ✅ done.)_
 - **2.5 — Calendar / week view & All-by-status.** Lower urgency on a phone.
   **Effort: M–L.**
 - **2.6 — Pet / gamification surface.** The whole `PetsApi` (state, goals, mood,

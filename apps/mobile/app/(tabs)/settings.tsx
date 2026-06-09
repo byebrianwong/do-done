@@ -5,18 +5,22 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   label: string;
+  value?: string;
   onPress?: () => void;
 }
 
-function SettingsRow({ icon, label, onPress }: SettingsRowProps) {
+function SettingsRow({ icon, label, value, onPress }: SettingsRowProps) {
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -24,6 +28,7 @@ function SettingsRow({ icon, label, onPress }: SettingsRowProps) {
     >
       <Ionicons name={icon} size={20} color="#6b7280" style={styles.rowIcon} />
       <Text style={styles.rowLabel}>{label}</Text>
+      {value ? <Text style={styles.rowValue}>{value}</Text> : null}
       <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
     </Pressable>
   );
@@ -31,6 +36,12 @@ function SettingsRow({ icon, label, onPress }: SettingsRowProps) {
 
 export default function SettingsScreen() {
   const { session } = useAuth();
+  const router = useRouter();
+
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+  const sha =
+    (Constants.expoConfig?.extra?.git as { sha?: string } | undefined)?.sha ??
+    'dev';
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -50,36 +61,40 @@ export default function SettingsScreen() {
         </View>
       )}
 
-      <Text style={styles.sectionHeader}>Account</Text>
+      <Text style={styles.sectionHeader}>Tasks</Text>
       <View style={styles.section}>
-        <SettingsRow icon="person-outline" label="Profile" />
-        <SettingsRow icon="notifications-outline" label="Notifications" />
-        <SettingsRow icon="shield-checkmark-outline" label="Privacy" />
-      </View>
-
-      <Text style={styles.sectionHeader}>Preferences</Text>
-      <View style={styles.section}>
-        <SettingsRow icon="color-palette-outline" label="Appearance" />
-        <SettingsRow icon="language-outline" label="Language" />
-        <SettingsRow icon="time-outline" label="Date & Time" />
+        <SettingsRow
+          icon="checkmark-done-circle-outline"
+          label="Completed tasks"
+          onPress={() => router.push('/completed' as never)}
+        />
       </View>
 
       <Text style={styles.sectionHeader}>Calendar Integration</Text>
       <View style={styles.section}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.connectButton,
-            pressed && styles.connectButtonPressed,
-          ]}
-        >
-          <Ionicons
-            name="calendar-outline"
-            size={20}
-            color="#fff"
-            style={styles.connectIcon}
-          />
-          <Text style={styles.connectText}>Connect Google Calendar</Text>
-        </Pressable>
+        <SettingsRow
+          icon="calendar-outline"
+          label="Google Calendar"
+          value="Web only"
+          onPress={() =>
+            Alert.alert(
+              'Google Calendar',
+              'Calendar sync is configured from the do-done web app for now. Once connected there, scheduled tasks stay in sync on mobile.'
+            )
+          }
+        />
+      </View>
+
+      <Text style={styles.sectionHeader}>About</Text>
+      <View style={styles.section}>
+        <SettingsRow
+          icon="information-circle-outline"
+          label="Version"
+          value={`${version} (${sha})`}
+          onPress={() =>
+            Alert.alert('do-done', `Version ${version}\nBuild ${sha}`)
+          }
+        />
       </View>
 
       <Pressable
@@ -138,26 +153,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
   },
-  connectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#6366f1',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingVertical: 14,
-    borderRadius: 10,
-  },
-  connectButtonPressed: {
-    opacity: 0.85,
-  },
-  connectIcon: {
+  rowValue: {
+    fontSize: 14,
+    color: '#9ca3af',
     marginRight: 8,
-  },
-  connectText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
   },
   userCard: {
     flexDirection: 'row',

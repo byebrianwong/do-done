@@ -1,41 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
-import { getTasksApi } from '@/lib/supabase';
+import { invalidateTasks, useInboxTasks } from '@/lib/task-queries';
+import { useRefreshOnFocus } from '@/lib/query-client';
 import type { Task } from '@do-done/shared';
 
 export default function InboxScreen() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: tasks = [], isLoading, isRefetching, refetch } = useInboxTasks();
   const [editing, setEditing] = useState<Task | null>(null);
 
-  const load = useCallback(async () => {
-    const api = await getTasksApi();
-    const { data } = await api.list({
-      status: 'inbox',
-      limit: 50,
-      offset: 0,
-    });
-    setTasks(data ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Completing an inbox task moves it out of the inbox view — drop it instantly.
-  const handleOptimisticToggle = useCallback(
-    (task: Task, nextCompleted: boolean) => {
-      if (nextCompleted) {
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
-      }
-    },
-    []
-  );
+  useRefreshOnFocus(refetch);
 
   // Stable so memoized TaskItem rows don't re-render when `editing` changes.
   const handlePress = useCallback((t: Task) => setEditing(t), []);
@@ -46,18 +23,17 @@ export default function InboxScreen() {
         data={tasks}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <TaskItem
-            task={item}
-            onChange={load}
-            onPress={handlePress}
-            onOptimisticToggle={handleOptimisticToggle}
-          />
+          <TaskItem task={item} onPress={handlePress} />
         )}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={load} tintColor="#6366f1" />
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor="#6366f1"
+          />
         }
         ListEmptyComponent={
-          !loading ? (
+          !isLoading ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Inbox is empty</Text>
               <Text style={styles.emptyHint}>
@@ -68,12 +44,12 @@ export default function InboxScreen() {
         }
         contentContainerStyle={styles.listContent}
       />
-      <QuickAddBar defaultStatus="inbox" onCreated={load} />
+      <QuickAddBar defaultStatus="inbox" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
         onClose={() => setEditing(null)}
-        onSaved={load}
+        onSaved={invalidateTasks}
       />
     </View>
   );
