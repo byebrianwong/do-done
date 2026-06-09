@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -44,22 +44,29 @@ export default function TodayScreen() {
   const overdue = active.filter(isOverdue);
   const overdueIds = new Set(overdue.map((t) => t.id));
   const fresh = active.filter((t) => !overdueIds.has(t.id));
-  const focusList = generateFocusList(fresh, 3);
-  const focusIds = new Set(focusList.map((t) => t.id));
+  // Focus = the algorithm's top picks; used now only to ⭐-mark rows, not to
+  // split off a separate non-draggable section.
+  const focusIds = new Set(generateFocusList(fresh, 3).map((t) => t.id));
   const today = todayLocalISO();
-  const computedOther = fresh.filter((t) => {
-    if (focusIds.has(t.id)) return false;
+  // One Today list: anything scheduled/due today plus the focus picks (so a
+  // high-priority undated task still surfaces here). All draggable.
+  const todayList = fresh.filter((t) => {
+    if (focusIds.has(t.id)) return true;
     if (t.when_bucket === 'today') return true;
     const d = t.when_date ?? t.due_date ?? null;
     return d !== null && d <= today;
   });
 
+  // Read the current focus set from a ref so renderDraggable stays stable.
+  const focusIdsRef = useRef<Set<string>>(new Set());
+  focusIdsRef.current = focusIds;
+
   useEffect(() => {
     // Keep our drag-reorderable view in sync with the server-derived list
     // whenever the underlying tasks change (e.g. after a mutation).
-    setOtherOrder(computedOther);
+    setOtherOrder(todayList);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [computedOther.map((t) => t.id).join(',')]);
+  }, [todayList.map((t) => t.id).join(',')]);
 
   // Optimistic local order; reorderTasks persists sort_order + reconciles.
   function persistOrder(next: Task[]) {
@@ -75,7 +82,12 @@ export default function TodayScreen() {
       <View
         style={isActive ? { opacity: 0.9, backgroundColor: '#f1f5f9' } : undefined}
       >
-        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
+        <TaskItem
+          task={item}
+          onPress={handlePress}
+          onDragHandle={drag}
+          focused={focusIdsRef.current.has(item.id)}
+        />
       </View>
     ),
     [handlePress]
@@ -123,28 +135,10 @@ export default function TodayScreen() {
           />
         }
         ListHeaderComponent={
-          <View>
-            <OverdueSection tasks={overdue} onChange={invalidateTasks} />
-            {focusList.length > 0 && (
-              <View style={styles.focusSection}>
-                <View style={styles.focusHeader}>
-                  <Ionicons name="star" size={13} color="#6366f1" />
-                  <Text style={styles.focusTitleLabel}>Focus</Text>
-                </View>
-                {focusList.map((task) => (
-                  <TaskItem key={task.id} task={task} onPress={handlePress} />
-                ))}
-              </View>
-            )}
-            {otherOrder.length > 0 && (
-              <Text style={styles.otherTitle}>Other tasks</Text>
-            )}
-          </View>
+          <OverdueSection tasks={overdue} onChange={invalidateTasks} />
         }
         ListEmptyComponent={
-          focusList.length === 0 &&
-          overdue.length === 0 &&
-          otherOrder.length === 0 ? (
+          overdue.length === 0 && otherOrder.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Nothing scheduled today</Text>
               <Text style={styles.emptyHint}>Add a task below.</Text>
@@ -183,33 +177,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 140,
     flexGrow: 1,
-  },
-  focusSection: {
-    marginBottom: 8,
-  },
-  focusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  focusTitleLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6366f1',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  otherTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6b7280',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    paddingHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
   },
   empty: {
     flex: 1,

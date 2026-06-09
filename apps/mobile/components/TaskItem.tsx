@@ -32,6 +32,8 @@ interface TaskItemProps {
   onPress?: (task: Task) => void;
   /** When provided, renders a drag handle that calls this to begin reordering. */
   onDragHandle?: () => void;
+  /** Marks the row with a ⭐ — used by Today to flag focus-picked tasks. */
+  focused?: boolean;
 }
 
 function buildReschedule(
@@ -68,7 +70,7 @@ function buildReschedule(
   return input;
 }
 
-function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
+function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   const statusCfg = STATUS_CONFIG[task.status];
   const statusColor = statusCfg?.color ?? '#94a3b8';
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
@@ -259,6 +261,9 @@ function TaskItem({ task, onPress, onDragHandle }: TaskItemProps) {
       </View>
       <View style={styles.content}>
         <View style={styles.titleRow}>
+          {focused && !completed ? (
+            <Ionicons name="star" size={13} color="#f59e0b" />
+          ) : null}
           <Text
             style={[styles.title, completed && styles.titleDone]}
             numberOfLines={1}

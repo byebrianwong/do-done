@@ -1,12 +1,16 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
-  SectionList,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {
+  NestableDraggableFlatList,
+  NestableScrollContainer,
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +18,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
-import { invalidateTasks, useAllTasks } from '@/lib/task-queries';
+import {
+  invalidateTasks,
+  reorderTasks,
+  useAllTasks,
+} from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import {
   addDaysLocalISO,
@@ -48,7 +56,7 @@ function buildSections(tasks: Task[]): Section[] {
   const horizonEnd = addDaysLocalISO(HORIZON_DAYS);
 
   const overdue: Task[] = [];
-  const byDate = new Map<string, Task[]>(); // includes today / tomorrow
+  const byDate = new Map<string, Task[]>();
   const later: Task[] = [];
   const anytime: Task[] = [];
   const someday: Task[] = [];
@@ -94,8 +102,7 @@ function buildSections(tasks: Task[]): Section[] {
   const out: Section[] = [];
   if (overdue.length) out.push({ key: 'overdue', title: 'Overdue', data: overdue });
 
-  const datedKeys = [...byDate.keys()].sort();
-  for (const k of datedKeys) {
+  for (const k of [...byDate.keys()].sort()) {
     const title =
       k === today ? 'Today' : k === tomorrow ? 'Tomorrow' : dayLabel(k);
     out.push({ key: k, title, data: byDate.get(k)! });
@@ -111,11 +118,39 @@ export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: tasks = [], isLoading, isRefetching, refetch } = useAllTasks();
+  const [sections, setSections] = useState<Section[]>([]);
   const [editing, setEditing] = useState<Task | null>(null);
   useRefreshOnFocus(refetch);
 
+  // Mirror the server-derived groups into drag-reorderable copies. Re-syncs when
+  // a task's date/bucket/status changes (which changes grouping), not on a pure
+  // within-day reorder.
+  useEffect(() => {
+    setSections(buildSections(tasks));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    tasks
+      .map((t) => `${t.id}:${t.when_date ?? t.due_date ?? ''}:${t.when_bucket ?? ''}:${t.status}`)
+      .join('|'),
+  ]);
+
   const handlePress = useCallback((t: Task) => setEditing(t), []);
-  const sections = useMemo(() => buildSections(tasks), [tasks]);
+
+  function persistSection(key: string, data: Task[]) {
+    setSections((prev) =>
+      prev.map((s) => (s.key === key ? { ...s, data } : s))
+    );
+    void reorderTasks(data.map((t) => t.id)).catch(() => {});
+  }
+
+  const renderItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<Task>) => (
+      <View style={isActive ? styles.activeRow : undefined}>
+        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
+      </View>
+    ),
+    [handlePress]
+  );
 
   return (
     <View style={styles.container}>
@@ -130,37 +165,8 @@ export default function UpcomingScreen() {
         </Pressable>
       </View>
 
-      <SectionList
-        sections={sections}
-        keyExtractor={(t) => t.id}
-        renderItem={({ item }) => <TaskItem task={item} onPress={handlePress} />}
-        renderSectionHeader={({ section }) => {
-          const s = section as Section;
-          const isOverdueHeader = s.key === 'overdue';
-          return (
-            <View style={styles.sectionHeader}>
-              <Text
-                style={[
-                  styles.sectionHeaderText,
-                  isOverdueHeader && styles.overdueText,
-                ]}
-              >
-                {s.title}{' '}
-                <Text style={styles.sectionCount}>({s.data.length})</Text>
-              </Text>
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          !isLoading ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing on the horizon</Text>
-              <Text style={styles.emptyHint}>
-                Scheduled and someday tasks show up here.
-              </Text>
-            </View>
-          ) : null
-        }
+      <NestableScrollContainer
+        contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -168,9 +174,39 @@ export default function UpcomingScreen() {
             tintColor="#6366f1"
           />
         }
-        contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled
-      />
+      >
+        {sections.map((section) => (
+          <View key={section.key}>
+            <View style={styles.sectionHeader}>
+              <Text
+                style={[
+                  styles.sectionHeaderText,
+                  section.key === 'overdue' && styles.overdueText,
+                ]}
+              >
+                {section.title}{' '}
+                <Text style={styles.sectionCount}>({section.data.length})</Text>
+              </Text>
+            </View>
+            <NestableDraggableFlatList
+              data={section.data}
+              keyExtractor={(item) => item.id}
+              renderItem={renderItem}
+              onDragEnd={({ data }) => persistSection(section.key, data)}
+            />
+          </View>
+        ))}
+
+        {sections.length === 0 && !isLoading ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>Nothing on the horizon</Text>
+            <Text style={styles.emptyHint}>
+              Scheduled and someday tasks show up here.
+            </Text>
+          </View>
+        ) : null}
+      </NestableScrollContainer>
+
       <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
@@ -193,6 +229,7 @@ const styles = StyleSheet.create({
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
   iconBtn: { padding: 4 },
+  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 140, flexGrow: 1 },
   sectionHeader: {
     backgroundColor: '#f3f4f6',
@@ -209,7 +246,13 @@ const styles = StyleSheet.create({
   },
   overdueText: { color: '#b91c1c' },
   sectionCount: { color: '#9ca3af', fontWeight: '500' },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
-  emptyHint: { fontSize: 13, color: '#9ca3af', marginTop: 4, textAlign: 'center', paddingHorizontal: 32 },
+  emptyHint: {
+    fontSize: 13,
+    color: '#9ca3af',
+    marginTop: 4,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
 });
