@@ -86,13 +86,22 @@ export default function TodayScreen() {
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Today</Text>
-        <Pressable
-          onPress={() => router.push('/completed' as never)}
-          hitSlop={8}
-          style={styles.completedBtn}
-        >
-          <Ionicons name="checkmark-done-circle" size={22} color="#6366f1" />
-        </Pressable>
+        <View style={styles.topActions}>
+          <Pressable
+            onPress={() => router.push('/search' as never)}
+            hitSlop={8}
+            style={styles.completedBtn}
+          >
+            <Ionicons name="search" size={22} color="#6366f1" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/completed' as never)}
+            hitSlop={8}
+            style={styles.completedBtn}
+          >
+            <Ionicons name="checkmark-done-circle" size={22} color="#6366f1" />
+          </Pressable>
+        </View>
       </View>
 
       <DraggableFlatList
@@ -182,6 +191,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   completedBtn: { padding: 4 },
   listContent: {
     paddingBottom: 140,

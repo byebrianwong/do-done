@@ -35,7 +35,11 @@ export const taskKeys = {
   today: () => [...taskKeys.lists(), 'today'] as const,
   inbox: () => [...taskKeys.lists(), 'inbox'] as const,
   project: (id: string) => [...taskKeys.lists(), 'project', id] as const,
+  // "Everything" lives under lists() so a completion optimistically drops the
+  // row from it too (same as today/inbox/project).
+  everything: () => [...taskKeys.lists(), 'all'] as const,
   completed: () => [...taskKeys.all, 'completed'] as const,
+  search: (q: string) => [...taskKeys.all, 'search', q] as const,
 };
 
 export const projectKeys = {
@@ -70,6 +74,29 @@ export function useProjectTasks(projectId: string) {
   return useQuery({
     queryKey: taskKeys.project(projectId),
     queryFn: () => fetchTasks({ project_id: projectId, limit: 200, offset: 0 }),
+  });
+}
+
+/** Every task (active + done) — the "All" browse view groups these by status. */
+export function useAllTasks() {
+  return useQuery({
+    queryKey: taskKeys.everything(),
+    queryFn: () => fetchTasks({ limit: 500, offset: 0 }),
+  });
+}
+
+/** Full-text task search; disabled until the query is non-empty. */
+export function useSearchTasks(query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: taskKeys.search(q),
+    enabled: q.length > 0,
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.search(q);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 

@@ -85,10 +85,16 @@ skipped the gestures phones are good at.
 
 Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
 
-- **2.1 — Search / command palette.** Mobile has **no search at all**.
-  `TasksApi.search()` exists; web has ⌘K. Add a search affordance. **Effort: M.**
+- **2.0 — All view (the surfacing fix).** ✅ New `app/(tabs)/all.tsx` tab lists
+  **every active task grouped by status** (Inbox / In Progress / Next / Not Started).
+  Before this, any active task that was undated, future-dated, or in a `later`/
+  `someday` bucket and not in an opened project was **invisible** — the app wasn't
+  really usable. **Effort: M.** _(Status: ✅ done.)_
+- **2.1 — Search.** ✅ Full-screen search (`app/search.tsx`) over `TasksApi.search`,
+  reachable from a header icon on Today and All. **Effort: M.** _(Status: ✅ done.)_
 - **2.2 — Upcoming view (14-day).** Exists on web, absent on mobile.
-  `TasksApi.getUpcoming()` is ready. **Effort: M.**
+  `TasksApi.getUpcoming()` is ready. Would add date-grouped + Someday/No-date
+  sections. **Effort: M.** _(next)_
 - **2.3 — Project detail.** ✅ Project rows are now tappable and route to
   `app/projects/[id].tsx` — a scoped Open/Done task list with quick-add that captures
   into the project. **Effort: M.** _(Status: ✅ done.)_
