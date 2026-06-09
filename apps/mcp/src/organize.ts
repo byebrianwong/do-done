@@ -50,7 +50,8 @@ function parseInstruction(text: string): ParsedInstruction | null {
   const filter: Filter = {};
   if (/\bdone\b|\bcompleted\b/.test(lower)) filter.status = "done";
   else if (/\binbox\b/.test(lower)) filter.status = "inbox";
-  else if (/\barchived\b/.test(lower)) filter.status = "archived";
+  else if (/\barchived\b|\bcancelled\b|\bcanceled\b/.test(lower))
+    filter.status = "cancelled";
   else if (/\boverdue\b/.test(lower)) filter.status = "overdue";
 
   const priorityMatch = PRIORITY_RE.exec(text);
@@ -80,7 +81,7 @@ function matchesFilter(task: Task, filter: Filter): boolean {
     if (!task.due_date) return false;
     const today = new Date().toISOString().split("T")[0];
     if (task.due_date >= today) return false;
-    if (task.status === "done" || task.status === "archived") return false;
+    if (task.status === "done" || task.status === "cancelled") return false;
   } else if (filter.status && task.status !== filter.status) {
     return false;
   }
@@ -138,7 +139,9 @@ export async function executeOrganize(
     try {
       const action = parsed.action;
       if (action.kind === "archive") {
-        await tasksApi.update(task.id, { status: "archived" });
+        // No "archived" status in the schema anymore — "cancelled" is the
+        // terminal non-done state, so archive maps to it.
+        await tasksApi.update(task.id, { status: "cancelled" });
       } else if (action.kind === "complete") {
         await tasksApi.complete(task.id);
       } else if (action.kind === "set_priority") {
