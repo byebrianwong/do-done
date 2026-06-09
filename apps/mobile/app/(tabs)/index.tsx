@@ -100,6 +100,13 @@ export default function TodayScreen() {
           >
             <Ionicons name="checkmark-done-circle" size={22} color="#6366f1" />
           </Pressable>
+          <Pressable
+            onPress={() => router.push('/settings' as never)}
+            hitSlop={8}
+            style={styles.completedBtn}
+          >
+            <Ionicons name="settings-outline" size={22} color="#6366f1" />
+          </Pressable>
         </View>
       </View>
 
