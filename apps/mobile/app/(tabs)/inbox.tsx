@@ -27,6 +27,19 @@ export default function InboxScreen() {
     load();
   }, [load]);
 
+  // Completing an inbox task moves it out of the inbox view — drop it instantly.
+  const handleOptimisticToggle = useCallback(
+    (task: Task, nextCompleted: boolean) => {
+      if (nextCompleted) {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+    },
+    []
+  );
+
+  // Stable so memoized TaskItem rows don't re-render when `editing` changes.
+  const handlePress = useCallback((t: Task) => setEditing(t), []);
+
   return (
     <View style={styles.container}>
       <FlatList
@@ -36,7 +49,8 @@ export default function InboxScreen() {
           <TaskItem
             task={item}
             onChange={load}
-            onPress={(t) => setEditing(t)}
+            onPress={handlePress}
+            onOptimisticToggle={handleOptimisticToggle}
           />
         )}
         refreshControl={

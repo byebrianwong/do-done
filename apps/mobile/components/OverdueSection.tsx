@@ -10,6 +10,7 @@ import {
 import { PRIORITY_CONFIG } from '@do-done/shared';
 import type { Task, UpdateTaskInput } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
+import { hapticLight } from '@/lib/haptics';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
@@ -73,6 +74,7 @@ export default function OverdueSection({
     task: Task,
     target: Parameters<typeof buildReschedule>[1]
   ) {
+    hapticLight();
     setBusy(true);
     const api = await getTasksApi();
     await api.update(task.id, buildReschedule(task, target));
@@ -82,6 +84,7 @@ export default function OverdueSection({
   }
 
   async function bulkToday() {
+    hapticLight();
     setBusy(true);
     const api = await getTasksApi();
     const target = { kind: 'date' as const, date: todayISO() };

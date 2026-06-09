@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
 import { getTasksApi } from '@/lib/supabase';
+import { hapticSuccess } from '@/lib/haptics';
 import { IS_EXPO_GO } from '@/lib/runtime';
 
 // expo-speech-recognition has custom native code, not in Expo Go's bundled
@@ -134,6 +135,7 @@ export default function QuickAddBar({
 
     setSubmitting(false);
     if (!error) {
+      hapticSuccess();
       setText('');
       onCreated?.();
     }

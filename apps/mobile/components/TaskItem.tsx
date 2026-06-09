@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -10,20 +9,37 @@ import {
   Text,
   View,
 } from 'react-native';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from '@do-done/shared';
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
+import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
 import { useUndoToast } from './UndoToast';
 
 export type Task = SharedTask;
 
 interface TaskItemProps {
   task: Task;
+  /**
+   * Reconcile the parent list against server truth. Used after undo and to
+   * recover from a failed optimistic mutation — NOT on the happy path, where
+   * `onOptimisticToggle` already updated the list.
+   */
   onChange?: () => void;
   onPress?: (task: Task) => void;
   /** When provided, renders a drag handle that calls this to begin reordering. */
   onDragHandle?: () => void;
+  /**
+   * Reflect a complete/reopen in the parent list immediately, before the
+   * network call settles. `completed` is the task's next state. Typically the
+   * parent removes the row (completing on Today/Inbox, reopening on Completed).
+   * When omitted, the row flips in place via internal optimistic state and the
+   * parent reconciles via `onChange`.
+   */
+  onOptimisticToggle?: (task: Task, completed: boolean) => void;
 }
 
 function todayISO(): string {
@@ -69,39 +85,69 @@ function buildReschedule(
   return input;
 }
 
-export default function TaskItem({ task, onChange, onPress, onDragHandle }: TaskItemProps) {
+function TaskItem({
+  task,
+  onChange,
+  onPress,
+  onDragHandle,
+  onOptimisticToggle,
+}: TaskItemProps) {
   const statusCfg = STATUS_CONFIG[task.status];
   const statusColor = statusCfg?.color ?? '#94a3b8';
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
-  const completed = task.status === 'done';
-  const [busy, setBusy] = useState(false);
+  // `null` = follow server state; a boolean overrides it optimistically.
+  const [optimisticDone, setOptimisticDone] = useState<boolean | null>(null);
+  const completed = optimisticDone ?? task.status === 'done';
   const [menuOpen, setMenuOpen] = useState(false);
   const toast = useUndoToast();
 
+  // Guard against double-taps and against setState after the row unmounts
+  // (the parent typically removes the row on optimistic completion).
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+  const swipeRef = useRef<SwipeableMethods | null>(null);
+  useEffect(() => () => { mounted.current = false; }, []);
+
   async function handleToggle() {
-    setBusy(true);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const nextCompleted = !completed;
+
+    // Flip instantly — haptic + visual, no spinner, no waiting on the network.
+    if (nextCompleted) hapticSuccess();
+    else hapticLight();
+    setOptimisticDone(nextCompleted);
+    onOptimisticToggle?.(task, nextCompleted);
+
     const tasks = await getTasksApi();
-    if (completed) {
-      await tasks.reopen(task.id);
-    } else {
-      const { error } = await tasks.complete(task.id);
-      if (!error) {
-        toast.show({
-          message: `Completed “${task.title}”`,
-          undo: async () => {
-            const api = await getTasksApi();
-            await api.reopen(task.id);
-            onChange?.();
-          },
-        });
-      }
+    const { error } = nextCompleted
+      ? await tasks.complete(task.id)
+      : await tasks.reopen(task.id);
+
+    inFlight.current = false;
+
+    if (error) {
+      // Roll back: revert the local flip and let the parent re-sync from truth.
+      if (mounted.current) setOptimisticDone(null);
+      onChange?.();
+      return;
     }
-    setBusy(false);
-    onChange?.();
+
+    if (nextCompleted) {
+      toast.show({
+        message: `Completed “${task.title}”`,
+        undo: async () => {
+          const api = await getTasksApi();
+          await api.reopen(task.id);
+          onChange?.();
+        },
+      });
+    }
   }
 
   async function applyTarget(target: Parameters<typeof buildReschedule>[1]) {
+    hapticLight();
     const api = await getTasksApi();
     await api.update(task.id, buildReschedule(task, target));
     onChange?.();
@@ -162,7 +208,66 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
     setMenuOpen(true);
   }
 
+  // Swipe-right reveals a single complete/reopen action; a full swipe past the
+  // threshold triggers it via onSwipeableWillOpen('left') below.
+  const renderLeftActions = () => (
+    <View style={[styles.swipeAction, styles.swipeLeftAction]}>
+      <Ionicons
+        name={completed ? 'arrow-undo' : 'checkmark-sharp'}
+        size={22}
+        color="#fff"
+      />
+      <Text style={styles.swipeActionText}>{completed ? 'Reopen' : 'Done'}</Text>
+    </View>
+  );
+
+  // Swipe-left reveals tappable Today + Delete buttons.
+  const renderRightActions = () => (
+    <View style={styles.swipeRightActions}>
+      {!completed ? (
+        <Pressable
+          style={[styles.swipeAction, styles.swipeTodayAction]}
+          onPress={() => {
+            swipeRef.current?.close();
+            applyTarget({ kind: 'date', date: todayISO() });
+          }}
+        >
+          <Ionicons name="today-outline" size={20} color="#fff" />
+          <Text style={styles.swipeActionText}>Today</Text>
+        </Pressable>
+      ) : null}
+      <Pressable
+        style={[styles.swipeAction, styles.swipeDeleteAction]}
+        onPress={() => {
+          swipeRef.current?.close();
+          hapticMedium();
+          confirmDelete();
+        }}
+      >
+        <Ionicons name="trash-outline" size={20} color="#fff" />
+        <Text style={styles.swipeActionText}>Delete</Text>
+      </Pressable>
+    </View>
+  );
+
   return (
+    <ReanimatedSwipeable
+      ref={swipeRef}
+      friction={2}
+      leftThreshold={72}
+      rightThreshold={40}
+      overshootLeft={false}
+      overshootRight={false}
+      renderLeftActions={renderLeftActions}
+      renderRightActions={renderRightActions}
+      onSwipeableWillOpen={(direction) => {
+        if (direction === 'left') {
+          // Full swipe to the right toggles completion, then snaps closed.
+          swipeRef.current?.close();
+          handleToggle();
+        }
+      }}
+    >
     <Pressable
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       onPress={() => onPress?.(task)}
@@ -171,7 +276,6 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
     >
       <Pressable
         onPress={handleToggle}
-        disabled={busy}
         hitSlop={8}
         style={[
           styles.checkbox,
@@ -181,11 +285,7 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
           },
         ]}
       >
-        {busy ? (
-          <ActivityIndicator size="small" color={statusColor} />
-        ) : completed ? (
-          <Text style={styles.check}>✓</Text>
-        ) : null}
+        {completed ? <Text style={styles.check}>✓</Text> : null}
       </Pressable>
       <View style={styles.priorityBars}>
         {[0, 1, 2, 3].map((i) => {
@@ -250,7 +350,10 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
       </View>
       {onDragHandle ? (
         <Pressable
-          onLongPress={onDragHandle}
+          onLongPress={() => {
+            hapticMedium();
+            onDragHandle();
+          }}
           delayLongPress={150}
           hitSlop={8}
           style={styles.dragHandle}
@@ -301,8 +404,11 @@ export default function TaskItem({ task, onChange, onPress, onDragHandle }: Task
         </Pressable>
       </Modal>
     </Pressable>
+    </ReanimatedSwipeable>
   );
 }
+
+export default React.memo(TaskItem);
 
 function formatDueDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
@@ -327,6 +433,32 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   pressed: { backgroundColor: '#f9fafb' },
+  swipeAction: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 16,
+  },
+  swipeActionText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  swipeLeftAction: {
+    width: 96,
+    backgroundColor: '#16a34a',
+  },
+  swipeRightActions: {
+    flexDirection: 'row',
+  },
+  swipeTodayAction: {
+    width: 84,
+    backgroundColor: '#6366f1',
+  },
+  swipeDeleteAction: {
+    width: 84,
+    backgroundColor: '#dc2626',
+  },
   checkbox: {
     width: 22,
     height: 22,

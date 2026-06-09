@@ -31,6 +31,7 @@ import {
   type WhenBucket,
 } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
+import { hapticSuccess } from '@/lib/haptics';
 import {
   PickerSheet,
   WhenCalendar,
@@ -163,6 +164,7 @@ export default function QuickAddComposer({
     const { error } = await tasks.create(input);
     setSubmitting(false);
     if (!error) {
+      hapticSuccess();
       setText('');
       setTags([]);
       setPriority(null);
