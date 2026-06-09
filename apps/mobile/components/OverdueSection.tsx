@@ -7,19 +7,14 @@ import {
   Text,
   View,
 } from 'react-native';
-import { PRIORITY_CONFIG } from '@do-done/shared';
+import {
+  PRIORITY_CONFIG,
+  addDaysLocalISO,
+  todayLocalISO,
+} from '@do-done/shared';
 import type { Task, UpdateTaskInput } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticLight } from '@/lib/haptics';
-
-function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
-}
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
 
 function buildReschedule(
   task: Task,
@@ -28,7 +23,7 @@ function buildReschedule(
     | { kind: 'bucket'; bucket: 'today' | 'tomorrow' | 'this_week' }
     | { kind: 'remove' }
 ): UpdateTaskInput {
-  const today = todayISO();
+  const today = todayLocalISO();
   if (target.kind === 'remove') {
     return {
       when_date: null,
@@ -87,7 +82,7 @@ export default function OverdueSection({
     hapticLight();
     setBusy(true);
     const api = await getTasksApi();
-    const target = { kind: 'date' as const, date: todayISO() };
+    const target = { kind: 'date' as const, date: todayLocalISO() };
     const updates = visible.map((t) => ({
       id: t.id,
       input: buildReschedule(t, target),
@@ -147,13 +142,13 @@ export default function OverdueSection({
                   label="Today"
                   emphasis
                   onPress={() =>
-                    applyOne(t, { kind: 'date', date: todayISO() })
+                    applyOne(t, { kind: 'date', date: todayLocalISO() })
                   }
                 />
                 <Chip
                   label="Tomorrow"
                   onPress={() =>
-                    applyOne(t, { kind: 'date', date: addDaysISO(1) })
+                    applyOne(t, { kind: 'date', date: addDaysLocalISO(1) })
                   }
                 />
                 <Chip

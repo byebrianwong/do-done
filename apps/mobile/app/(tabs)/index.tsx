@@ -24,7 +24,7 @@ import {
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { generateFocusList } from '@do-done/task-engine';
-import { isOverdue } from '@do-done/shared';
+import { isOverdue, todayLocalISO } from '@do-done/shared';
 import type { Task } from '@do-done/shared';
 import { PRIORITY_CONFIG } from '@do-done/shared';
 
@@ -47,7 +47,7 @@ export default function TodayScreen() {
   const fresh = active.filter((t) => !overdueIds.has(t.id));
   const focusList = generateFocusList(fresh, 3);
   const focusIds = new Set(focusList.map((t) => t.id));
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocalISO();
   const computedOther = fresh.filter((t) => {
     if (focusIds.has(t.id)) return false;
     if (t.when_bucket === 'today') return true;

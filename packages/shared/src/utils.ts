@@ -1,8 +1,31 @@
 import type { Task } from "./schemas.js";
 
+/**
+ * Today's date as YYYY-MM-DD in the runtime's LOCAL timezone.
+ *
+ * `when_date` / `due_date` are local calendar dates (no timezone), so "today"
+ * must also be local. `new Date().toISOString()` is UTC and is off by a day in
+ * the evening for negative-offset zones (and the morning for positive ones),
+ * which made tasks scheduled for "today" read as overdue — or vice versa —
+ * near midnight. Build the string from local getFullYear/Month/Date instead.
+ */
+export function todayLocalISO(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Local YYYY-MM-DD `days` from today (negative = past). */
+export function addDaysLocalISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return todayLocalISO(d);
+}
+
 export function isOverdue(task: Task): boolean {
   if (task.status === "done" || task.status === "cancelled") return false;
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocalISO();
   if (task.due_date && task.due_date < today) return true;
   if (task.when_date && task.when_date < today) return true;
   return false;
@@ -10,8 +33,7 @@ export function isOverdue(task: Task): boolean {
 
 export function isDueToday(task: Task): boolean {
   if (!task.due_date) return false;
-  const today = new Date().toISOString().split("T")[0];
-  return task.due_date === today;
+  return task.due_date === todayLocalISO();
 }
 
 export function sortByPriority(tasks: Task[]): Task[] {
