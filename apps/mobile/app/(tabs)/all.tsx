@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -6,11 +6,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import {
-  NestableDraggableFlatList,
-  NestableScrollContainer,
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,16 +13,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import SectionedDraggableList, {
+  type DraggableSection,
+} from '@/components/SectionedDraggableList';
 import {
   invalidateTasks,
   reorderTasks,
+  updateTask,
   useAllTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { STATUS_CONFIG } from '@do-done/shared';
 import type { Task, TaskStatus } from '@do-done/shared';
 
-// Active statuses in browse order (terminal statuses live in Completed).
+// Active statuses, always shown so each is a drag target (terminal statuses
+// live in Completed).
 const STATUS_GROUPS: TaskStatus[] = [
   'inbox',
   'in_progress',
@@ -35,50 +35,66 @@ const STATUS_GROUPS: TaskStatus[] = [
   'not_started',
 ];
 
-type Section = { status: TaskStatus; title: string; data: Task[] };
-
-function buildSections(tasks: Task[]): Section[] {
-  const byStatus = new Map<TaskStatus, Task[]>();
+function buildSections(tasks: Task[]): DraggableSection[] {
+  const byStatus = new Map<TaskStatus, Task[]>(
+    STATUS_GROUPS.map((s) => [s, [] as Task[]])
+  );
   for (const t of tasks) {
     if (t.status === 'done' || t.status === 'cancelled') continue;
-    const arr = byStatus.get(t.status) ?? [];
-    arr.push(t);
-    byStatus.set(t.status, arr);
+    byStatus.get(t.status)?.push(t);
   }
-  return STATUS_GROUPS.filter((s) => (byStatus.get(s)?.length ?? 0) > 0).map(
-    (s) => ({ status: s, title: STATUS_CONFIG[s].label, data: byStatus.get(s)! })
-  );
+  return STATUS_GROUPS.map((s) => ({
+    key: s,
+    title: STATUS_CONFIG[s].label,
+    data: byStatus.get(s)!,
+  }));
 }
 
 export default function AllTasksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: tasks = [], isLoading, isRefetching, refetch } = useAllTasks();
-  const [sections, setSections] = useState<Section[]>([]);
+  const { data: tasks = [], isRefetching, refetch } = useAllTasks();
   const [editing, setEditing] = useState<Task | null>(null);
   useRefreshOnFocus(refetch);
 
-  // Mirror the server-derived groups into drag-reorderable copies. Re-syncs when
-  // tasks are added/removed/change status (not on a pure local reorder, which
-  // keeps the same ids+statuses).
-  useEffect(() => {
-    setSections(buildSections(tasks));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks.map((t) => `${t.id}:${t.status}`).join('|')]);
-
   const handlePress = useCallback((t: Task) => setEditing(t), []);
+  const sections = useMemo(() => buildSections(tasks), [tasks]);
 
-  function persistSection(status: TaskStatus, data: Task[]) {
-    setSections((prev) =>
-      prev.map((s) => (s.status === status ? { ...s, data } : s))
-    );
-    void reorderTasks(data.map((t) => t.id)).catch(() => {});
-  }
+  const onReorder = useCallback((_key: string, ids: string[]) => {
+    void reorderTasks(ids).catch(() => {});
+  }, []);
 
-  const renderItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<Task>) => (
+  const onMove = useCallback(
+    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      void updateTask(taskId, { status: toKey as TaskStatus })
+        .then(() => reorderTasks(destIds))
+        .catch(() => {});
+    },
+    []
+  );
+
+  const renderHeader = useCallback(
+    (section: DraggableSection) => (
+      <View style={styles.sectionHeader}>
+        <View
+          style={[
+            styles.statusDot,
+            { backgroundColor: STATUS_CONFIG[section.key as TaskStatus].color },
+          ]}
+        />
+        <Text style={styles.sectionHeaderText}>
+          {section.title}{' '}
+          <Text style={styles.sectionCount}>({section.data.length})</Text>
+        </Text>
+      </View>
+    ),
+    []
+  );
+
+  const renderTask = useCallback(
+    (task: Task, drag: () => void, isActive: boolean) => (
       <View style={isActive ? styles.activeRow : undefined}>
-        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
+        <TaskItem task={task} onPress={handlePress} onDragHandle={drag} />
       </View>
     ),
     [handlePress]
@@ -106,8 +122,12 @@ export default function AllTasksScreen() {
         </View>
       </View>
 
-      <NestableScrollContainer
-        contentContainerStyle={styles.listContent}
+      <SectionedDraggableList
+        sections={sections}
+        renderHeader={renderHeader}
+        renderTask={renderTask}
+        onReorder={onReorder}
+        onMove={onMove}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -115,38 +135,8 @@ export default function AllTasksScreen() {
             tintColor="#6366f1"
           />
         }
-      >
-        {sections.map((section) => (
-          <View key={section.status}>
-            <View style={styles.sectionHeader}>
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: STATUS_CONFIG[section.status].color },
-                ]}
-              />
-              <Text style={styles.sectionHeaderText}>
-                {section.title}{' '}
-                <Text style={styles.sectionCount}>({section.data.length})</Text>
-              </Text>
-            </View>
-            <NestableDraggableFlatList
-              data={section.data}
-              keyExtractor={(item) => item.id}
-              renderItem={renderItem}
-              onDragEnd={({ data }) => persistSection(section.status, data)}
-            />
-          </View>
-        ))}
-
-        {sections.length === 0 && !isLoading ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No active tasks</Text>
-            <Text style={styles.emptyHint}>Add one below.</Text>
-          </View>
-        ) : null}
-      </NestableScrollContainer>
-
+        contentContainerStyle={styles.listContent}
+      />
       <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
@@ -190,7 +180,4 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   sectionCount: { color: '#9ca3af', fontWeight: '500' },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
-  emptyText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
-  emptyHint: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
 });

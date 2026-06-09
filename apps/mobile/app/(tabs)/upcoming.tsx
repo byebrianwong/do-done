@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -6,11 +6,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import {
-  NestableDraggableFlatList,
-  NestableScrollContainer,
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,9 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import SectionedDraggableList, {
+  type DraggableSection,
+} from '@/components/SectionedDraggableList';
 import {
   invalidateTasks,
   reorderTasks,
+  updateTask,
   useAllTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
@@ -29,11 +28,10 @@ import {
   isOverdue,
   todayLocalISO,
   type Task,
+  type UpdateTaskInput,
 } from '@do-done/shared';
 
 const HORIZON_DAYS = 14;
-
-type Section = { key: string; title: string; data: Task[] };
 
 function dayLabel(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -48,23 +46,36 @@ function effectiveDate(t: Task): string | null {
   return t.when_date ?? t.due_date ?? null;
 }
 
-// Build the ordered Upcoming sections: Overdue → Today → Tomorrow → each dated
-// day in the horizon → Later → Anytime → Someday. Empty buckets are dropped.
-function buildSections(tasks: Task[]): Section[] {
+// What dropping into a section should do to a task's schedule.
+function sectionTarget(key: string): UpdateTaskInput {
+  if (key === 'overdue') return { when_date: todayLocalISO(), when_bucket: null };
+  if (key === 'later') return { when_date: null, when_bucket: 'later' };
+  if (key === 'anytime') return { when_date: null, when_bucket: null };
+  if (key === 'someday') return { when_date: null, when_bucket: 'someday' };
+  return { when_date: key, when_bucket: null }; // a YYYY-MM-DD day
+}
+
+// Build ordered sections: Overdue → Today → Tomorrow → each dated day in the
+// horizon → Later → Anytime → Someday. Today and Tomorrow are always present so
+// they're always drop targets; other empty buckets are dropped.
+function buildSections(tasks: Task[]): DraggableSection[] {
   const today = todayLocalISO();
   const tomorrow = addDaysLocalISO(1);
   const horizonEnd = addDaysLocalISO(HORIZON_DAYS);
 
   const overdue: Task[] = [];
-  const byDate = new Map<string, Task[]>();
+  const byDate = new Map<string, Task[]>([
+    [today, []],
+    [tomorrow, []],
+  ]);
   const later: Task[] = [];
   const anytime: Task[] = [];
   const someday: Task[] = [];
 
-  const push = (m: Map<string, Task[]>, k: string, t: Task) => {
-    const a = m.get(k) ?? [];
+  const push = (k: string, t: Task) => {
+    const a = byDate.get(k) ?? [];
     a.push(t);
-    m.set(k, a);
+    byDate.set(k, a);
   };
 
   for (const t of tasks) {
@@ -75,16 +86,16 @@ function buildSections(tasks: Task[]): Section[] {
     }
     const d = effectiveDate(t);
     if (d) {
-      if (d <= horizonEnd) push(byDate, d, t);
+      if (d <= horizonEnd) push(d, t);
       else later.push(t);
       continue;
     }
     switch (t.when_bucket) {
       case 'today':
-        push(byDate, today, t);
+        push(today, t);
         break;
       case 'tomorrow':
-        push(byDate, tomorrow, t);
+        push(tomorrow, t);
         break;
       case 'someday':
         someday.push(t);
@@ -99,15 +110,12 @@ function buildSections(tasks: Task[]): Section[] {
     }
   }
 
-  const out: Section[] = [];
+  const out: DraggableSection[] = [];
   if (overdue.length) out.push({ key: 'overdue', title: 'Overdue', data: overdue });
-
   for (const k of [...byDate.keys()].sort()) {
-    const title =
-      k === today ? 'Today' : k === tomorrow ? 'Tomorrow' : dayLabel(k);
+    const title = k === today ? 'Today' : k === tomorrow ? 'Tomorrow' : dayLabel(k);
     out.push({ key: k, title, data: byDate.get(k)! });
   }
-
   if (later.length) out.push({ key: 'later', title: 'Later', data: later });
   if (anytime.length) out.push({ key: 'anytime', title: 'Anytime', data: anytime });
   if (someday.length) out.push({ key: 'someday', title: 'Someday', data: someday });
@@ -117,36 +125,47 @@ function buildSections(tasks: Task[]): Section[] {
 export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: tasks = [], isLoading, isRefetching, refetch } = useAllTasks();
-  const [sections, setSections] = useState<Section[]>([]);
+  const { data: tasks = [], isRefetching, refetch } = useAllTasks();
   const [editing, setEditing] = useState<Task | null>(null);
   useRefreshOnFocus(refetch);
 
-  // Mirror the server-derived groups into drag-reorderable copies. Re-syncs when
-  // a task's date/bucket/status changes (which changes grouping), not on a pure
-  // within-day reorder.
-  useEffect(() => {
-    setSections(buildSections(tasks));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    tasks
-      .map((t) => `${t.id}:${t.when_date ?? t.due_date ?? ''}:${t.when_bucket ?? ''}:${t.status}`)
-      .join('|'),
-  ]);
-
   const handlePress = useCallback((t: Task) => setEditing(t), []);
+  const sections = useMemo(() => buildSections(tasks), [tasks]);
 
-  function persistSection(key: string, data: Task[]) {
-    setSections((prev) =>
-      prev.map((s) => (s.key === key ? { ...s, data } : s))
-    );
-    void reorderTasks(data.map((t) => t.id)).catch(() => {});
-  }
+  const onReorder = useCallback((_key: string, ids: string[]) => {
+    void reorderTasks(ids).catch(() => {});
+  }, []);
 
-  const renderItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<Task>) => (
+  const onMove = useCallback(
+    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      void updateTask(taskId, sectionTarget(toKey))
+        .then(() => reorderTasks(destIds))
+        .catch(() => {});
+    },
+    []
+  );
+
+  const renderHeader = useCallback(
+    (section: DraggableSection) => (
+      <View style={styles.sectionHeader}>
+        <Text
+          style={[
+            styles.sectionHeaderText,
+            section.key === 'overdue' && styles.overdueText,
+          ]}
+        >
+          {section.title}{' '}
+          <Text style={styles.sectionCount}>({section.data.length})</Text>
+        </Text>
+      </View>
+    ),
+    []
+  );
+
+  const renderTask = useCallback(
+    (task: Task, drag: () => void, isActive: boolean) => (
       <View style={isActive ? styles.activeRow : undefined}>
-        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
+        <TaskItem task={task} onPress={handlePress} onDragHandle={drag} />
       </View>
     ),
     [handlePress]
@@ -165,8 +184,12 @@ export default function UpcomingScreen() {
         </Pressable>
       </View>
 
-      <NestableScrollContainer
-        contentContainerStyle={styles.listContent}
+      <SectionedDraggableList
+        sections={sections}
+        renderHeader={renderHeader}
+        renderTask={renderTask}
+        onReorder={onReorder}
+        onMove={onMove}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -174,39 +197,8 @@ export default function UpcomingScreen() {
             tintColor="#6366f1"
           />
         }
-      >
-        {sections.map((section) => (
-          <View key={section.key}>
-            <View style={styles.sectionHeader}>
-              <Text
-                style={[
-                  styles.sectionHeaderText,
-                  section.key === 'overdue' && styles.overdueText,
-                ]}
-              >
-                {section.title}{' '}
-                <Text style={styles.sectionCount}>({section.data.length})</Text>
-              </Text>
-            </View>
-            <NestableDraggableFlatList
-              data={section.data}
-              keyExtractor={(item) => item.id}
-              renderItem={renderItem}
-              onDragEnd={({ data }) => persistSection(section.key, data)}
-            />
-          </View>
-        ))}
-
-        {sections.length === 0 && !isLoading ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>Nothing on the horizon</Text>
-            <Text style={styles.emptyHint}>
-              Scheduled and someday tasks show up here.
-            </Text>
-          </View>
-        ) : null}
-      </NestableScrollContainer>
-
+        contentContainerStyle={styles.listContent}
+      />
       <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
@@ -246,13 +238,4 @@ const styles = StyleSheet.create({
   },
   overdueText: { color: '#b91c1c' },
   sectionCount: { color: '#9ca3af', fontWeight: '500' },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
-  emptyText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
-  emptyHint: {
-    fontSize: 13,
-    color: '#9ca3af',
-    marginTop: 4,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
 });

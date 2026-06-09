@@ -81,8 +81,10 @@ skipped the gestures phones are good at.
 - **1.5 — Interactive + draggable rows everywhere.** ✅ Today is now a single
   draggable list (Overdue rescue section + one `DraggableFlatList`); the old
   non-interactive Focus cards are gone — focus picks are merged in and marked with a
-  ⭐ (a score-ranked section can't hold a hand-drag order). Inbox is draggable, All
-  and Upcoming are drag-reorderable within each section (`NestableDraggableFlatList`).
+  ⭐ (a score-ranked section can't hold a hand-drag order). Inbox is draggable, and
+  **All + Upcoming support drag _between_ sections** (drag a task to another day to
+  reschedule it, or to another status group to restatus it) via a single
+  `DraggableFlatList` with header rows as anchors (`components/SectionedDraggableList`).
   One-swipe **Tomorrow** alongside Today/Delete. **Effort: M.** _(Status: ✅ done.)_
 
 ---
