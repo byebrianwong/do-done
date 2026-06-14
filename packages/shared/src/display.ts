@@ -116,7 +116,7 @@ export const VIEW_DISPLAY_DEFAULTS: Record<string, DisplayConfig> = {
   project: { ...DEFAULT_DISPLAY, group: "status" },
   completed: {
     ...DEFAULT_DISPLAY,
-    group: "date",
+    group: "none",
     sort: [{ field: "completed_at", dir: "desc" }],
     showCompleted: true,
   },
@@ -578,4 +578,18 @@ export function applyDisplay(
     g.count = g.tasks.length;
   }
   return groups;
+}
+
+/**
+ * Apply ONLY a config's filters (+ showCompleted), skipping group/sort. Lets a
+ * view keep its bespoke default layout (focus sections, per-day date columns)
+ * while still honouring the Display menu's filters — the curated renderer
+ * groups/sorts the result itself.
+ */
+export function filterByConfig(
+  tasks: Task[],
+  config: DisplayConfig,
+  ctx?: DisplayContext
+): Task[] {
+  return filterTasks(tasks, config, ctx?.today ?? todayLocalISO());
 }
