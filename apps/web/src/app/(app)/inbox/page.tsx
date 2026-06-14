@@ -1,5 +1,5 @@
 import { TaskForm } from "@/components/task-form";
-import { TaskItem } from "@/components/task-item";
+import { TaskDisplayView } from "@/components/task-display-view";
 import {
   getServerTasksApi,
   getServerProjectsApi,
@@ -23,19 +23,14 @@ export default async function InboxPage() {
 
       <TaskForm defaultStatus="inbox" />
 
-      {tasks.length > 0 ? (
-        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          {tasks.map((task) => (
-            <TaskItem key={task.id} task={task} projects={projects} />
-          ))}
-        </div>
-      ) : (
-        <div className="py-16 text-center">
-          <p className="text-sm text-neutral-400">
-            No tasks in your inbox. Add one above to get started.
-          </p>
-        </div>
-      )}
+      <div className="mt-4">
+        <TaskDisplayView
+          viewKey="inbox"
+          tasks={tasks}
+          projects={projects}
+          emptyText="No tasks in your inbox. Add one above to get started."
+        />
+      </div>
     </div>
   );
 }
