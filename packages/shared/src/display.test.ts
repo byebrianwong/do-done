@@ -6,6 +6,7 @@ import {
   applyDisplay,
   DEFAULT_DISPLAY,
   defaultDisplayFor,
+  filterByConfig,
   hasFlagFilter,
   isManualSort,
   parseDisplayConfig,
@@ -298,6 +299,34 @@ describe("grouping", () => {
     // Overdue / this_week / no-date are read-only (ambiguous reschedule).
     expect(g.find((x) => x.key === "date:overdue")!.drop).toBeNull();
     expect(g.find((x) => x.key === "date:this_week")!.drop).toBeNull();
+  });
+});
+
+describe("filterByConfig", () => {
+  it("applies filters + showCompleted but not group/sort", () => {
+    const tasks = [
+      task({ priority: "p1", status: "next" }),
+      task({ priority: "p4", status: "next" }),
+      task({ priority: "p1", status: "done" }),
+    ];
+    const cfg: DisplayConfig = {
+      ...DEFAULT_DISPLAY,
+      group: "status",
+      sort: [{ field: "priority", dir: "asc" }],
+      filters: [{ field: "priority", op: "is", values: ["p1"] }],
+    };
+    // Returns a flat Task[] (no grouping), terminal hidden, only p1 kept.
+    const out = filterByConfig(tasks, cfg, ctx());
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe("next");
+  });
+
+  it("honours showCompleted", () => {
+    const tasks = [task({ status: "done" }), task({ status: "next" })];
+    expect(filterByConfig(tasks, DEFAULT_DISPLAY, ctx())).toHaveLength(1);
+    expect(
+      filterByConfig(tasks, { ...DEFAULT_DISPLAY, showCompleted: true }, ctx())
+    ).toHaveLength(2);
   });
 });
 
