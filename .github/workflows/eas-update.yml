@@ -1,0 +1,52 @@
+name: EAS Update
+
+# Publishes an over-the-air JS/asset update to the "preview" channel on every
+# merge to main, so an installed preview build auto-updates on next launch.
+# Native changes (new native modules, app.config plugins, SDK/app-version bumps)
+# still need a fresh `eas build` + reinstall — OTA can't change native code.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/**"
+      - ".github/workflows/eas-update.yml"
+  # Allow manual publishes from the Actions tab too.
+  workflow_dispatch:
+
+concurrency:
+  group: eas-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Mobile resolves @do-done/* from their built dist (package.json `main`),
+      # so the leaf packages must be built before the update is bundled.
+      - name: Build workspace packages
+        run: pnpm --filter "./packages/*" build
+
+      - name: Publish EAS Update
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli@latest update \
+            --branch preview \
+            --message "${{ github.event.head_commit.message || 'manual update' }}" \
+            --non-interactive
