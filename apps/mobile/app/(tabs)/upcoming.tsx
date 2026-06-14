@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import DisplaySheet from '@/components/DisplaySheet';
+import GroupedTaskList from '@/components/GroupedTaskList';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -21,10 +23,14 @@ import {
   reorderTasks,
   updateTask,
   useAllTasks,
+  useProjectsWithCounts,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
+  filterByConfig,
+  isManualSort,
   isOverdue,
   todayLocalISO,
   type Task,
@@ -46,7 +52,7 @@ function effectiveDate(t: Task): string | null {
   return t.when_date ?? t.due_date ?? null;
 }
 
-// What dropping into a section should do to a task's schedule.
+// What dropping into a date section should do to a task's schedule.
 function sectionTarget(key: string): UpdateTaskInput {
   if (key === 'overdue') return { when_date: todayLocalISO(), when_bucket: null };
   if (key === 'later') return { when_date: null, when_bucket: 'later' };
@@ -55,9 +61,8 @@ function sectionTarget(key: string): UpdateTaskInput {
   return { when_date: key, when_bucket: null }; // a YYYY-MM-DD day
 }
 
-// Build ordered sections: Overdue → Today → Tomorrow → each dated day in the
-// horizon → Later → Anytime → Someday. Today and Tomorrow are always present so
-// they're always drop targets; other empty buckets are dropped.
+// Build ordered date sections: Overdue → Today → Tomorrow → each dated day in
+// the horizon → Later → Anytime → Someday.
 function buildSections(tasks: Task[]): DraggableSection[] {
   const today = todayLocalISO();
   const tomorrow = addDaysLocalISO(1);
@@ -126,11 +131,30 @@ export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: tasks = [], isRefetching, refetch } = useAllTasks();
+  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
+  const [showDisplay, setShowDisplay] = useState(false);
+  const { config, setConfig, reset, isDefault } = useDisplayConfig('upcoming');
   useRefreshOnFocus(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
-  const sections = useMemo(() => buildSections(tasks), [tasks]);
+
+  const projectList = useMemo(
+    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projectsWithCounts]
+  );
+
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) for (const tag of t.tags) set.add(tag);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
+
+  const curated = config.group === 'date' && isManualSort(config);
+  const sections = useMemo(
+    () => buildSections(filterByConfig(tasks, config)),
+    [tasks, config]
+  );
 
   const onReorder = useCallback((_key: string, ids: string[]) => {
     void reorderTasks(ids).catch(() => {});
@@ -171,40 +195,66 @@ export default function UpcomingScreen() {
     [handlePress]
   );
 
+  const refreshControl = (
+    <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Upcoming</Text>
-        <Pressable
-          onPress={() => router.push('/search' as never)}
-          hitSlop={8}
-          style={styles.iconBtn}
-        >
-          <Ionicons name="search" size={22} color="#6366f1" />
-        </Pressable>
+        <View style={styles.topActions}>
+          <Pressable onPress={() => setShowDisplay(true)} hitSlop={8} style={styles.iconBtn}>
+            <Ionicons name="options-outline" size={22} color="#6366f1" />
+            {!isDefault ? <View style={styles.activeDot} /> : null}
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/search' as never)}
+            hitSlop={8}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="search" size={22} color="#6366f1" />
+          </Pressable>
+        </View>
       </View>
 
-      <SectionedDraggableList
-        sections={sections}
-        renderHeader={renderHeader}
-        renderTask={renderTask}
-        onReorder={onReorder}
-        onMove={onMove}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor="#6366f1"
-          />
-        }
-        contentContainerStyle={styles.listContent}
-      />
+      {curated ? (
+        <SectionedDraggableList
+          sections={sections}
+          renderHeader={renderHeader}
+          renderTask={renderTask}
+          onReorder={onReorder}
+          onMove={onMove}
+          refreshControl={refreshControl}
+          contentContainerStyle={styles.listContent}
+        />
+      ) : (
+        <GroupedTaskList
+          tasks={tasks}
+          projects={projectList}
+          config={config}
+          onTaskPress={handlePress}
+          refreshControl={refreshControl}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
+
       <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
         onClose={() => setEditing(null)}
         onSaved={invalidateTasks}
+      />
+      <DisplaySheet
+        visible={showDisplay}
+        onClose={() => setShowDisplay(false)}
+        config={config}
+        onChange={setConfig}
+        onReset={reset}
+        isDefault={isDefault}
+        projects={projectList}
+        availableTags={availableTags}
       />
     </View>
   );
@@ -220,7 +270,17 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 4 },
+  activeDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#6366f1',
+  },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 140, flexGrow: 1 },
   sectionHeader: {
