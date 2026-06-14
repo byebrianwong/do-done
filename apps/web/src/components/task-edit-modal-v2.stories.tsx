@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 import { makeTask } from "./__stories__/mocks";
 
@@ -92,5 +93,29 @@ export const NoTagsAffordance: Story = {
     }),
     open: true,
     onClose: () => {},
+  },
+};
+
+/**
+ * The delete confirmation dialog, opened automatically. It centers over the
+ * viewport (the underlying edit modal is dimmed + blurred behind it) instead
+ * of the browser's native top-anchored confirm.
+ */
+export const ConfirmingDelete: Story = {
+  args: {
+    task: makeTask({
+      title: "Texas Money",
+      priority: "p4",
+      tags: ["finance"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText("Delete"));
+    await waitFor(() =>
+      expect(canvas.getByText("Delete task?")).toBeInTheDocument()
+    );
   },
 };

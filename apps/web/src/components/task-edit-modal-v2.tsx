@@ -1506,6 +1506,9 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
     setTitleDraft(current.title);
   }, [current.title]);
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const [busyness, setBusyness] = useState<DayBusyness[]>([]);
   useEffect(() => {
     if (!open) return;
@@ -1539,10 +1542,33 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
     router.refresh();
   }, [onClose, router]);
 
+  const handleDelete = useCallback(async () => {
+    setDeleting(true);
+    const { error } = await tasksApi.delete(task.id);
+    if (error) {
+      console.error("Delete failed:", error);
+      setDeleting(false);
+      setConfirmingDelete(false);
+      return;
+    }
+    handleClose();
+  }, [tasksApi, task.id, handleClose]);
+
+  // Reset the delete confirmation whenever the modal closes so it never
+  // reappears pre-opened on the next launch.
+  useEffect(() => {
+    if (!open) {
+      setConfirmingDelete(false);
+      setDeleting(false);
+    }
+  }, [open]);
+
   // Keyboard shortcuts
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      // While the delete confirmation is up, its own handler owns the keyboard.
+      if (confirmingDelete) return;
       if (e.key === "Escape") {
         handleClose();
         return;
@@ -1559,7 +1585,22 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose, setField]);
+  }, [open, handleClose, setField, confirmingDelete]);
+
+  // Esc cancels the delete confirmation (captured so it never reaches the
+  // main modal's Esc-to-close handler).
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deleting) {
+        e.preventDefault();
+        e.stopPropagation();
+        setConfirmingDelete(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmingDelete, deleting]);
 
   if (!open) return null;
 
@@ -1643,6 +1684,7 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
   };
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/30 p-3 backdrop-blur-sm sm:p-6"
       onClick={handleClose}
@@ -1777,15 +1819,7 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={async () => {
-                if (!window.confirm(`Delete “${current.title}”? This cannot be undone.`)) return;
-                const { error } = await tasksApi.delete(task.id);
-                if (error) {
-                  console.error("Delete failed:", error);
-                  return;
-                }
-                handleClose();
-              }}
+              onClick={() => setConfirmingDelete(true)}
               className="rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
             >
               Delete
@@ -1798,6 +1832,82 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
             </div>
           </div>
           <DoneButton onClick={handleClose} />
+        </div>
+      </div>
+    </div>
+    {confirmingDelete ? (
+      <ConfirmDeleteDialog
+        title={current.title}
+        deleting={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmingDelete(false);
+        }}
+        onConfirm={() => {
+          if (!deleting) void handleDelete();
+        }}
+      />
+    ) : null}
+    </>
+  );
+}
+
+function ConfirmDeleteDialog({
+  title,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const trimmed = title.trim();
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-delete-title"
+        className="w-[min(25rem,calc(100vw-2rem))] overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.18),0_4px_12px_rgba(17,24,39,0.08)] dark:bg-neutral-950 dark:ring-1 dark:ring-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 pb-5 pt-6">
+          <h2
+            id="confirm-delete-title"
+            className="text-[17px] font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
+          >
+            Delete task?
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            The{" "}
+            <span className="font-semibold text-neutral-700 dark:text-neutral-200">
+              {trimmed ? trimmed : "untitled"}
+            </span>{" "}
+            task will be permanently deleted.
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-5 py-3.5 dark:border-neutral-900 dark:bg-neutral-900/50">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="rounded-lg px-3.5 py-2 text-[13px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-200/70 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={onConfirm}
+            disabled={deleting}
+            className="rounded-lg bg-red-600 px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-default disabled:opacity-60 dark:hover:bg-red-500"
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
         </div>
       </div>
     </div>
