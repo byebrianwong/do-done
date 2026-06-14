@@ -83,4 +83,43 @@ export class UserPrefsApi {
       error: insert.error as Error | null,
     };
   }
+
+  /**
+   * Read the per-view Display preferences map (viewKey -> DisplayConfig).
+   * Read-only (no insert) — returns {} when there's no prefs row yet. Callers
+   * validate each entry with `parseDisplayConfig` from @do-done/shared.
+   */
+  async getDisplayPrefs(): Promise<{
+    data: Record<string, unknown>;
+    error: Error | null;
+  }> {
+    let query = this.supabase
+      .from("user_preferences")
+      .select("display_prefs")
+      .limit(1);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query.maybeSingle();
+    if (error) return { data: {}, error: error as Error };
+    return {
+      data: (data?.display_prefs as Record<string, unknown> | undefined) ?? {},
+      error: null,
+    };
+  }
+
+  /**
+   * Upsert a single view's DisplayConfig atomically via the
+   * `set_display_pref` SQL function (jsonb_set), so concurrent writes to
+   * different views don't clobber each other and the prefs row is created on
+   * first write.
+   */
+  async setDisplayPref(
+    viewKey: string,
+    config: unknown
+  ): Promise<{ error: Error | null }> {
+    const { error } = await this.supabase.rpc("set_display_pref", {
+      p_view_key: viewKey,
+      p_config: config,
+    });
+    return { error: error as Error | null };
+  }
 }
