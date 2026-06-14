@@ -1,28 +1,9 @@
-import { DraggableUpcoming } from "@/components/draggable-upcoming-client";
-import { NO_DATE_KEY } from "@/components/draggable-upcoming";
+import { UpcomingView } from "@/components/upcoming-view";
 import { InboxFilterToggle } from "@/components/inbox-filter-toggle";
 import {
   getServerTasksApi,
   getServerProjectsApi,
 } from "@/lib/supabase/tasks-server";
-import { taskDate } from "@do-done/api-client";
-import type { Task } from "@do-done/shared";
-
-function formatDayHeading(dateStr: string): string {
-  const date = new Date(dateStr + "T00:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  if (date.getTime() === today.getTime()) return "Today";
-  if (date.getTime() === tomorrow.getTime()) return "Tomorrow";
-  return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export default async function UpcomingPage({
   searchParams,
@@ -46,84 +27,21 @@ export default async function UpcomingPage({
 
   // Inbox task count is computed pre-filter so the toggle pill can show
   // "how many would reappear if I un-hide them".
-  const inboxCount =
-    rawTasks.filter((t) => t.status === "inbox").length +
-    rawUndated.filter((t) => t.status === "inbox").length;
-  const tasks = hideInbox
-    ? rawTasks.filter((t) => t.status !== "inbox")
-    : rawTasks;
-  const undated = hideInbox
-    ? rawUndated.filter((t) => t.status !== "inbox")
-    : rawUndated;
-
-  // Group by effective date — when_date wins, due_date is fallback.
-  const byDate = new Map<string, Task[]>();
-  for (const task of tasks) {
-    const d = taskDate(task);
-    if (!d) continue;
-    const list = byDate.get(d) ?? [];
-    list.push(task);
-    byDate.set(d, list);
-  }
-
-  // No-date section first so the user always sees the inbox of work to
-  // schedule. Drag from here onto any day to set a when_date.
-  const groups: Array<{
-    date: string;
-    label: string;
-    tasks: Task[];
-    emptyHint?: string;
-  }> = [
-    {
-      date: NO_DATE_KEY,
-      label: "No date",
-      tasks: undated,
-      emptyHint: "Nothing unscheduled — drag here to clear a date",
-    },
-  ];
-  // Always seed the next 14 days as drop targets, even if empty, so the user
-  // has somewhere to drag a task to.
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const key = d.toISOString().split("T")[0];
-    groups.push({
-      date: key,
-      label: formatDayHeading(key),
-      tasks: byDate.get(key) ?? [],
-    });
-    byDate.delete(key);
-  }
-  // Add any remaining future dates (15+ days out) that have tasks.
-  const remaining = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
-  for (const [date, dayTasks] of remaining) {
-    groups.push({ date, label: formatDayHeading(date), tasks: dayTasks });
-  }
-
-  const hasAny = groups.some((g) => g.tasks.length > 0);
+  const all = [...rawTasks, ...rawUndated];
+  const inboxCount = all.filter((t) => t.status === "inbox").length;
+  const universe = hideInbox
+    ? all.filter((t) => t.status !== "inbox")
+    : all;
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Upcoming
-        </h1>
-        <InboxFilterToggle count={inboxCount} />
-      </div>
-
-      {hasAny ? (
-        <DraggableUpcoming groups={groups} projects={projects} />
-      ) : (
-        <div className="py-16 text-center">
-          <p className="text-sm text-neutral-400">
-            {hideInbox && inboxCount > 0
-              ? "No upcoming tasks with the inbox filter on."
-              : "No upcoming tasks. Schedule one to see it here."}
-          </p>
+    <UpcomingView
+      allTasks={universe}
+      projects={projects}
+      beforeContent={
+        <div className="mb-4">
+          <InboxFilterToggle count={inboxCount} />
         </div>
-      )}
-    </div>
+      }
+    />
   );
 }
