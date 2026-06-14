@@ -21,6 +21,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const today = new Date().toISOString().split("T")[0];
+const tomorrow = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split("T")[0];
+})();
 const yesterday = (() => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -107,6 +112,19 @@ export const ScheduleableTask: Story = {
     task: makeTask({
       title: "Deep work session",
       priority: "p2",
+      duration_minutes: 90,
+    }),
+  },
+};
+
+export const ScheduledWithTime: Story = {
+  name: "When date + time (do date with time of day)",
+  args: {
+    task: makeTask({
+      title: "Deep work session",
+      priority: "p2",
+      when_date: tomorrow,
+      when_time: "15:00",
       duration_minutes: 90,
     }),
   },

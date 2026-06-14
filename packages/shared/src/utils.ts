@@ -52,6 +52,23 @@ export function formatDuration(minutes: number): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
+/**
+ * Format an "HH:MM" 24-hour clock string (the shape of when_time / due_time)
+ * as a 12-hour label: "15:00" → "3:00 PM", "09:30" → "9:30 AM", "00:05" →
+ * "12:05 AM". Returns the input unchanged if it isn't a parseable HH:MM.
+ */
+export function formatWhenTime(time: string): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!match) return time;
+  let hour = parseInt(match[1], 10);
+  const min = match[2];
+  if (Number.isNaN(hour) || hour < 0 || hour > 23) return time;
+  const period = hour < 12 ? "AM" : "PM";
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  return `${hour}:${min} ${period}`;
+}
+
 export function generateSortOrder(
   existingOrders: number[],
   position: "start" | "end" = "end"

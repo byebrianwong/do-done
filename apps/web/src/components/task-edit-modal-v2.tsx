@@ -11,6 +11,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  formatWhenTime,
   type Task,
   type TaskPriority,
   type TaskStatus,
@@ -1299,6 +1300,101 @@ function DueDateField({
   );
 }
 
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
+  );
+}
+
+// Optional time-of-day for the when_date "do date". Mirrors DueDateField's
+// popover shape but in indigo (the "when" accent) with a native time input —
+// distinct from the amber/checkered-flag deadline styling. Only meaningful
+// when a when_date is set, so the caller gates rendering on that.
+function WhenTimeField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const active = !!value;
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={value ? `At ${formatWhenTime(value)}` : "Set a time"}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+          active
+            ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-900"
+            : "bg-neutral-50 text-neutral-500 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        }`}
+      >
+        <ClockIcon className="h-3.5 w-3.5" />
+        <span>{active ? formatWhenTime(value!) : "Add time"}</span>
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Do time"
+          className="absolute left-0 top-full z-20 mt-2 w-52 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+            <ClockIcon className="h-3 w-3" /> Time
+          </div>
+          <input
+            ref={inputRef}
+            type="time"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value || null)}
+            className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+          />
+          <div className="mt-1.5 text-[10px] leading-snug text-neutral-400">
+            Time you plan to start — optional.
+          </div>
+          {value ? (
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              aria-label="Clear time"
+              className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              × Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── Slash-command input ────────────────────────────────────
 
 type ParsedToken = {
@@ -1610,7 +1706,12 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
   };
   const onPickBucket = (bucket: WhenBucket | null) => {
     setField("when_bucket", bucket);
-    if (bucket !== null) setField("when_date", null);
+    // Picking a bucket clears the specific day, so the time-of-day (which is
+    // only meaningful with a when_date) goes with it.
+    if (bucket !== null) {
+      setField("when_date", null);
+      setField("when_time", null);
+    }
   };
 
   const tokens: ParsedToken[] = [];
@@ -1765,6 +1866,11 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
                   · {formatRelative(current.when_date, ymd(new Date()))}
                 </span>
               ) : null}
+              {current.when_date && current.when_time ? (
+                <span className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  {formatWhenTime(current.when_time)}
+                </span>
+              ) : null}
             </div>
             <WhenCalendar
               whenDate={current.when_date}
@@ -1775,6 +1881,19 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
               onPickBucket={onPickBucket}
               onChangeDueDate={(v) => setField("due_date", v)}
             />
+            {/* Time-of-day for the chosen do date — only meaningful with a
+                when_date, so it appears once a day is picked. */}
+            {current.when_date ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                  Time
+                </span>
+                <WhenTimeField
+                  value={current.when_time}
+                  onChange={(v) => setField("when_time", v)}
+                />
+              </div>
+            ) : null}
           </div>
 
           {/* Inline meta */}
