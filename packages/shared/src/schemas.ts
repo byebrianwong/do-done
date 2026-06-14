@@ -137,6 +137,10 @@ export const UserPreferencesSchema = z.object({
   // "default is end is Sunday" — the once-per-week happiness tick fires at
   // the end of this weekday in the user's local timezone.
   week_end_day: z.number().int().min(0).max(6).default(0),
+  // Per-view Display preferences: a map of viewKey -> DisplayConfig. Kept as an
+  // opaque record here to avoid a circular import with display.ts (which
+  // imports this module); callers validate each entry with parseDisplayConfig.
+  display_prefs: z.record(z.string(), z.unknown()).default({}),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });

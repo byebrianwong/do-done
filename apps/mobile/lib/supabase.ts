@@ -1,7 +1,7 @@
 import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
-import { TasksApi, ProjectsApi } from "@do-done/api-client";
+import { TasksApi, ProjectsApi, UserPrefsApi } from "@do-done/api-client";
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -78,4 +78,16 @@ export async function getProjectsApi(): Promise<ProjectsApi> {
     projectsApiUserId = userId;
   }
   return projectsApi;
+}
+
+let userPrefsApi: UserPrefsApi | undefined;
+let userPrefsApiUserId: string | undefined;
+
+export async function getUserPrefsApi(): Promise<UserPrefsApi> {
+  const userId = await getUserId();
+  if (!userPrefsApi || userPrefsApiUserId !== userId) {
+    userPrefsApi = new UserPrefsApi(supabase, userId);
+    userPrefsApiUserId = userId;
+  }
+  return userPrefsApi;
 }
