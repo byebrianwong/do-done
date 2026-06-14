@@ -87,7 +87,9 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
-  const canSchedule = !!task.duration_minutes && !task.due_time;
+  // The "Find a time" button suggests a do-time (when_date/when_time). Offer it
+  // when the task has an estimate but no specific do-time picked yet.
+  const canSchedule = !!task.duration_minutes && !task.when_time;
   const project = task.project_id
     ? projects?.find((p) => p.id === task.project_id)
     : null;
