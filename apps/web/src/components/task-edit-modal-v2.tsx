@@ -26,8 +26,9 @@ import { createClientSupabase } from "@/lib/supabase/client";
 
 // ─── Constants ─────────────────────────────────────────────
 
-// Map minutes → bar index for display.
-function estimateBarIndex(minutes: number | null): number {
+// Map minutes → bar index for display. Exported so the task row's inline
+// estimate editor can reuse the same bucket boundaries.
+export function estimateBarIndex(minutes: number | null): number {
   if (!minutes) return -1;
   if (minutes <= 30) return 0;
   if (minutes <= 60) return 1;
@@ -120,14 +121,14 @@ function SaveStatusDot({
 
 // ── Priority / Estimate metadata ───────────────────────
 
-const PRIORITY_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
+export const PRIORITY_OPTIONS: { value: TaskPriority; code: string; label: string }[] = [
   { value: "p1", code: "P1", label: "Urgent" },
   { value: "p2", code: "P2", label: "High" },
   { value: "p3", code: "P3", label: "Medium" },
   { value: "p4", code: "P4", label: "Low" },
 ];
 
-const ESTIMATE_OPTIONS: {
+export const ESTIMATE_OPTIONS: {
   minutes: number;
   code: string;
   label: string;
@@ -507,7 +508,7 @@ function EstimateField({
 
 // ── Picker popover ─────────────────────────────────────
 
-interface PickerOption {
+export interface PickerOption {
   key: string;
   code: string;
   label: string;
@@ -516,7 +517,7 @@ interface PickerOption {
   accentClass: string;
 }
 
-function PickerPopover({
+export function PickerPopover({
   options,
   onClose,
   ariaLabel,
@@ -578,7 +579,7 @@ function PickerPopover({
 }
 
 // Closes the popover when the user clicks anywhere outside `ref`.
-function useClickOutside(
+export function useClickOutside(
   ref: React.RefObject<HTMLElement | null>,
   onOutside: () => void
 ) {

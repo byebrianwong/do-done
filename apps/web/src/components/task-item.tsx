@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -12,7 +12,14 @@ import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { ScheduleButton } from "./schedule-button";
-import { TaskEditModalV2 } from "./task-edit-modal-v2";
+import {
+  TaskEditModalV2,
+  PickerPopover,
+  useClickOutside,
+  estimateBarIndex,
+  PRIORITY_OPTIONS,
+  ESTIMATE_OPTIONS,
+} from "./task-edit-modal-v2";
 import { useUndoToast } from "./undo-toast";
 
 export interface TaskItemProps {
@@ -51,6 +58,117 @@ function PriorityBars({ priority }: { priority: TaskPriority }) {
   );
 }
 
+const PRIORITY_ACCENT: Record<TaskPriority, string> = {
+  p1: "bg-red-500",
+  p2: "bg-amber-500",
+  p3: "bg-indigo-500",
+  p4: "bg-neutral-400",
+};
+
+/**
+ * The priority bars on the row, but clickable: opens a small popover to set
+ * priority inline without opening the full task modal. stopPropagation keeps
+ * the row's own click (which opens the modal) from firing.
+ */
+function InlinePriorityEditor({
+  priority,
+  onChange,
+}: {
+  priority: TaskPriority;
+  onChange: (p: TaskPriority) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  return (
+    <div
+      ref={ref}
+      className="relative flex shrink-0"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={`Priority: ${PRIORITY_CONFIG[priority].label} — click to change`}
+        className="rounded p-0.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+      >
+        <PriorityBars priority={priority} />
+      </button>
+      {open ? (
+        <PickerPopover
+          ariaLabel="Priority options"
+          options={PRIORITY_OPTIONS.map((p) => ({
+            key: p.value,
+            code: p.code,
+            label: p.label,
+            selected: p.value === priority,
+            onSelect: () => {
+              onChange(p.value);
+              setOpen(false);
+            },
+            accentClass: PRIORITY_ACCENT[p.value],
+          }))}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The "~1hr" estimate chip, but clickable: opens a popover to change the
+ * estimate inline. Only rendered when the task already has a duration.
+ */
+function InlineEstimateEditor({
+  durationMinutes,
+  onChange,
+}: {
+  durationMinutes: number;
+  onChange: (minutes: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const activeIdx = estimateBarIndex(durationMinutes);
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Time estimate — click to change"
+        className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+      >
+        ~{formatDuration(durationMinutes)}
+      </button>
+      {open ? (
+        <PickerPopover
+          ariaLabel="Estimate options"
+          options={ESTIMATE_OPTIONS.map((b, i) => ({
+            key: String(b.minutes),
+            code: b.code,
+            label: b.label,
+            selected: i === activeIdx,
+            onSelect: () => {
+              onChange(b.minutes);
+              setOpen(false);
+            },
+            accentClass: "bg-indigo-500",
+          }))}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function formatDueDate(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
   const today = new Date();
@@ -85,11 +203,15 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
   const [editing, setEditing] = useState(false);
+  // Optimistic local state for the inline row editors — keeps the row snappy
+  // before the server round-trip / router.refresh lands.
+  const [priority, setPriority] = useState(task.priority);
+  const [duration, setDuration] = useState(task.duration_minutes);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
   // The "Find a time" button suggests a do-time (when_date/when_time). Offer it
   // when the task has an estimate but no specific do-time picked yet.
-  const canSchedule = !!task.duration_minutes && !task.when_time;
+  const canSchedule = !!duration && !task.when_time;
   const project = task.project_id
     ? projects?.find((p) => p.id === task.project_id)
     : null;
@@ -138,6 +260,32 @@ export function TaskItem({ task, projects }: TaskItemProps) {
     startTransition(() => router.refresh());
   }
 
+  async function handlePriorityChange(next: TaskPriority) {
+    const prev = priority;
+    setPriority(next);
+    const tasks = await getClientTasksApi();
+    const { error } = await tasks.update(task.id, { priority: next });
+    if (error) {
+      setPriority(prev);
+      console.error("Failed to update priority:", error);
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
+  async function handleDurationChange(next: number) {
+    const prev = duration;
+    setDuration(next);
+    const tasks = await getClientTasksApi();
+    const { error } = await tasks.update(task.id, { duration_minutes: next });
+    if (error) {
+      setDuration(prev);
+      console.error("Failed to update estimate:", error);
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
   return (
     <>
       <div
@@ -174,7 +322,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           </span>
         </button>
 
-        <PriorityBars priority={task.priority} />
+        <InlinePriorityEditor priority={priority} onChange={handlePriorityChange} />
 
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
@@ -231,13 +379,11 @@ export function TaskItem({ task, projects }: TaskItemProps) {
             </span>
           )}
 
-          {task.duration_minutes && (
-            <span
-              className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-              title="Time estimate"
-            >
-              ~{formatDuration(task.duration_minutes)}
-            </span>
+          {duration && (
+            <InlineEstimateEditor
+              durationMinutes={duration}
+              onChange={handleDurationChange}
+            />
           )}
 
           {showStatusBadge && statusCfg && (
@@ -302,11 +448,8 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
-          {canSchedule && task.duration_minutes && (
-            <ScheduleButton
-              taskId={task.id}
-              durationMinutes={task.duration_minutes}
-            />
+          {canSchedule && duration && (
+            <ScheduleButton taskId={task.id} durationMinutes={duration} />
           )}
           <button
             onClick={(e) => {
