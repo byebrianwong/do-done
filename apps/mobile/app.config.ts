@@ -16,7 +16,7 @@ function gitInfo() {
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "do-done",
+  name: "DoDone",
   slug: "do-done",
   version: "1.0.0",
   orientation: "portrait",
@@ -40,13 +40,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: "com.beamer408.dodone",
     infoPlist: {
       NSMicrophoneUsageDescription:
-        "Allow do-done to use the microphone for voice task entry.",
+        "Allow DoDone to use the microphone for voice task entry.",
       NSSpeechRecognitionUsageDescription:
-        "Allow do-done to recognize speech for voice task entry.",
+        "Allow DoDone to recognize speech for voice task entry.",
       NSLocationWhenInUseUsageDescription:
-        "Allow do-done to remind you of tasks based on your location.",
+        "Allow DoDone to remind you of tasks based on your location.",
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        "Allow do-done to remind you of location-based tasks even when the app is in the background.",
+        "Allow DoDone to remind you of location-based tasks even when the app is in the background.",
     },
   },
   android: {
@@ -76,7 +76,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
-          "Allow do-done to remind you of location-based tasks.",
+          "Allow DoDone to remind you of location-based tasks.",
         isAndroidBackgroundLocationEnabled: true,
         isIosBackgroundLocationEnabled: true,
       },
@@ -87,7 +87,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         widgets: [
           {
             name: "QuickAdd",
-            label: "do-done — Quick Add",
+            label: "DoDone — Quick Add",
             description: "Tap to quickly add a task",
             // 1x1 square (≈ one launcher cell), fixed size like Todoist's
             // add-task widget. targetCell* pins it to 1x1 on Android 12+.
@@ -101,7 +101,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           },
           {
             name: "Today",
-            label: "do-done — Today",
+            label: "DoDone — Today",
             description: "Today's focus tasks",
             minWidth: "250dp",
             minHeight: "180dp",

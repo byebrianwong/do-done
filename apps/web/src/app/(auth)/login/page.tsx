@@ -59,7 +59,7 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-indigo-500 mb-2">do-done</h1>
+          <h1 className="text-4xl font-bold text-indigo-500 mb-2">DoDone</h1>
           <p className="text-sm text-neutral-500">
             {mode === "signin" ? "Welcome back" : "Create your account"}
           </p>
@@ -141,7 +141,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-xs text-center text-neutral-500 mt-6">
-            {mode === "signin" ? "New to do-done?" : "Have an account?"}{" "}
+            {mode === "signin" ? "New to DoDone?" : "Have an account?"}{" "}
             <button
               type="button"
               onClick={() => {

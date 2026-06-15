@@ -12,7 +12,7 @@ const meta: Meta<typeof SidebarNav> = {
     (Story) => (
       <aside className="flex h-screen w-64 flex-col border-r border-neutral-200 bg-neutral-50">
         <div className="flex h-14 items-center px-5">
-          <span className="text-xl font-bold text-indigo-500">do-done</span>
+          <span className="text-xl font-bold text-indigo-500">DoDone</span>
         </div>
         <Story />
       </aside>

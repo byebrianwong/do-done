@@ -79,7 +79,7 @@ export default function SettingsScreen() {
           onPress={() =>
             Alert.alert(
               'Google Calendar',
-              'Calendar sync is configured from the do-done web app for now. Once connected there, scheduled tasks stay in sync on mobile.'
+              'Calendar sync is configured from the DoDone web app for now. Once connected there, scheduled tasks stay in sync on mobile.'
             )
           }
         />
@@ -92,7 +92,7 @@ export default function SettingsScreen() {
           label="Version"
           value={`${version} (${sha})`}
           onPress={() =>
-            Alert.alert('do-done', `Version ${version}\nBuild ${sha}`)
+            Alert.alert('DoDone', `Version ${version}\nBuild ${sha}`)
           }
         />
       </View>
