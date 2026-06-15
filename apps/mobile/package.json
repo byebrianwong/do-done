@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "eas-build-post-install": "cd ../.. && pnpm --filter \"./packages/*\" build"
   },
   "dependencies": {
     "@do-done/api-client": "workspace:*",
