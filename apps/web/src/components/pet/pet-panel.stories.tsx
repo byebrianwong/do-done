@@ -78,7 +78,12 @@ const meta: Meta<typeof PetPanel> = {
             ))}
           </ul>
         </div>
-        <Story />
+        {/* PetPanel fills its container; in the app that container is the
+            320px-wide PetPanelContainer. Frame it here the same way so the
+            story mirrors real usage. */}
+        <div style={{ width: 320 }}>
+          <Story />
+        </div>
       </div>
     ),
   ],

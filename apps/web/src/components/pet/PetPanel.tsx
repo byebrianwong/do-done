@@ -63,7 +63,7 @@ export function PetPanel({
   return (
     <aside
       className={
-        "flex h-full flex-col gap-5 p-5 " + (className ?? "")
+        "flex min-h-full w-full flex-col gap-5 p-5 " + (className ?? "")
       }
       style={{
         backgroundColor: "#fffbe6",
@@ -72,7 +72,6 @@ export function PetPanel({
         backgroundSize: "20px 20px",
         fontFamily: ROUNDED_SANS,
         color: "#4a3f1f",
-        width: 320,
       }}
     >
       <Header name={pet.name} level={pet.level} mood={mood} />
