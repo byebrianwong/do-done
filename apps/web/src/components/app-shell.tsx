@@ -191,7 +191,7 @@ export function AppShell({
         </main>
 
         {userEmail ? (
-          <PetPanelContainer className="hidden border-l border-neutral-200 dark:border-neutral-800 xl:block" />
+          <PetPanelContainer className="border-l border-neutral-200 dark:border-neutral-800" />
         ) : null}
       </div>
     </div>

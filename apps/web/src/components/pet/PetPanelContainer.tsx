@@ -106,9 +106,19 @@ export function PetPanelContainer({
   // Outer wrapper handles visibility (hidden < xl) so we don't fight with
   // PetPanel's own `display: flex` for its column layout. Any extra
   // className from the layout (border-l, etc.) lands on this wrapper.
+  //
+  // The wrapper is its own pinned column: `sticky top-0` + `h-dvh` +
+  // `self-start` keep it the height of the viewport and stop the flex row
+  // from stretching it to the (much taller) page height — so Pip stays in
+  // view as the task list scrolls and never bleeds into a tall empty strip.
+  // `overflow-y-auto` lets the panel scroll internally when its own content
+  // is taller than the viewport.
   return (
     <div
-      className={"hidden xl:block " + (className ?? "")}
+      className={
+        "hidden self-start sticky top-0 h-dvh overflow-y-auto xl:block " +
+        (className ?? "")
+      }
       style={{ width: 320 }}
     >
       {state ? (
@@ -131,7 +141,7 @@ function PetPanelSkeleton() {
   // jump when state arrives.
   return (
     <div
-      className="h-full animate-pulse"
+      className="min-h-full animate-pulse"
       style={{
         backgroundColor: "#fffbe6",
         backgroundImage:
