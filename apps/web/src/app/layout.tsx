@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "do-done",
+  title: "DoDone",
   description: "A task manager that gets things done",
 };
 

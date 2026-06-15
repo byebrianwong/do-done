@@ -2,6 +2,10 @@
 
 AI-native task management app. Turborepo monorepo with Next.js web, React Native/Expo mobile, and custom MCP server.
 
+## Naming
+
+The user-facing brand name is **DoDone** (closed compound, medial capital) — use it in all UI copy, titles, marketing, and user-facing docs. Never `do-done`, `Do Done`, or `dodone`. The lowercase hyphenated `do-done` is reserved for internal identifiers only: the repo, npm package scope (`@do-done/*`), Expo `slug`, and similar. Deep-link scheme (`dodone`), bundle IDs, event names, and storage keys stay as-is.
+
 ## Architecture
 
 ```

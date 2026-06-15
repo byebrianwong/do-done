@@ -69,7 +69,7 @@ export function AppShell({
             />
           </svg>
         </button>
-        <span className="text-lg font-bold text-indigo-500">do-done</span>
+        <span className="text-lg font-bold text-indigo-500">DoDone</span>
         <button
           type="button"
           onClick={openCommandPalette}
@@ -112,7 +112,7 @@ export function AppShell({
         }`}
       >
         <div className="flex h-14 items-center justify-between px-5">
-          <span className="text-xl font-bold text-indigo-500">do-done</span>
+          <span className="text-xl font-bold text-indigo-500">DoDone</span>
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}

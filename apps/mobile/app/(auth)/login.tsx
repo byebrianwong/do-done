@@ -56,7 +56,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-        <Text style={styles.logo}>do-done</Text>
+        <Text style={styles.logo}>DoDone</Text>
         <Text style={styles.subtitle}>
           {mode === 'signin' ? 'Welcome back' : 'Create your account'}
         </Text>
