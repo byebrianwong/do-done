@@ -48,5 +48,6 @@ jobs:
         run: |
           npx eas-cli@latest update \
             --branch preview \
+            --environment preview \
             --message "${{ github.event.head_commit.message || 'manual update' }}" \
             --non-interactive
