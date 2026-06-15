@@ -2,7 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from "@do-done/shared";
+import {
+  PRIORITY_CONFIG,
+  STATUS_CONFIG,
+  formatDuration,
+  formatWhenTime,
+} from "@do-done/shared";
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
@@ -253,9 +258,14 @@ export function TaskItem({ task, projects }: TaskItemProps) {
         {task.when_date && (
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(task.when_date)}`}
-            title={`Scheduled for ${task.when_date}`}
+            title={
+              task.when_time
+                ? `Scheduled for ${task.when_date} at ${task.when_time}`
+                : `Scheduled for ${task.when_date}`
+            }
           >
             {formatDueDate(task.when_date)}
+            {task.when_time && ` ${formatWhenTime(task.when_time)}`}
           </span>
         )}
         {!task.when_date && task.due_date && (

@@ -52,6 +52,9 @@ export const TaskSchema = z
     // Distinct from due_date which is a hard deadline. At most one of
     // when_date and when_bucket is non-null — see refinement below.
     when_date: z.string().date().nullable(),
+    // Optional time-of-day for when_date (HH:MM). Paired with when_date; has
+    // no meaning without it. Mirrors due_time's shape.
+    when_time: z.string().nullable(),
     when_bucket: WhenBucket.nullable(),
     due_date: z.string().date().nullable(),
     due_time: z.string().nullable(), // HH:MM format
@@ -184,6 +187,7 @@ export const CreateTaskInput = z
     priority: TaskPriority.optional(),
     project_id: z.string().uuid().optional(),
     when_date: z.string().date().optional(),
+    when_time: z.string().optional(),
     when_bucket: WhenBucket.optional(),
     due_date: z.string().date().optional(),
     due_time: z.string().optional(),
@@ -206,6 +210,7 @@ export const UpdateTaskInput = z
     priority: TaskPriority.optional(),
     project_id: z.string().uuid().nullable().optional(),
     when_date: z.string().date().nullable().optional(),
+    when_time: z.string().nullable().optional(),
     when_bucket: WhenBucket.nullable().optional(),
     due_date: z.string().date().nullable().optional(),
     due_time: z.string().nullable().optional(),
@@ -257,6 +262,7 @@ export type TaskFilterInput = z.infer<typeof TaskFilterInput>;
 export const ParsedTaskSchema = z.object({
   title: z.string(),
   when_date: z.string().date().optional(),
+  when_time: z.string().optional(),
   when_bucket: WhenBucket.optional(),
   due_date: z.string().date().optional(),
   due_time: z.string().optional(),

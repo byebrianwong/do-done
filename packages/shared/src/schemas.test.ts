@@ -19,6 +19,7 @@ function baseTask(overrides: Record<string, unknown> = {}): Record<string, unkno
     priority: "p4",
     project_id: null,
     when_date: null,
+    when_time: null,
     when_bucket: null,
     due_date: null,
     due_time: null,
