@@ -18,6 +18,7 @@ import {
   STATUS_CONFIG,
   addDaysLocalISO,
   formatDuration,
+  formatWhenTime,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
@@ -299,7 +300,10 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           ) : null}
         </View>
         {task.when_date ? (
-          <Text style={styles.dueDate}>{formatDueDate(task.when_date)}</Text>
+          <Text style={styles.dueDate}>
+            {formatDueDate(task.when_date)}
+            {task.when_time ? ` ${formatWhenTime(task.when_time)}` : ''}
+          </Text>
         ) : task.due_date ? (
           <Text style={styles.dueDate}>
             {formatDueDate(task.due_date)}

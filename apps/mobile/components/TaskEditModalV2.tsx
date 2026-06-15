@@ -28,6 +28,7 @@ import {
 } from "react-native";
 import {
   PRIORITY_CONFIG,
+  formatWhenTime,
   type Task,
   type TaskPriority,
   type WhenBucket,
@@ -533,6 +534,69 @@ export function WhenCalendar({
   );
 }
 
+// Pure-JS time strip (no native datetime picker — that would force a dev-client
+// rebuild). 30-minute steps across the waking day; tap the active chip to clear.
+const WHEN_TIME_OPTIONS: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 6; h <= 22; h++) {
+    out.push(`${String(h).padStart(2, "0")}:00`);
+    if (h < 22) out.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  return out;
+})();
+
+// "15:30" → "3:30p", "09:00" → "9a" — compact label for the chips.
+function compactTimeLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h < 12 ? "a" : "p";
+  let hour = h % 12;
+  if (hour === 0) hour = 12;
+  return m === 0 ? `${hour}${period}` : `${hour}:${String(m).padStart(2, "0")}${period}`;
+}
+
+// Time-of-day for the when_date "do date". Only rendered once a day is picked
+// (the caller gates on whenDate). Mirrors the web WhenTimeField.
+export function WhenTimeRow({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (t: string | null) => void;
+}) {
+  return (
+    <View style={{ marginTop: 10 }}>
+      <View style={styles.rowHead}>
+        <Text style={styles.sectionLabel}>Time</Text>
+        <Text style={styles.sectionValue}>
+          {value ? formatWhenTime(value) : "Any time"}
+        </Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.timeRow}
+      >
+        {WHEN_TIME_OPTIONS.map((t) => {
+          const active = value === t;
+          return (
+            <Pressable
+              key={t}
+              onPress={() => onChange(active ? null : t)}
+              style={[styles.timeChip, active && styles.timeChipActive]}
+            >
+              <Text
+                style={[styles.timeChipText, active && styles.timeChipTextActive]}
+              >
+                {compactTimeLabel(t)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function TagRow({
   tags,
   onAdd,
@@ -799,7 +863,11 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
   };
   const onPickBucket = (bucket: WhenBucket | null) => {
     setField("when_bucket", bucket);
-    if (bucket !== null) setField("when_date", null);
+    // A bucket clears the specific day, so the time-of-day goes with it.
+    if (bucket !== null) {
+      setField("when_date", null);
+      setField("when_time", null);
+    }
   };
 
   const handleTitleChange = (v: string) => {
@@ -868,6 +936,9 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             <Text style={styles.sectionLabel}>When</Text>
             <Text style={styles.sectionValue}>
               {shortDateLabel(current.when_date, current.when_bucket)}
+              {current.when_date && current.when_time
+                ? `  ·  ${formatWhenTime(current.when_time)}`
+                : ""}
             </Text>
           </View>
           <WhenCalendar
@@ -877,6 +948,12 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             onPickDate={onPickDate}
             onPickBucket={onPickBucket}
           />
+          {current.when_date ? (
+            <WhenTimeRow
+              value={current.when_time}
+              onChange={(t) => setField("when_time", t)}
+            />
+          ) : null}
         </View>
 
         {/* Inline meta */}
@@ -1268,6 +1345,18 @@ const styles = StyleSheet.create({
   bucketChipActive: { backgroundColor: "#eef2ff" },
   bucketChipText: { fontSize: 11, color: "#374151", fontWeight: "500" },
   bucketChipTextActive: { color: "#4338ca", fontWeight: "700" },
+
+  timeRow: { gap: 6, paddingVertical: 2, paddingRight: 12 },
+  timeChip: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    alignItems: "center",
+  },
+  timeChipActive: { backgroundColor: "#eef2ff" },
+  timeChipText: { fontSize: 12, color: "#374151", fontWeight: "500" },
+  timeChipTextActive: { color: "#4338ca", fontWeight: "700" },
 
   repeatRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   repeatChip: {
