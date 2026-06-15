@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { TasksApi } from "@do-done/api-client";
+import { zonedClockToUtc } from "@do-done/shared";
 import { calendarClientFor } from "@/lib/google-calendar";
 import type { calendar_v3 } from "googleapis";
 
@@ -18,6 +19,40 @@ interface Slot {
 const DEFAULT_FOCUS_START = 9; // 9 AM
 const DEFAULT_FOCUS_END = 17; // 5 PM
 const SLOT_BUFFER_MIN = 15; // padding around busy events
+// Matches UserPreferencesSchema's default — used only when a user has no
+// preferences row yet.
+const DEFAULT_TIMEZONE = "America/New_York";
+const FIFTEEN_MIN = 15 * 60_000;
+
+// A target day expressed as a calendar tuple (in the user's timezone), so
+// focus-hour boundaries can be turned into absolute instants for that zone.
+interface CalDay {
+  y: number;
+  m: number; // 1-12
+  d: number;
+}
+
+// Today's calendar date in `timeZone`, as a {y,m,d} tuple. en-CA formats as
+// ISO YYYY-MM-DD.
+function todayInZone(timeZone: string): CalDay {
+  let s: string;
+  try {
+    s = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    s = new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+  const [y, m, d] = s.split("-").map(Number);
+  return { y, m, d };
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createServerSupabase();
@@ -47,16 +82,29 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   const focusStart = prefs?.focus_hours_start ?? DEFAULT_FOCUS_START;
   const focusEnd = prefs?.focus_hours_end ?? DEFAULT_FOCUS_END;
+  // Focus hours are wall-clock times in the USER's timezone, not the server's
+  // (the server runs in UTC). Reading this pref is what fixes the "3am
+  // suggestion" bug — previously focus hours were applied in server-local time.
+  const timeZone = prefs?.timezone ?? DEFAULT_TIMEZONE;
 
-  // Determine target dates: today + next 4 working days
-  const start = body.preferred_date
-    ? new Date(`${body.preferred_date}T00:00:00`)
-    : new Date();
-  const days: Date[] = [];
+  // Determine target days: the first day + next, up to 5, as calendar tuples in
+  // the user's timezone. We advance by whole days using a UTC midnight as a pure
+  // calendar counter (UTC has no DST, so getUTCDate increments cleanly).
+  const firstDay: CalDay = body.preferred_date
+    ? (() => {
+        const [y, m, d] = body.preferred_date.split("-").map(Number);
+        return { y, m, d };
+      })()
+    : todayInZone(timeZone);
+  const baseUTC = Date.UTC(firstDay.y, firstDay.m - 1, firstDay.d);
+  const days: CalDay[] = [];
   for (let i = 0; days.length < 5 && i < 14; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    days.push(d);
+    const dd = new Date(baseUTC + i * 86_400_000);
+    days.push({
+      y: dd.getUTCFullYear(),
+      m: dd.getUTCMonth() + 1,
+      d: dd.getUTCDate(),
+    });
   }
 
   // Try to fetch calendar events; fall back to no-events if not connected
@@ -70,11 +118,13 @@ export async function POST(request: NextRequest) {
   if (sync?.google_refresh_token) {
     try {
       const cal = calendarClientFor(sync.google_refresh_token);
-      const rangeEnd = new Date(days[days.length - 1]);
-      rangeEnd.setHours(23, 59, 59, 999);
+      const first = days[0];
+      const last = days[days.length - 1];
+      const rangeStart = zonedClockToUtc(first.y, first.m, first.d, 0, 0, timeZone);
+      const rangeEnd = zonedClockToUtc(last.y, last.m, last.d, 23, 59, timeZone);
       const params: calendar_v3.Params$Resource$Events$List = {
         calendarId: "primary",
-        timeMin: days[0].toISOString(),
+        timeMin: rangeStart.toISOString(),
         timeMax: rangeEnd.toISOString(),
         singleEvents: true,
         orderBy: "startTime",
@@ -91,24 +141,30 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Also treat existing scheduled tasks as busy
+  // Also treat existing scheduled tasks as busy. A task reserves space at its
+  // "do" time (when_date/when_time) if it has one, else at its hard deadline
+  // (due_date/due_time). Both are wall-clock in the user's timezone.
   const { data: scheduledTasks = [] } = await tasks.list({
     limit: 100,
     offset: 0,
   });
   for (const t of scheduledTasks) {
     if (
-      t.due_date &&
-      t.due_time &&
-      t.duration_minutes &&
-      t.status !== "done" &&
-      t.status !== "cancelled" &&
-      (!body.task_id || t.id !== body.task_id)
+      !t.duration_minutes ||
+      t.status === "done" ||
+      t.status === "cancelled" ||
+      (body.task_id && t.id === body.task_id)
     ) {
-      const tStart = new Date(`${t.due_date}T${t.due_time}:00`);
-      const tEnd = new Date(tStart.getTime() + t.duration_minutes * 60_000);
-      calendarEvents.push({ start: tStart, end: tEnd });
+      continue;
     }
+    const date = t.when_date && t.when_time ? t.when_date : t.due_date;
+    const time = t.when_date && t.when_time ? t.when_time : t.due_time;
+    if (!date || !time) continue;
+    const [yy, mm, dd] = date.split("-").map(Number);
+    const [hh, min] = time.split(":").map(Number);
+    const tStart = zonedClockToUtc(yy, mm, dd, hh, min, timeZone);
+    const tEnd = new Date(tStart.getTime() + t.duration_minutes * 60_000);
+    calendarEvents.push({ start: tStart, end: tEnd });
   }
 
   // Build candidate slots within focus hours, skipping busy windows
@@ -118,10 +174,9 @@ export async function POST(request: NextRequest) {
   for (const day of days) {
     if (slots.length >= 3) break;
 
-    const dayStart = new Date(day);
-    dayStart.setHours(focusStart, 0, 0, 0);
-    const dayEnd = new Date(day);
-    dayEnd.setHours(focusEnd, 0, 0, 0);
+    // Focus window as absolute instants for this calendar day in the user's tz.
+    const dayStart = zonedClockToUtc(day.y, day.m, day.d, focusStart, 0, timeZone);
+    const dayEnd = zonedClockToUtc(day.y, day.m, day.d, focusEnd, 0, timeZone);
 
     if (dayEnd.getTime() <= Date.now()) continue;
 
@@ -129,15 +184,12 @@ export async function POST(request: NextRequest) {
       .filter((e) => e.start < dayEnd && e.end > dayStart)
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    let cursor = new Date(Math.max(dayStart.getTime(), Date.now()));
-    // Round cursor up to the next 15-minute boundary
-    const minutes = cursor.getMinutes();
-    const rem = minutes % 15;
-    if (rem !== 0) {
-      cursor.setMinutes(minutes + (15 - rem), 0, 0);
-    } else {
-      cursor.setSeconds(0, 0);
-    }
+    // Round the start cursor up to the next 15-minute mark on the absolute
+    // timeline (offset-invariant for all real zones, so no tz math needed).
+    let cursor = new Date(
+      Math.ceil(Math.max(dayStart.getTime(), Date.now()) / FIFTEEN_MIN) *
+        FIFTEEN_MIN
+    );
 
     for (const b of busy) {
       const gapEnd = new Date(b.start.getTime() - SLOT_BUFFER_MIN * 60_000);
