@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -8,7 +8,7 @@ import {
   formatDuration,
   formatWhenTime,
 } from "@do-done/shared";
-import type { Task, Project, TaskPriority } from "@do-done/shared";
+import type { Task, Project, TaskPriority, WhenBucket } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { ScheduleButton } from "./schedule-button";
@@ -253,6 +253,198 @@ function dueDateColor(dateStr: string): string {
   return "text-neutral-500 bg-neutral-100 dark:bg-neutral-800";
 }
 
+export interface WhenPatch {
+  when_date?: string | null;
+  when_time?: string | null;
+  when_bucket?: WhenBucket | null;
+}
+
+// Local YYYY-MM-DD `offset` days from today. Matches the local-date basis used
+// by formatDueDate / the API, so quick picks land on the right calendar day.
+function localDateOffset(offset: number): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * The scheduling chip on the row, but clickable: opens a popover to set the
+ * do-date, time-of-day, or a soft bucket inline — mirroring the inline
+ * priority/estimate editors. Renders nothing when the task has no schedule at
+ * all (the row's "Find a time" affordance covers that case).
+ */
+function InlineWhenEditor({
+  whenDate,
+  whenTime,
+  whenBucket,
+  dueDate,
+  dueTime,
+  onChange,
+}: {
+  whenDate: string | null;
+  whenTime: string | null;
+  whenBucket: WhenBucket | null;
+  dueDate: string | null;
+  dueTime: string | null;
+  onChange: (patch: WhenPatch) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // The visible chip mirrors whichever schedule field is set, in priority
+  // order: do-date > deadline > soft bucket.
+  let label: string | null = null;
+  let chipClass = "";
+  let title = "";
+  if (whenDate) {
+    label = formatDueDate(whenDate) + (whenTime ? ` ${formatWhenTime(whenTime)}` : "");
+    chipClass = dueDateColor(whenDate);
+    title = whenTime ? `Scheduled for ${whenDate} at ${whenTime}` : `Scheduled for ${whenDate}`;
+  } else if (dueDate) {
+    label = formatDueDate(dueDate) + (dueTime ? ` ${formatWhenTime(dueTime)}` : "");
+    chipClass = dueDateColor(dueDate);
+    title = dueTime ? `Due ${dueDate} at ${dueTime}` : `Due ${dueDate}`;
+  } else if (whenBucket) {
+    label = whenBucket.replace("_", " ");
+    chipClass = "text-indigo-600 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-400";
+    title = `Bucketed as ${whenBucket}`;
+  }
+  if (!label) return null;
+
+  const quick = [
+    { label: "Today", date: localDateOffset(0) },
+    { label: "Tomorrow", date: localDateOffset(1) },
+    { label: "Next week", date: localDateOffset(7) },
+  ];
+
+  return (
+    <div
+      ref={ref}
+      className="relative flex shrink-0"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={`${title} — click to reschedule`}
+        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize transition-shadow hover:ring-1 hover:ring-inset hover:ring-neutral-300 dark:hover:ring-neutral-700 ${chipClass}`}
+      >
+        {label}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Reschedule"
+          className="absolute right-0 top-full z-30 mt-2 w-60 rounded-lg border border-neutral-200 bg-white p-2.5 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+            When
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {quick.map((q) => {
+              const selected = whenDate === q.date;
+              return (
+                <button
+                  key={q.label}
+                  type="button"
+                  onClick={() => onChange({ when_date: q.date, when_bucket: null })}
+                  className={`rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors ${
+                    selected
+                      ? "bg-indigo-500 text-white"
+                      : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {q.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="w-8 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+              On
+            </span>
+            <input
+              type="date"
+              value={whenDate ?? ""}
+              onChange={(e) =>
+                onChange({ when_date: e.target.value || null, when_bucket: null })
+              }
+              className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+            />
+          </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className="w-8 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+              At
+            </span>
+            <input
+              type="time"
+              value={whenTime ?? ""}
+              disabled={!whenDate}
+              title={whenDate ? "Time you plan to start" : "Pick a date first"}
+              onChange={(e) => onChange({ when_time: e.target.value || null })}
+              className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+            />
+          </div>
+          <div className="mt-2 flex items-center gap-1">
+            {(["later", "someday"] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    when_bucket: whenBucket === b ? null : b,
+                    when_date: null,
+                    when_time: null,
+                  })
+                }
+                className={`flex-1 rounded-md px-2 py-1 text-xs font-medium capitalize transition-colors ${
+                  whenBucket === b
+                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                    : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {b}
+              </button>
+            ))}
+          </div>
+          {whenDate || whenTime || whenBucket ? (
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ when_date: null, when_time: null, when_bucket: null });
+                setOpen(false);
+              }}
+              aria-label="Clear schedule"
+              className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              × Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TaskItem({ task, projects }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
@@ -261,11 +453,22 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   // before the server round-trip / router.refresh lands.
   const [priority, setPriority] = useState(task.priority);
   const [duration, setDuration] = useState(task.duration_minutes);
+  // Schedule fields are optimistic too (for the inline When editor) but also
+  // sync back from props — the Upcoming view mutates when_date on drag, and
+  // router.refresh re-feeds the server value after any edit.
+  const [whenDate, setWhenDate] = useState(task.when_date);
+  const [whenTime, setWhenTime] = useState(task.when_time);
+  const [whenBucket, setWhenBucket] = useState(task.when_bucket);
+  useEffect(() => setWhenDate(task.when_date), [task.when_date]);
+  useEffect(() => setWhenTime(task.when_time), [task.when_time]);
+  useEffect(() => setWhenBucket(task.when_bucket), [task.when_bucket]);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
-  // The "Find a time" button suggests a do-time (when_date/when_time). Offer it
-  // when the task has an estimate but no specific do-time picked yet.
-  const canSchedule = !!duration && !task.when_time;
+  // "Find a time" suggests a calendar slot — only useful when the task has no
+  // schedule at all. Once any date/bucket/deadline exists, the date chip itself
+  // is the (clickable) reschedule affordance, so the clock would be redundant.
+  const hasSchedule = !!whenDate || !!whenBucket || !!task.due_date;
+  const canSchedule = !!duration && !hasSchedule;
   // Optimistic project state mirrors the priority/estimate inline editors.
   // `createdProjects` holds projects made via the inline picker so the chip can
   // render them before the router.refresh round-trip lands.
@@ -357,6 +560,23 @@ export function TaskItem({ task, projects }: TaskItemProps) {
     if (error) {
       setProjectId(prev);
       console.error("Failed to update project:", error);
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
+  async function handleWhenChange(patch: WhenPatch) {
+    const prev = { when_date: whenDate, when_time: whenTime, when_bucket: whenBucket };
+    if ("when_date" in patch) setWhenDate(patch.when_date ?? null);
+    if ("when_time" in patch) setWhenTime(patch.when_time ?? null);
+    if ("when_bucket" in patch) setWhenBucket(patch.when_bucket ?? null);
+    const tasks = await getClientTasksApi();
+    const { error } = await tasks.update(task.id, patch);
+    if (error) {
+      setWhenDate(prev.when_date);
+      setWhenTime(prev.when_time);
+      setWhenBucket(prev.when_bucket);
+      console.error("Failed to update schedule:", error);
       return;
     }
     startTransition(() => router.refresh());
@@ -474,45 +694,24 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           )}
         </div>
 
-        {/* Effective scheduling date: when_date if set (V2 "do date"),
-            else due_date (legacy / hard deadline). Show due_date as an
-            extra deadline chip when both are set and they differ. */}
-        {task.when_date && (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(task.when_date)}`}
-            title={
-              task.when_time
-                ? `Scheduled for ${task.when_date} at ${task.when_time}`
-                : `Scheduled for ${task.when_date}`
-            }
-          >
-            {formatDueDate(task.when_date)}
-            {task.when_time && ` ${formatWhenTime(task.when_time)}`}
-          </span>
-        )}
-        {!task.when_date && task.due_date && (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${dueDateColor(task.due_date)}`}
-            title={`Due ${task.due_date}`}
-          >
-            {formatDueDate(task.due_date)}
-            {task.due_time && ` ${task.due_time}`}
-          </span>
-        )}
-        {task.when_date && task.due_date && task.when_date !== task.due_date && (
+        {/* Effective scheduling chip — clickable to reschedule inline (do-date
+            if set, else deadline, else soft bucket). When a do-date and a
+            distinct deadline both exist, show the deadline as a static second
+            chip. */}
+        <InlineWhenEditor
+          whenDate={whenDate}
+          whenTime={whenTime}
+          whenBucket={whenBucket}
+          dueDate={task.due_date}
+          dueTime={task.due_time}
+          onChange={handleWhenChange}
+        />
+        {whenDate && task.due_date && whenDate !== task.due_date && (
           <span
             className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
             title={`Hard deadline ${task.due_date}`}
           >
             due {formatDueDate(task.due_date)}
-          </span>
-        )}
-        {!task.when_date && !task.due_date && task.when_bucket && (
-          <span
-            className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-            title={`Bucketed as ${task.when_bucket}`}
-          >
-            {task.when_bucket.replace("_", " ")}
           </span>
         )}
 
