@@ -9,7 +9,7 @@ The user-facing brand name is **DoDone** (closed compound, medial capital) — u
 ## Architecture
 
 ```
-apps/web       — Next.js 15 (App Router, Tailwind)
+apps/web       — Next.js 16 (App Router, Tailwind)
 apps/mobile    — React Native / Expo (tabs template)
 apps/mcp       — MCP server for Claude Code integration
 packages/shared      — Zod schemas, types, constants, utils (leaf package)
@@ -73,7 +73,7 @@ pnpm --filter web build-storybook  # static build to storybook-static/
 pnpm --filter web chromatic        # publish to Chromatic
 ```
 
-Stories cover: TaskItem, TaskEditDialog, TaskForm, WeekView, SidebarNav, ScheduleButton.
+Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~18 `*.stories.tsx` files under `apps/web/src/components/`).
 
 **Chromatic** publishes Storybook on every push/PR and detects visual regressions:
 
