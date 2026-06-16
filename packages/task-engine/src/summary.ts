@@ -1,4 +1,5 @@
 import type { Task, WeeklySummary, TaskPriority } from "@do-done/shared";
+import { todayLocalISO } from "@do-done/shared";
 
 export function generateWeeklySummary(
   tasks: Task[],
@@ -19,10 +20,11 @@ export function generateWeeklySummary(
     (t) => t.created_at >= startStr && t.created_at < endStr
   );
 
+  const today = todayLocalISO();
   const overdue = tasks.filter(
     (t) =>
       t.due_date &&
-      t.due_date < new Date().toISOString().split("T")[0] &&
+      t.due_date < today &&
       t.status !== "done" &&
       t.status !== "cancelled"
   );
