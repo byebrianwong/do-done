@@ -7,8 +7,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-// Isolate the row from the (heavy) edit modal subtree.
-vi.mock("./task-edit-modal-v2", () => ({
+// Isolate the row from the (heavy) edit modal subtree, but keep the real
+// helper exports (useClickOutside, PickerPopover, …) the row's inline editors
+// import from this module — a bare factory drops them and crashes the render.
+vi.mock("./task-edit-modal-v2", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./task-edit-modal-v2")>()),
   TaskEditModalV2: () => null,
 }));
 
