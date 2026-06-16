@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -20,6 +20,7 @@ import {
   PRIORITY_OPTIONS,
   ESTIMATE_OPTIONS,
 } from "./task-edit-modal-v2";
+import { ProjectPickerPopover } from "./project-picker";
 import { useUndoToast } from "./undo-toast";
 
 export interface TaskItemProps {
@@ -162,6 +163,59 @@ function InlineEstimateEditor({
             },
             accentClass: "bg-indigo-500",
           }))}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The project chip on the row, but clickable: opens the project picker to
+ * switch, clear, or create-and-assign a project inline. Only rendered when
+ * the task already has a project (adding one from scratch lives in the modal).
+ */
+function InlineProjectEditor({
+  project,
+  projects,
+  selectedId,
+  userId,
+  onChange,
+  onCreated,
+}: {
+  project: Project;
+  projects: Project[];
+  selectedId: string | null;
+  userId: string;
+  onChange: (projectId: string | null) => void;
+  onCreated: (project: Project) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  return (
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={`Project: ${project.name} — click to change`}
+        className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+      >
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: project.color }}
+        />
+        {project.name}
+      </button>
+      {open ? (
+        <ProjectPickerPopover
+          projects={projects}
+          selectedId={selectedId}
+          userId={userId}
+          onSelect={onChange}
+          onCreated={onCreated}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -415,8 +469,17 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   // is the (clickable) reschedule affordance, so the clock would be redundant.
   const hasSchedule = !!whenDate || !!whenBucket || !!task.due_date;
   const canSchedule = !!duration && !hasSchedule;
-  const project = task.project_id
-    ? projects?.find((p) => p.id === task.project_id)
+  // Optimistic project state mirrors the priority/estimate inline editors.
+  // `createdProjects` holds projects made via the inline picker so the chip can
+  // render them before the router.refresh round-trip lands.
+  const [projectId, setProjectId] = useState(task.project_id);
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const allProjects = useMemo(
+    () => [...(projects ?? []), ...createdProjects],
+    [projects, createdProjects]
+  );
+  const project = projectId
+    ? allProjects.find((p) => p.id === projectId) ?? null
     : null;
   // STATUS_CONFIG[task.status] can be undefined for an unmigrated DB still
   // serving legacy 'todo' / 'archived' values — guard before reading .color.
@@ -484,6 +547,19 @@ export function TaskItem({ task, projects }: TaskItemProps) {
     if (error) {
       setDuration(prev);
       console.error("Failed to update estimate:", error);
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
+  async function handleProjectChange(next: string | null) {
+    const prev = projectId;
+    setProjectId(next);
+    const tasks = await getClientTasksApi();
+    const { error } = await tasks.update(task.id, { project_id: next });
+    if (error) {
+      setProjectId(prev);
+      console.error("Failed to update project:", error);
       return;
     }
     startTransition(() => router.refresh());
@@ -587,16 +663,14 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           )}
 
           {project && (
-            <span
-              className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"
-              title={`Project: ${project.name}`}
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: project.color }}
-              />
-              {project.name}
-            </span>
+            <InlineProjectEditor
+              project={project}
+              projects={allProjects}
+              selectedId={projectId}
+              userId={task.user_id}
+              onChange={handleProjectChange}
+              onCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
+            />
           )}
 
           {duration && (
@@ -677,6 +751,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
 
       <TaskEditModalV2
         task={task}
+        projects={allProjects}
         open={editing}
         onClose={() => setEditing(false)}
       />

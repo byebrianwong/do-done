@@ -12,6 +12,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   formatWhenTime,
+  type Project,
   type Task,
   type TaskPriority,
   type TaskStatus,
@@ -23,6 +24,7 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
+import { ProjectPickerPopover } from "./project-picker";
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -356,6 +358,65 @@ function StatusField({
             );
           })}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectField({
+  projects,
+  value,
+  userId,
+  onChange,
+  onCreated,
+}: {
+  projects: Project[];
+  value: string | null;
+  userId: string;
+  onChange: (projectId: string | null) => void;
+  onCreated: (project: Project) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const selected = value ? projects.find((p) => p.id === value) ?? null : null;
+
+  return (
+    <div ref={ref} className="relative flex items-center gap-2">
+      <span className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+        Project
+      </span>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+      >
+        {selected ? (
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: selected.color }}
+          />
+        ) : (
+          <span className="h-2 w-2 rounded-full border border-dashed border-neutral-400" />
+        )}
+        <span className={selected ? "" : "text-neutral-400"}>
+          {selected
+            ? `${selected.icon ? `${selected.icon} ` : ""}${selected.name}`
+            : "No project"}
+        </span>
+        <span className="text-neutral-400">▾</span>
+      </button>
+      {open ? (
+        <ProjectPickerPopover
+          projects={projects}
+          selectedId={value}
+          userId={userId}
+          onSelect={onChange}
+          onCreated={onCreated}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
     </div>
   );
@@ -1576,11 +1637,18 @@ function SlashCommandInput({
 
 interface TaskEditModalV2Props {
   task: Task;
+  /** Projects the task can be assigned to. Powers the Project field. */
+  projects?: Project[];
   open: boolean;
   onClose: () => void;
 }
 
-export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
+export function TaskEditModalV2({
+  task,
+  projects,
+  open,
+  onClose,
+}: TaskEditModalV2Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClientSupabase(), []);
   const tasksApi = useMemo(
@@ -1605,6 +1673,14 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Projects created via the inline picker are merged locally so the Project
+  // field can show them immediately; router.refresh on close reconciles.
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const allProjects = useMemo(
+    () => [...(projects ?? []), ...createdProjects],
+    [projects, createdProjects]
+  );
 
   const [busyness, setBusyness] = useState<DayBusyness[]>([]);
   useEffect(() => {
@@ -1912,6 +1988,14 @@ export function TaskEditModalV2({ task, open, onClose }: TaskEditModalV2Props) {
             <EstimateField
               value={current.duration_minutes}
               onChange={(m) => setField("duration_minutes", m)}
+            />
+            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
+            <ProjectField
+              projects={allProjects}
+              value={current.project_id}
+              userId={current.user_id}
+              onChange={(id) => setField("project_id", id)}
+              onCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
             />
           </div>
 
