@@ -4,6 +4,7 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@do-done/shared";
+import { todayLocalISO } from "@do-done/shared";
 
 type Action =
   | { kind: "archive" }
@@ -79,7 +80,7 @@ function parseInstruction(text: string): ParsedInstruction | null {
 function matchesFilter(task: Task, filter: Filter): boolean {
   if (filter.status === "overdue") {
     if (!task.due_date) return false;
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocalISO();
     if (task.due_date >= today) return false;
     if (task.status === "done" || task.status === "cancelled") return false;
   } else if (filter.status && task.status !== filter.status) {
