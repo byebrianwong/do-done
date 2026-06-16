@@ -5,10 +5,7 @@ import type { Task } from "@do-done/shared";
 
 import { AppShell } from "./app-shell";
 import { UndoToastProvider } from "./undo-toast";
-import {
-  CommandPalette,
-  OPEN_COMMAND_PALETTE_EVENT,
-} from "./command-palette";
+import { CommandPalette } from "./command-palette";
 import { TaskForm } from "./task-form";
 import { TaskDisplayView } from "./task-display-view";
 import { TodayView } from "./today-view";
@@ -554,7 +551,7 @@ export const CommandPaletteOpen: Story = {
     </PageShell>
   ),
   play: async ({ canvasElement }) => {
-    window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT));
+    await userEvent.keyboard("{Meta>}k{/Meta}");
     const canvas = within(canvasElement);
     await waitFor(() =>
       canvas.getByPlaceholderText(/search tasks, navigate/i)

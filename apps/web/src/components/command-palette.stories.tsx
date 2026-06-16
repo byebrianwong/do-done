@@ -1,16 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { waitFor, within } from "storybook/test";
-import {
-  CommandPalette,
-  OPEN_COMMAND_PALETTE_EVENT,
-} from "./command-palette";
+import { userEvent, waitFor, within } from "storybook/test";
+import { CommandPalette } from "./command-palette";
 import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 /**
  * The ⌘K command palette. It renders nothing until opened, so every story
- * dispatches the open event in `play` (the same event the mobile search button
- * fires). With an empty query it shows Navigation / Projects / Actions; we
- * don't type, because task search needs a live Supabase session.
+ * presses ⌘K in `play` to reveal it. With an empty query it shows
+ * Navigation / Projects / Actions; we don't type, because task search needs a
+ * live Supabase session.
  */
 const meta: Meta<typeof CommandPalette> = {
   title: "Components/CommandPalette",
@@ -25,7 +22,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 async function openPalette(canvasElement: HTMLElement) {
-  window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
   const canvas = within(canvasElement);
   await waitFor(() =>
     canvas.getByPlaceholderText(/search tasks, navigate/i)
