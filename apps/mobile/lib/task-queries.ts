@@ -15,6 +15,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import type {
+  CreateProjectInput,
   Project,
   Task,
   TaskFilterInput,
@@ -44,6 +45,7 @@ export const taskKeys = {
 
 export const projectKeys = {
   all: ['projects'] as const,
+  list: () => [...projectKeys.all, 'list'] as const,
   withCounts: () => [...projectKeys.all, 'withCounts'] as const,
 };
 
@@ -120,6 +122,19 @@ export function useProject(projectId: string) {
       const { data, error } = await api.getById(projectId);
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+/** Plain project list (no counts) — powers the project picker on rows/modal. */
+export function useProjects() {
+  return useQuery({
+    queryKey: projectKeys.list(),
+    queryFn: async () => {
+      const api = await getProjectsApi();
+      const { data, error } = await api.list();
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }
@@ -225,6 +240,17 @@ export async function deleteTask(id: string) {
   } finally {
     invalidateTasks();
   }
+}
+
+/** Create a project, then refetch project lists. Returns the new project. */
+export async function createProject(
+  input: CreateProjectInput
+): Promise<Project> {
+  const api = await getProjectsApi();
+  const { data, error } = await api.create(input);
+  if (error) throw error;
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  return data as Project;
 }
 
 /**
