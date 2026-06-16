@@ -151,3 +151,136 @@ export const WithProject: Story = {
     projects: SAMPLE_PROJECTS,
   },
 };
+
+// ── Status edge cases ──────────────────────────────────────────────────
+
+export const InboxStatus: Story = {
+  name: "Inbox (no status badge)",
+  args: { task: makeTask({ title: "Capture a fleeting idea", status: "inbox" }) },
+};
+
+export const InProgress: Story = {
+  args: {
+    task: makeTask({
+      title: "Migrate the legacy importer",
+      priority: "p2",
+      status: "in_progress",
+      project_id: "proj-1",
+    }),
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
+export const NextUp: Story = {
+  args: {
+    task: makeTask({
+      title: "Reply to the recruiter",
+      priority: "p3",
+      status: "next",
+    }),
+  },
+};
+
+export const Cancelled: Story = {
+  args: {
+    task: makeTask({
+      title: "Attend the offsite (cancelled)",
+      priority: "p4",
+      status: "cancelled",
+    }),
+  },
+};
+
+// ── Scheduling edge cases ──────────────────────────────────────────────
+
+export const SoftBucket: Story = {
+  name: "Soft bucket (someday)",
+  args: {
+    task: makeTask({
+      title: "Read that systems-design book",
+      priority: "p4",
+      when_bucket: "someday",
+    }),
+  },
+};
+
+export const DoDateWithDeadline: Story = {
+  name: "Do-date + separate hard deadline",
+  args: {
+    task: makeTask({
+      title: "Finish the grant application",
+      priority: "p1",
+      when_date: tomorrow,
+      due_date: nextWeek,
+      duration_minutes: 120,
+    }),
+  },
+};
+
+// ── Content overflow edge cases ────────────────────────────────────────
+
+export const LongTitle: Story = {
+  args: {
+    task: makeTask({
+      title:
+        "Investigate why the nightly sync job intermittently drops a handful of recurring tasks when the timezone offset changes during daylight-saving transitions",
+      priority: "p2",
+      due_date: today,
+    }),
+  },
+};
+
+export const ManyTags: Story = {
+  args: {
+    task: makeTask({
+      title: "Plan the launch",
+      priority: "p2",
+      tags: ["launch", "marketing", "urgent", "q3", "cross-team", "review"],
+      project_id: "proj-3",
+      duration_minutes: 45,
+    }),
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
+// ── Gallery: a representative row stack (single change → many rows shift) ──
+
+export const Gallery: Story = {
+  name: "Gallery (mixed rows)",
+  args: { task: makeTask({ title: "Fix critical login bug", priority: "p1", due_date: yesterday }) },
+  render: () => (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      <TaskItem
+        task={makeTask({ title: "Fix critical login bug", priority: "p1", due_date: yesterday, tags: ["urgent"] })}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Review pull request",
+          priority: "p2",
+          status: "in_progress",
+          due_date: today,
+          due_time: "14:00",
+          duration_minutes: 60,
+          project_id: "proj-1",
+        })}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Team standup",
+          priority: "p2",
+          due_date: today,
+          due_time: "09:30",
+          duration_minutes: 30,
+          recurrence_rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+        })}
+      />
+      <TaskItem
+        task={makeTask({ title: "Buy groceries", priority: "p3", when_date: tomorrow, when_time: "15:00", project_id: "proj-2" })}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem task={makeTask({ title: "Schedule dentist appointment", priority: "p4", status: "inbox" })} />
+      <TaskItem task={makeTask({ title: "Deploy v2 release", priority: "p1", status: "done" })} />
+    </div>
+  ),
+};
