@@ -7,7 +7,7 @@ import type {
   PetEventActor,
   TrackedField,
 } from "@do-done/shared";
-import { TRACKED_FIELDS } from "@do-done/shared";
+import { TRACKED_FIELDS, todayLocalISO, addDaysLocalISO } from "@do-done/shared";
 
 /**
  * Map legacy DB status values to the new enum so old rows render correctly
@@ -280,7 +280,7 @@ export class TasksApi {
   async listOverdue(): Promise<{ data: Task[]; error: Error | null }> {
     // Tasks whose when_date OR due_date is strictly before today,
     // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocalISO();
     let query = this.supabase
       .from("tasks")
       .select("*")
@@ -319,7 +319,7 @@ export class TasksApi {
     // Status filter is "anything not closed" (not done, not cancelled).
     // Crucially, inbox tasks with a when_date set DO show up here —
     // scheduling a task no longer requires moving it out of inbox.
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocalISO();
     let query = this.supabase
       .from("tasks")
       .select("*")
@@ -347,10 +347,8 @@ export class TasksApi {
     //
     // Status filter mirrors getToday — inbox tasks with a future date
     // are upcoming even if the user hasn't promoted them to todo yet.
-    const today = new Date().toISOString().split("T")[0];
-    const end = new Date();
-    end.setDate(end.getDate() + days);
-    const endDate = end.toISOString().split("T")[0];
+    const today = todayLocalISO();
+    const endDate = addDaysLocalISO(days);
 
     let query = this.supabase
       .from("tasks")

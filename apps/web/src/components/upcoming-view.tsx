@@ -1,6 +1,6 @@
 "use client";
 
-import { isManualSort, type Project, type Task } from "@do-done/shared";
+import { addDaysLocalISO, isManualSort, type Project, type Task } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
@@ -48,12 +48,11 @@ function buildDateGroups(
       emptyHint: "Nothing unscheduled — drag here to clear a date",
     },
   ];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
   for (let i = 0; i < 14; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const key = d.toISOString().split("T")[0];
+    // Local YYYY-MM-DD so the column keys match the local-date basis the API
+    // (getUpcoming) and the chips (formatDueDate) use. toISOString() here was
+    // UTC and shifted the columns by a day for positive-offset zones.
+    const key = addDaysLocalISO(i);
     groups.push({ date: key, label: formatDayHeading(key), tasks: byDate.get(key) ?? [] });
     byDate.delete(key);
   }
