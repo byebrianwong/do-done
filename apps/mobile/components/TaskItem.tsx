@@ -21,9 +21,16 @@ import {
   formatWhenTime,
   todayLocalISO,
 } from '@do-done/shared';
-import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
+import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
-import { deleteTask, toggleComplete, updateTask } from '@/lib/task-queries';
+import {
+  createProject,
+  deleteTask,
+  toggleComplete,
+  updateTask,
+  useProjects,
+} from '@/lib/task-queries';
+import { ProjectPickerSheet } from './ProjectPickerSheet';
 import { useUndoToast } from './UndoToast';
 
 export type Task = SharedTask;
@@ -78,8 +85,33 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
   const completed = task.status === 'done';
   const [menuOpen, setMenuOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
+
+  // Projects come from the shared query cache (deduped across rows). The chip
+  // only renders when this task has a project; adding one from scratch lives
+  // in the edit modal, matching the web row.
+  const { data: projects } = useProjects();
+  const project = task.project_id
+    ? (projects ?? []).find((p) => p.id === task.project_id) ?? null
+    : null;
+
+  function handleProjectSelect(projectId: string | null) {
+    hapticLight();
+    void updateTask(task.id, { project_id: projectId }).catch(() => {});
+  }
+
+  async function handleProjectCreate(
+    name: string,
+    color: string
+  ): Promise<Project | null> {
+    try {
+      return await createProject({ name, color });
+    } catch {
+      return null;
+    }
+  }
 
   // All mutations flow through the shared query cache (lib/task-queries): each
   // fires an optimistic patch (the row vanishes from the relevant list
@@ -281,6 +313,20 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           {task.recurrence_rule ? (
             <Ionicons name="repeat" size={13} color="#9ca3af" />
           ) : null}
+          {project ? (
+            <Pressable
+              onPress={() => setProjectPickerOpen(true)}
+              hitSlop={6}
+              style={styles.projectChip}
+            >
+              <View
+                style={[styles.projectDot, { backgroundColor: project.color }]}
+              />
+              <Text style={styles.projectChipLabel} numberOfLines={1}>
+                {project.name}
+              </Text>
+            </Pressable>
+          ) : null}
           {task.status !== 'not_started' && task.status !== 'inbox' ? (
             <View
               style={[
@@ -370,6 +416,14 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           </Pressable>
         </Pressable>
       </Modal>
+      <ProjectPickerSheet
+        visible={projectPickerOpen}
+        projects={projects ?? []}
+        selectedId={task.project_id}
+        onSelect={handleProjectSelect}
+        onClose={() => setProjectPickerOpen(false)}
+        onCreate={handleProjectCreate}
+      />
     </Pressable>
     </ReanimatedSwipeable>
   );
@@ -520,6 +574,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#6b7280',
     fontWeight: '600',
+  },
+  projectChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: 120,
+  },
+  projectDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  projectChipLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    flexShrink: 1,
   },
   statusChip: {
     paddingHorizontal: 6,

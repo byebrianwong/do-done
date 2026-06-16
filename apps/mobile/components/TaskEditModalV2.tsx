@@ -29,6 +29,7 @@ import {
 import {
   PRIORITY_CONFIG,
   formatWhenTime,
+  type Project,
   type Task,
   type TaskPriority,
   type WhenBucket,
@@ -39,6 +40,8 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
+import { createProject, useProjects } from "@/lib/task-queries";
+import { ProjectPickerSheet } from "./ProjectPickerSheet";
 import {
   Gesture,
   GestureDetector,
@@ -896,6 +899,32 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
 
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+
+  // Projects created via the picker are merged locally so the field reflects
+  // them immediately; the query invalidate in createProject reconciles.
+  const { data: projectsData } = useProjects();
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const allProjects = useMemo(
+    () => [...(projectsData ?? []), ...createdProjects],
+    [projectsData, createdProjects]
+  );
+  const selectedProject = current.project_id
+    ? allProjects.find((p) => p.id === current.project_id) ?? null
+    : null;
+
+  const handleProjectCreate = useCallback(
+    async (name: string, color: string): Promise<Project | null> => {
+      try {
+        const created = await createProject({ name, color });
+        setCreatedProjects((prev) => [...prev, created]);
+        return created;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   return (
     <View style={styles.sheetContent}>
@@ -1036,6 +1065,50 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             setEstPickerOpen(false);
           }}
           onClose={() => setEstPickerOpen(false)}
+        />
+
+        {/* Project */}
+        <View style={{ marginTop: 18 }}>
+          <View style={styles.rowHead}>
+            <Text style={styles.sectionLabel}>Project</Text>
+            <Text style={styles.sectionValue}>
+              {selectedProject ? selectedProject.name : "None"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setProjectPickerOpen(true)}
+            style={styles.projectField}
+          >
+            <View
+              style={[
+                styles.projectFieldDot,
+                selectedProject
+                  ? { backgroundColor: selectedProject.color }
+                  : styles.projectFieldDotNone,
+              ]}
+            />
+            <Text
+              style={[
+                styles.projectFieldText,
+                !selectedProject && styles.projectFieldTextMuted,
+              ]}
+              numberOfLines={1}
+            >
+              {selectedProject
+                ? `${selectedProject.icon ? `${selectedProject.icon} ` : ""}${selectedProject.name}`
+                : "No project"}
+            </Text>
+            <Text style={styles.projectFieldChevron}>▾</Text>
+          </Pressable>
+        </View>
+
+        <ProjectPickerSheet
+          visible={projectPickerOpen}
+          projects={allProjects}
+          selectedId={current.project_id}
+          onSelect={(id) => setField("project_id", id)}
+          onClose={() => setProjectPickerOpen(false)}
+          onCreate={handleProjectCreate}
         />
 
         {/* Repeat */}
@@ -1401,6 +1474,31 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   metaValue: { fontSize: 12, fontWeight: "700" },
+
+  projectField: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  projectFieldDot: { width: 12, height: 12, borderRadius: 6 },
+  projectFieldDotNone: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#9ca3af",
+    borderStyle: "dashed",
+  },
+  projectFieldText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  projectFieldTextMuted: { color: "#9ca3af", fontWeight: "500" },
+  projectFieldChevron: { fontSize: 12, color: "#9ca3af" },
 
   barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
 
