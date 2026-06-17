@@ -293,9 +293,11 @@ function EstimateEqualizer({
 function StatusField({
   value,
   onChange,
+  dividerLeft,
 }: {
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
+  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -303,8 +305,13 @@ function StatusField({
   const cfg = STATUS_CONFIG[value];
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2">
-      <span className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+    <div
+      ref={ref}
+      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
+        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
+      }`}
+    >
+      <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
         Status
       </span>
       <button
@@ -368,12 +375,14 @@ function ProjectField({
   userId,
   onChange,
   onCreated,
+  dividerLeft,
 }: {
   projects: Project[];
   value: string | null;
   userId: string;
   onChange: (projectId: string | null) => void;
   onCreated: (project: Project) => void;
+  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -381,8 +390,13 @@ function ProjectField({
   const selected = value ? projects.find((p) => p.id === value) ?? null : null;
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2">
-      <span className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+    <div
+      ref={ref}
+      className={`relative flex min-w-0 flex-col items-center gap-2 px-2 py-3 ${
+        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
+      }`}
+    >
+      <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
         Project
       </span>
       <button
@@ -390,22 +404,22 @@ function ProjectField({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+        className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
       >
         {selected ? (
           <span
-            className="h-2 w-2 rounded-full"
+            className="h-2 w-2 shrink-0 rounded-full"
             style={{ backgroundColor: selected.color }}
           />
         ) : (
-          <span className="h-2 w-2 rounded-full border border-dashed border-neutral-400" />
+          <span className="h-2 w-2 shrink-0 rounded-full border border-dashed border-neutral-400" />
         )}
-        <span className={selected ? "" : "text-neutral-400"}>
+        <span className={`truncate ${selected ? "" : "text-neutral-400"}`}>
           {selected
             ? `${selected.icon ? `${selected.icon} ` : ""}${selected.name}`
             : "No project"}
         </span>
-        <span className="text-neutral-400">▾</span>
+        <span className="shrink-0 text-neutral-400">▾</span>
       </button>
       {open ? (
         <ProjectPickerPopover
@@ -415,6 +429,7 @@ function ProjectField({
           onSelect={onChange}
           onCreated={onCreated}
           onClose={() => setOpen(false)}
+          align="right"
         />
       ) : null}
     </div>
@@ -424,9 +439,11 @@ function ProjectField({
 function PriorityField({
   value,
   onChange,
+  dividerLeft,
 }: {
   value: TaskPriority;
   onChange: (p: TaskPriority) => void;
+  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<TaskPriority | null>(null);
@@ -445,30 +462,35 @@ function PriorityField({
       : null;
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2">
+    <div
+      ref={ref}
+      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
+        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+        className="rounded text-[11px] font-medium text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
       >
-        Pri
+        Priority
       </button>
-      <PrioritySignal
-        value={value}
-        hovered={hovered}
-        onChange={handleChange}
-        onHover={setHovered}
-      />
-      <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-        {PRIORITY_CONFIG[value].label}
-      </span>
-      {previewLabel ? (
-        <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
-          → {previewLabel}
+      <div className="flex flex-col items-center gap-1.5">
+        <PrioritySignal
+          value={value}
+          hovered={hovered}
+          onChange={handleChange}
+          onHover={setHovered}
+        />
+        {/* Single value slot — hover preview replaces the committed label
+            (rather than appending an arrow) so the cell width can't grow and
+            jostle neighbouring fields. */}
+        <span className="min-w-[5ch] text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+          {previewLabel ?? PRIORITY_CONFIG[value].label}
         </span>
-      ) : null}
+      </div>
       {open ? (
         <PickerPopover
           ariaLabel="Priority options"
@@ -502,9 +524,11 @@ function formatEstimateShort(minutes: number): string {
 function EstimateField({
   value,
   onChange,
+  dividerLeft,
 }: {
   value: number | null;
   onChange: (minutes: number | null) => void;
+  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -521,30 +545,34 @@ function EstimateField({
     hovered !== null && hovered !== value ? formatEstimateShort(hovered) : null;
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2">
+    <div
+      ref={ref}
+      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
+        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+        className="rounded text-[11px] font-medium text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
       >
-        Est
+        Estimate
       </button>
-      <EstimateEqualizer
-        value={value}
-        hovered={hovered}
-        onChange={handleChange}
-        onHover={setHovered}
-      />
-      <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-        {value ? formatEstimateShort(value) : "—"}
-      </span>
-      {previewLabel ? (
-        <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
-          → {previewLabel}
+      <div className="flex flex-col items-center gap-1.5">
+        <EstimateEqualizer
+          value={value}
+          hovered={hovered}
+          onChange={handleChange}
+          onHover={setHovered}
+        />
+        {/* Single value slot — hover preview replaces the committed value so
+            the cell width stays stable and neighbours don't shift. */}
+        <span className="min-w-[5ch] text-center text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
+          {previewLabel ?? (value ? formatEstimateShort(value) : "—")}
         </span>
-      ) : null}
+      </div>
       {open ? (
         <PickerPopover
           ariaLabel="Estimate options"
@@ -1699,43 +1727,21 @@ function SlashCommandInput({
   };
 
   return (
-    <div className="rounded-xl border-2 border-indigo-500 bg-white px-3 py-2 shadow-[0_0_0_4px_rgba(99,102,241,0.10)] dark:bg-neutral-950">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoFocus={autoFocus}
-        placeholder="Task title or /command…"
-        className="w-full bg-transparent text-[15px] font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-      />
-      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-        {parsedTokens.map((t, i) =>
-          t.removable ? (
-            <span
-              key={`tag-${t.removable.tag}-${i}`}
-              className={`group inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
-            >
-              {t.label}
-              <button
-                type="button"
-                onClick={() => onRemoveTag(t.removable!.tag)}
-                aria-label={`Remove ${t.label}`}
-                className="-mr-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-[12px] leading-none text-current opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/15"
-              >
-                ×
-              </button>
-            </span>
-          ) : (
-            <span
-              key={`${t.kind}-${i}`}
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
-            >
-              {t.label}
-            </span>
-          )
-        )}
+    <div className="rounded-xl border border-neutral-200 bg-white px-3 py-2.5 transition focus-within:border-indigo-400 focus-within:shadow-[0_0_0_2px_rgba(99,102,241,0.18)] dark:border-neutral-800 dark:bg-neutral-950 dark:focus-within:border-indigo-500">
+      {/* Title and the add-tag affordance share one row. The add-tag control
+          sits inline at the end of the title row, so a task with no tags no
+          longer renders an almost-empty second row under the input. */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoFocus={autoFocus}
+          placeholder="Task title or /command…"
+          className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+        />
         {addingTag ? (
-          <span className="inline-flex items-center gap-0.5 rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
             <span>#</span>
             <input
               ref={inputRef}
@@ -1768,12 +1774,43 @@ function SlashCommandInput({
           <button
             type="button"
             onClick={() => setAddingTag(true)}
-            className="inline-flex items-center rounded border border-dashed border-neutral-300 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-400 transition-colors hover:border-indigo-300 hover:text-indigo-500 dark:border-neutral-700 dark:hover:border-indigo-700"
+            className="inline-flex shrink-0 items-center rounded border border-dashed border-neutral-300 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-400 transition-colors hover:border-indigo-300 hover:text-indigo-500 dark:border-neutral-700 dark:hover:border-indigo-700"
           >
             + tag
           </button>
         )}
       </div>
+      {/* Applied chips (priority / tags / estimate) render only when present —
+          no empty chip row on a fresh task. */}
+      {parsedTokens.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {parsedTokens.map((t, i) =>
+            t.removable ? (
+              <span
+                key={`tag-${t.removable.tag}-${i}`}
+                className={`group inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
+              >
+                {t.label}
+                <button
+                  type="button"
+                  onClick={() => onRemoveTag(t.removable!.tag)}
+                  aria-label={`Remove ${t.label}`}
+                  className="-mr-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-[12px] leading-none text-current opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/15"
+                >
+                  ×
+                </button>
+              </span>
+            ) : (
+              <span
+                key={`${t.kind}-${i}`}
+                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ${t.toneClass}`}
+              >
+                {t.label}
+              </span>
+            )
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2104,24 +2141,26 @@ export function TaskEditModalV2({
             ) : null}
           </div>
 
-          {/* Inline meta */}
-          <div className="flex flex-wrap items-center gap-4 border-y border-neutral-100 py-3 dark:border-neutral-900">
+          {/* Inline meta — a fixed 4-column grid. Each control lives in its
+              own 1fr cell, so changing one value (or previewing on hover) can
+              never change another field's width and shove its neighbours. */}
+          <div className="grid grid-cols-4 border-y border-neutral-100 dark:border-neutral-900">
             <StatusField
               value={current.status}
               onChange={(s) => setField("status", s)}
             />
-            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
             <PriorityField
+              dividerLeft
               value={current.priority}
               onChange={(p) => setField("priority", p)}
             />
-            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
             <EstimateField
+              dividerLeft
               value={current.duration_minutes}
               onChange={(m) => setField("duration_minutes", m)}
             />
-            <div className="border-l border-neutral-100 self-stretch dark:border-neutral-800" />
             <ProjectField
+              dividerLeft
               projects={allProjects}
               value={current.project_id}
               userId={current.user_id}
