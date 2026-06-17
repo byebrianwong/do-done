@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -9,8 +9,10 @@ import {
   useSensor,
   useSensors,
   useDroppable,
-  closestCenter,
+  closestCorners,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -22,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { TaskItem } from "./task-item";
+import { TaskDragOverlay } from "./task-drag-overlay";
 
 export interface DraggableUpcomingProps {
   groups: Array<{
@@ -160,6 +163,10 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
   const [byDate, setByDate] = useState(initial.byDate);
   const [tasks, setTasks] = useState(initial.tasks);
 
+  // Id of the row currently being dragged — drives the lifted DragOverlay clone.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const activeTask = draggingId ? tasks.get(draggingId) ?? null : null;
+
   useEffect(() => {
     setByDate(initial.byDate);
     setTasks(initial.tasks);
@@ -174,6 +181,14 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
     })
   );
 
+  // Snapshot of the pre-drag layout, taken on drag start. The live onDragOver
+  // moves below mutate `byDate`/`tasks` in place; this lets us revert cleanly if
+  // the drag is cancelled or the server rejects the change.
+  const dragSnapshot = useRef<{
+    byDate: Map<string, string[]>;
+    tasks: Map<string, Task>;
+  } | null>(null);
+
   function findDateOf(id: string): string | null {
     for (const [date, ids] of byDate) {
       if (ids.includes(id)) return date;
@@ -181,77 +196,168 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
     return null;
   }
 
-  async function handleDragEnd(e: DragEndEvent) {
+  function handleDragStart(e: DragStartEvent) {
+    setDraggingId(String(e.active.id));
+    dragSnapshot.current = {
+      byDate: new Map([...byDate].map(([d, ids]) => [d, [...ids]])),
+      tasks: new Map(tasks),
+    };
+  }
+
+  // Live cross-section move. As the dragged row crosses into another day, pull
+  // it out of its current day and splice it into the hovered one *during* the
+  // drag — so the origin day collapses and every header below the target slides
+  // down to preview exactly where the task would land (Todoist-style). Same-day
+  // reordering is left to the sortable strategy and committed on drop.
+  function handleDragOver(e: DragOverEvent) {
     const { active, over } = e;
     if (!over) return;
     const activeId = String(active.id);
-    const fromDate = findDateOf(activeId);
-    if (!fromDate) return;
-
-    // Determine target date: either an empty-droppable id (group:<date>) or
-    // an item id (look up which date it belongs to).
     const overId = String(over.id);
-    let toDate: string | null = null;
-    if (overId.startsWith("group:")) {
-      toDate = overId.slice("group:".length);
-    } else {
-      toDate = findDateOf(overId);
+    if (activeId === overId) return;
+
+    setByDate((prev) => {
+      const dateOf = (id: string) => {
+        for (const [d, ids] of prev) if (ids.includes(id)) return d;
+        return null;
+      };
+      const fromDate = dateOf(activeId);
+      const toDate = overId.startsWith("group:")
+        ? overId.slice("group:".length)
+        : dateOf(overId);
+      if (!fromDate || !toDate || fromDate === toDate) return prev;
+
+      const next = new Map(prev);
+      const fromIds = [...(next.get(fromDate) ?? [])];
+      const toIds = [...(next.get(toDate) ?? [])];
+      const fromIndex = fromIds.indexOf(activeId);
+      if (fromIndex < 0) return prev;
+      fromIds.splice(fromIndex, 1);
+
+      let insertAt = toIds.length;
+      if (!overId.startsWith("group:")) {
+        const overIndex = toIds.indexOf(overId);
+        if (overIndex >= 0) {
+          const activeRect = active.rect.current.translated;
+          const below =
+            !!activeRect && activeRect.top > over.rect.top + over.rect.height;
+          insertAt = overIndex + (below ? 1 : 0);
+        }
+      }
+      toIds.splice(insertAt, 0, activeId);
+      next.set(fromDate, fromIds);
+      next.set(toDate, toIds);
+      return next;
+    });
+  }
+
+  function restoreFromSnapshot() {
+    const snap = dragSnapshot.current;
+    if (snap) {
+      setByDate(snap.byDate);
+      setTasks(snap.tasks);
     }
-    if (!toDate) return;
+  }
 
-    const nextByDate = new Map(byDate);
+  function handleDragCancel() {
+    setDraggingId(null);
+    restoreFromSnapshot();
+    dragSnapshot.current = null;
+  }
+
+  async function handleDragEnd(e: DragEndEvent) {
+    setDraggingId(null);
+    const snap = dragSnapshot.current;
+    dragSnapshot.current = null;
+    const { active, over } = e;
+    const activeId = String(active.id);
+
+    if (!over) {
+      if (snap) {
+        setByDate(snap.byDate);
+        setTasks(snap.tasks);
+      }
+      return;
+    }
+
+    // Where it started (snapshot) vs where the live drag left it (current state).
+    const fromDate =
+      [...(snap?.byDate ?? new Map())].find(([, ids]) =>
+        ids.includes(activeId)
+      )?.[0] ?? null;
+    const toDate = findDateOf(activeId);
+    if (!fromDate || !toDate) {
+      if (snap) {
+        setByDate(snap.byDate);
+        setTasks(snap.tasks);
+      }
+      return;
+    }
+
+    // Commit the final same-day position from the row we're hovering.
+    const overId = String(over.id);
+    let finalByDate = byDate;
+    if (!overId.startsWith("group:") && overId !== activeId) {
+      const overDate = findDateOf(overId);
+      if (overDate === toDate) {
+        const ids = [...(byDate.get(toDate) ?? [])];
+        const oldIndex = ids.indexOf(activeId);
+        const newIndex = ids.indexOf(overId);
+        if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+          finalByDate = new Map(byDate);
+          finalByDate.set(toDate, arrayMove(ids, oldIndex, newIndex));
+          setByDate(finalByDate);
+        }
+      }
+    }
+
+    // Nothing actually moved? (no day change and identical order) → no write.
     if (fromDate === toDate) {
-      const ids = [...(nextByDate.get(fromDate) ?? [])];
-      const oldIndex = ids.indexOf(activeId);
-      const newIndex = overId === activeId ? oldIndex : ids.indexOf(overId);
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
-      nextByDate.set(fromDate, arrayMove(ids, oldIndex, newIndex));
-      setByDate(nextByDate);
+      const before = snap?.byDate.get(fromDate) ?? [];
+      const after = finalByDate.get(fromDate) ?? [];
+      if (
+        before.length === after.length &&
+        before.every((id, i) => id === after[i])
+      ) {
+        return;
+      }
+    }
 
-      const api = await getClientTasksApi();
-      const updates = nextByDate
-        .get(fromDate)!
-        .map((id, i) => ({ id, input: { sort_order: (i + 1) * 1000 } }));
+    const api = await getClientTasksApi();
+    const toIds = finalByDate.get(toDate) ?? [];
+
+    if (fromDate === toDate) {
+      const updates = toIds.map((id, i) => ({
+        id,
+        input: { sort_order: (i + 1) * 1000 },
+      }));
       const { error } = await api.bulkUpdate(updates);
       if (error) {
         console.error("Reorder failed:", error);
-        setByDate(byDate);
+        if (snap) {
+          setByDate(snap.byDate);
+          setTasks(snap.tasks);
+        }
         return;
       }
     } else {
-      // Cross-section move: pull from `fromDate`, insert into `toDate`, and
-      // update when_date on the moved task. Both ends can be the No-date
-      // sentinel — moving INTO no-date clears when_date; moving OUT of
+      // Cross-section: update when_date on the moved task. Both ends can be the
+      // No-date sentinel — moving INTO no-date clears when_date; moving OUT of
       // no-date sets when_date to the target day.
-      const fromIds = [...(nextByDate.get(fromDate) ?? [])];
-      const toIds = [...(nextByDate.get(toDate) ?? [])];
-      const oldIndex = fromIds.indexOf(activeId);
-      fromIds.splice(oldIndex, 1);
-      const insertAt = overId.startsWith("group:")
-        ? toIds.length
-        : Math.max(toIds.indexOf(overId), 0);
-      toIds.splice(insertAt, 0, activeId);
-      nextByDate.set(fromDate, fromIds);
-      nextByDate.set(toDate, toIds);
-      setByDate(nextByDate);
-
       const toNoDate = toDate === NO_DATE_KEY;
       const nextWhenDate = toNoDate ? null : toDate;
 
-      // Update the moved task locally so the title still renders correctly.
       const moved = tasks.get(activeId);
       if (moved) {
-        const updated = {
+        const nextTasks = new Map(tasks);
+        nextTasks.set(activeId, {
           ...moved,
           when_date: nextWhenDate,
           when_bucket: toNoDate ? moved.when_bucket : null,
-        };
-        const nextTasks = new Map(tasks);
-        nextTasks.set(activeId, updated);
+        });
         setTasks(nextTasks);
       }
 
-      const api = await getClientTasksApi();
       const updates: Array<{
         id: string;
         input: {
@@ -273,8 +379,10 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
       const { error } = await api.bulkUpdate(updates);
       if (error) {
         console.error("Move failed:", error);
-        setByDate(byDate);
-        setTasks(initial.tasks);
+        if (snap) {
+          setByDate(snap.byDate);
+          setTasks(snap.tasks);
+        }
         return;
       }
     }
@@ -285,8 +393,11 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
     <DndContext
       id="upcoming-dnd"
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="space-y-6">
         {groups.map((g) => (
@@ -301,6 +412,7 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
           />
         ))}
       </div>
+      <TaskDragOverlay task={activeTask} projects={projects} />
     </DndContext>
   );
 }

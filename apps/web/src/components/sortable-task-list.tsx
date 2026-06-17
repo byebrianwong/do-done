@@ -10,6 +10,7 @@ import {
   useSensors,
   closestCenter,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -21,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { TaskItem } from "./task-item";
+import { TaskDragOverlay } from "./task-drag-overlay";
 
 export interface SortableTaskListProps {
   tasks: Task[];
@@ -102,6 +104,11 @@ export function SortableTaskList({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [items, setItems] = useState(tasks);
+  // Id of the row currently being dragged — drives the lifted DragOverlay clone.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeTask = activeId
+    ? items.find((t) => t.id === activeId) ?? null
+    : null;
   // Mouse: drag after a 4px move. Touch: drag only after a short press, so a
   // normal vertical swipe scrolls the page instead of reordering.
   const sensors = useSensors(
@@ -118,7 +125,12 @@ export function SortableTaskList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
+  function handleDragStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id));
+  }
+
   async function handleDragEnd(e: DragEndEvent) {
+    setActiveId(null);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const oldIndex = items.findIndex((t) => t.id === active.id);
@@ -146,7 +158,9 @@ export function SortableTaskList({
       id="sortable-task-list-dnd"
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
     >
       <SortableContext
         items={items.map((t) => t.id)}
@@ -158,6 +172,7 @@ export function SortableTaskList({
           ))}
         </div>
       </SortableContext>
+      <TaskDragOverlay task={activeTask} projects={projects} />
     </DndContext>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -9,8 +9,10 @@ import {
   useSensor,
   useSensors,
   useDroppable,
-  closestCenter,
+  closestCorners,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -31,6 +33,7 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { TaskItem } from "./task-item";
+import { TaskDragOverlay } from "./task-drag-overlay";
 
 export interface DraggableTaskGroupsProps {
   tasks: Task[];
@@ -83,6 +86,17 @@ export function DraggableTaskGroups({
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
   );
 
+  // Id of the row currently being dragged — drives the lifted DragOverlay clone.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const activeTask = draggingId
+    ? localTasks.find((t) => t.id === draggingId) ?? null
+    : null;
+
+  // Pre-drag snapshot. The live onDragOver moves below mutate `localTasks` in
+  // place (changing the dragged task's field so it re-buckets into the hovered
+  // group); this lets us revert if the drag is cancelled or the server rejects.
+  const dragSnapshot = useRef<Task[] | null>(null);
+
   if (groups.every((g) => g.count === 0)) {
     return (
       <div className="py-16 text-center">
@@ -119,77 +133,153 @@ export function DraggableTaskGroups({
     return map;
   }
 
-  async function handleDragEnd(e: DragEndEvent) {
+  function handleDragStart(e: DragStartEvent) {
+    setDraggingId(String(e.active.id));
+    dragSnapshot.current = localTasks.map((t) => ({ ...t }));
+  }
+
+  // Live cross-group move. As the dragged row crosses into another group, apply
+  // that group's field (status / priority / project / date) to the task and
+  // re-position it *during* the drag, so it re-buckets immediately: the origin
+  // group collapses and the headers below the target slide down to preview the
+  // drop (Todoist-style). Same-group reordering is left to the sortable strategy
+  // and committed on drop.
+  function handleDragOver(e: DragOverEvent) {
     const { active, over } = e;
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
+    if (activeId === overId) return;
 
-    const fromGroup = findGroupOf(activeId);
-    if (!fromGroup) return;
+    setLocalTasks((prev) => {
+      const g = applyDisplay(prev, config, { projects });
+      const fromGroup = g.find((grp) => grp.tasks.some((t) => t.id === activeId));
+      const toGroup = overId.startsWith("g:")
+        ? g.find((grp) => grp.key === overId.slice(2))
+        : g.find((grp) => grp.tasks.some((t) => t.id === overId));
+      // Only preview a move where the target axis is a mutable field.
+      if (!fromGroup || !toGroup || fromGroup.key === toGroup.key || !toGroup.drop)
+        return prev;
 
-    const toGroup = overId.startsWith("g:")
-      ? groups.find((g) => g.key === overId.slice(2))
-      : findGroupOf(overId);
-    if (!toGroup) return;
-
-    const snapshot = localTasks;
-    const api = await getClientTasksApi();
-
-    if (fromGroup.key === toGroup.key) {
-      const ids = fromGroup.tasks.map((t) => t.id);
-      const oldIndex = ids.indexOf(activeId);
-      const newIndex = overId === activeId ? oldIndex : ids.indexOf(overId);
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
-      const orderedIds = arrayMove(ids, oldIndex, newIndex);
-      const orders = applySortOrder(orderedIds);
-      setLocalTasks((prev) =>
-        prev.map((t) => (orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t))
-      );
-      const updates = orderedIds.map((id) => ({
-        id,
-        input: { sort_order: orders.get(id)! },
-      }));
-      const { error } = await api.bulkUpdate(updates);
-      if (error) {
-        console.error("Reorder failed:", error);
-        setLocalTasks(snapshot);
-        return;
-      }
-    } else {
-      // Cross-group drop only lands where the axis is a mutable field.
-      if (!toGroup.drop) return;
       const patch = patchForDrop(toGroup.drop);
-
-      const toIds = toGroup.tasks.map((t) => t.id).filter((id) => id !== activeId);
-      const insertAt = overId.startsWith("g:")
-        ? toIds.length
-        : Math.max(toIds.indexOf(overId), 0);
+      const toIds = toGroup.tasks
+        .map((t) => t.id)
+        .filter((id) => id !== activeId);
+      let insertAt = toIds.length;
+      if (!overId.startsWith("g:")) {
+        const overIndex = toIds.indexOf(overId);
+        if (overIndex >= 0) {
+          const activeRect = active.rect.current.translated;
+          const below =
+            !!activeRect && activeRect.top > over.rect.top + over.rect.height;
+          insertAt = overIndex + (below ? 1 : 0);
+        }
+      }
       toIds.splice(insertAt, 0, activeId);
       const orders = applySortOrder(toIds);
 
-      setLocalTasks((prev) =>
-        prev.map((t) => {
-          if (t.id === activeId)
-            return { ...t, ...patch, sort_order: orders.get(t.id)! } as Task;
-          if (orders.has(t.id)) return { ...t, sort_order: orders.get(t.id)! };
-          return t;
-        })
-      );
+      return prev.map((t) => {
+        if (t.id === activeId)
+          return { ...t, ...patch, sort_order: orders.get(t.id)! } as Task;
+        if (orders.has(t.id)) return { ...t, sort_order: orders.get(t.id)! };
+        return t;
+      });
+    });
+  }
 
-      const updates: Array<{ id: string; input: UpdateTaskInput }> = [
+  function handleDragCancel() {
+    setDraggingId(null);
+    if (dragSnapshot.current) setLocalTasks(dragSnapshot.current);
+    dragSnapshot.current = null;
+  }
+
+  async function handleDragEnd(e: DragEndEvent) {
+    setDraggingId(null);
+    const snapshot = dragSnapshot.current;
+    dragSnapshot.current = null;
+    const { active, over } = e;
+    const activeId = String(active.id);
+
+    const restore = () => {
+      if (snapshot) setLocalTasks(snapshot);
+    };
+
+    if (!over) {
+      restore();
+      return;
+    }
+
+    // Where it started (snapshot) vs where the live drag left it (current).
+    const fromGroup = snapshot
+      ? applyDisplay(snapshot, config, { projects }).find((grp) =>
+          grp.tasks.some((t) => t.id === activeId)
+        )
+      : findGroupOf(activeId);
+    const toGroup = findGroupOf(activeId);
+    if (!fromGroup || !toGroup) {
+      restore();
+      return;
+    }
+
+    // Commit the final within-group position from the row we're hovering.
+    const overId = String(over.id);
+    let finalTasks = localTasks;
+    if (!overId.startsWith("g:") && overId !== activeId) {
+      const overGroup = findGroupOf(overId);
+      if (overGroup?.key === toGroup.key) {
+        const ids = toGroup.tasks.map((t) => t.id);
+        const oldIndex = ids.indexOf(activeId);
+        const newIndex = ids.indexOf(overId);
+        if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+          const orders = applySortOrder(arrayMove(ids, oldIndex, newIndex));
+          finalTasks = localTasks.map((t) =>
+            orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t
+          );
+          setLocalTasks(finalTasks);
+        }
+      }
+    }
+
+    // Nothing changed? (same group, identical order) → skip the write.
+    const sameGroup = fromGroup.key === toGroup.key;
+    const finalToIds = applyDisplay(finalTasks, config, { projects })
+      .find((grp) => grp.key === toGroup.key)!
+      .tasks.map((t) => t.id);
+    if (sameGroup) {
+      const before = fromGroup.tasks.map((t) => t.id);
+      if (
+        before.length === finalToIds.length &&
+        before.every((id, i) => id === finalToIds[i])
+      ) {
+        return;
+      }
+    }
+
+    const api = await getClientTasksApi();
+    const orders = applySortOrder(finalToIds);
+
+    let updates: Array<{ id: string; input: UpdateTaskInput }>;
+    if (sameGroup) {
+      updates = finalToIds.map((id) => ({
+        id,
+        input: { sort_order: orders.get(id)! },
+      }));
+    } else {
+      const patch = toGroup.drop ? patchForDrop(toGroup.drop) : {};
+      updates = [
         { id: activeId, input: { ...patch, sort_order: orders.get(activeId)! } },
       ];
-      for (const id of toIds) {
+      for (const id of finalToIds) {
         if (id === activeId) continue;
         updates.push({ id, input: { sort_order: orders.get(id)! } });
       }
-      const { error } = await api.bulkUpdate(updates);
-      if (error) {
-        console.error("Move failed:", error);
-        setLocalTasks(snapshot);
-        return;
-      }
+    }
+
+    const { error } = await api.bulkUpdate(updates);
+    if (error) {
+      console.error(sameGroup ? "Reorder failed:" : "Move failed:", error);
+      restore();
+      return;
     }
     startTransition(() => router.refresh());
   }
@@ -198,8 +288,11 @@ export function DraggableTaskGroups({
     <DndContext
       id="task-groups-dnd"
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div>
         {groups.map((g) => (
@@ -213,6 +306,7 @@ export function DraggableTaskGroups({
           />
         ))}
       </div>
+      <TaskDragOverlay task={activeTask} projects={projects} />
     </DndContext>
   );
 }
