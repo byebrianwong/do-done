@@ -30,7 +30,9 @@ import {
   type UpdateTaskInput,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { seedFromDrop } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
+import { InlineTaskComposer } from "./inline-task-composer";
 
 export interface DraggableTaskGroupsProps {
   tasks: Task[];
@@ -38,6 +40,9 @@ export interface DraggableTaskGroupsProps {
   config: DisplayConfig;
   /** Hide group headers when there's only a single "none" group. */
   hideHeaderForSingle?: boolean;
+  /** Show the per-section inline "Add task" affordance. Off for read-only
+   *  lists like Completed where adding makes no sense. Defaults to true. */
+  quickAdd?: boolean;
 }
 
 const dropId = (groupKey: string) => `g:${groupKey}`;
@@ -62,6 +67,7 @@ export function DraggableTaskGroups({
   projects,
   config,
   hideHeaderForSingle = true,
+  quickAdd = true,
 }: DraggableTaskGroupsProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -70,6 +76,10 @@ export function DraggableTaskGroups({
   // drag's field/order change is reflected immediately without refetching.
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks);
   useEffect(() => setLocalTasks(tasks), [tasks]);
+
+  // Track the in-flight drag so sections show the "Drop here" hint (and hide
+  // the inline add affordance) only while a drag is actually happening.
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const groups = useMemo(
     () => applyDisplay(localTasks, config, { projects }),
@@ -102,6 +112,8 @@ export function DraggableTaskGroups({
             projects={projects}
             droppable={false}
             sortableIds={null}
+            isDragActive={false}
+            quickAdd={quickAdd}
             hideHeader={hideHeaderForSingle && g.key === "none"}
           />
         ))}
@@ -120,6 +132,7 @@ export function DraggableTaskGroups({
   }
 
   async function handleDragEnd(e: DragEndEvent) {
+    setActiveId(null);
     const { active, over } = e;
     if (!over) return;
     const activeId = String(active.id);
@@ -199,6 +212,8 @@ export function DraggableTaskGroups({
       id="task-groups-dnd"
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={(e) => setActiveId(String(e.active.id))}
+      onDragCancel={() => setActiveId(null)}
       onDragEnd={handleDragEnd}
     >
       <div>
@@ -209,6 +224,8 @@ export function DraggableTaskGroups({
             projects={projects}
             droppable={g.drop !== null}
             sortableIds={g.tasks.map((t) => t.id)}
+            isDragActive={activeId !== null}
+            quickAdd={quickAdd}
             hideHeader={hideHeaderForSingle && g.key === "none"}
           />
         ))}
@@ -222,12 +239,16 @@ function GroupSection({
   projects,
   droppable,
   sortableIds,
+  isDragActive,
+  quickAdd,
   hideHeader,
 }: {
   group: DisplayGroup;
   projects?: Project[];
   droppable: boolean;
   sortableIds: string[] | null;
+  isDragActive: boolean;
+  quickAdd: boolean;
   hideHeader: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -242,7 +263,7 @@ function GroupSection({
         isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
       }`}
     >
-      {group.tasks.length === 0 && droppable ? (
+      {isDragActive && group.tasks.length === 0 && droppable ? (
         <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
           Drop here
         </div>
@@ -260,7 +281,7 @@ function GroupSection({
   );
 
   return (
-    <section className="mb-6">
+    <section className="group mb-6">
       {!hideHeader && group.label ? (
         <h2
           className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"
@@ -287,6 +308,9 @@ function GroupSection({
       ) : (
         body
       )}
+      {quickAdd && !isDragActive ? (
+        <InlineTaskComposer seed={seedFromDrop(group.drop)} />
+      ) : null}
     </section>
   );
 }

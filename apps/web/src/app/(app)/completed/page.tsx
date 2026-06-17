@@ -26,6 +26,7 @@ export default async function CompletedPage() {
         }
         tasks={completed}
         projects={projects}
+        quickAdd={false}
         emptyText="Nothing here yet — complete a task and it’ll land here."
       />
     </div>
