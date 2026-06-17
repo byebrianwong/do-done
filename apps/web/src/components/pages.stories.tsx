@@ -115,7 +115,6 @@ const INBOX_TASKS: Task[] = [
   makeTask({
     title: "Look into noise-cancelling headphones",
     priority: "p4",
-    when_bucket: "someday",
   }),
 ];
 

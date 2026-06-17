@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
+  QUICK_SCHEDULE,
   formatDuration,
   formatWhenTime,
+  resolveQuickSchedule,
 } from "@do-done/shared";
-import type { Task, Project, TaskPriority, WhenBucket } from "@do-done/shared";
+import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { ScheduleButton } from "./schedule-button";
@@ -256,38 +258,23 @@ function dueDateColor(dateStr: string): string {
 export interface WhenPatch {
   when_date?: string | null;
   when_time?: string | null;
-  when_bucket?: WhenBucket | null;
-}
-
-// Local YYYY-MM-DD `offset` days from today. Matches the local-date basis used
-// by formatDueDate / the API, so quick picks land on the right calendar day.
-function localDateOffset(offset: number): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + offset);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 /**
  * The scheduling chip on the row, but clickable: opens a popover to set the
- * do-date, time-of-day, or a soft bucket inline — mirroring the inline
- * priority/estimate editors. Renders nothing when the task has no schedule at
- * all (the row's "Find a time" affordance covers that case).
+ * do-date or time-of-day inline — mirroring the inline priority/estimate
+ * editors. Renders nothing when the task has no schedule at all (the row's
+ * "Find a time" affordance covers that case).
  */
 function InlineWhenEditor({
   whenDate,
   whenTime,
-  whenBucket,
   dueDate,
   dueTime,
   onChange,
 }: {
   whenDate: string | null;
   whenTime: string | null;
-  whenBucket: WhenBucket | null;
   dueDate: string | null;
   dueTime: string | null;
   onChange: (patch: WhenPatch) => void;
@@ -309,7 +296,7 @@ function InlineWhenEditor({
   }, [open]);
 
   // The visible chip mirrors whichever schedule field is set, in priority
-  // order: do-date > deadline > soft bucket.
+  // order: do-date > deadline.
   let label: string | null = null;
   let chipClass = "";
   let title = "";
@@ -321,18 +308,14 @@ function InlineWhenEditor({
     label = formatDueDate(dueDate) + (dueTime ? ` ${formatWhenTime(dueTime)}` : "");
     chipClass = dueDateColor(dueDate);
     title = dueTime ? `Due ${dueDate} at ${dueTime}` : `Due ${dueDate}`;
-  } else if (whenBucket) {
-    label = whenBucket.replace("_", " ");
-    chipClass = "text-indigo-600 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-400";
-    title = `Bucketed as ${whenBucket}`;
   }
   if (!label) return null;
 
-  const quick = [
-    { label: "Today", date: localDateOffset(0) },
-    { label: "Tomorrow", date: localDateOffset(1) },
-    { label: "Next week", date: localDateOffset(7) },
-  ];
+  // Friendly quick-pick labels, each resolving to a concrete calendar date.
+  const quick = QUICK_SCHEDULE.map((q) => ({
+    label: q.label,
+    date: resolveQuickSchedule(q.key),
+  }));
 
   return (
     <div
@@ -366,7 +349,7 @@ function InlineWhenEditor({
                 <button
                   key={q.label}
                   type="button"
-                  onClick={() => onChange({ when_date: q.date, when_bucket: null })}
+                  onClick={() => onChange({ when_date: q.date })}
                   className={`rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors ${
                     selected
                       ? "bg-indigo-500 text-white"
@@ -385,9 +368,7 @@ function InlineWhenEditor({
             <input
               type="date"
               value={whenDate ?? ""}
-              onChange={(e) =>
-                onChange({ when_date: e.target.value || null, when_bucket: null })
-              }
+              onChange={(e) => onChange({ when_date: e.target.value || null })}
               className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             />
           </div>
@@ -404,33 +385,11 @@ function InlineWhenEditor({
               className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             />
           </div>
-          <div className="mt-2 flex items-center gap-1">
-            {(["later", "someday"] as const).map((b) => (
-              <button
-                key={b}
-                type="button"
-                onClick={() =>
-                  onChange({
-                    when_bucket: whenBucket === b ? null : b,
-                    when_date: null,
-                    when_time: null,
-                  })
-                }
-                className={`flex-1 rounded-md px-2 py-1 text-xs font-medium capitalize transition-colors ${
-                  whenBucket === b
-                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                    : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                }`}
-              >
-                {b}
-              </button>
-            ))}
-          </div>
-          {whenDate || whenTime || whenBucket ? (
+          {whenDate || whenTime ? (
             <button
               type="button"
               onClick={() => {
-                onChange({ when_date: null, when_time: null, when_bucket: null });
+                onChange({ when_date: null, when_time: null });
                 setOpen(false);
               }}
               aria-label="Clear schedule"
@@ -458,16 +417,14 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   // router.refresh re-feeds the server value after any edit.
   const [whenDate, setWhenDate] = useState(task.when_date);
   const [whenTime, setWhenTime] = useState(task.when_time);
-  const [whenBucket, setWhenBucket] = useState(task.when_bucket);
   useEffect(() => setWhenDate(task.when_date), [task.when_date]);
   useEffect(() => setWhenTime(task.when_time), [task.when_time]);
-  useEffect(() => setWhenBucket(task.when_bucket), [task.when_bucket]);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
   // "Find a time" suggests a calendar slot — only useful when the task has no
-  // schedule at all. Once any date/bucket/deadline exists, the date chip itself
-  // is the (clickable) reschedule affordance, so the clock would be redundant.
-  const hasSchedule = !!whenDate || !!whenBucket || !!task.due_date;
+  // schedule at all. Once any date/deadline exists, the date chip itself is the
+  // (clickable) reschedule affordance, so the clock would be redundant.
+  const hasSchedule = !!whenDate || !!task.due_date;
   const canSchedule = !!duration && !hasSchedule;
   // Optimistic project state mirrors the priority/estimate inline editors.
   // `createdProjects` holds projects made via the inline picker so the chip can
@@ -566,16 +523,14 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   }
 
   async function handleWhenChange(patch: WhenPatch) {
-    const prev = { when_date: whenDate, when_time: whenTime, when_bucket: whenBucket };
+    const prev = { when_date: whenDate, when_time: whenTime };
     if ("when_date" in patch) setWhenDate(patch.when_date ?? null);
     if ("when_time" in patch) setWhenTime(patch.when_time ?? null);
-    if ("when_bucket" in patch) setWhenBucket(patch.when_bucket ?? null);
     const tasks = await getClientTasksApi();
     const { error } = await tasks.update(task.id, patch);
     if (error) {
       setWhenDate(prev.when_date);
       setWhenTime(prev.when_time);
-      setWhenBucket(prev.when_bucket);
       console.error("Failed to update schedule:", error);
       return;
     }
@@ -695,13 +650,11 @@ export function TaskItem({ task, projects }: TaskItemProps) {
         </div>
 
         {/* Effective scheduling chip — clickable to reschedule inline (do-date
-            if set, else deadline, else soft bucket). When a do-date and a
-            distinct deadline both exist, show the deadline as a static second
-            chip. */}
+            if set, else deadline). When a do-date and a distinct deadline both
+            exist, show the deadline as a static second chip. */}
         <InlineWhenEditor
           whenDate={whenDate}
           whenTime={whenTime}
-          whenBucket={whenBucket}
           dueDate={task.due_date}
           dueTime={task.due_time}
           onChange={handleWhenChange}

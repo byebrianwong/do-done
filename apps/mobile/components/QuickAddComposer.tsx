@@ -28,7 +28,6 @@ import {
   PRIORITY_CONFIG,
   type CreateTaskInput,
   type TaskPriority,
-  type WhenBucket,
 } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
@@ -69,7 +68,6 @@ export default function QuickAddComposer({
   const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
   const [whenDate, setWhenDate] = useState<string | null>(null);
-  const [whenBucket, setWhenBucket] = useState<WhenBucket | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
 
   const [whenSheet, setWhenSheet] = useState(false);
@@ -124,12 +122,6 @@ export default function QuickAddComposer({
 
   const onPickDate = (date: string) => {
     setWhenDate(date);
-    setWhenBucket(null);
-    setWhenSheet(false);
-  };
-  const onPickBucket = (bucket: WhenBucket | null) => {
-    setWhenBucket(bucket);
-    if (bucket !== null) setWhenDate(null);
     setWhenSheet(false);
   };
 
@@ -144,15 +136,12 @@ export default function QuickAddComposer({
     const finalPriority = priority ?? parsed.priority ?? undefined;
     const finalDuration = duration ?? parsed.duration_minutes ?? undefined;
     const finalWhenDate = whenDate ?? parsed.when_date ?? undefined;
-    const finalWhenBucket =
-      !finalWhenDate ? (whenBucket ?? parsed.when_bucket ?? undefined) : undefined;
 
     const input: CreateTaskInput = {
       title: parsed.title || trimmed,
       status: defaultStatus,
       ...(finalPriority && { priority: finalPriority }),
       ...(finalWhenDate && { when_date: finalWhenDate }),
-      ...(finalWhenBucket && { when_bucket: finalWhenBucket }),
       ...(parsed.due_date && { due_date: parsed.due_date }),
       ...(parsed.due_time && { due_time: parsed.due_time }),
       ...(finalDuration && { duration_minutes: finalDuration }),
@@ -169,13 +158,12 @@ export default function QuickAddComposer({
       setTags([]);
       setPriority(null);
       setWhenDate(null);
-      setWhenBucket(null);
       setDuration(null);
       onCreated?.();
     }
   }
 
-  const whenSet = !!whenDate || !!whenBucket;
+  const whenSet = !!whenDate;
   const estIdx = estimateBarIndex(duration);
 
   return (
@@ -228,7 +216,7 @@ export default function QuickAddComposer({
               color={whenSet ? '#4338ca' : '#6b7280'}
             />
             <Text style={[styles.chipText, whenSet && styles.chipTextActive]}>
-              {whenSet ? shortDateLabel(whenDate, whenBucket) : 'Schedule'}
+              {whenSet ? shortDateLabel(whenDate) : 'Schedule'}
             </Text>
           </Pressable>
 
@@ -280,10 +268,8 @@ export default function QuickAddComposer({
         header={
           <WhenCalendar
             whenDate={whenDate}
-            whenBucket={whenBucket}
             busyness={[]}
             onPickDate={onPickDate}
-            onPickBucket={onPickBucket}
           />
         }
       />

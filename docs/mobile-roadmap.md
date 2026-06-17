@@ -95,14 +95,14 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
 
 - **2.0 — All view (the surfacing fix).** ✅ New `app/(tabs)/all.tsx` tab lists
   **every active task grouped by status** (Inbox / In Progress / Next / Not Started).
-  Before this, any active task that was undated, future-dated, or in a `later`/
-  `someday` bucket and not in an opened project was **invisible** — the app wasn't
-  really usable. **Effort: M.** _(Status: ✅ done.)_
+  Before this, any active task that was undated or future-dated and not in an
+  opened project was **invisible** — the app wasn't really usable. **Effort: M.**
+  _(Status: ✅ done.)_
 - **2.1 — Search.** ✅ Full-screen search (`app/search.tsx`) over `TasksApi.search`,
   reachable from a header icon on Today and All. **Effort: M.** _(Status: ✅ done.)_
 - **2.2 — Upcoming view.** ✅ New `app/(tabs)/upcoming.tsx` tab: Overdue → Today →
-  Tomorrow → each dated day in a 14-day horizon → Later → Anytime → Someday, all
-  interactive rows. Day-to-day moves use the one-swipe Today/Tomorrow + reschedule
+  Tomorrow → each dated day in a 14-day horizon → Later (beyond the horizon) →
+  Anytime (undated), all interactive rows. Day-to-day moves use the one-swipe Today/Tomorrow + reschedule
   menu (cross-day drag isn't supported across lists by the drag lib). Tab bar
   reorganized to Today · Inbox · Upcoming · All · Projects; Settings moved to a gear
   icon in the Today header. **Effort: M.** _(Status: ✅ done.)_

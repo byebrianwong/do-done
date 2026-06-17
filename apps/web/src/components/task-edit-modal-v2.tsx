@@ -16,7 +16,6 @@ import {
   type Task,
   type TaskPriority,
   type TaskStatus,
-  type WhenBucket,
 } from "@do-done/shared";
 import {
   useAutoSaveTask,
@@ -794,19 +793,15 @@ type CalendarExpansion = "collapsed" | "two-weeks" | "months";
 
 function WhenCalendar({
   whenDate,
-  whenBucket,
   dueDate,
   busyness,
   onPickDate,
-  onPickBucket,
   onChangeDueDate,
 }: {
   whenDate: string | null;
-  whenBucket: WhenBucket | null;
   dueDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
-  onPickBucket: (bucket: WhenBucket | null) => void;
   onChangeDueDate: (v: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState<CalendarExpansion>("collapsed");
@@ -822,6 +817,13 @@ function WhenCalendar({
   }, []);
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
+  // "Next week" is a concrete date — exactly 7 days from today — not a soft
+  // bucket, so it survives as a real when_date.
+  const nextWeekStr = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 7);
+    return ymd(d);
+  }, [today]);
 
   // Special-date labels. Order = priority (active > today > tomorrow > …).
   // Each entry: { date: YYYY-MM-DD, label: short text }. The set is rendered
@@ -992,7 +994,7 @@ function WhenCalendar({
         })}
       </div>
 
-      {/* Action row: progressive expand + buckets + due date */}
+      {/* Action row: progressive expand + next week + due date */}
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {expanded !== "collapsed" ? (
           <button
@@ -1020,20 +1022,17 @@ function WhenCalendar({
             See more dates ⇣
           </button>
         ) : null}
-        {(["later", "someday"] as const).map((b) => (
-          <button
-            key={b}
-            type="button"
-            onClick={() => onPickBucket(whenBucket === b ? null : b)}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-              whenBucket === b
-                ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            }`}
-          >
-            {b === "later" ? "⏳ Later" : "∞ Someday"}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => onPickDate(nextWeekStr)}
+          className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+            whenDate === nextWeekStr
+              ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+              : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          }`}
+        >
+          Next week
+        </button>
         <DueDateField value={dueDate} onChange={onChangeDueDate} />
       </div>
 
@@ -1779,16 +1778,6 @@ export function TaskEditModalV2({
 
   const onPickDate = (date: string) => {
     setField("when_date", date);
-    setField("when_bucket", null);
-  };
-  const onPickBucket = (bucket: WhenBucket | null) => {
-    setField("when_bucket", bucket);
-    // Picking a bucket clears the specific day, so the time-of-day (which is
-    // only meaningful with a when_date) goes with it.
-    if (bucket !== null) {
-      setField("when_date", null);
-      setField("when_time", null);
-    }
   };
 
   const tokens: ParsedToken[] = [];
@@ -1934,9 +1923,7 @@ export function TaskEditModalV2({
                       month: "short",
                       day: "numeric",
                     })
-                  : current.when_bucket
-                    ? current.when_bucket.replace("_", " ")
-                    : "Not scheduled"}
+                  : "Not scheduled"}
               </span>
               {current.when_date ? (
                 <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">
@@ -1951,11 +1938,9 @@ export function TaskEditModalV2({
             </div>
             <WhenCalendar
               whenDate={current.when_date}
-              whenBucket={current.when_bucket}
               dueDate={current.due_date}
               busyness={busyness}
               onPickDate={onPickDate}
-              onPickBucket={onPickBucket}
               onChangeDueDate={(v) => setField("due_date", v)}
             />
             {/* Time-of-day for the chosen do date — only meaningful with a

@@ -19,6 +19,7 @@ import {
   addDaysLocalISO,
   formatDuration,
   formatWhenTime,
+  resolveQuickSchedule,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
@@ -46,35 +47,19 @@ interface TaskItemProps {
 
 function buildReschedule(
   task: Task,
-  target:
-    | { kind: 'date'; date: string }
-    | { kind: 'bucket'; bucket: 'today' | 'tomorrow' | 'this_week' }
-    | { kind: 'remove' }
+  target: { kind: 'date'; date: string } | { kind: 'remove' }
 ): UpdateTaskInput {
-  const today = todayLocalISO();
   if (target.kind === 'remove') {
     return {
       when_date: null,
-      when_bucket: null,
       due_date: null,
       due_time: null,
     };
   }
-  if (target.kind === 'date') {
-    const input: UpdateTaskInput = {
-      when_date: target.date,
-      when_bucket: null,
-    };
-    if (task.due_date && task.due_date < target.date) {
-      input.due_date = target.date;
-    }
-    return input;
+  const input: UpdateTaskInput = { when_date: target.date };
+  if (task.due_date && task.due_date < target.date) {
+    input.due_date = target.date;
   }
-  const input: UpdateTaskInput = {
-    when_date: null,
-    when_bucket: target.bucket,
-  };
-  if (task.due_date && task.due_date < today) input.due_date = today;
   return input;
 }
 
@@ -158,7 +143,7 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   }[] = [
     { label: 'Move to Today', run: () => applyTarget({ kind: 'date', date: todayLocalISO() }) },
     { label: 'Move to Tomorrow', run: () => applyTarget({ kind: 'date', date: addDaysLocalISO(1) }) },
-    { label: 'Move to This week', run: () => applyTarget({ kind: 'bucket', bucket: 'this_week' }) },
+    { label: 'Move to This week', run: () => applyTarget({ kind: 'date', date: resolveQuickSchedule('this_week') }) },
     { label: 'Remove dates', run: () => applyTarget({ kind: 'remove' }) },
     { label: 'Delete', run: confirmDelete, destructive: true },
   ];
@@ -354,10 +339,6 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           <Text style={styles.dueDate}>
             {formatDueDate(task.due_date)}
             {task.due_time ? ` ${task.due_time}` : ''}
-          </Text>
-        ) : task.when_bucket ? (
-          <Text style={styles.dueDate}>
-            {task.when_bucket.replace('_', ' ')}
           </Text>
         ) : null}
       </View>

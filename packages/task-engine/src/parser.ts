@@ -1,5 +1,6 @@
 import * as chrono from "chrono-node";
-import type { ParsedTask, TaskPriority, WhenBucket } from "@do-done/shared";
+import type { ParsedTask, TaskPriority } from "@do-done/shared";
+import { addDaysLocalISO, nextWeekdayLocalISO, todayLocalISO } from "@do-done/shared";
 import { detectRecurrence } from "./recurrence.js";
 
 const PRIORITY_PATTERNS: [RegExp, TaskPriority][] = [
@@ -22,30 +23,18 @@ const ESTIMATE_SHORTCUT_PATTERNS: [RegExp, number][] = [
   [/#l\b/i, 240],
 ];
 
-// /<command> slash commands for "when" scheduling.
-// Two flavors:
-//   - WHEN_DATE_PATTERNS resolve to a specific calendar date relative to ref
-//   - WHEN_BUCKET_PATTERNS resolve to a soft scheduling bucket
-// These are extracted BEFORE PROJECT_PATTERN so that "/today" doesn't get
-// mistakenly read as a project named "today".
-const WHEN_DATE_PATTERNS: [RegExp, (ref: Date) => Date][] = [
-  [/(?:^|\s)\/today\b/i, (ref) => ref],
-  [
-    /(?:^|\s)\/tomorrow\b/i,
-    (ref) => {
-      const d = new Date(ref);
-      d.setDate(d.getDate() + 1);
-      return d;
-    },
-  ],
-];
-
-const WHEN_BUCKET_PATTERNS: [RegExp, WhenBucket][] = [
-  // Match "/this-week" or "/this_week" or "/week" — all the same intent
-  [/(?:^|\s)\/(?:this[-_]week|week)\b/i, "this_week"],
-  [/(?:^|\s)\/next[-_]week\b/i, "next_week"],
-  [/(?:^|\s)\/later\b/i, "later"],
-  [/(?:^|\s)\/someday\b/i, "someday"],
+// /<command> slash commands for "when" scheduling. Each resolves to a specific
+// local calendar date relative to ref — DoDone has no fuzzy "buckets", so the
+// human-friendly words map straight to concrete days:
+//   /today → today, /tomorrow → +1, /week (a.k.a. /this-week) → this Friday,
+//   /weekend (a.k.a. /this-weekend) → upcoming Sunday, /next-week → exactly +7.
+// Extracted BEFORE PROJECT_PATTERN so "/today" isn't read as a project name.
+const WHEN_DATE_PATTERNS: [RegExp, (ref: Date) => string][] = [
+  [/(?:^|\s)\/today\b/i, (ref) => todayLocalISO(ref)],
+  [/(?:^|\s)\/tomorrow\b/i, (ref) => addDaysLocalISO(1, ref)],
+  [/(?:^|\s)\/next[-_]week\b/i, (ref) => addDaysLocalISO(7, ref)],
+  [/(?:^|\s)\/(?:this[-_])?weekend\b/i, (ref) => nextWeekdayLocalISO(0, ref)],
+  [/(?:^|\s)\/(?:this[-_]week|week)\b/i, (ref) => nextWeekdayLocalISO(5, ref)],
 ];
 
 // Reserved tokens that should not be treated as project names by PROJECT_PATTERN.
@@ -57,6 +46,11 @@ const RESERVED_SLASH_TOKENS = new Set([
   "this_week",
   "next-week",
   "next_week",
+  "weekend",
+  "this-weekend",
+  "this_weekend",
+  // Retired scheduling commands — kept reserved so a stray "/later" isn't
+  // misread as a project name; they simply have no effect now.
   "later",
   "someday",
   "p1",
@@ -93,25 +87,13 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     }
   }
 
-  // Extract /when slash commands. Resolve to either a specific date
-  // (when_date) or a soft bucket (when_bucket). Date wins if both
-  // somehow match — they're mutually exclusive per the schema.
+  // Extract /when slash commands — each resolves to a concrete when_date.
   let whenDate: string | undefined;
-  let whenBucket: WhenBucket | undefined;
   for (const [pattern, toDate] of WHEN_DATE_PATTERNS) {
     if (pattern.test(text)) {
-      whenDate = toISODate(toDate(ref));
+      whenDate = toDate(ref);
       text = text.replace(pattern, " ").trim();
       break;
-    }
-  }
-  if (!whenDate) {
-    for (const [pattern, bucket] of WHEN_BUCKET_PATTERNS) {
-      if (pattern.test(text)) {
-        whenBucket = bucket;
-        text = text.replace(pattern, " ").trim();
-        break;
-      }
     }
   }
 
@@ -212,7 +194,6 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
   return {
     title: title || raw.trim(),
     ...(whenDate && { when_date: whenDate }),
-    ...(whenBucket && { when_bucket: whenBucket }),
     ...(dueDate && { due_date: dueDate }),
     ...(dueTime && { due_time: dueTime }),
     ...(priority && { priority }),

@@ -450,7 +450,6 @@ export type TrackedField =
   | "priority"
   | "duration_minutes"
   | "when_date"
-  | "when_bucket"
   | "due_date"
   | "description"
   | "tags";
@@ -459,7 +458,6 @@ export const TRACKED_FIELDS: TrackedField[] = [
   "priority",
   "duration_minutes",
   "when_date",
-  "when_bucket",
   "due_date",
   "description",
   "tags",

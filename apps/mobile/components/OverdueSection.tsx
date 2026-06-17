@@ -10,6 +10,7 @@ import {
 import {
   PRIORITY_CONFIG,
   addDaysLocalISO,
+  resolveQuickSchedule,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Task, UpdateTaskInput } from '@do-done/shared';
@@ -18,35 +19,19 @@ import { hapticLight } from '@/lib/haptics';
 
 function buildReschedule(
   task: Task,
-  target:
-    | { kind: 'date'; date: string }
-    | { kind: 'bucket'; bucket: 'today' | 'tomorrow' | 'this_week' }
-    | { kind: 'remove' }
+  target: { kind: 'date'; date: string } | { kind: 'remove' }
 ): UpdateTaskInput {
-  const today = todayLocalISO();
   if (target.kind === 'remove') {
     return {
       when_date: null,
-      when_bucket: null,
       due_date: null,
       due_time: null,
     };
   }
-  if (target.kind === 'date') {
-    const input: UpdateTaskInput = {
-      when_date: target.date,
-      when_bucket: null,
-    };
-    if (task.due_date && task.due_date < target.date) {
-      input.due_date = target.date;
-    }
-    return input;
+  const input: UpdateTaskInput = { when_date: target.date };
+  if (task.due_date && task.due_date < target.date) {
+    input.due_date = target.date;
   }
-  const input: UpdateTaskInput = {
-    when_date: null,
-    when_bucket: target.bucket,
-  };
-  if (task.due_date && task.due_date < today) input.due_date = today;
   return input;
 }
 
@@ -154,7 +139,10 @@ export default function OverdueSection({
                 <Chip
                   label="This week"
                   onPress={() =>
-                    applyOne(t, { kind: 'bucket', bucket: 'this_week' })
+                    applyOne(t, {
+                      kind: 'date',
+                      date: resolveQuickSchedule('this_week'),
+                    })
                   }
                 />
                 <Chip

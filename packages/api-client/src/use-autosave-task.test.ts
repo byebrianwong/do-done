@@ -13,7 +13,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     project_id: null,
     when_date: null,
     when_time: null,
-    when_bucket: null,
     due_date: null,
     due_time: null,
     duration_minutes: null,
@@ -79,12 +78,12 @@ describe("shallowDiff", () => {
     expect(shallowDiff(a, b)).toEqual({ tags: ["web", "urgent"] });
   });
 
-  it("when_date ↔ when_bucket transition produces both fields", () => {
-    const a = makeTask({ when_date: "2026-05-12", when_bucket: null });
-    const b = makeTask({ when_date: null, when_bucket: "next_week" });
+  it("when_date and when_time change together produce both fields", () => {
+    const a = makeTask({ when_date: "2026-05-12", when_time: null });
+    const b = makeTask({ when_date: "2026-05-19", when_time: "09:00" });
     expect(shallowDiff(a, b)).toEqual({
-      when_date: null,
-      when_bucket: "next_week",
+      when_date: "2026-05-19",
+      when_time: "09:00",
     });
   });
 });
@@ -108,7 +107,6 @@ describe("toUpdateInput", () => {
       title: "T",
       priority: "p1",
       when_date: "2026-05-12",
-      when_bucket: null,
       tags: ["a", "b"],
     };
     expect(toUpdateInput(patch)).toEqual(patch);

@@ -27,7 +27,6 @@ function todayUniverse(allTasks: Task[]): Task[] {
   const focusIds = new Set(focus.map((t) => t.id));
   const otherToday = fresh.filter((t) => {
     if (focusIds.has(t.id)) return false;
-    if (t.when_bucket === "today") return true;
     const d = taskDate(t);
     return d !== null && d <= today;
   });

@@ -193,13 +193,12 @@ export const Cancelled: Story = {
 
 // ── Scheduling edge cases ──────────────────────────────────────────────
 
-export const SoftBucket: Story = {
-  name: "Soft bucket (someday)",
+export const Unscheduled: Story = {
+  name: "Unscheduled (no date)",
   args: {
     task: makeTask({
       title: "Read that systems-design book",
       priority: "p4",
-      when_bucket: "someday",
     }),
   },
 };

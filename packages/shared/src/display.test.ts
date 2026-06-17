@@ -33,7 +33,6 @@ function task(overrides: Partial<Task> = {}): Task {
     priority: "p4",
     project_id: null,
     when_date: null,
-    when_bucket: null,
     due_date: null,
     due_time: null,
     duration_minutes: null,

@@ -1,5 +1,7 @@
 # Implementation plan — Task input redesign
 
+> **Historical plan.** Executed as PRs #5–#10 in May 2026. **Superseded in part:** the `when_bucket` soft-scheduling column described throughout (PR 1 schema, PR 2 parser `/later` & `/someday`, the `WhenBucket` enum, the date/bucket mutual-exclusion rule) was **removed** by migration `20260616000001`. Scheduling is now always a concrete `when_date`; friendly labels resolve to real dates via `resolveQuickSchedule()`. Read the `when_bucket` sections below as historical context only.
+
 **Source of truth**: `~/.gstack/projects/byebrianwong-do-done/designs/task-input-20260510/round7-{desktop,mobile}.html`
 **Approved**: 2026-05-11 (round 7 of 7 iterations — see `approved.json` for history)
 **Branch base**: `main` (HEAD `8b78b55c4f` at planning time)

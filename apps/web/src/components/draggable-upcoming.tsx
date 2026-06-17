@@ -89,8 +89,8 @@ function DragHandleIndicator() {
 }
 
 // Sentinel "date" for the No-date group. Treated specially in the drag
-// handler: dropping a task here clears when_date / when_bucket; dragging
-// FROM here onto a real date sets when_date on the target.
+// handler: dropping a task here clears when_date; dragging FROM here onto a
+// real date sets when_date on the target.
 export const NO_DATE_KEY = "unscheduled";
 
 function DateGroup({
@@ -244,7 +244,6 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
         const updated = {
           ...moved,
           when_date: nextWhenDate,
-          when_bucket: toNoDate ? moved.when_bucket : null,
         };
         const nextTasks = new Map(tasks);
         nextTasks.set(activeId, updated);
@@ -257,14 +256,13 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
         input: {
           sort_order?: number;
           when_date?: string | null;
-          when_bucket?: null;
         };
       }> = [
         {
           id: activeId,
           input: toNoDate
             ? { when_date: null }
-            : { when_date: nextWhenDate as string, when_bucket: null },
+            : { when_date: nextWhenDate as string },
         },
       ];
       toIds.forEach((id, i) =>

@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Task, Project, UpdateTaskInput } from "@do-done/shared";
-import { PRIORITY_CONFIG } from "@do-done/shared";
+import {
+  PRIORITY_CONFIG,
+  addDaysLocalISO,
+  resolveQuickSchedule,
+  todayLocalISO,
+} from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
 export interface OverdueSectionProps {
@@ -11,53 +16,24 @@ export interface OverdueSectionProps {
   projects?: Project[];
 }
 
-function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
 /**
- * Build an UpdateTaskInput that moves an overdue task to a target when_date /
- * when_bucket, sliding any past due_date forward to keep the deadline plausible.
+ * Build an UpdateTaskInput that moves an overdue task to a target when_date,
+ * sliding any past due_date forward to keep the deadline plausible.
  */
 function buildRescheduleInput(
   task: Task,
-  target:
-    | { kind: "date"; date: string }
-    | { kind: "bucket"; bucket: "this_week" | "today" | "tomorrow" }
-    | { kind: "remove" }
+  target: { kind: "date"; date: string } | { kind: "remove" }
 ): UpdateTaskInput {
-  const today = todayISO();
   if (target.kind === "remove") {
     return {
       when_date: null,
-      when_bucket: null,
       due_date: null,
       due_time: null,
     };
   }
-  if (target.kind === "date") {
-    const input: UpdateTaskInput = {
-      when_date: target.date,
-      when_bucket: null,
-    };
-    if (task.due_date && task.due_date < target.date) {
-      input.due_date = target.date;
-    }
-    return input;
-  }
-  // bucket
-  const input: UpdateTaskInput = {
-    when_date: null,
-    when_bucket: target.bucket,
-  };
-  if (task.due_date && task.due_date < today) {
-    input.due_date = today;
+  const input: UpdateTaskInput = { when_date: target.date };
+  if (task.due_date && task.due_date < target.date) {
+    input.due_date = target.date;
   }
   return input;
 }
@@ -71,9 +47,9 @@ function OverdueRow({
 }) {
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const lateBy =
-    task.when_date && task.when_date < todayISO()
+    task.when_date && task.when_date < todayLocalISO()
       ? task.when_date
-      : task.due_date && task.due_date < todayISO()
+      : task.due_date && task.due_date < todayLocalISO()
       ? task.due_date
       : null;
   return (
@@ -93,27 +69,29 @@ function OverdueRow({
       <div className="flex flex-wrap justify-end gap-1">
         <button
           type="button"
-          onClick={() => onSelect({ kind: "date", date: todayISO() })}
+          onClick={() => onSelect({ kind: "date", date: todayLocalISO() })}
           className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
         >
           Today
         </button>
         <button
           type="button"
-          onClick={() => onSelect({ kind: "date", date: addDaysISO(1) })}
+          onClick={() => onSelect({ kind: "date", date: addDaysLocalISO(1) })}
           className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
         >
           Tomorrow
         </button>
         <button
           type="button"
-          onClick={() => onSelect({ kind: "bucket", bucket: "this_week" })}
+          onClick={() =>
+            onSelect({ kind: "date", date: resolveQuickSchedule("this_week") })
+          }
           className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
         >
           This week
         </button>
         <DatePickerChip
-          value={task.when_date ?? task.due_date ?? todayISO()}
+          value={task.when_date ?? task.due_date ?? todayLocalISO()}
           onPick={(date) => onSelect({ kind: "date", date })}
         />
         <button
@@ -142,7 +120,7 @@ function DatePickerChip({
       <input
         type="date"
         defaultValue={value}
-        min={todayISO()}
+        min={todayLocalISO()}
         onChange={(e) => onPick(e.target.value)}
         className="sr-only"
       />
@@ -183,7 +161,7 @@ export function OverdueSection({ tasks }: OverdueSectionProps) {
   async function rescheduleAllToToday() {
     setBusy(true);
     const api = await getClientTasksApi();
-    const target = { kind: "date" as const, date: todayISO() };
+    const target = { kind: "date" as const, date: todayLocalISO() };
     const updates = visible.map((t) => ({
       id: t.id,
       input: buildRescheduleInput(t, target),

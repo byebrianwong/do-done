@@ -15,7 +15,7 @@ Last updated: 2026-05-14 by Claude (Opus 4.7, 1M context). Most recent ship: PRs
 - **Tag editing in V2 (PR #18)** — three editing paths: click × on chip, click `+ tag` for inline input, or type `#tag<space>` in title (live-parsed out of the title into `tags`). Web + mobile.
 - **Pip positive redesign (PR #20)** — Pip is unambiguously positive now. Dropped the `sad` mood entirely; added four rotating positive variants (`curious`, `playful`, `cozy`, `thoughtful`) that cycle by 30-min time bucket when stats are healthy. Subtle CSS animations (breathe / blink / head tilt). Decay model rewritten: hunger ticks once per local midnight, happiness ticks once per local week-end-day, energy decays 1pt/hr only during waking hours (8a–8p local). Feeding is action-driven — hunger from completions sized by effort estimate, happiness from completions + on-time bonus, energy from creates (+5 plain / +10 rich) and from each tracked field that transitions from unset → set on an edit (+1). Settings panel exposes daily hunger drop, weekly happiness drop, and week-end-day. See "Pet redesign" section.
 - **Priority/Estimate UI polish (PR #21)** — bar selectors in the V2 modal got bigger (6-7×26-28 px) and column-wide hitboxes (clicking *anywhere* above a bar selects that value). The `PRI` and `EST` labels are now popover triggers that open a t-shirt picker (`P1 Urgent / P2 High / P3 Medium / P4 Low` and `XS 30 min or less / S ~1 hr / … / XL 16 hrs or more`). Web + mobile.
-- **New schema concepts in `tasks` table**: `when_date` (specific calendar day, separate from `due_date` which is now a hard deadline), `when_bucket` (fuzzy window — today/tomorrow/this_week/next_week/later/someday, mutually exclusive with `when_date`), `parent_task_id` + `depth` (subtask tree, max 3 levels deep, enforced by trigger). Migrations `20260512000001` and `20260512000002` applied to prod.
+- **New schema concepts in `tasks` table**: `when_date` (specific calendar day, separate from `due_date` which is now a hard deadline), `parent_task_id` + `depth` (subtask tree, max 3 levels deep, enforced by trigger). Migrations `20260512000001` and `20260512000002` applied to prod. **Update:** the original `when_bucket` fuzzy-window column was **removed** — scheduling is always a concrete `when_date`; friendly labels (Today / Tomorrow / This week → this Fri / This weekend → upcoming Sun / Next week → +7) resolve to real dates via `resolveQuickSchedule()`. Dropped by migration `20260616000001`.
 - **New `user_preferences` columns (PR #20)**: `hunger_daily_decay` (default 3), `happiness_weekly_decay` (default 10), `week_end_day` (0=Sun..6=Sat, default 0). Migration `20260513000001` applied to prod 2026-05-14.
 - **MCP wired into Claude Code** at user scope via `claude mcp add` — not via `claude_desktop_config.json` (see gotcha #11 below).
 - **Mobile testing path** stays Expo Go for now. EAS dev client build still not done — flagged as next step before testing widgets, voice input, or geofencing.
@@ -160,18 +160,17 @@ New columns on `tasks`:
 | Column | Type | Purpose |
 |---|---|---|
 | `when_date` | date, nullable | **Specific calendar day the user plans to do this task.** Things-3-style "do date". Distinct from `due_date` which is a hard deadline. |
-| `when_bucket` | text enum, nullable | **Fuzzy scheduling window**. One of `today / tomorrow / this_week / next_week / later / someday`. Used when the user picks a chip instead of a specific day. |
 | `parent_task_id` | uuid → tasks(id), nullable, ON DELETE CASCADE | Self-reference for subtasks. |
 | `depth` | integer 0..2, default 0 | Subtask depth enforced by `tasks_enforce_depth` trigger (0=main, 1=subtask, 2=sub-subtask). Sub-subtasks cannot have children. |
 
-**At most one of `when_date` / `when_bucket` is set per task** (Zod refinement in `@do-done/shared`; DB is permissive for future evolution). The V2 modal enforces this — picking a date clears the bucket and vice versa.
+> **Removed:** `when_bucket` (a `today/tomorrow/this_week/next_week/later/someday` text enum) was dropped by migration `20260616000001`. Scheduling is now always a concrete `when_date`; friendly quick-pick labels resolve to real dates via `resolveQuickSchedule()` in `@do-done/shared`.
 
 ### Files
 
 | Path | Purpose |
 |---|---|
-| `packages/shared/src/schemas.ts` | `TaskSchema` extended with the new fields; `WhenBucket` enum, `TaskDepth` union exported |
-| `packages/task-engine/src/parser.ts` | Slash commands (`/today`, `/tomorrow`, `/week`, `/next-week`, `/later`, `/someday`) + `~estimate` prefix |
+| `packages/shared/src/schemas.ts` | `TaskSchema` extended with the new fields; `TaskDepth` union exported. (`WhenBucket` enum was later removed.) |
+| `packages/task-engine/src/parser.ts` | Slash commands (`/today`, `/tomorrow`, `/week` → this Fri, `/weekend` → upcoming Sun, `/next-week` → +7) all resolve to `when_date`; `~estimate` prefix. (`/later` & `/someday` retired.) |
 | `packages/api-client/src/busyness.ts` | `BusynessApi` + `groupTasksByDate` + `buildDaysInRange` helpers |
 | `packages/api-client/src/use-autosave-task.ts` | `useAutoSaveTask(initial, tasksApi)` React hook, used by both web + mobile. **Must keep `"use client"` directive at top** (see gotcha #15) |
 | `packages/api-client/src/tasks.ts` | `getToday` / `getUpcoming` now query `when_date OR due_date` (both columns) and `status NOT IN ('done','archived')` so inbox tasks with dates show up. `taskDate(t)` helper returns `when_date ?? due_date` |
@@ -219,7 +218,7 @@ All decay is computed on-read in the user's local timezone — no background sch
 
 - **Task completion** (`applyTaskDeltas`): hunger += `hungerFromEstimate(duration_minutes)` (30m=1, 1h=2, 2h=3, 4h=4, 8h=5, ≥16h=6, null=1). Happiness += 2 base + `priorityHappinessBonus(priority)` (p4=+1, p3=+2, p2=+3, p1=+4) + 5 if completed on or before When/Due. Energy: 0 from completion.
 - **Task create** (`applyCreateEnergy`): +5 plain, +10 if (effort estimate AND non-default priority) or description set.
-- **Task edit** (`applyEditEnergy`): +1 per tracked field that transitions from unset → set. Tracked fields: priority (p4 → other counts), duration_minutes, when_date, when_bucket, due_date, description, tags ([] → non-empty). Re-editing an already-set field gives 0 (prevents farming).
+- **Task edit** (`applyEditEnergy`): +1 per tracked field that transitions from unset → set. Tracked fields: priority (p4 → other counts), duration_minutes, when_date, due_date, description, tags ([] → non-empty). Re-editing an already-set field gives 0 (prevents farming).
 
 `TasksApi.create` and `TasksApi.update` both fire these feedings behind a best-effort try/catch so pet plumbing can never break task writes. Update does one extra SELECT for the prior row so transitions can be diffed.
 
@@ -365,6 +364,7 @@ This is how PRs #5–#15 were merged. **Vercel still runs its build before the P
 | `apps/mobile/app.config.ts` | Adds `extra.git = gitInfo()` so DevBanner can read it via `Constants.expoConfig.extra` |
 | `supabase/migrations/20260501*` | Pet tables, RLS, indexes (use `gen_random_uuid()`) |
 | `supabase/migrations/20260512*` | Task redesign: `when_date`, `when_bucket`, `parent_task_id`, `depth` + depth-enforce trigger |
+| `supabase/migrations/20260616000001` | Drops `when_bucket` (soft buckets retired; scheduling is always a real `when_date`) |
 | `apps/web/src/components/task-edit-modal-v2.tsx` | V2 task modal (web). Single file with all sub-components inline |
 | `apps/web/src/app/api/calendar/busyness/route.ts` | Merges tasks (BusynessApi) + Google Calendar events (server-side) for the V2 modal's calendar dots |
 | `apps/mobile/components/TaskEditModalV2.tsx` | V2 task modal (mobile). Same components in RN primitives, no calendar event fetch |
@@ -446,6 +446,6 @@ supabase db push                                 # apply new migrations
 - **DevBanner says `main · <sha>` when you expected your fix branch**: your local checkout didn't actually switch — `git checkout fix/...` may have failed silently (e.g. the branch is already checked out in a worktree). Run `git status` to confirm.
 - **Pet MCP tools missing in Claude Code**: stale `apps/mcp/dist/`. See gotcha #12 — rebuild `packages/*` first, then `apps/mcp`, then restart Claude Code.
 - **Vercel build fails with "useEffect into a React Server Component"**: a new React hook landed in a shared package without `"use client"` at the top of the file. See gotcha #15. Add the directive at the very first line of the file.
-- **A user reports "I scheduled a task but it doesn't show up in Today/Upcoming"**: check whether they're picking `when_bucket` (later / someday) rather than a calendar day — bucket-only tasks don't appear in date views. Also confirm the queries in `tasks.ts` haven't been narrowed back to `IN ('todo','in_progress')` — they need `NOT IN ('done','archived')` to include inbox tasks with dates. See gotcha #16.
+- **A user reports "I scheduled a task but it doesn't show up in Today/Upcoming"**: every schedule is now a concrete `when_date` (no soft buckets), so confirm the queries in `tasks.ts` haven't been narrowed back to `IN ('todo','in_progress')` — they need `NOT IN ('done','archived')` to include inbox tasks with dates. See gotcha #16.
 - **"Upcoming" returns nothing for a future-dated task**: `getUpcoming(days)` is bounded to `today..today+days`. Default is 30. If a task is scheduled further out, increase the days arg or check `taskDate(t)` directly.
 - **Schema migration trigger throws "cannot nest deeper than 3 levels"**: a subtask is trying to be created under a depth-2 parent. That's intentional per the design (3 levels max). The UI should hide the "+ add subtask" affordance on depth-2 tasks; if it's exposed, that's a UI bug.

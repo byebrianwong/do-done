@@ -52,17 +52,18 @@ function effectiveDate(t: Task): string | null {
   return t.when_date ?? t.due_date ?? null;
 }
 
-// What dropping into a date section should do to a task's schedule.
+// What dropping into a date section should do to a task's schedule. Every
+// section maps to a concrete date (or clears it) — no soft buckets.
 function sectionTarget(key: string): UpdateTaskInput {
-  if (key === 'overdue') return { when_date: todayLocalISO(), when_bucket: null };
-  if (key === 'later') return { when_date: null, when_bucket: 'later' };
-  if (key === 'anytime') return { when_date: null, when_bucket: null };
-  if (key === 'someday') return { when_date: null, when_bucket: 'someday' };
-  return { when_date: key, when_bucket: null }; // a YYYY-MM-DD day
+  if (key === 'overdue') return { when_date: todayLocalISO() };
+  if (key === 'anytime') return { when_date: null };
+  // "Later" = beyond the horizon; drop lands on the first day past it.
+  if (key === 'later') return { when_date: addDaysLocalISO(HORIZON_DAYS + 1) };
+  return { when_date: key }; // a YYYY-MM-DD day
 }
 
 // Build ordered date sections: Overdue → Today → Tomorrow → each dated day in
-// the horizon → Later → Anytime → Someday.
+// the horizon → Later (beyond the horizon) → Anytime (undated).
 function buildSections(tasks: Task[]): DraggableSection[] {
   const today = todayLocalISO();
   const tomorrow = addDaysLocalISO(1);
@@ -75,7 +76,6 @@ function buildSections(tasks: Task[]): DraggableSection[] {
   ]);
   const later: Task[] = [];
   const anytime: Task[] = [];
-  const someday: Task[] = [];
 
   const push = (k: string, t: Task) => {
     const a = byDate.get(k) ?? [];
@@ -93,25 +93,8 @@ function buildSections(tasks: Task[]): DraggableSection[] {
     if (d) {
       if (d <= horizonEnd) push(d, t);
       else later.push(t);
-      continue;
-    }
-    switch (t.when_bucket) {
-      case 'today':
-        push(today, t);
-        break;
-      case 'tomorrow':
-        push(tomorrow, t);
-        break;
-      case 'someday':
-        someday.push(t);
-        break;
-      case 'this_week':
-      case 'next_week':
-      case 'later':
-        later.push(t);
-        break;
-      default:
-        anytime.push(t);
+    } else {
+      anytime.push(t);
     }
   }
 
@@ -123,7 +106,6 @@ function buildSections(tasks: Task[]): DraggableSection[] {
   }
   if (later.length) out.push({ key: 'later', title: 'Later', data: later });
   if (anytime.length) out.push({ key: 'anytime', title: 'Anytime', data: anytime });
-  if (someday.length) out.push({ key: 'someday', title: 'Someday', data: someday });
   return out;
 }
 
