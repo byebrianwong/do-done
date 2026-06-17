@@ -17,6 +17,9 @@ export interface TaskDisplayViewProps {
   subtitle?: string;
   /** Shown when there are no tasks at all (vs. none matching the filters). */
   emptyText?: string;
+  /** Show the per-section inline "Add task" affordance. Defaults to true; pass
+   *  false for read-only lists like Completed. */
+  quickAdd?: boolean;
 }
 
 /**
@@ -31,6 +34,7 @@ export function TaskDisplayView({
   title,
   subtitle,
   emptyText = "No tasks yet.",
+  quickAdd = true,
 }: TaskDisplayViewProps) {
   const { config, setConfig, reset, isDefault } = useDisplayConfig(viewKey);
 
@@ -70,7 +74,12 @@ export function TaskDisplayView({
           <p className="text-sm text-neutral-400">{emptyText}</p>
         </div>
       ) : (
-        <DraggableTaskGroups tasks={tasks} projects={projects} config={config} />
+        <DraggableTaskGroups
+          tasks={tasks}
+          projects={projects}
+          config={config}
+          quickAdd={quickAdd}
+        />
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import type { Project } from "@do-done/shared";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { PetPanelContainer } from "@/components/pet/PetPanelContainer";
 import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/command-palette";
+import { QuickAddFab } from "@/components/quick-add-fab";
 
 /**
  * Responsive application shell.
@@ -194,6 +195,8 @@ export function AppShell({
           <PetPanelContainer className="border-l border-neutral-200 dark:border-neutral-800" />
         ) : null}
       </div>
+
+      <QuickAddFab hasPetPanel={!!userEmail} hidden={drawerOpen} />
     </div>
   );
 }

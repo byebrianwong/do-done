@@ -6,6 +6,7 @@ import { PRIORITY_CONFIG } from "@do-done/shared";
 import type { Project, Task } from "@do-done/shared";
 import { TasksApi } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
+import { openQuickAdd } from "@/lib/quick-add-events";
 
 // Window event other components (e.g. the mobile top-bar search button) can
 // dispatch to open the palette without a physical keyboard.
@@ -188,6 +189,14 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
 
   const actionCommands: Command[] = useMemo(
     () => [
+      {
+        id: "action-new-task",
+        kind: "action",
+        title: "New task",
+        subtitle: "Quick add a task",
+        onRun: () => openQuickAdd(),
+        icon: <NavIcon path="M12 4v16m8-8H4" />,
+      },
       {
         id: "action-new-project",
         kind: "action",
