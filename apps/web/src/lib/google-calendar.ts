@@ -1,6 +1,7 @@
 import "server-only";
 import { google, type calendar_v3 } from "googleapis";
 import type { Task } from "@do-done/shared";
+import { zonedClockToUtc } from "@do-done/shared";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
@@ -71,13 +72,19 @@ export function calendarClientFor(refreshToken: string) {
  * Tasks tagged with the SYNC_TAG identifier in `extendedProperties.private`
  * so we can recognize our own events when pulling changes.
  */
-export function taskToEvent(task: Task): calendar_v3.Schema$Event | null {
+export function taskToEvent(
+  task: Task,
+  timeZone: string
+): calendar_v3.Schema$Event | null {
   if (!task.due_date || !task.duration_minutes) return null;
 
-  const startIso = task.due_time
-    ? `${task.due_date}T${task.due_time}:00`
-    : `${task.due_date}T09:00:00`;
-  const start = new Date(startIso);
+  // The task's due_date + due_time are wall-clock values in the USER's
+  // timezone. Resolve them to an absolute instant in that zone — `new
+  // Date("…T09:00:00")` would interpret them in the server's zone (UTC on a
+  // deployed host), pushing a 9 AM task to 9:00 UTC (2 AM for a Pacific user).
+  const [y, m, d] = task.due_date.split("-").map(Number);
+  const [hh, mm] = (task.due_time ?? "09:00").split(":").map(Number);
+  const start = zonedClockToUtc(y, m, d, hh, mm, timeZone);
   const end = new Date(start.getTime() + task.duration_minutes * 60 * 1000);
 
   return {
@@ -96,9 +103,10 @@ export function taskToEvent(task: Task): calendar_v3.Schema$Event | null {
 
 export async function pushTaskToCalendar(
   refreshToken: string,
-  task: Task
+  task: Task,
+  timeZone: string
 ): Promise<string | null> {
-  const event = taskToEvent(task);
+  const event = taskToEvent(task, timeZone);
   if (!event) return null;
 
   const calendar = calendarClientFor(refreshToken);

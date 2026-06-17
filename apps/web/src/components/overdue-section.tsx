@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Task, Project, UpdateTaskInput } from "@do-done/shared";
-import { PRIORITY_CONFIG } from "@do-done/shared";
+import { PRIORITY_CONFIG, todayLocalISO, addDaysLocalISO } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
 export interface OverdueSectionProps {
@@ -11,15 +11,11 @@ export interface OverdueSectionProps {
   projects?: Project[];
 }
 
-function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
+// Device-local day helpers. The previous `toISOString().split()` versions were
+// UTC, so "Today"/"Tomorrow" reschedules and the "late by" labels could land a
+// day off for any user not in UTC.
+const todayISO = () => todayLocalISO();
+const addDaysISO = (days: number) => addDaysLocalISO(days);
 
 /**
  * Build an UpdateTaskInput that moves an overdue task to a target when_date /

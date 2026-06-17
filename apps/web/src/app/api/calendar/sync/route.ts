@@ -1,10 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { TasksApi } from "@do-done/api-client";
+import { wallClockInZone } from "@do-done/shared";
 import {
   pushTaskToCalendar,
   pullCalendarChanges,
 } from "@/lib/google-calendar";
+
+// Matches UserPreferencesSchema's default — used when a user has no prefs row.
+const DEFAULT_TIMEZONE = "America/New_York";
 
 export async function POST(request: NextRequest) {
   const supabase = await createServerSupabase();
@@ -30,6 +34,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Tasks store wall-clock dates/times in the user's timezone; pushing to and
+  // pulling from Google needs that zone to convert to/from absolute instants.
+  const { data: prefs } = await supabase
+    .from("user_preferences")
+    .select("timezone")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const timeZone = prefs?.timezone ?? DEFAULT_TIMEZONE;
+
   const tasks = new TasksApi(supabase, user.id);
   const stats = { pushed: 0, pulled: 0, errors: [] as string[] };
 
@@ -48,7 +61,8 @@ export async function POST(request: NextRequest) {
       try {
         const eventId = await pushTaskToCalendar(
           sync.google_refresh_token,
-          task
+          task,
+          timeZone
         );
         if (eventId && eventId !== task.calendar_event_id) {
           await tasks.update(task.id, { calendar_event_id: eventId });
@@ -74,9 +88,9 @@ export async function POST(request: NextRequest) {
       if (change.status === "cancelled") {
         await tasks.update(change.taskId, { calendar_event_id: null });
       } else if (change.start) {
-        const startDate = change.start.toISOString();
-        const date = startDate.split("T")[0];
-        const time = startDate.split("T")[1].slice(0, 5);
+        // change.start is an absolute instant; store the date/time the user
+        // sees on their wall clock, not the UTC representation.
+        const { date, time } = wallClockInZone(change.start, timeZone);
         const durationMinutes = change.end
           ? Math.round((change.end.getTime() - change.start.getTime()) / 60000)
           : null;
