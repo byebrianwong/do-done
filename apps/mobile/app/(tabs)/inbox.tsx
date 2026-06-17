@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, RefreshControl } from 'react-native';
+import { Pressable, View, Text, StyleSheet, RefreshControl } from 'react-native';
 import DraggableFlatList, {
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
@@ -12,6 +15,8 @@ import { useRefreshOnFocus } from '@/lib/query-client';
 import type { Task } from '@do-done/shared';
 
 export default function InboxScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { data: tasks = [], isLoading, isRefetching, refetch } = useInboxTasks();
   const [order, setOrder] = useState<Task[]>([]);
   const [editing, setEditing] = useState<Task | null>(null);
@@ -42,6 +47,19 @@ export default function InboxScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <Text style={styles.topTitle}>Inbox</Text>
+        <View style={styles.topActions}>
+          <Pressable
+            onPress={() => router.push('/search' as never)}
+            hitSlop={8}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="search" size={22} color="#6366f1" />
+          </Pressable>
+        </View>
+      </View>
+
       <DraggableFlatList
         data={order}
         keyExtractor={(item) => item.id}
@@ -82,6 +100,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  iconBtn: { padding: 4 },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: {
     paddingBottom: 140,
