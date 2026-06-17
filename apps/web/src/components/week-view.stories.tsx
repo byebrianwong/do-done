@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { WeekView } from "./week-view";
 import { makeTask, SAMPLE_PROJECTS, getMonday } from "./__stories__/mocks";
-import type { Task } from "@do-done/shared";
+import { todayLocalISO, type Task } from "@do-done/shared";
 
 const meta: Meta<typeof WeekView> = {
   title: "Components/WeekView",
@@ -27,7 +27,7 @@ const monday = new Date(getMonday());
 function dayOffset(days: number): string {
   const d = new Date(monday);
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  return todayLocalISO(d);
 }
 
 const busyWeek: Task[] = [
@@ -99,7 +99,7 @@ const busyWeek: Task[] = [
 
 export const BusyWeek: Story = {
   args: {
-    weekStart: monday.toISOString(),
+    weekStart: todayLocalISO(monday),
     tasks: busyWeek,
     projects: SAMPLE_PROJECTS,
   },
@@ -107,7 +107,7 @@ export const BusyWeek: Story = {
 
 export const Empty: Story = {
   args: {
-    weekStart: monday.toISOString(),
+    weekStart: todayLocalISO(monday),
     tasks: [],
     projects: SAMPLE_PROJECTS,
   },
@@ -115,7 +115,7 @@ export const Empty: Story = {
 
 export const SparseTasks: Story = {
   args: {
-    weekStart: monday.toISOString(),
+    weekStart: todayLocalISO(monday),
     tasks: [
       makeTask({
         title: "Doctor appointment",
@@ -139,7 +139,7 @@ export const SparseTasks: Story = {
 export const CompletedTasks: Story = {
   name: "Completed (rendered with reduced opacity)",
   args: {
-    weekStart: monday.toISOString(),
+    weekStart: todayLocalISO(monday),
     tasks: [
       makeTask({
         title: "Morning workout",

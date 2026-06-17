@@ -1033,7 +1033,11 @@ function WhenCalendar({
         >
           Next week
         </button>
-        <DueDateField value={dueDate} onChange={onChangeDueDate} />
+        <DueDateField
+          value={dueDate}
+          whenDate={whenDate}
+          onChange={onChangeDueDate}
+        />
       </div>
 
       {/* Expanded month scroll view */}
@@ -1289,21 +1293,46 @@ function formatDueShort(value: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Quick-pick deadlines for the due-date popover. `whenDate` (the task's "do
+// date") is threaded in so "Same as task date" can mirror it. Pure given a
+// reference `today`, so the labels track the real calendar.
+function dueQuickOptions(
+  today: Date,
+  whenDate: string | null
+): { key: string; label: string; date: string }[] {
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  // "This weekend" = the upcoming Sunday (the day that closes the current
+  // Sunday-start week); never today, so a Sunday rolls to the next one.
+  const sunday = new Date(today);
+  sunday.setDate(sunday.getDate() + ((7 - today.getDay()) % 7 || 7));
+  const nextWeek = new Date(today);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+
+  const opts: { key: string; label: string; date: string }[] = [];
+  if (whenDate) opts.push({ key: "task", label: "Same as task date", date: whenDate });
+  opts.push({ key: "tomorrow", label: "Tomorrow", date: ymd(tomorrow) });
+  opts.push({ key: "weekend", label: "This weekend", date: ymd(sunday) });
+  opts.push({ key: "nextweek", label: "Next week", date: ymd(nextWeek) });
+  return opts;
+}
+
 function DueDateField({
   value,
+  whenDate,
   onChange,
 }: {
   value: string | null;
+  whenDate: string | null;
   onChange: (v: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
 
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+  // Computed each render so "Tomorrow"/"This weekend"/"Next week" stay anchored
+  // to the real today (cheap — four Date objects).
+  const quickOptions = dueQuickOptions(new Date(), whenDate);
 
   const active = !!value;
   return (
@@ -1327,13 +1356,50 @@ function DueDateField({
         <div
           role="dialog"
           aria-label="Due date"
-          className="absolute right-0 top-full z-20 mt-2 w-56 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+          className="absolute right-0 top-full z-20 mt-2 w-60 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
         >
           <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
             <CheckeredFlagIcon className="h-3 w-3" /> Due date
           </div>
+          {/* Common deadlines — one tap, no scrubbing through a date input. */}
+          <div className="flex flex-col gap-0.5">
+            {quickOptions.map((opt) => {
+              const selected = value === opt.date;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.date);
+                    setOpen(false);
+                  }}
+                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+                    selected
+                      ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/70 dark:text-amber-200 dark:ring-amber-900"
+                      : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  <span
+                    className={`text-[11px] tabular-nums ${
+                      selected
+                        ? "text-amber-600 dark:text-amber-300"
+                        : "text-neutral-400"
+                    }`}
+                  >
+                    {formatDueShort(opt.date)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/* Escape hatch for any other date. */}
+          <div className="mt-2.5 mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-300 dark:text-neutral-600">
+            <span className="h-px flex-1 bg-neutral-100 dark:bg-neutral-800" />
+            or a specific date
+            <span className="h-px flex-1 bg-neutral-100 dark:bg-neutral-800" />
+          </div>
           <input
-            ref={inputRef}
             type="date"
             value={value ?? ""}
             onChange={(e) => onChange(e.target.value || null)}
@@ -1380,10 +1446,29 @@ function ClockIcon({ className }: { className?: string }) {
   );
 }
 
-// Optional time-of-day for the when_date "do date". Mirrors DueDateField's
-// popover shape but in indigo (the "when" accent) with a native time input —
-// distinct from the amber/checkered-flag deadline styling. Only meaningful
-// when a when_date is set, so the caller gates rendering on that.
+// Every half hour across the day, as "HH:MM". Built once — the time scroller
+// renders these as quick-pick rows.
+const TIME_SLOTS: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 0; h < 24; h++) {
+    out.push(`${String(h).padStart(2, "0")}:00`);
+    out.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  return out;
+})();
+
+// Round wall-clock `now` to the nearest hour, as an "HH:00" slot. Anchors the
+// scroller near "now" when it opens (2:03pm → "14:00", 2:45pm → "15:00").
+function nearestHourSlot(now: Date): string {
+  const h = (now.getHours() + Math.round(now.getMinutes() / 60)) % 24;
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+// Optional time-of-day for the when_date "do date". Indigo (the "when" accent),
+// distinct from the amber/checkered-flag deadline styling. Only meaningful when
+// a when_date is set, so the caller gates rendering on that. Picking is a quick
+// scroll through half-hour slots (auto-centered on the hour nearest now); the
+// precise native input is tucked behind "Specific time" for the rare case.
 function WhenTimeField({
   value,
   onChange,
@@ -1392,20 +1477,41 @@ function WhenTimeField({
   onChange: (v: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [showSpecific, setShowSpecific] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
 
+  // A value set via the precise input can land off the half-hour grid; in that
+  // case anchor the scroller on "now" and force the precise input open (the
+  // grid can't represent that value).
+  const onGrid = value != null && TIME_SLOTS.includes(value);
+  const offGrid = value != null && !onGrid;
+  const anchorSlot = onGrid ? value! : nearestHourSlot(new Date());
+  const specificVisible = showSpecific || offGrid;
+
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+    if (!open) return;
+    // Center the anchor row without scrolling the whole modal.
+    const list = listRef.current;
+    const anchor = anchorRef.current;
+    if (list && anchor) {
+      list.scrollTop =
+        anchor.offsetTop - list.clientHeight / 2 + anchor.clientHeight / 2;
+    }
+  }, [open, anchorSlot]);
 
   const active = !!value;
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Collapse the precise input each time we (re)open.
+          if (!open) setShowSpecific(false);
+          setOpen((o) => !o);
+        }}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={value ? `At ${formatWhenTime(value)}` : "Set a time"}
@@ -1422,21 +1528,61 @@ function WhenTimeField({
         <div
           role="dialog"
           aria-label="Do time"
-          className="absolute left-0 top-full z-20 mt-2 w-52 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+          className="absolute left-0 top-full z-20 mt-2 w-44 rounded-lg border border-neutral-200 bg-white p-2 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
         >
-          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+          <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
             <ClockIcon className="h-3 w-3" /> Time
           </div>
-          <input
-            ref={inputRef}
-            type="time"
-            value={value ?? ""}
-            onChange={(e) => onChange(e.target.value || null)}
-            className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
-          />
-          <div className="mt-1.5 text-[10px] leading-snug text-neutral-400">
-            Time you plan to start — optional.
+          <div
+            ref={listRef}
+            className="max-h-[196px] overflow-y-auto overscroll-contain rounded-md [scrollbar-color:rgb(212_212_212)_transparent] [scrollbar-width:thin] dark:[scrollbar-color:rgb(64_64_64)_transparent]"
+          >
+            {TIME_SLOTS.map((slot) => {
+              const selected = value === slot;
+              const isAnchor = slot === anchorSlot;
+              return (
+                <button
+                  key={slot}
+                  ref={isAnchor ? anchorRef : undefined}
+                  type="button"
+                  onClick={() => {
+                    onChange(slot);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
+                    selected
+                      ? "bg-indigo-500 text-white"
+                      : isAnchor
+                        ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+                        : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                  }`}
+                >
+                  <span className="tabular-nums">{formatWhenTime(slot)}</span>
+                  {isAnchor && !selected ? (
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400">
+                      now
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowSpecific((s) => !s)}
+            aria-expanded={specificVisible}
+            className="mt-1.5 w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
+          >
+            {specificVisible ? "▾ Specific time" : "▸ Specific time"}
+          </button>
+          {specificVisible ? (
+            <input
+              type="time"
+              value={value ?? ""}
+              onChange={(e) => onChange(e.target.value || null)}
+              className="mt-1 w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+            />
+          ) : null}
           {value ? (
             <button
               type="button"
@@ -1445,7 +1591,7 @@ function WhenTimeField({
                 setOpen(false);
               }}
               aria-label="Clear time"
-              className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+              className="mt-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
             >
               × Clear
             </button>

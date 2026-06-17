@@ -341,9 +341,19 @@ export class TasksApi {
     // BETWEEN today and today+days. Past-dated tasks are not "upcoming"
     // — overdue tasks live in Today. Undated tasks have no place here.
     //
+    // The lower bound is `today − 1`, NOT `today`. This query runs on the
+    // server, so `todayLocalISO()` is the *server's* calendar day (UTC on a
+    // deployed host). The Upcoming view buckets rows on the client using the
+    // browser's local day. For a user behind UTC, the server rolls over to
+    // "tomorrow" late in their evening, so a strict `when_date >= server-today`
+    // silently dropped every task they had scheduled for their local today.
+    // The one-day buffer absorbs that ≤1-day skew (server is UTC; any client
+    // is at most a calendar day off); the client — the authority on the user's
+    // real day — discards anything genuinely before its local today.
+    //
     // Status filter mirrors getToday — inbox tasks with a future date
     // are upcoming even if the user hasn't promoted them to todo yet.
-    const today = todayLocalISO();
+    const start = addDaysLocalISO(-1);
     const endDate = addDaysLocalISO(days);
 
     let query = this.supabase
@@ -351,7 +361,7 @@ export class TasksApi {
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
       .or(
-        `and(when_date.gte.${today},when_date.lte.${endDate}),and(due_date.gte.${today},due_date.lte.${endDate})`
+        `and(when_date.gte.${start},when_date.lte.${endDate}),and(due_date.gte.${start},due_date.lte.${endDate})`
       )
       .order("when_date", { nullsFirst: false })
       .order("due_date", { nullsFirst: false })

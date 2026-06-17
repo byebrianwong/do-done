@@ -45,9 +45,14 @@ jobs:
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          # Pass the commit message via env (not inline ${{ }}) so messages with
+          # parens/quotes/backticks can't break — or inject into — the shell.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
+          MSG="${COMMIT_MSG%%$'\n'*}"   # first line only
+          MSG="${MSG:-manual update}"   # fallback for manual (workflow_dispatch) runs
           npx eas-cli@latest update \
             --branch preview \
             --environment preview \
-            --message "${{ github.event.head_commit.message || 'manual update' }}" \
+            --message "$MSG" \
             --non-interactive

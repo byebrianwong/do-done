@@ -2,8 +2,6 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
 const TINT_COLOR = '#6366f1';
 
 export default function TabLayout() {
@@ -11,7 +9,10 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: TINT_COLOR,
-        headerShown: useClientOnlyValue(false, true),
+        // Each tab renders its own in-content title bar (see the `topBar` in
+        // every screen), so the native navigation header would just duplicate
+        // it and waste vertical space.
+        headerShown: false,
       }}
     >
       <Tabs.Screen

@@ -1,6 +1,6 @@
 "use client";
 
-import { addDaysLocalISO, isManualSort, type Project, type Task } from "@do-done/shared";
+import { addDaysLocalISO, isManualSort, todayLocalISO, type Project, type Task } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
@@ -27,6 +27,11 @@ function formatDayHeading(dateStr: string): string {
 function buildDateGroups(
   tasks: Task[]
 ): { date: string; label: string; tasks: Task[]; emptyHint?: string }[] {
+  // The browser's local day is the authority on "today". getUpcoming fetches
+  // a one-day skew buffer (its lower bound is server-today − 1), so any dated
+  // row before local today is genuinely overdue — it belongs in Today, not
+  // here. Drop it rather than spill a stray trailing day-group.
+  const today = todayLocalISO();
   const undated: Task[] = [];
   const byDate = new Map<string, Task[]>();
   for (const t of tasks) {
@@ -35,6 +40,7 @@ function buildDateGroups(
       undated.push(t);
       continue;
     }
+    if (d < today) continue;
     const list = byDate.get(d) ?? [];
     list.push(t);
     byDate.set(d, list);
