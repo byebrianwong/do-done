@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,11 @@ import {
   Pressable,
   StyleSheet,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
@@ -34,14 +36,78 @@ function SettingsRow({ icon, label, value, onPress }: SettingsRowProps) {
   );
 }
 
+/** A read-only info row (no tap target / chevron). */
+function InfoRow({ icon, label, value }: Omit<SettingsRowProps, 'onPress'>) {
+  return (
+    <View style={styles.row}>
+      <Ionicons name={icon} size={20} color="#6b7280" style={styles.rowIcon} />
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValueStrong} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const { session } = useAuth();
   const router = useRouter();
+  const [checking, setChecking] = useState(false);
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const sha =
     (Constants.expoConfig?.extra?.git as { sha?: string } | undefined)?.sha ??
     'dev';
+
+  // Live info about the currently-running JS bundle (embedded vs OTA update).
+  const { currentlyRunning } = Updates.useUpdates();
+  const onOta = Updates.isEnabled && !currentlyRunning.isEmbeddedLaunch;
+  const sourceLabel = !Updates.isEnabled
+    ? 'Dev (updates off)'
+    : onOta
+      ? 'OTA update'
+      : 'Built-in build';
+  const updatedAt = currentlyRunning.createdAt
+    ? currentlyRunning.createdAt.toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : '—';
+  const channel = currentlyRunning.channel ?? Updates.channel ?? '—';
+
+  async function checkForUpdates() {
+    if (!Updates.isEnabled) {
+      Alert.alert(
+        'Updates disabled',
+        'Over-the-air updates only run in a release build, not in development.'
+      );
+      return;
+    }
+    setChecking(true);
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (result.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          'Update downloaded',
+          'A newer version is ready. Restart to apply it now?',
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Restart', onPress: () => Updates.reloadAsync() },
+          ]
+        );
+      } else {
+        Alert.alert('Up to date', "You're running the latest published version.");
+      }
+    } catch (e) {
+      Alert.alert(
+        'Check failed',
+        e instanceof Error ? e.message : 'Could not check for updates.'
+      );
+    } finally {
+      setChecking(false);
+    }
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -85,17 +151,40 @@ export default function SettingsScreen() {
         />
       </View>
 
-      <Text style={styles.sectionHeader}>About</Text>
+      <Text style={styles.sectionHeader}>App version</Text>
       <View style={styles.section}>
-        <SettingsRow
+        <InfoRow
           icon="information-circle-outline"
           label="Version"
           value={`${version} (${sha})`}
-          onPress={() =>
-            Alert.alert('DoDone', `Version ${version}\nBuild ${sha}`)
-          }
         />
+        <InfoRow icon="git-branch-outline" label="Channel" value={channel} />
+        <InfoRow
+          icon={onOta ? 'cloud-done-outline' : 'phone-portrait-outline'}
+          label="Running"
+          value={sourceLabel}
+        />
+        <InfoRow icon="time-outline" label="Last updated" value={updatedAt} />
       </View>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.updateButton,
+          pressed && styles.updateButtonPressed,
+        ]}
+        onPress={checkForUpdates}
+        disabled={checking}
+      >
+        {checking ? (
+          <ActivityIndicator color="#6366f1" />
+        ) : (
+          <Text style={styles.updateText}>Check for updates</Text>
+        )}
+      </Pressable>
+      <Text style={styles.updateHint}>
+        New versions ship automatically — fully close and reopen the app to pick
+        them up, or tap above to check now.
+      </Text>
 
       <Pressable
         style={({ pressed }) => [
@@ -158,6 +247,12 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginRight: 8,
   },
+  rowValueStrong: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginLeft: 8,
+    maxWidth: '55%',
+  },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -190,6 +285,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9ca3af',
     marginTop: 2,
+  },
+  updateButton: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#c7d2fe',
+  },
+  updateButtonPressed: {
+    backgroundColor: '#eef2ff',
+  },
+  updateText: {
+    color: '#6366f1',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  updateHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginHorizontal: 16,
+    marginTop: 8,
+    lineHeight: 17,
   },
   signoutButton: {
     backgroundColor: '#fff',
