@@ -78,6 +78,23 @@ export function buildCreateInput(
 }
 
 /**
+ * Layer explicit, user-chosen fields (e.g. the quick-add modal's When / Priority
+ * / Project / Estimate chips) on top of a built input. These win over both the
+ * parsed text and the section seed, since picking a chip is a deliberate act.
+ * Keeps when_date / when_bucket mutually exclusive.
+ */
+export function applyOverride(
+  input: CreateTaskInput,
+  override: Partial<CreateTaskInput>
+): CreateTaskInput {
+  const merged: CreateTaskInput = { ...input, ...override };
+  if (override.when_date != null) delete merged.when_bucket;
+  else if (override.when_bucket != null) delete merged.when_date;
+  if (merged.when_date && merged.when_bucket) delete merged.when_bucket;
+  return merged;
+}
+
+/**
  * Turn a group's drop target into the quick-add seed for that section. Mirrors
  * `patchForDrop` in draggable-task-groups.tsx so "drop into" and "add into" a
  * group agree. Groups with no single mutable axis (no-date, tags) and

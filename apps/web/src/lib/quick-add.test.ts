@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyOverride,
   buildCreateInput,
   seedFromDrop,
   seedFromUpcomingDate,
@@ -74,5 +75,23 @@ describe("seedFromUpcomingDate", () => {
   it("seeds when_date for a real date and nothing for the sentinel", () => {
     expect(seedFromUpcomingDate("2026-06-20")).toEqual({ when_date: "2026-06-20" });
     expect(seedFromUpcomingDate("unscheduled")).toEqual({});
+  });
+});
+
+describe("applyOverride", () => {
+  it("lets explicit fields win over the built input", () => {
+    const built = buildCreateInput("call mom p1", {}, REF);
+    const out = applyOverride(built, { priority: "p4", duration_minutes: 60 });
+    expect(out.priority).toBe("p4");
+    expect(out.duration_minutes).toBe(60);
+    expect(out.title).toBe("call mom");
+  });
+
+  it("keeps when_date and when_bucket mutually exclusive", () => {
+    const withBucket = buildCreateInput("ship it /someday", {}, REF);
+    expect(withBucket.when_bucket).toBe("someday");
+    const out = applyOverride(withBucket, { when_date: "2026-06-20" });
+    expect(out.when_date).toBe("2026-06-20");
+    expect(out.when_bucket).toBeUndefined();
   });
 });
