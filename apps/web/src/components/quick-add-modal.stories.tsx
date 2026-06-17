@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { QuickAddModal } from "./quick-add-modal";
-import { OPEN_QUICK_ADD_EVENT } from "@/lib/quick-add-events";
 import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 /**
  * The universal quick-add modal. It renders nothing until opened, so each story
- * dispatches the open event in `play`. A single natural-language input plus
- * When / Priority / Project / Estimate chips, and a "More options" escape hatch
- * to the full editor.
+ * opens it with the global "q" shortcut (an instrumented user event — a raw
+ * window event dispatch doesn't reliably flush before capture). A single
+ * natural-language input plus When / Priority / Project / Estimate chips, and a
+ * "More options" escape hatch to the full editor.
  */
 const meta: Meta<typeof QuickAddModal> = {
   title: "Components/QuickAddModal",
@@ -25,14 +25,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Open: Story = {
   play: async ({ canvasElement }) => {
-    window.dispatchEvent(new CustomEvent(OPEN_QUICK_ADD_EVENT));
+    await userEvent.keyboard("q");
     await waitFor(() => within(canvasElement).getByRole("dialog"));
   },
 };
 
 export const WithInput: Story = {
   play: async ({ canvasElement }) => {
-    window.dispatchEvent(new CustomEvent(OPEN_QUICK_ADD_EVENT));
+    await userEvent.keyboard("q");
     const canvas = within(canvasElement);
     const dialog = await waitFor(() => canvas.getByRole("dialog"));
     // Stable tokens only (no date phrases) so the snapshot doesn't drift daily.
