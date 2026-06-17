@@ -23,8 +23,10 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
 import { TaskDragOverlay } from "./task-drag-overlay";
+import { InlineTaskComposer } from "./inline-task-composer";
 
 export interface DraggableUpcomingProps {
   groups: Array<{
@@ -103,6 +105,7 @@ function DateGroup({
   tasks,
   projects,
   emptyHint,
+  isDragActive,
 }: {
   date: string;
   label: string;
@@ -110,12 +113,13 @@ function DateGroup({
   tasks: Map<string, Task>;
   projects?: Project[];
   emptyHint?: string;
+  isDragActive: boolean;
 }) {
   // Empty groups still need to be drop targets — use a fixed placeholder id
   // so SortableContext has something, but mark it as non-draggable.
   const { setNodeRef, isOver } = useDroppable({ id: `group:${date}` });
   return (
-    <section>
+    <section className="group">
       <h2 className="mb-2 border-b border-neutral-100 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:border-neutral-800">
         {label}
       </h2>
@@ -130,7 +134,8 @@ function DateGroup({
             isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
           }`}
         >
-          {taskIds.length === 0 && (
+          {/* The empty-state hint is drag guidance — show it only mid-drag. */}
+          {isDragActive && taskIds.length === 0 && (
             <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
               {emptyHint ?? "Drop here"}
             </div>
@@ -142,6 +147,9 @@ function DateGroup({
           })}
         </div>
       </SortableContext>
+      {!isDragActive && (
+        <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
+      )}
     </section>
   );
 }
@@ -407,6 +415,7 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
             tasks={tasks}
             projects={projects}
             emptyHint={g.emptyHint}
+            isDragActive={draggingId !== null}
           />
         ))}
       </div>

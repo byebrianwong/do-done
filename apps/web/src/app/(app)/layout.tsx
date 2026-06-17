@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/app-shell";
 import { CommandPalette } from "@/components/command-palette";
+import { QuickAddModal } from "@/components/quick-add-modal";
 import { UndoToastProvider } from "@/components/undo-toast";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi } from "@do-done/api-client";
@@ -28,6 +29,7 @@ export default async function AppLayout({
         {children}
       </AppShell>
       <CommandPalette projects={projects} />
+      <QuickAddModal projects={projects} userId={user?.id ?? null} />
     </UndoToastProvider>
   );
 }

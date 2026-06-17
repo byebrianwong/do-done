@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
+import { openQuickAdd } from "@/lib/quick-add-events";
 
 const NAV_ITEMS = [
   {
@@ -155,6 +156,24 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
 
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pt-2 pb-4">
+      <button
+        type="button"
+        onClick={() => openQuickAdd()}
+        title="New task (q)"
+        className="mb-2 flex w-full items-center gap-3 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600"
+      >
+        <svg
+          className="h-4 w-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m7-7H5" />
+        </svg>
+        New task
+      </button>
       {NAV_ITEMS.map((item) => {
         const isActive = pathname === item.href;
         return (
