@@ -97,6 +97,57 @@ export const NoTagsAffordance: Story = {
 };
 
 /**
+ * The due-date popover, opened automatically. Common deadlines are one tap
+ * ("Same as task date" mirrors the do-date, plus Tomorrow / This weekend /
+ * Next week); a native date input remains below for anything else.
+ */
+export const PickingDueDate: Story = {
+  args: {
+    task: makeTask({
+      title: "Submit tax forms",
+      priority: "p2",
+      when_date: today,
+      tags: ["finance"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTitle("Set due date"));
+    await waitFor(() =>
+      expect(canvas.getByText("This weekend")).toBeInTheDocument()
+    );
+  },
+};
+
+/**
+ * The do-time scroller, opened automatically. Half-hour slots auto-centered on
+ * the hour nearest now; the precise native input is tucked behind "Specific
+ * time" for the rare exact-minute case.
+ */
+export const PickingTime: Story = {
+  args: {
+    task: makeTask({
+      title: "Stand-up call",
+      priority: "p3",
+      when_date: today,
+      when_time: "09:00",
+      tags: ["team"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTitle("At 9:00 AM"));
+    await waitFor(() =>
+      expect(canvas.getByText(/Specific time/)).toBeInTheDocument()
+    );
+  },
+};
+
+/**
  * The delete confirmation dialog, opened automatically. It centers over the
  * viewport (the underlying edit modal is dimmed + blurred behind it) instead
  * of the browser's native top-anchored confirm.
