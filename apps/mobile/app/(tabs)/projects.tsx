@@ -9,18 +9,24 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useProjectsWithCounts } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 
 export default function ProjectsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { data: projects = [], isLoading, isRefetching, refetch } =
     useProjectsWithCounts();
   useRefreshOnFocus(refetch);
 
   return (
     <View style={styles.container}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <Text style={styles.topTitle}>Projects</Text>
+      </View>
+
       <FlatList
         data={projects}
         keyExtractor={(item) => item.id}
@@ -78,6 +84,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
   listContent: {
     paddingTop: 8,
     paddingBottom: 40,
