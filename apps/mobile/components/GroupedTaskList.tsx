@@ -42,7 +42,7 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
     case 'project_id':
       return { project_id: drop.value };
     case 'when_date':
-      return { when_date: drop.value, when_bucket: null };
+      return { when_date: drop.value };
   }
 }
 

@@ -258,9 +258,8 @@ export class TasksApi {
 
   async listUndated(): Promise<{ data: Task[]; error: Error | null }> {
     // Tasks with no when_date AND no due_date that aren't in a terminal
-    // state. Bucket-only tasks (later/someday) belong here — they have
-    // no concrete date, just a fuzzy intent. Used as a drag source in the
-    // Upcoming view so the user can pull undated work onto a real day.
+    // state — unscheduled work. Used as a drag source in the Upcoming view
+    // so the user can pull undated work onto a real day.
     let query = this.supabase
       .from("tasks")
       .select("*")
@@ -314,7 +313,7 @@ export class TasksApi {
 
   async getToday(): Promise<{ data: Task[]; error: Error | null }> {
     // Today = anything scheduled to be DONE on or before today (when_date),
-    // OR DUE on or before today (due_date), OR bucketed as 'today'.
+    // OR DUE on or before today (due_date).
     //
     // Status filter is "anything not closed" (not done, not cancelled).
     // Crucially, inbox tasks with a when_date set DO show up here —
@@ -324,9 +323,7 @@ export class TasksApi {
       .from("tasks")
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
-      .or(
-        `when_date.lte.${today},due_date.lte.${today},when_bucket.eq.today`
-      )
+      .or(`when_date.lte.${today},due_date.lte.${today}`)
       .order("priority")
       .order("sort_order");
 
@@ -342,8 +339,7 @@ export class TasksApi {
   async getUpcoming(days: number = 30): Promise<{ data: Task[]; error: Error | null }> {
     // Upcoming = scheduled (when_date) OR due (due_date) at some point
     // BETWEEN today and today+days. Past-dated tasks are not "upcoming"
-    // — overdue tasks live in Today. Bucket-only tasks (when_bucket
-    // set, no date) live in their bucket views.
+    // — overdue tasks live in Today. Undated tasks have no place here.
     //
     // The lower bound is `today − 1`, NOT `today`. This query runs on the
     // server, so `todayLocalISO()` is the *server's* calendar day (UTC on a

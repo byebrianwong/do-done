@@ -21,6 +21,11 @@ const tomorrow = (() => {
   d.setDate(d.getDate() + 1);
   return d.toISOString().split("T")[0];
 })();
+const nextWeek = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().split("T")[0];
+})();
 
 export const Default: Story = {
   args: {
@@ -44,12 +49,12 @@ export const NotScheduled: Story = {
   },
 };
 
-export const WithBucket: Story = {
+export const ScheduledNextWeek: Story = {
   args: {
     task: makeTask({
       title: "Plan offsite",
       priority: "p3",
-      when_bucket: "later",
+      when_date: nextWeek,
       tags: ["planning"],
     }),
     open: true,
@@ -76,7 +81,7 @@ export const ManyTagsEditing: Story = {
     task: makeTask({
       title: "Refactor onboarding",
       priority: "p3",
-      when_bucket: "this_week",
+      when_date: today,
       tags: ["frontend", "growth", "experiment", "needs-review"],
     }),
     open: true,

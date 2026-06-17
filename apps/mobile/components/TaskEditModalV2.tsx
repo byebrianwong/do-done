@@ -32,7 +32,6 @@ import {
   type Project,
   type Task,
   type TaskPriority,
-  type WhenBucket,
 } from "@do-done/shared";
 import {
   useAutoSaveTask,
@@ -109,7 +108,7 @@ export function extractCompletedTags(text: string): {
   return { stripped, tags };
 }
 
-export function shortDateLabel(date: string | null, bucket: WhenBucket | null): string {
+export function shortDateLabel(date: string | null): string {
   if (date) {
     const d = new Date(date + "T00:00:00");
     return d.toLocaleDateString(undefined, {
@@ -118,7 +117,6 @@ export function shortDateLabel(date: string | null, bucket: WhenBucket | null): 
       day: "numeric",
     });
   }
-  if (bucket) return bucket.replace("_", " ");
   return "Not scheduled";
 }
 
@@ -359,16 +357,12 @@ function SaveStatusDot({
 
 export function WhenCalendar({
   whenDate,
-  whenBucket,
   busyness,
   onPickDate,
-  onPickBucket,
 }: {
   whenDate: string | null;
-  whenBucket: WhenBucket | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
-  onPickBucket: (bucket: WhenBucket | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -379,6 +373,13 @@ export function WhenCalendar({
   }, []);
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
+  // "Next week" is a concrete date — exactly 7 days from today — not a soft
+  // bucket, so it survives as a real when_date.
+  const nextWeekStr = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 7);
+    return ymd(d);
+  }, [today]);
 
   const weekRows = useMemo(() => {
     const numWeeks = expanded ? 2 : 1;
@@ -507,31 +508,25 @@ export function WhenCalendar({
             onPress={() => setExpanded(true)}
             style={styles.expandChip}
           >
-            <Text style={styles.expandChipText}>+ next week ⇣</Text>
+            <Text style={styles.expandChipText}>+ more dates ⇣</Text>
           </Pressable>
         )}
-        {(["later", "someday"] as const).map((b) => {
-          const active = whenBucket === b;
-          return (
-            <Pressable
-              key={b}
-              onPress={() => onPickBucket(active ? null : b)}
-              style={[
-                styles.bucketChip,
-                active && styles.bucketChipActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.bucketChipText,
-                  active && styles.bucketChipTextActive,
-                ]}
-              >
-                {b === "later" ? "⏳ Later" : "∞ Someday"}
-              </Text>
-            </Pressable>
-          );
-        })}
+        <Pressable
+          onPress={() => onPickDate(nextWeekStr)}
+          style={[
+            styles.bucketChip,
+            whenDate === nextWeekStr && styles.bucketChipActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.bucketChipText,
+              whenDate === nextWeekStr && styles.bucketChipTextActive,
+            ]}
+          >
+            Next week
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -862,15 +857,6 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
 
   const onPickDate = (date: string) => {
     setField("when_date", date);
-    setField("when_bucket", null);
-  };
-  const onPickBucket = (bucket: WhenBucket | null) => {
-    setField("when_bucket", bucket);
-    // A bucket clears the specific day, so the time-of-day goes with it.
-    if (bucket !== null) {
-      setField("when_date", null);
-      setField("when_time", null);
-    }
   };
 
   const handleTitleChange = (v: string) => {
@@ -964,7 +950,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>When</Text>
             <Text style={styles.sectionValue}>
-              {shortDateLabel(current.when_date, current.when_bucket)}
+              {shortDateLabel(current.when_date)}
               {current.when_date && current.when_time
                 ? `  ·  ${formatWhenTime(current.when_time)}`
                 : ""}
@@ -972,10 +958,8 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           </View>
           <WhenCalendar
             whenDate={current.when_date}
-            whenBucket={current.when_bucket}
             busyness={busyness}
             onPickDate={onPickDate}
-            onPickBucket={onPickBucket}
           />
           {current.when_date ? (
             <WhenTimeRow

@@ -15,18 +15,6 @@ export type TaskStatus = z.infer<typeof TaskStatus>;
 export const TaskPriority = z.enum(["p1", "p2", "p3", "p4"]);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
-// Fuzzy scheduling windows for when_bucket. Distinct from a specific
-// when_date — see TaskSchema for the mutually-exclusive rule.
-export const WhenBucket = z.enum([
-  "today",
-  "tomorrow",
-  "this_week",
-  "next_week",
-  "later",
-  "someday",
-]);
-export type WhenBucket = z.infer<typeof WhenBucket>;
-
 // Subtask depth: 0 = main task, 1 = subtask, 2 = sub-subtask. Max 3 levels.
 export const TaskDepth = z.union([z.literal(0), z.literal(1), z.literal(2)]);
 export type TaskDepth = z.infer<typeof TaskDepth>;
@@ -49,13 +37,12 @@ export const TaskSchema = z
     priority: TaskPriority.default("p4"),
     project_id: z.string().uuid().nullable(),
     // when = the day the user plans to do this (Things-3-style "do date").
-    // Distinct from due_date which is a hard deadline. At most one of
-    // when_date and when_bucket is non-null — see refinement below.
+    // Distinct from due_date which is a hard deadline. Always a concrete
+    // calendar date — DoDone has no fuzzy "buckets".
     when_date: z.string().date().nullable(),
     // Optional time-of-day for when_date (HH:MM). Paired with when_date; has
     // no meaning without it. Mirrors due_time's shape.
     when_time: z.string().nullable(),
-    when_bucket: WhenBucket.nullable(),
     due_date: z.string().date().nullable(),
     due_time: z.string().nullable(), // HH:MM format
     duration_minutes: z.number().int().positive().nullable(),
@@ -71,14 +58,7 @@ export const TaskSchema = z
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     completed_at: z.string().datetime().nullable(),
-  })
-  .refine(
-    (t) => !(t.when_date !== null && t.when_bucket !== null),
-    {
-      message: "when_date and when_bucket are mutually exclusive",
-      path: ["when_bucket"],
-    }
-  );
+  });
 export type Task = z.infer<typeof TaskSchema>;
 
 export const ProjectSchema = z.object({
@@ -167,64 +147,40 @@ export const DEFAULT_DECAY_PREFERENCES: PetDecayPreferences = {
 
 // ── Input Schemas (for create/update operations) ───────
 
-// Shared refinement: at most one of when_date / when_bucket is set.
-// Used by both CreateTaskInput and UpdateTaskInput.
-const whenExclusive = <T extends { when_date?: unknown; when_bucket?: unknown }>(
-  t: T
-) =>
-  !(
-    t.when_date !== undefined &&
-    t.when_date !== null &&
-    t.when_bucket !== undefined &&
-    t.when_bucket !== null
-  );
-
-export const CreateTaskInput = z
-  .object({
-    title: z.string().min(1).max(500),
-    description: z.string().max(5000).optional(),
-    status: TaskStatus.optional(),
-    priority: TaskPriority.optional(),
-    project_id: z.string().uuid().optional(),
-    when_date: z.string().date().optional(),
-    when_time: z.string().optional(),
-    when_bucket: WhenBucket.optional(),
-    due_date: z.string().date().optional(),
-    due_time: z.string().optional(),
-    duration_minutes: z.number().int().positive().optional(),
-    recurrence_rule: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    parent_task_id: z.string().uuid().optional(),
-  })
-  .refine(whenExclusive, {
-    message: "when_date and when_bucket are mutually exclusive",
-    path: ["when_bucket"],
-  });
+export const CreateTaskInput = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().max(5000).optional(),
+  status: TaskStatus.optional(),
+  priority: TaskPriority.optional(),
+  project_id: z.string().uuid().optional(),
+  when_date: z.string().date().optional(),
+  when_time: z.string().optional(),
+  due_date: z.string().date().optional(),
+  due_time: z.string().optional(),
+  duration_minutes: z.number().int().positive().optional(),
+  recurrence_rule: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  parent_task_id: z.string().uuid().optional(),
+});
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
-export const UpdateTaskInput = z
-  .object({
-    title: z.string().min(1).max(500).optional(),
-    description: z.string().max(5000).nullable().optional(),
-    status: TaskStatus.optional(),
-    priority: TaskPriority.optional(),
-    project_id: z.string().uuid().nullable().optional(),
-    when_date: z.string().date().nullable().optional(),
-    when_time: z.string().nullable().optional(),
-    when_bucket: WhenBucket.nullable().optional(),
-    due_date: z.string().date().nullable().optional(),
-    due_time: z.string().nullable().optional(),
-    duration_minutes: z.number().int().positive().nullable().optional(),
-    recurrence_rule: z.string().nullable().optional(),
-    calendar_event_id: z.string().nullable().optional(),
-    tags: z.array(z.string()).optional(),
-    parent_task_id: z.string().uuid().nullable().optional(),
-    sort_order: z.number().int().optional(),
-  })
-  .refine(whenExclusive, {
-    message: "when_date and when_bucket are mutually exclusive",
-    path: ["when_bucket"],
-  });
+export const UpdateTaskInput = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(5000).nullable().optional(),
+  status: TaskStatus.optional(),
+  priority: TaskPriority.optional(),
+  project_id: z.string().uuid().nullable().optional(),
+  when_date: z.string().date().nullable().optional(),
+  when_time: z.string().nullable().optional(),
+  due_date: z.string().date().nullable().optional(),
+  due_time: z.string().nullable().optional(),
+  duration_minutes: z.number().int().positive().nullable().optional(),
+  recurrence_rule: z.string().nullable().optional(),
+  calendar_event_id: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  parent_task_id: z.string().uuid().nullable().optional(),
+  sort_order: z.number().int().optional(),
+});
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 
 export const CreateProjectInput = z.object({
@@ -263,7 +219,6 @@ export const ParsedTaskSchema = z.object({
   title: z.string(),
   when_date: z.string().date().optional(),
   when_time: z.string().optional(),
-  when_bucket: WhenBucket.optional(),
   due_date: z.string().date().optional(),
   due_time: z.string().optional(),
   priority: TaskPriority.optional(),

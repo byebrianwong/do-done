@@ -13,7 +13,6 @@ function makeTask(overrides: Partial<Task>): Task {
     project_id: null,
     when_date: null,
     when_time: null,
-    when_bucket: null,
     due_date: null,
     due_time: null,
     duration_minutes: null,
@@ -45,7 +44,7 @@ describe("groupTasksByDate", () => {
   it("skips tasks with no when_date", () => {
     const tasks = [
       makeTask({ id: "a", when_date: "2026-05-12" }),
-      makeTask({ id: "b", when_date: null, when_bucket: "this_week" }),
+      makeTask({ id: "b", when_date: null }),
     ];
     const grouped = groupTasksByDate(tasks);
     expect(grouped.size).toBe(1);

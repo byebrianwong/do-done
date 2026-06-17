@@ -13,7 +13,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     project_id: null,
     when_date: null,
     when_time: null,
-    when_bucket: null,
     due_date: null,
     due_time: null,
     duration_minutes: null,

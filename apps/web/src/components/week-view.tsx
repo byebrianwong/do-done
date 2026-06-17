@@ -95,7 +95,7 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
     const current = usesWhen ? task.when_date : task.due_date;
     if (current === targetDate) return;
     const patch = usesWhen
-      ? { when_date: targetDate, when_bucket: null }
+      ? { when_date: targetDate }
       : { due_date: targetDate };
     const next = localTasks.map((t) =>
       t.id === taskId ? { ...t, ...patch } : t

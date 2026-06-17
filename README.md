@@ -83,7 +83,7 @@ docs/            Design records + HANDOFF.md (current state)
 
 ### What each package exports (quick reference)
 
-- **`@do-done/shared`** — `TaskSchema`, `ProjectSchema`, `LocationSchema`, `UserPreferencesSchema`, … plus enums (`TaskStatus`, `TaskPriority`, `WhenBucket`); constants (`PRIORITY_CONFIG`, `STATUS_CONFIG`, `FOCUS_SCORES`); utils (`todayLocalISO()`, `isOverdue()`, `formatWhenTime()`); and the sort/group/filter `display` engine shared by web + mobile.
+- **`@do-done/shared`** — `TaskSchema`, `ProjectSchema`, `LocationSchema`, `UserPreferencesSchema`, … plus enums (`TaskStatus`, `TaskPriority`); constants (`PRIORITY_CONFIG`, `STATUS_CONFIG`, `FOCUS_SCORES`); utils (`todayLocalISO()`, `isOverdue()`, `formatWhenTime()`, `resolveQuickSchedule()`); and the sort/group/filter `display` engine shared by web + mobile.
 - **`@do-done/api-client`** — `createAnonClient()` (apps, RLS-scoped) / `createServiceClient()` (MCP, service role + explicit userId); `TasksApi` (`list`, `getById`, `create`, `update`, `complete`, `getInbox`, `getToday`, `getUpcoming`, `search`), `ProjectsApi`, `LocationsApi`, `PetsApi`, `UserPrefsApi`; the `useAutoSaveTask()` React hook.
 - **`@do-done/task-engine`** — `parseTaskInput()` (free text → structured task: `p1`, `#size`, `/today`, `/Project`, NLP dates), `generateFocusList()`, `generateWeeklySummary()`, `scheduleTasks()`, `detectRecurrence()`.
 - **`@do-done/ui`** — `colors`, `spacing`, `typography`, `radius` design tokens (`as const`).
@@ -164,8 +164,7 @@ Supabase Postgres, every table UUID-keyed with `user_id` + RLS. Core tables: `ta
 
 A few `tasks` concepts worth knowing before you touch scheduling:
 
-- **`when_date` vs `due_date`** — `when_date` is "I plan to *do* this on day X" (a soft do-date, with optional `when_time`); `due_date` is a hard deadline. They are independent.
-- **`when_bucket`** — a fuzzy window (`today` / `tomorrow` / `this_week` / `next_week` / `later` / `someday`), mutually exclusive with `when_date`.
+- **`when_date` vs `due_date`** — `when_date` is "I plan to *do* this on day X" (a do-date, with optional `when_time`); `due_date` is a hard deadline. They are independent. Scheduling is always a concrete date — there are no fuzzy "buckets". Human-friendly options (Today, Tomorrow, This week → this Friday, This weekend → upcoming Sunday, Next week → +7) resolve to real dates via `resolveQuickSchedule()` in `@do-done/shared`.
 - **Subtasks** — `parent_task_id` + `depth`; a task tree max 3 levels deep, enforced by a DB trigger.
 - **Status** — `inbox` / `not_started` / `next` / `in_progress` / `done` / `cancelled`; priorities `p1`–`p4`. Dates are stored as local-timezone `YYYY-MM-DD` strings, so use the `*LocalISO` helpers in `@do-done/shared`, not raw UTC.
 

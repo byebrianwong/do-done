@@ -43,7 +43,6 @@ function todayUniverse(allTasks: Task[]): Task[] {
   const today = todayLocalISO();
   const todayList = fresh.filter((t) => {
     if (focusIds.has(t.id)) return true;
-    if (t.when_bucket === 'today') return true;
     const d = t.when_date ?? t.due_date ?? null;
     return d !== null && d <= today;
   });

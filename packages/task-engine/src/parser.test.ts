@@ -53,10 +53,10 @@ describe("parseTaskInput", () => {
   });
 
   describe("when-slash commands", () => {
+    // REF_DATE (2026-04-12) is a Sunday.
     it("/today → when_date of today (no due_date)", () => {
       const result = parseTaskInput("/today ship widget", REF_DATE);
       expect(result.when_date).toBe("2026-04-12");
-      expect(result.when_bucket).toBeUndefined();
       expect(result.due_date).toBeUndefined();
       expect(result.title).toBe("ship widget");
     });
@@ -67,38 +67,39 @@ describe("parseTaskInput", () => {
       expect(result.title).toBe("review PR");
     });
 
-    it("/week → when_bucket = this_week", () => {
+    it("/week → when_date of this Friday", () => {
       const result = parseTaskInput("/week clean inbox", REF_DATE);
-      expect(result.when_bucket).toBe("this_week");
-      expect(result.when_date).toBeUndefined();
+      expect(result.when_date).toBe("2026-04-17");
       expect(result.title).toBe("clean inbox");
     });
 
-    it("/this-week → when_bucket = this_week", () => {
+    it("/this-week → when_date of this Friday", () => {
       const result = parseTaskInput("/this-week clean inbox", REF_DATE);
-      expect(result.when_bucket).toBe("this_week");
+      expect(result.when_date).toBe("2026-04-17");
     });
 
-    it("/next-week → when_bucket = next_week", () => {
+    it("/next-week → when_date exactly 7 days out", () => {
       const result = parseTaskInput("/next-week plan offsite", REF_DATE);
-      expect(result.when_bucket).toBe("next_week");
+      expect(result.when_date).toBe("2026-04-19");
       expect(result.title).toBe("plan offsite");
     });
 
-    it("/later → when_bucket = later", () => {
+    it("/weekend → when_date of the upcoming Sunday", () => {
+      const result = parseTaskInput("/weekend call mom", REF_DATE);
+      expect(result.when_date).toBe("2026-04-12");
+      expect(result.title).toBe("call mom");
+    });
+
+    it("/later and /someday are no longer scheduling commands", () => {
       const result = parseTaskInput("/later refactor parser", REF_DATE);
-      expect(result.when_bucket).toBe("later");
+      expect(result.when_date).toBeUndefined();
+      // Stays reserved so it isn't misparsed as a project named "later".
+      expect(result.project).toBeUndefined();
     });
 
-    it("/someday → when_bucket = someday", () => {
-      const result = parseTaskInput("/someday learn Rust", REF_DATE);
-      expect(result.when_bucket).toBe("someday");
-    });
-
-    it("when_date wins if both a /date and /bucket would match (mutually exclusive)", () => {
+    it("the first matching /date command wins when several are present", () => {
       const result = parseTaskInput("/today /week ship widget", REF_DATE);
       expect(result.when_date).toBe("2026-04-12");
-      expect(result.when_bucket).toBeUndefined();
     });
 
     it("combines /today with p1 and #tag", () => {

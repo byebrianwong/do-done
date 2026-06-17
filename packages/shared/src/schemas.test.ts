@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  CreateTaskInput,
-  TaskSchema,
-  UpdateTaskInput,
-  WhenBucket,
-} from "./schemas.js";
+import { CreateTaskInput, TaskSchema, UpdateTaskInput } from "./schemas.js";
 
 // Base set of fields that satisfy TaskSchema's non-when requirements.
 // Returns a plain object so test cases can spread arbitrary overrides
@@ -20,7 +15,6 @@ function baseTask(overrides: Record<string, unknown> = {}): Record<string, unkno
     project_id: null,
     when_date: null,
     when_time: null,
-    when_bucket: null,
     due_date: null,
     due_time: null,
     duration_minutes: null,
@@ -37,77 +31,30 @@ function baseTask(overrides: Record<string, unknown> = {}): Record<string, unkno
   };
 }
 
-describe("WhenBucket", () => {
-  it("accepts each known bucket value", () => {
-    for (const v of [
-      "today",
-      "tomorrow",
-      "this_week",
-      "next_week",
-      "later",
-      "someday",
-    ]) {
-      expect(WhenBucket.safeParse(v).success).toBe(true);
-    }
-  });
-
-  it("rejects unknown bucket values", () => {
-    expect(WhenBucket.safeParse("never").success).toBe(false);
-    expect(WhenBucket.safeParse("").success).toBe(false);
-  });
-});
-
-describe("TaskSchema · when_date vs when_bucket exclusivity", () => {
-  it("accepts when_date set, when_bucket null", () => {
+describe("TaskSchema · when_date", () => {
+  it("accepts a concrete when_date", () => {
     const r = TaskSchema.safeParse(baseTask({ when_date: "2026-05-12" }));
     expect(r.success).toBe(true);
   });
 
-  it("accepts when_bucket set, when_date null", () => {
-    const r = TaskSchema.safeParse(baseTask({ when_bucket: "this_week" }));
-    expect(r.success).toBe(true);
-  });
-
-  it("accepts both null (unscheduled task)", () => {
+  it("accepts an unscheduled task (when_date null)", () => {
     const r = TaskSchema.safeParse(baseTask());
     expect(r.success).toBe(true);
   });
 
-  it("rejects when both when_date and when_bucket are set", () => {
-    const r = TaskSchema.safeParse(
-      baseTask({ when_date: "2026-05-12", when_bucket: "this_week" })
-    );
+  it("rejects a non-date when_date string", () => {
+    const r = TaskSchema.safeParse(baseTask({ when_date: "someday" }));
     expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(r.error.issues[0].message).toMatch(/mutually exclusive/);
-    }
   });
 });
 
-describe("CreateTaskInput · when exclusivity", () => {
-  it("accepts when_date only", () => {
+describe("CreateTaskInput", () => {
+  it("accepts when_date", () => {
     const r = CreateTaskInput.safeParse({
       title: "x",
       when_date: "2026-05-12",
     });
     expect(r.success).toBe(true);
-  });
-
-  it("accepts when_bucket only", () => {
-    const r = CreateTaskInput.safeParse({
-      title: "x",
-      when_bucket: "later",
-    });
-    expect(r.success).toBe(true);
-  });
-
-  it("rejects both set", () => {
-    const r = CreateTaskInput.safeParse({
-      title: "x",
-      when_date: "2026-05-12",
-      when_bucket: "later",
-    });
-    expect(r.success).toBe(false);
   });
 
   it("accepts parent_task_id for subtasks", () => {
@@ -119,31 +66,15 @@ describe("CreateTaskInput · when exclusivity", () => {
   });
 });
 
-describe("UpdateTaskInput · when exclusivity", () => {
-  it("allows clearing both (set to null)", () => {
-    const r = UpdateTaskInput.safeParse({
-      when_date: null,
-      when_bucket: null,
-    });
+describe("UpdateTaskInput", () => {
+  it("allows clearing when_date (set to null)", () => {
+    const r = UpdateTaskInput.safeParse({ when_date: null });
     expect(r.success).toBe(true);
   });
 
-  it("allows switching when_date → when_bucket in one patch", () => {
-    // The patch sets when_date to null and when_bucket to a value — both
-    // present in the object but only one is non-null, so it must pass.
-    const r = UpdateTaskInput.safeParse({
-      when_date: null,
-      when_bucket: "next_week",
-    });
+  it("accepts a new when_date", () => {
+    const r = UpdateTaskInput.safeParse({ when_date: "2026-05-12" });
     expect(r.success).toBe(true);
-  });
-
-  it("rejects setting both to non-null values", () => {
-    const r = UpdateTaskInput.safeParse({
-      when_date: "2026-05-12",
-      when_bucket: "next_week",
-    });
-    expect(r.success).toBe(false);
   });
 });
 

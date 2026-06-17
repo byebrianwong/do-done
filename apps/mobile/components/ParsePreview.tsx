@@ -42,13 +42,6 @@ export default function ParsePreview({ text }: { text: string }) {
         label: dateLabel(parsed.when_date),
         color: '#4338ca',
       });
-    } else if (parsed.when_bucket) {
-      out.push({
-        key: 'when',
-        icon: 'calendar-outline',
-        label: parsed.when_bucket.replace('_', ' '),
-        color: '#4338ca',
-      });
     }
     if (parsed.due_date) {
       out.push({

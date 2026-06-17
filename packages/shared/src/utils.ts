@@ -16,11 +16,65 @@ export function todayLocalISO(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-/** Local YYYY-MM-DD `days` from today (negative = past). */
-export function addDaysLocalISO(days: number): string {
-  const d = new Date();
+/** Local YYYY-MM-DD `days` from `from` (default today; negative = past). */
+export function addDaysLocalISO(days: number, from: Date = new Date()): string {
+  const d = new Date(from);
   d.setDate(d.getDate() + days);
   return todayLocalISO(d);
+}
+
+/**
+ * Local YYYY-MM-DD for the next occurrence of `weekday` (0 = Sun … 6 = Sat) on
+ * or after `from` (default today). If `from` already falls on `weekday`, returns
+ * that same day.
+ */
+export function nextWeekdayLocalISO(weekday: number, from: Date = new Date()): string {
+  const d = new Date(from);
+  const delta = (weekday - d.getDay() + 7) % 7;
+  d.setDate(d.getDate() + delta);
+  return todayLocalISO(d);
+}
+
+// Human-friendly quick-schedule options. DoDone has no soft "buckets" — every
+// label resolves to a concrete local calendar date so the task lands on a real
+// day in the calendar.
+export type QuickScheduleKey =
+  | "today"
+  | "tomorrow"
+  | "this_week"
+  | "this_weekend"
+  | "next_week";
+
+/** Ordered quick-schedule options with their display labels. */
+export const QUICK_SCHEDULE: { key: QuickScheduleKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "this_week", label: "This week" },
+  { key: "this_weekend", label: "This weekend" },
+  { key: "next_week", label: "Next week" },
+];
+
+/**
+ * Resolve a quick-schedule key to a concrete local YYYY-MM-DD:
+ *   today → today, tomorrow → +1, this_week → this Friday,
+ *   this_weekend → upcoming Sunday, next_week → exactly +7.
+ */
+export function resolveQuickSchedule(
+  key: QuickScheduleKey,
+  from: Date = new Date()
+): string {
+  switch (key) {
+    case "today":
+      return todayLocalISO(from);
+    case "tomorrow":
+      return addDaysLocalISO(1, from);
+    case "this_week":
+      return nextWeekdayLocalISO(5, from); // Friday
+    case "this_weekend":
+      return nextWeekdayLocalISO(0, from); // Sunday
+    case "next_week":
+      return addDaysLocalISO(7, from);
+  }
 }
 
 export function isOverdue(task: Task): boolean {

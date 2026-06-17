@@ -1,5 +1,7 @@
 # Task input redesign
 
+> **Historical design doc.** This records the original task-input redesign as approved in May 2026. **One concept has since been removed:** the soft `when_bucket` scheduling windows (`Later` / `Someday` / `This week` / etc.). Scheduling is now always a concrete `when_date`; the friendly labels below (This week, This weekend, Next week) resolve to real calendar dates via `resolveQuickSchedule()` in `@do-done/shared`. Ignore the `when_bucket` parts of this doc — see the README's "scheduling" section for current behavior.
+
 Approved design + implementation plan for the new task edit experience that replaces `apps/web/src/components/task-edit-dialog.tsx` and `apps/mobile/components/TaskEditModal.tsx`.
 
 ## Files

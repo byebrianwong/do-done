@@ -55,8 +55,7 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
     case "project_id":
       return { project_id: drop.value };
     case "when_date":
-      // when_date and when_bucket are mutually exclusive — clear the bucket.
-      return { when_date: drop.value, when_bucket: null };
+      return { when_date: drop.value };
   }
 }
 

@@ -139,14 +139,14 @@ describe("Due-date quick picks", () => {
   it("omits 'Same as task date' when the task has no when_date", () => {
     render(
       <TaskEditModalV2
-        task={makeTask({ when_bucket: "later", when_date: null })}
+        task={makeTask({ when_date: null })}
         open
         onClose={vi.fn()}
       />
     );
-    // No when_date → no Time field and no due popover affordance for it, but
-    // the due button still opens; bucket tasks have no calendar, so the due
-    // field lives in the action row regardless.
+    // No when_date → no Time field and no "Same as task date" affordance, but
+    // the due button still opens; the due field lives in the action row
+    // regardless.
     fireEvent.click(screen.getByTitle("Set due date"));
     const dialog = within(screen.getByRole("dialog", { name: "Due date" }));
     expect(dialog.queryByText("Same as task date")).not.toBeInTheDocument();
