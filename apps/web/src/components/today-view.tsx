@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { isManualSort, isOverdue, type Project, type Task } from "@do-done/shared";
+import { isManualSort, isOverdue, todayLocalISO, type Project, type Task } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { generateFocusList } from "@do-done/task-engine";
 import { CuratedDisplayView } from "./curated-display-view";
@@ -19,7 +19,10 @@ function todayUniverse(allTasks: Task[]): Task[] {
   const active = allTasks.filter(
     (t) => t.status !== "done" && t.status !== "cancelled"
   );
-  const today = new Date().toISOString().split("T")[0];
+  // Device-local day — the user's real "today". `toISOString()` would be UTC,
+  // which reads as tomorrow late at night for anyone behind UTC and would then
+  // pull tomorrow's tasks into Today.
+  const today = todayLocalISO();
   const overdue = active.filter(isOverdue);
   const overdueIds = new Set(overdue.map((t) => t.id));
   const fresh = active.filter((t) => !overdueIds.has(t.id));

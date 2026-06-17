@@ -72,3 +72,34 @@ export function zonedClockToUtc(
   const offset = seenUTC - desiredUTC; // how far the zone leads UTC
   return new Date(desiredUTC - offset);
 }
+
+// ── Instant → wall-clock-in-zone (the read side) ─────────
+//
+// The inverse direction: take an absolute instant (a Date / UTC timestamp)
+// and read what calendar day and clock time it lands on *in the user's zone*.
+// Server code (RSC, route handlers, edge functions) runs in UTC, so deriving a
+// calendar day with `toISOString()` gives the UTC day, which is off by one for
+// the user near midnight. These helpers resolve the day/time the user would
+// actually see on their wall clock.
+
+/**
+ * The calendar date (`YYYY-MM-DD`) and 24-hour time (`HH:MM`) that `date`
+ * reads as in `timeZone`. Both are the user's wall-clock values, not UTC.
+ */
+export function wallClockInZone(
+  date: Date,
+  timeZone: string
+): { date: string; time: string } {
+  const { y, m, d, h, min } = partsInZone(date, timeZone);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return { date: `${y}-${p(m)}-${p(d)}`, time: `${p(h)}:${p(min)}` };
+}
+
+/**
+ * Today's date as `YYYY-MM-DD` in `timeZone` — the user-timezone analogue of
+ * `todayLocalISO()` for code that can't rely on the runtime being local (i.e.
+ * anything on the server).
+ */
+export function todayISOInZone(timeZone: string, now: Date = new Date()): string {
+  return wallClockInZone(now, timeZone).date;
+}

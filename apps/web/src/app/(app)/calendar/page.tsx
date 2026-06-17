@@ -1,7 +1,7 @@
 import { getServerTasksApi, getServerProjectsApi } from "@/lib/supabase/tasks-server";
 import { WeekView } from "@/components/week-view-client";
 import { taskDate } from "@do-done/api-client";
-import type { Task, Project } from "@do-done/shared";
+import { todayLocalISO, type Task, type Project } from "@do-done/shared";
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
@@ -39,8 +39,10 @@ export default async function CalendarPage({
       tasksApi.list({ limit: 200, offset: 0 }),
       projectsApi.list(),
     ]);
-    const startStr = weekStart.toISOString().split("T")[0];
-    const endStr = weekEnd.toISOString().split("T")[0];
+    // Local YYYY-MM-DD so the range matches the local when_date the user set
+    // (toISOString() would be UTC and shift the boundaries by a day).
+    const startStr = todayLocalISO(weekStart);
+    const endStr = todayLocalISO(weekEnd);
     tasks = allRes.data.filter((t) => {
       const d = taskDate(t);
       return d !== null && d >= startStr && d < endStr;
@@ -54,7 +56,7 @@ export default async function CalendarPage({
         Calendar
       </h1>
       <WeekView
-        weekStart={weekStart.toISOString()}
+        weekStart={todayLocalISO(weekStart)}
         tasks={tasks}
         projects={projects}
       />

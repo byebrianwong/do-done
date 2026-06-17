@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
-import type { Task } from "@do-done/shared";
+import { todayLocalISO, type Task } from "@do-done/shared";
 
 import { AppShell } from "./app-shell";
 import { UndoToastProvider } from "./undo-toast";
@@ -195,7 +195,7 @@ const monday = new Date(getMonday());
 function weekDay(days: number): string {
   const d = new Date(monday);
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  return todayLocalISO(d);
 }
 const CALENDAR_TASKS: Task[] = [
   makeTask({
@@ -450,7 +450,7 @@ export const Calendar: Story = {
           Calendar
         </h1>
         <WeekView
-          weekStart={monday.toISOString()}
+          weekStart={todayLocalISO(monday)}
           tasks={CALENDAR_TASKS}
           projects={SAMPLE_PROJECTS}
         />

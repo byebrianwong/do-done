@@ -14,12 +14,12 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import type { Task, Project } from "@do-done/shared";
-import { PRIORITY_CONFIG } from "@do-done/shared";
+import { PRIORITY_CONFIG, todayLocalISO } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
 interface WeekViewProps {
-  weekStart: string; // ISO
+  weekStart: string; // local YYYY-MM-DD (Monday)
   tasks: Task[];
   projects: Project[];
 }
@@ -44,7 +44,10 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
     })
   );
 
-  const start = useMemo(() => new Date(weekStart), [weekStart]);
+  // Parse as LOCAL midnight, not `new Date(weekStart)` — a bare YYYY-MM-DD is
+  // parsed as UTC midnight, which shifts every day (and breaks the "today"
+  // highlight, since the day cells would no longer sit on local midnight).
+  const start = useMemo(() => new Date(`${weekStart}T00:00:00`), [weekStart]);
   const days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(start);
@@ -65,12 +68,12 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
   const prevWeekHref = (() => {
     const d = new Date(start);
     d.setDate(d.getDate() - 7);
-    return `/calendar?week=${d.toISOString().split("T")[0]}`;
+    return `/calendar?week=${todayLocalISO(d)}`;
   })();
   const nextWeekHref = (() => {
     const d = new Date(start);
     d.setDate(d.getDate() + 7);
-    return `/calendar?week=${d.toISOString().split("T")[0]}`;
+    return `/calendar?week=${todayLocalISO(d)}`;
   })();
 
   const monthLabel = start.toLocaleDateString("en-US", {
@@ -211,7 +214,7 @@ function DayColumn({
   tasks: Task[];
   projectColors: Map<string, string>;
 }) {
-  const dayKey = day.toISOString().split("T")[0];
+  const dayKey = todayLocalISO(day); // local YYYY-MM-DD, matches stored when_date
   const { setNodeRef, isOver } = useDroppable({ id: dayKey });
 
   // A task belongs to this day if its effective date (taskDate) lands here.

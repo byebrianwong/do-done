@@ -81,7 +81,10 @@ export async function GET(request: NextRequest) {
           15,
           Math.round((eend.getTime() - s.getTime()) / 60_000)
         );
-        const dateStr = s.toISOString().split("T")[0];
+        // Bucket on the event's OWN local day: a dateTime like
+        // "2026-06-15T23:00:00-07:00" belongs to the 15th for that user, but
+        // s.toISOString() (UTC) would push a late-evening event to the 16th.
+        const dateStr = startTime.split("T")[0];
         const item: BusyItem = {
           type: "event",
           id: e.id,
