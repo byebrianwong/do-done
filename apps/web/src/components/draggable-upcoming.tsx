@@ -98,6 +98,11 @@ function DragHandleIndicator() {
 // real date sets when_date on the target.
 export const NO_DATE_KEY = "unscheduled";
 
+// Sentinel "date" for the Overdue group. Overdue tasks can be dragged OUT onto
+// a real day (reschedule), but nothing can be dropped INTO it — there is no
+// single past date to assign. The drag handlers below block moves into it.
+export const OVERDUE_KEY = "overdue";
+
 function DateGroup({
   date,
   label,
@@ -147,7 +152,8 @@ function DateGroup({
           })}
         </div>
       </SortableContext>
-      {!isDragActive && (
+      {/* Overdue is a read-only bucket — no composer (can't add into the past). */}
+      {!isDragActive && date !== OVERDUE_KEY && (
         <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
       )}
     </section>
@@ -234,6 +240,8 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
         ? overId.slice("group:".length)
         : dateOf(overId);
       if (!fromDate || !toDate || fromDate === toDate) return prev;
+      // Overdue is read-only as a target — you can't schedule into the past.
+      if (toDate === OVERDUE_KEY) return prev;
 
       const next = new Map(prev);
       const fromIds = [...(next.get(fromDate) ?? [])];
@@ -349,6 +357,17 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
         return;
       }
     } else {
+      // Overdue has no single past date to assign, so it's never a valid drop
+      // target. handleDragOver already blocks previews into it; guard the
+      // commit too so a stray drop can't write when_date: "overdue".
+      if (toDate === OVERDUE_KEY) {
+        if (snap) {
+          setByDate(snap.byDate);
+          setTasks(snap.tasks);
+        }
+        return;
+      }
+
       // Cross-section: update when_date on the moved task. Both ends can be the
       // No-date sentinel — moving INTO no-date clears when_date; moving OUT of
       // no-date sets when_date to the target day.

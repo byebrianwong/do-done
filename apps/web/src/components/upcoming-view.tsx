@@ -1,10 +1,10 @@
 "use client";
 
-import { addDaysLocalISO, isManualSort, todayLocalISO, type Project, type Task } from "@do-done/shared";
+import { addDaysLocalISO, isManualSort, isOverdue, type Project, type Task } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
-import { NO_DATE_KEY } from "./draggable-upcoming";
+import { NO_DATE_KEY, OVERDUE_KEY } from "./draggable-upcoming";
 
 function formatDayHeading(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -22,38 +22,44 @@ function formatDayHeading(dateStr: string): string {
   });
 }
 
-/** Per-day columns: a "No date" inbox, the next 14 days as drop targets, then
- *  any further-out days that have tasks. when_date wins over due_date. */
+/** Per-day columns: an "Overdue" bucket (when present), a "No date" inbox, the
+ *  next 14 days as drop targets, then any further-out days that have tasks.
+ *  when_date wins over due_date. */
 function buildDateGroups(
   tasks: Task[]
 ): { date: string; label: string; tasks: Task[]; emptyHint?: string }[] {
-  // The browser's local day is the authority on "today". getUpcoming fetches
-  // a one-day skew buffer (its lower bound is server-today − 1), so any dated
-  // row before local today is genuinely overdue — it belongs in Today, not
-  // here. Drop it rather than spill a stray trailing day-group.
-  const today = todayLocalISO();
+  // The browser's local day is the authority on "today". Anything scheduled or
+  // due strictly before it is overdue and gets its own section at the top —
+  // mirroring the mobile Upcoming screen. (isOverdue is the canonical, shared
+  // definition: when_date OR due_date < today, excluding closed tasks.)
+  const overdue: Task[] = [];
   const undated: Task[] = [];
   const byDate = new Map<string, Task[]>();
   for (const t of tasks) {
+    if (isOverdue(t)) {
+      overdue.push(t);
+      continue;
+    }
     const d = taskDate(t);
     if (!d) {
       undated.push(t);
       continue;
     }
-    if (d < today) continue;
     const list = byDate.get(d) ?? [];
     list.push(t);
     byDate.set(d, list);
   }
 
-  const groups: { date: string; label: string; tasks: Task[]; emptyHint?: string }[] = [
-    {
-      date: NO_DATE_KEY,
-      label: "No date",
-      tasks: undated,
-      emptyHint: "Nothing unscheduled — drag here to clear a date",
-    },
-  ];
+  const groups: { date: string; label: string; tasks: Task[]; emptyHint?: string }[] = [];
+  if (overdue.length > 0) {
+    groups.push({ date: OVERDUE_KEY, label: "Overdue", tasks: overdue });
+  }
+  groups.push({
+    date: NO_DATE_KEY,
+    label: "No date",
+    tasks: undated,
+    emptyHint: "Nothing unscheduled — drag here to clear a date",
+  });
   for (let i = 0; i < 14; i++) {
     // Local YYYY-MM-DD so the column keys match the local-date basis the API
     // (getUpcoming) and the chips (formatDueDate) use. toISOString() here was
