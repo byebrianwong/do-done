@@ -69,6 +69,10 @@ interface Props {
   ) => void;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  /** Non-draggable block rendered above all sections (e.g. Today's Overdue). */
+  ListHeaderComponent?: React.ComponentProps<
+    typeof DraggableFlatList
+  >["ListHeaderComponent"];
 }
 
 export default function SectionedDraggableList({
@@ -79,6 +83,7 @@ export default function SectionedDraggableList({
   onMove,
   refreshControl,
   contentContainerStyle,
+  ListHeaderComponent,
 }: Props) {
   const [rows, setRows] = useState<Row[]>(() => flatten(sections));
 
@@ -133,6 +138,7 @@ export default function SectionedDraggableList({
       }
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}
+      ListHeaderComponent={ListHeaderComponent}
     />
   );
 }

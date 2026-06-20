@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -6,9 +6,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import DraggableFlatList, {
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,35 +16,24 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import SectionedDraggableList, {
+  type DraggableSection,
+} from '@/components/SectionedDraggableList';
 import {
   invalidateTasks,
   reorderTasks,
+  updateTask,
   useProjectsWithCounts,
   useTodayTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
-import { generateFocusList } from '@do-done/task-engine';
-import { filterByConfig, isManualSort, isOverdue, todayLocalISO } from '@do-done/shared';
+import { partitionToday, todayUniverse } from '@do-done/task-engine';
+import { filterByConfig, isManualSort, todayLocalISO } from '@do-done/shared';
 import type { Task } from '@do-done/shared';
 
-/** Tasks that belong on Today: overdue + focus picks + anything scheduled today. */
-function todayUniverse(allTasks: Task[]): Task[] {
-  const active = allTasks.filter(
-    (t) => t.status !== 'done' && t.status !== 'cancelled'
-  );
-  const overdue = active.filter(isOverdue);
-  const overdueIds = new Set(overdue.map((t) => t.id));
-  const fresh = active.filter((t) => !overdueIds.has(t.id));
-  const focusIds = new Set(generateFocusList(fresh, 3).map((t) => t.id));
-  const today = todayLocalISO();
-  const todayList = fresh.filter((t) => {
-    if (focusIds.has(t.id)) return true;
-    const d = t.when_date ?? t.due_date ?? null;
-    return d !== null && d <= today;
-  });
-  return [...overdue, ...todayList];
-}
+const FOCUS = 'focus';
+const OTHER = 'other';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -57,7 +43,6 @@ export default function TodayScreen() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
-  const [otherOrder, setOtherOrder] = useState<Task[]>([]);
   useRefreshOnFocus(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
@@ -67,7 +52,10 @@ export default function TodayScreen() {
     [projectsWithCounts]
   );
 
-  const universe = useMemo(() => todayUniverse(allTasks), [allTasks]);
+  const universe = useMemo(
+    () => todayUniverse(allTasks, todayLocalISO()),
+    [allTasks]
+  );
 
   const availableTags = useMemo(() => {
     const set = new Set<string>();
@@ -77,43 +65,73 @@ export default function TodayScreen() {
 
   const curated = config.group === 'none' && isManualSort(config);
 
-  // Curated layout works over the filter-applied universe.
+  // Curated layout works over the filter-applied universe, split into the three
+  // Today sections (overdue · focus · other).
   const filtered = useMemo(() => filterByConfig(universe, config), [universe, config]);
-  const overdue = useMemo(() => filtered.filter(isOverdue), [filtered]);
-  const todayList = useMemo(() => {
-    const overdueIds = new Set(overdue.map((t) => t.id));
-    return filtered.filter((t) => !overdueIds.has(t.id));
-  }, [filtered, overdue]);
-  const focusIds = useMemo(
-    () => new Set(generateFocusList(todayList, 3).map((t) => t.id)),
-    [todayList]
+  const { overdue, focus, other } = useMemo(
+    () => partitionToday(filtered, 3),
+    [filtered]
   );
+
+  // Focus membership drives the ⭐ marker on rows in the Focus section.
   const focusIdsRef = useRef<Set<string>>(new Set());
-  focusIdsRef.current = focusIds;
+  focusIdsRef.current = useMemo(() => new Set(focus.map((t) => t.id)), [focus]);
 
-  useEffect(() => {
-    setOtherOrder(todayList);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todayList.map((t) => t.id).join(',')]);
+  const sections = useMemo<DraggableSection[]>(
+    () => [
+      { key: FOCUS, title: 'Focus', data: focus },
+      { key: OTHER, title: 'Other tasks', data: other },
+    ],
+    [focus, other]
+  );
 
-  function persistOrder(next: Task[]) {
-    setOtherOrder(next);
-    void reorderTasks(next.map((t) => t.id)).catch(() => {});
-  }
+  const onReorder = useCallback((_key: string, ids: string[]) => {
+    void reorderTasks(ids).catch(() => {});
+  }, []);
 
-  const renderDraggable = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<Task>) => (
-      <View style={isActive ? { opacity: 0.9, backgroundColor: '#f1f5f9' } : undefined}>
+  // Dragging across the Focus ↔ Other boundary pins the task in or forces it
+  // out, then persists the destination order.
+  const onMove = useCallback(
+    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      const focus_override = toKey === FOCUS ? 'include' : 'exclude';
+      void updateTask(taskId, { focus_override })
+        .then(() => reorderTasks(destIds))
+        .catch(() => {});
+    },
+    []
+  );
+
+  const renderHeader = useCallback((section: DraggableSection) => {
+    const isFocus = section.key === FOCUS;
+    return (
+      <View style={styles.sectionHeader}>
+        {isFocus ? <Ionicons name="flash" size={13} color="#6366f1" /> : null}
+        <Text
+          style={[styles.sectionHeaderText, isFocus && styles.focusHeaderText]}
+        >
+          {section.title}{' '}
+          <Text style={styles.sectionCount}>({section.data.length})</Text>
+        </Text>
+      </View>
+    );
+  }, []);
+
+  const renderTask = useCallback(
+    (task: Task, drag: () => void, isActive: boolean) => (
+      <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
-          task={item}
+          task={task}
           onPress={handlePress}
           onDragHandle={drag}
-          focused={focusIdsRef.current.has(item.id)}
+          focused={focusIdsRef.current.has(task.id)}
         />
       </View>
     ),
     [handlePress]
   );
+
+  const isEmpty =
+    overdue.length === 0 && focus.length === 0 && other.length === 0;
 
   return (
     <View style={styles.container}>
@@ -149,27 +167,27 @@ export default function TodayScreen() {
       </View>
 
       {curated ? (
-        <DraggableFlatList
-          data={otherOrder}
-          keyExtractor={(item) => item.id}
-          renderItem={renderDraggable}
-          onDragEnd={({ data }) => persistOrder(data)}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
-          }
-          ListHeaderComponent={
-            <OverdueSection tasks={overdue} onChange={invalidateTasks} />
-          }
-          ListEmptyComponent={
-            overdue.length === 0 && otherOrder.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>Nothing scheduled today</Text>
-                <Text style={styles.emptyHint}>Add a task below.</Text>
-              </View>
-            ) : null
-          }
-          contentContainerStyle={styles.listContent}
-        />
+        isEmpty ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>Nothing scheduled today</Text>
+            <Text style={styles.emptyHint}>Add a task below.</Text>
+          </View>
+        ) : (
+          <SectionedDraggableList
+            sections={sections}
+            renderHeader={renderHeader}
+            renderTask={renderTask}
+            onReorder={onReorder}
+            onMove={onMove}
+            refreshControl={
+              <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+            }
+            ListHeaderComponent={
+              <OverdueSection tasks={overdue} onChange={invalidateTasks} />
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        )
       ) : (
         <GroupedTaskList
           tasks={universe}
@@ -249,4 +267,23 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
   },
+  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  sectionHeaderText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    color: '#6b7280',
+  },
+  focusHeaderText: { color: '#6366f1' },
+  sectionCount: { color: '#9ca3af', fontWeight: '500' },
 });
