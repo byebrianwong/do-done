@@ -38,6 +38,7 @@ const baseTask: Omit<Task, "id" | "title" | "priority" | "status"> = {
   parent_task_id: null,
   depth: 0,
   sort_order: 0,
+  focus_override: null,
   created_at: NOW.toISOString(),
   updated_at: NOW.toISOString(),
   completed_at: null,

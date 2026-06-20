@@ -22,6 +22,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parent_task_id: null,
     depth: 0,
     sort_order: 0,
+    focus_override: null,
     created_at: "2026-05-11T00:00:00.000Z",
     updated_at: "2026-05-11T00:00:00.000Z",
     completed_at: null,
