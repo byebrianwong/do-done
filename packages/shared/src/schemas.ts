@@ -15,6 +15,12 @@ export type TaskStatus = z.infer<typeof TaskStatus>;
 export const TaskPriority = z.enum(["p1", "p2", "p3", "p4"]);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
+// User override for Today's Focus section. Focus is normally auto-computed by
+// urgency; this lets the user pin a task in ("include") or push one out
+// ("exclude") by dragging. null = defer to the algorithm.
+export const FocusOverride = z.enum(["include", "exclude"]);
+export type FocusOverride = z.infer<typeof FocusOverride>;
+
 // Subtask depth: 0 = main task, 1 = subtask, 2 = sub-subtask. Max 3 levels.
 export const TaskDepth = z.union([z.literal(0), z.literal(1), z.literal(2)]);
 export type TaskDepth = z.infer<typeof TaskDepth>;
@@ -55,6 +61,9 @@ export const TaskSchema = z
     parent_task_id: z.string().uuid().nullable(),
     depth: TaskDepth.default(0),
     sort_order: z.number().int().default(0),
+    // Manual override of the Today Focus section: include = pinned in,
+    // exclude = forced out, null = let the urgency algorithm decide.
+    focus_override: FocusOverride.nullable().default(null),
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     completed_at: z.string().datetime().nullable(),
@@ -180,6 +189,7 @@ export const UpdateTaskInput = z.object({
   tags: z.array(z.string()).optional(),
   parent_task_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().optional(),
+  focus_override: FocusOverride.nullable().optional(),
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 

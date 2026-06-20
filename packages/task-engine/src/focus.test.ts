@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { generateFocusList } from "./focus.js";
+import {
+  generateFocusList,
+  partitionToday,
+  todayUniverse,
+} from "./focus.js";
 import type { Task } from "@do-done/shared";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -22,6 +26,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parent_task_id: null,
     depth: 0,
     sort_order: 0,
+    focus_override: null,
     created_at: "2026-04-01T00:00:00Z",
     updated_at: "2026-04-01T00:00:00Z",
     completed_at: null,
@@ -29,9 +34,11 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+// Fix "today" to 2026-04-12 for deterministic overdue/due-today checks.
+const TODAY = "2026-04-12";
+
 describe("generateFocusList", () => {
   beforeEach(() => {
-    // Fix "today" to 2026-04-12 for deterministic overdue/due-today checks
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-12T10:00:00Z"));
   });
@@ -104,5 +111,128 @@ describe("generateFocusList", () => {
     ];
     const result = generateFocusList(tasks);
     expect(result[0].title).toBe("due today");
+  });
+
+  // ── Manual overrides ────────────────────────────────────
+
+  it("pins an include task in, taking an auto slot from a higher-scored task", () => {
+    const tasks = [
+      makeTask({ title: "p1", priority: "p1" }),
+      makeTask({ title: "p2", priority: "p2" }),
+      makeTask({ title: "pinned p4", priority: "p4", focus_override: "include" }),
+    ];
+    // 2 slots: the pin + one auto pick (the top-scored p1). p2 is squeezed out.
+    const result = generateFocusList(tasks, 2);
+    const titles = result.map((t) => t.title);
+    expect(titles).toContain("pinned p4");
+    expect(titles).toContain("p1");
+    expect(titles).not.toContain("p2");
+  });
+
+  it("drops an exclude task even when it would otherwise rank highest", () => {
+    const tasks = [
+      makeTask({
+        title: "overdue but excluded",
+        priority: "p1",
+        due_date: "2026-04-10",
+        focus_override: "exclude",
+      }),
+      makeTask({ title: "p3", priority: "p3" }),
+    ];
+    const result = generateFocusList(tasks);
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("p3");
+  });
+
+  it("shows all pins even when they exceed maxItems", () => {
+    const tasks = [
+      makeTask({ title: "a", focus_override: "include" }),
+      makeTask({ title: "b", focus_override: "include" }),
+      makeTask({ title: "c", focus_override: "include" }),
+    ];
+    const result = generateFocusList(tasks, 1);
+    expect(result).toHaveLength(3);
+  });
+
+  it("honors manual sort_order ahead of score", () => {
+    const tasks = [
+      makeTask({ title: "second", priority: "p1", sort_order: 2000 }),
+      makeTask({ title: "first", priority: "p4", sort_order: 1000 }),
+    ];
+    const result = generateFocusList(tasks);
+    expect(result.map((t) => t.title)).toEqual(["first", "second"]);
+  });
+});
+
+describe("partitionToday", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T10:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps overdue tasks in Overdue even when pinned to focus (overdue wins)", () => {
+    const tasks = [
+      makeTask({
+        title: "overdue + pinned",
+        due_date: "2026-04-10",
+        focus_override: "include",
+      }),
+      makeTask({ title: "today", due_date: "2026-04-12" }),
+    ];
+    const { overdue, focus } = partitionToday(tasks);
+    expect(overdue.map((t) => t.title)).toEqual(["overdue + pinned"]);
+    expect(focus.map((t) => t.title)).not.toContain("overdue + pinned");
+  });
+
+  it("splits non-overdue tasks into focus and other by focusMax", () => {
+    const tasks = [
+      makeTask({ title: "due today", priority: "p1", due_date: "2026-04-12" }),
+      makeTask({ title: "someday", priority: "p4" }),
+    ];
+    const { focus, other } = partitionToday(tasks, 1);
+    expect(focus.map((t) => t.title)).toEqual(["due today"]);
+    expect(other.map((t) => t.title)).toEqual(["someday"]);
+  });
+
+  it("sends an excluded task to other instead of focus", () => {
+    const tasks = [
+      makeTask({ title: "excluded p1", priority: "p1", focus_override: "exclude" }),
+      makeTask({ title: "p3", priority: "p3" }),
+    ];
+    const { focus, other } = partitionToday(tasks);
+    expect(focus.map((t) => t.title)).toEqual(["p3"]);
+    expect(other.map((t) => t.title)).toEqual(["excluded p1"]);
+  });
+});
+
+describe("todayUniverse", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T10:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("includes overdue, today-scheduled and pinned-undated; excludes a future excluded task", () => {
+    const overdue = makeTask({ title: "overdue", due_date: "2026-04-10" });
+    const today = makeTask({ title: "today", when_date: "2026-04-12" });
+    const pinnedUndated = makeTask({
+      title: "pinned undated",
+      focus_override: "include",
+    });
+    const futureExcluded = makeTask({
+      title: "future excluded",
+      when_date: "2026-04-20",
+      focus_override: "exclude",
+    });
+    const universe = todayUniverse(
+      [overdue, today, pinnedUndated, futureExcluded],
+      TODAY
+    );
+    const titles = universe.map((t) => t.title);
+    expect(titles).toContain("overdue");
+    expect(titles).toContain("today");
+    expect(titles).toContain("pinned undated");
+    expect(titles).not.toContain("future excluded");
   });
 });
