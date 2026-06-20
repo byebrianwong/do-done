@@ -1,3 +1,6 @@
+// Freeze the clock FIRST — before any story module (and its date-relative mock
+// data) is imported — so Chromatic snapshots don't drift day to day.
+import "./freeze-clock";
 import type { Preview } from "@storybook/nextjs-vite";
 import "../src/app/globals.css";
 
