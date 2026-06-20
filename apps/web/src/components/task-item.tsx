@@ -539,13 +539,18 @@ export function TaskItem({ task, projects }: TaskItemProps) {
 
   return (
     <>
+      {/* `@container` makes the row stack on its OWN available width rather
+          than the viewport, so it goes two-row in any narrow column (a phone,
+          a split pane, a narrow sidebar) — not just on small screens. Below
+          ~32rem (`@lg`) the title takes its own row. */}
+      <div className="@container">
       <div
-        className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
+        className="group flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
         onClick={() => setEditing(true)}
       >
         <button
           onClick={handleToggleComplete}
-          className="flex shrink-0 items-center justify-center"
+          className="flex h-5 shrink-0 items-center justify-center"
           aria-label={completed ? "Mark incomplete" : "Mark complete"}
         >
           <span
@@ -573,11 +578,19 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           </span>
         </button>
 
-        <InlinePriorityEditor priority={priority} onChange={handlePriorityChange} />
+        {/* Wrapper keeps the priority bars centered on the title line when the
+            row stacks into two rows. */}
+        <div className="flex h-5 shrink-0 items-center @lg:h-auto">
+          <InlinePriorityEditor priority={priority} onChange={handlePriorityChange} />
+        </div>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* Title gets its own row when the container is narrow so it's never
+            crowded out by the metadata; from @lg up everything collapses back
+            to a single inline row (the metadata wrapper becomes
+            `display: contents`). */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:flex-row @lg:items-center @lg:gap-2">
           <span
-            className={`text-sm leading-snug ${
+            className={`line-clamp-2 text-sm leading-snug @lg:line-clamp-none ${
               completed
                 ? "text-neutral-400 line-through dark:text-neutral-600"
                 : "text-neutral-900 dark:text-neutral-100"
@@ -586,87 +599,95 @@ export function TaskItem({ task, projects }: TaskItemProps) {
             {task.title}
           </span>
 
-          {task.tags.map((tag) => (
-            <span
-              key={tag}
-              className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-            >
-              {tag}
-            </span>
-          ))}
-
-          {task.recurrence_rule && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950 dark:text-violet-400"
-              title={task.recurrence_rule}
-            >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+          <div className="flex flex-wrap items-center gap-2 @lg:contents">
+            {task.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                {tag}
+              </span>
+            ))}
+
+            {task.recurrence_rule && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950 dark:text-violet-400"
+                title={task.recurrence_rule}
+              >
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                {formatRrule(task.recurrence_rule)}
+              </span>
+            )}
+
+            {project && (
+              <InlineProjectEditor
+                project={project}
+                projects={allProjects}
+                selectedId={projectId}
+                userId={task.user_id}
+                onChange={handleProjectChange}
+                onCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
+              />
+            )}
+
+            {duration && (
+              <InlineEstimateEditor
+                durationMinutes={duration}
+                onChange={handleDurationChange}
+              />
+            )}
+
+            {showStatusBadge && statusCfg && (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                style={{
+                  color: statusCfg.color,
+                  backgroundColor: `${statusCfg.color}1a`,
+                }}
+                title={statusCfg.label}
+              >
+                {statusCfg.label}
+              </span>
+            )}
+
+            {/* Effective scheduling chip — clickable to reschedule inline
+                (do-date if set, else deadline). When a do-date and a distinct
+                deadline both exist, show the deadline as a static second chip.
+                `@lg:ml-auto` pushes the pair to the row's right edge on wide
+                containers, preserving the desktop layout. */}
+            {(whenDate || task.due_date) && (
+              <div className="flex items-center gap-2 @lg:ml-auto">
+                <InlineWhenEditor
+                  whenDate={whenDate}
+                  whenTime={whenTime}
+                  dueDate={task.due_date}
+                  dueTime={task.due_time}
+                  onChange={handleWhenChange}
                 />
-              </svg>
-              {formatRrule(task.recurrence_rule)}
-            </span>
-          )}
-
-          {project && (
-            <InlineProjectEditor
-              project={project}
-              projects={allProjects}
-              selectedId={projectId}
-              userId={task.user_id}
-              onChange={handleProjectChange}
-              onCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
-            />
-          )}
-
-          {duration && (
-            <InlineEstimateEditor
-              durationMinutes={duration}
-              onChange={handleDurationChange}
-            />
-          )}
-
-          {showStatusBadge && statusCfg && (
-            <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-              style={{
-                color: statusCfg.color,
-                backgroundColor: `${statusCfg.color}1a`,
-              }}
-              title={statusCfg.label}
-            >
-              {statusCfg.label}
-            </span>
-          )}
+                {whenDate && task.due_date && whenDate !== task.due_date && (
+                  <span
+                    className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
+                    title={`Hard deadline ${task.due_date}`}
+                  >
+                    due {formatDueDate(task.due_date)}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Effective scheduling chip — clickable to reschedule inline (do-date
-            if set, else deadline). When a do-date and a distinct deadline both
-            exist, show the deadline as a static second chip. */}
-        <InlineWhenEditor
-          whenDate={whenDate}
-          whenTime={whenTime}
-          dueDate={task.due_date}
-          dueTime={task.due_time}
-          onChange={handleWhenChange}
-        />
-        {whenDate && task.due_date && whenDate !== task.due_date && (
-          <span
-            className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
-            title={`Hard deadline ${task.due_date}`}
-          >
-            due {formatDueDate(task.due_date)}
-          </span>
-        )}
 
         {/* Always visible on touch (no hover); reveal on hover for pointer
             devices to keep the desktop list calm. */}
@@ -700,6 +721,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
             </svg>
           </button>
         </div>
+      </div>
       </div>
 
       <TaskEditModalV2

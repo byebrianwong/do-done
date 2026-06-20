@@ -242,6 +242,63 @@ export const ManyTags: Story = {
   },
 };
 
+// ── Narrow / mobile: title gets its own row, metadata wraps beneath ────────
+
+export const MobileTwoRow: Story = {
+  name: "Mobile (narrow — two-row layout)",
+  // The two-row layout is driven by the row's own width (an `@container`
+  // query), not the viewport — so a fixed narrow container reproduces it at
+  // any snapshot viewport, no mobile-viewport emulation needed.
+  decorators: [
+    (Story) => (
+      <div className="mx-auto w-[380px] divide-y divide-neutral-100 dark:divide-neutral-800">
+        <Story />
+      </div>
+    ),
+  ],
+  render: () => (
+    <>
+      <TaskItem
+        task={makeTask({
+          title:
+            "Investigate why the nightly sync job intermittently drops recurring tasks",
+          priority: "p1",
+          due_date: today,
+          due_time: "09:30",
+          duration_minutes: 60,
+          tags: ["urgent", "backend"],
+          project_id: "proj-1",
+        })}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Review pull request",
+          priority: "p2",
+          status: "in_progress",
+          when_date: tomorrow,
+          when_time: "15:00",
+          project_id: "proj-2",
+          duration_minutes: 30,
+        })}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem
+        task={makeTask({ title: "Buy groceries", priority: "p3" })}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Finish the grant application",
+          priority: "p1",
+          when_date: tomorrow,
+          due_date: nextWeek,
+          duration_minutes: 120,
+        })}
+      />
+    </>
+  ),
+};
+
 // ── Gallery: a representative row stack (single change → many rows shift) ──
 
 export const Gallery: Story = {
