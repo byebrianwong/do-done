@@ -1,13 +1,20 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import type { RefreshControlProps } from 'react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import TaskItem from '@/components/TaskItem';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import { invalidateTasks, reorderTasks, updateTask } from '@/lib/task-queries';
-import { applyDisplay, isManualSort, withSort } from '@do-done/shared';
+import {
+  applyDisplay,
+  isCollapsed,
+  isManualSort,
+  toggleCollapsed,
+  withSort,
+} from '@do-done/shared';
 import type {
   DisplayConfig,
   GroupDropTarget,
@@ -71,9 +78,22 @@ export default function GroupedTaskList({
       title: g.label,
       data: g.tasks,
     }));
-    const meta = new Map(groups.map((g) => [g.key, { color: g.color, drop: g.drop }]));
+    const meta = new Map(
+      groups.map((g) => [g.key, { color: g.color, drop: g.drop, count: g.count }])
+    );
     return { sections, meta };
   }, [tasks, config, projects]);
+
+  // What the list actually renders: collapsed sections keep their header but
+  // drop their rows. The full `sections` (above) still drive the freeze/convert
+  // refs, so a collapsed section's order is preserved.
+  const renderSections = useMemo(
+    () =>
+      sections.map((s) =>
+        isCollapsed(config, s.key) ? { ...s, data: [] as typeof s.data } : s
+      ),
+    [sections, config]
+  );
 
   const metaRef = useRef(meta);
   metaRef.current = meta;
@@ -110,6 +130,11 @@ export default function GroupedTaskList({
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      // Collapsed sections aren't drop targets in v1 — snap back, expand to drop in.
+      if (isCollapsed(configRef.current, toKey)) {
+        invalidateTasks();
+        return;
+      }
       const drop = metaRef.current.get(toKey)?.drop;
       if (!drop) {
         invalidateTasks();
@@ -144,15 +169,29 @@ export default function GroupedTaskList({
 
   const renderHeader = useCallback((section: DraggableSection) => {
     if (!section.title) return <View style={styles.noneHeader} />;
-    const color = metaRef.current.get(section.key)?.color ?? '#9ca3af';
+    const m = metaRef.current.get(section.key);
+    const color = m?.color ?? '#9ca3af';
+    // Full count (not the rendered-rows count, which is 0 when collapsed).
+    const count = m?.count ?? section.data.length;
+    const collapsed = isCollapsed(configRef.current, section.key);
+    const toggle = onConfigChangeRef.current;
     return (
-      <View style={styles.sectionHeader}>
+      <Pressable
+        style={styles.sectionHeader}
+        disabled={!toggle}
+        onPress={() => toggle?.(toggleCollapsed(configRef.current, section.key))}
+      >
+        <Ionicons
+          name={collapsed ? 'chevron-forward' : 'chevron-down'}
+          size={14}
+          color="#9ca3af"
+        />
         <View style={[styles.statusDot, { backgroundColor: color }]} />
         <Text style={styles.sectionHeaderText}>
           {section.title}{' '}
-          <Text style={styles.sectionCount}>({section.data.length})</Text>
+          <Text style={styles.sectionCount}>({count})</Text>
         </Text>
-      </View>
+      </Pressable>
     );
   }, []);
 
@@ -167,7 +206,7 @@ export default function GroupedTaskList({
 
   return (
     <SectionedDraggableList
-      sections={sections}
+      sections={renderSections}
       renderHeader={renderHeader}
       renderTask={renderTask}
       onReorder={onReorder}
