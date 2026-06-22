@@ -23,7 +23,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   applyDisplay,
+  isCollapsed,
   isManualSort,
+  toggleCollapsed,
   withSort,
   type DisplayConfig,
   type DisplayGroup,
@@ -138,6 +140,12 @@ export function DraggableTaskGroups({
             isDragActive={false}
             quickAdd={quickAdd}
             hideHeader={hideHeaderForSingle && g.key === "none"}
+            collapsed={isCollapsed(config, g.key)}
+            onToggleCollapse={
+              onConfigChange
+                ? () => onConfigChange(toggleCollapsed(config, g.key))
+                : undefined
+            }
           />
         ))}
       </div>
@@ -358,18 +366,28 @@ export function DraggableTaskGroups({
       onDragCancel={handleDragCancel}
     >
       <div>
-        {groups.map((g) => (
-          <GroupSection
-            key={g.key}
-            group={g}
-            projects={projects}
-            droppable={g.drop !== null}
-            sortableIds={g.tasks.map((t) => t.id)}
-            isDragActive={draggingId !== null}
-            quickAdd={quickAdd}
-            hideHeader={hideHeaderForSingle && g.key === "none"}
-          />
-        ))}
+        {groups.map((g) => {
+          const collapsed = isCollapsed(config, g.key);
+          return (
+            <GroupSection
+              key={g.key}
+              group={g}
+              projects={projects}
+              // Collapsed sections aren't drop targets in v1 — expand to drop in.
+              droppable={g.drop !== null && !collapsed}
+              sortableIds={g.tasks.map((t) => t.id)}
+              isDragActive={draggingId !== null}
+              quickAdd={quickAdd}
+              hideHeader={hideHeaderForSingle && g.key === "none"}
+              collapsed={collapsed}
+              onToggleCollapse={
+                onConfigChange
+                  ? () => onConfigChange(toggleCollapsed(config, g.key))
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
       <TaskDragOverlay task={activeTask} projects={projects} />
     </DndContext>
@@ -384,6 +402,8 @@ function GroupSection({
   isDragActive,
   quickAdd,
   hideHeader,
+  collapsed,
+  onToggleCollapse,
 }: {
   group: DisplayGroup;
   projects?: Project[];
@@ -392,6 +412,8 @@ function GroupSection({
   isDragActive: boolean;
   quickAdd: boolean;
   hideHeader: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: dropId(group.key),
@@ -422,35 +444,69 @@ function GroupSection({
     </div>
   );
 
+  const showHeader = !hideHeader && !!group.label;
+  const headerInner = (
+    <>
+      <svg
+        className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
+        viewBox="0 0 12 12"
+        fill="none"
+        aria-hidden
+      >
+        <path
+          d="M4.5 2.5 8 6l-3.5 3.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      {group.color ? (
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: group.color }}
+        />
+      ) : null}
+      {group.label}
+      <span className="text-neutral-400">({group.count})</span>
+    </>
+  );
+  const headerClass =
+    "mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider";
+
   return (
     <section className="group mb-6">
-      {!hideHeader && group.label ? (
-        <h2
-          className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"
-          style={{ color: group.color ?? "#9ca3af" }}
-        >
-          {group.color ? (
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: group.color }}
-            />
-          ) : null}
-          {group.label}
-          <span className="text-neutral-400">({group.count})</span>
-        </h2>
+      {showHeader ? (
+        onToggleCollapse ? (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-expanded={!collapsed}
+            className={`${headerClass} transition-opacity hover:opacity-70`}
+            style={{ color: group.color ?? "#9ca3af" }}
+          >
+            {headerInner}
+          </button>
+        ) : (
+          <h2 className={headerClass} style={{ color: group.color ?? "#9ca3af" }}>
+            {headerInner}
+          </h2>
+        )
       ) : null}
-      {sortableIds ? (
-        <SortableContext
-          id={dropId(group.key)}
-          items={sortableIds}
-          strategy={verticalListSortingStrategy}
-        >
-          {body}
-        </SortableContext>
-      ) : (
-        body
-      )}
-      {quickAdd && !isDragActive ? (
+      {!collapsed ? (
+        sortableIds ? (
+          <SortableContext
+            id={dropId(group.key)}
+            items={sortableIds}
+            strategy={verticalListSortingStrategy}
+          >
+            {body}
+          </SortableContext>
+        ) : (
+          body
+        )
+      ) : null}
+      {!collapsed && quickAdd && !isDragActive ? (
         <InlineTaskComposer seed={seedFromDrop(group.drop)} />
       ) : null}
     </section>
