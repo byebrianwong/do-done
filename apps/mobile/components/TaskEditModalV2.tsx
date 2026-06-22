@@ -39,7 +39,7 @@ import {
   type DayBusyness,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
-import { createProject, useProjects } from "@/lib/task-queries";
+import { createProject, invalidateTasks, useProjects } from "@/lib/task-queries";
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
 import {
   Gesture,
@@ -832,7 +832,14 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
     hasChanges,
     isSaving,
     lastError,
-  } = useAutoSaveTask(task, tasksApiMemo);
+  } = useAutoSaveTask(task, tasksApiMemo, {
+    // Reconcile the TanStack Query lists after each commit. Doing it here (not
+    // on modal close) means the refetch reads the row *after* the PATCH lands,
+    // so the lists stop showing the pre-edit value — and it covers every close
+    // path (swipe, backdrop, back button, ×) since it no longer depends on the
+    // close handler firing.
+    onSaved: invalidateTasks,
+  });
 
   const [busyness, setBusyness] = useState<DayBusyness[]>([]);
   useEffect(() => {
