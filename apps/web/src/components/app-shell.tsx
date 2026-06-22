@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Project } from "@do-done/shared";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { PetPanelContainer } from "@/components/pet/PetPanelContainer";
+import { PetRevealTab } from "@/components/pet/PetRevealTab";
 import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/command-palette";
 import { QuickAddFab } from "@/components/quick-add-fab";
+import {
+  TOGGLE_PIP_PANEL_EVENT,
+  writePipHiddenCookie,
+} from "@/lib/pip-visibility";
 
 /**
  * Responsive application shell.
@@ -22,13 +27,55 @@ import { QuickAddFab } from "@/components/quick-add-fab";
 export function AppShell({
   projects,
   userEmail,
+  pipHidden = false,
   children,
 }: {
   projects: Project[];
   userEmail: string | null;
+  /**
+   * Whether the Pip panel starts collapsed. Read server-side from a cookie so
+   * the first paint already has the right layout (no flash). Device-scoped.
+   */
+  pipHidden?: boolean;
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [petHidden, setPetHidden] = useState(pipHidden);
+
+  const setPipHidden = useCallback((hidden: boolean) => {
+    setPetHidden(hidden);
+    writePipHiddenCookie(hidden);
+  }, []);
+
+  // Toggle the Pip panel from the keyboard ("p") or a window event (the
+  // command palette's "Toggle Pip panel" action). Mirrors the global "q"
+  // quick-add shortcut: ignore it while a modifier is held (so ⌘P print stays
+  // native) or while focus is in a text field. Only active when there's a
+  // panel to toggle (signed in).
+  useEffect(() => {
+    if (!userEmail) return;
+    const toggle = () => setPipHidden(!petHidden);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "p") return;
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      )
+        return;
+      e.preventDefault();
+      toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener(TOGGLE_PIP_PANEL_EVENT, toggle);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(TOGGLE_PIP_PANEL_EVENT, toggle);
+    };
+  }, [userEmail, petHidden, setPipHidden]);
 
   // Lock body scroll while the mobile drawer is open so the page behind it
   // doesn't scroll under the finger.
@@ -192,11 +239,25 @@ export function AppShell({
         </main>
 
         {userEmail ? (
-          <PetPanelContainer className="border-l border-neutral-200 dark:border-neutral-800" />
+          petHidden ? (
+            // Out of flow (fixed) so the main column reclaims the full width.
+            // xl-only, matching where the panel itself lives.
+            <div className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 xl:block">
+              <PetRevealTab onShow={() => setPipHidden(false)} />
+            </div>
+          ) : (
+            <PetPanelContainer
+              onHide={() => setPipHidden(true)}
+              className="border-l border-neutral-200 dark:border-neutral-800"
+            />
+          )
         ) : null}
       </div>
 
-      <QuickAddFab hasPetPanel={!!userEmail} hidden={drawerOpen} />
+      <QuickAddFab
+        hasPetPanel={!!userEmail && !petHidden}
+        hidden={drawerOpen}
+      />
     </div>
   );
 }

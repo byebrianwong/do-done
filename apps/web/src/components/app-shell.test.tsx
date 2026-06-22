@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell } from "./app-shell";
 import { OPEN_COMMAND_PALETTE_EVENT } from "./command-palette";
+import { TOGGLE_PIP_PANEL_EVENT } from "@/lib/pip-visibility";
 import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 // SidebarNav reads usePathname; AppShell renders nothing else from the router.
@@ -43,9 +44,13 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-function renderShell() {
+function renderShell(props?: { pipHidden?: boolean }) {
   return render(
-    <AppShell projects={SAMPLE_PROJECTS} userEmail="beamer408@gmail.com">
+    <AppShell
+      projects={SAMPLE_PROJECTS}
+      userEmail="beamer408@gmail.com"
+      pipHidden={props?.pipHidden}
+    >
       <p>Page content</p>
     </AppShell>
   );
@@ -120,6 +125,59 @@ describe("AppShell — responsive navigation", () => {
     await user.click(screen.getByRole("link", { name: "Today" }));
 
     expect(getSidebar(container).className).toContain("-translate-x-full");
+  });
+
+  it("shows the pet panel (no reveal tab) by default", () => {
+    renderShell();
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+  });
+
+  it("collapses to a 'Show Pip' tab when pipHidden, and reveals on click", async () => {
+    const user = userEvent.setup();
+    renderShell({ pipHidden: true });
+
+    const tab = screen.getByLabelText("Show Pip");
+    expect(tab).toBeInTheDocument();
+
+    await user.click(tab);
+
+    // Clicking the tab flips back to the panel, so the tab is gone.
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+  });
+
+  it("toggles the pet panel with the 'p' keyboard shortcut", () => {
+    renderShell();
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: "p" });
+    expect(screen.getByLabelText("Show Pip")).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: "p" });
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+  });
+
+  it("ignores 'p' with a modifier or while typing in a field", () => {
+    renderShell();
+
+    // ⌘P / ⌃P stay native (print) — no toggle.
+    fireEvent.keyDown(document.body, { key: "p", metaKey: true });
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+
+    // Typing "p" in a text field must not collapse the panel.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: "p" });
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+    input.remove();
+  });
+
+  it("toggles the pet panel when the TOGGLE_PIP_PANEL_EVENT fires (palette action)", () => {
+    renderShell();
+    expect(screen.queryByLabelText("Show Pip")).not.toBeInTheDocument();
+
+    fireEvent(window, new Event(TOGGLE_PIP_PANEL_EVENT));
+    expect(screen.getByLabelText("Show Pip")).toBeInTheDocument();
   });
 
   it("lets mobile users reach the command palette via the search button", async () => {

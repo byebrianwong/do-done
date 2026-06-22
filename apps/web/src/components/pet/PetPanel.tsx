@@ -42,6 +42,12 @@ export interface PetPanelProps {
    */
   petSettings?: PetSettingsValues;
   onSavePetSettings?: (patch: PetSettingsPatch) => Promise<void> | void;
+  /**
+   * When provided, the header renders a collapse button that hides the whole
+   * panel (frees the column for tasks). Omit to render no hide affordance —
+   * e.g. in stories that only exercise the panel's content.
+   */
+  onHide?: () => void;
   className?: string;
 }
 
@@ -54,6 +60,7 @@ export function PetPanel({
   onDismissGoal,
   petSettings,
   onSavePetSettings,
+  onHide,
   className,
 }: PetPanelProps) {
   const { pet, current_stats, mood, goals, recent_events } = state;
@@ -74,7 +81,7 @@ export function PetPanel({
         color: "#4a3f1f",
       }}
     >
-      <Header name={pet.name} level={pet.level} mood={mood} />
+      <Header name={pet.name} level={pet.level} mood={mood} onHide={onHide} />
       <PipStage seed={seed} mood={mood} />
       <Stats stats={current_stats} />
       {activeGoal ? (
@@ -101,10 +108,12 @@ function Header({
   name,
   level,
   mood,
+  onHide,
 }: {
   name: string;
   level: number;
   mood: PetMood;
+  onHide?: () => void;
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -123,6 +132,32 @@ function Header({
       >
         lvl {level}
       </span>
+      {onHide ? (
+        <button
+          type="button"
+          onClick={onHide}
+          aria-label="Hide Pip panel"
+          title="Hide Pip — free the space for tasks (P)"
+          className="-mr-1 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-black/5"
+          style={{ color: "#a08a5a", background: "transparent", border: "none", cursor: "pointer" }}
+        >
+          {/* Double chevron pointing right — collapse the panel to the edge. */}
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13 5l7 7-7 7M5 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      ) : null}
     </div>
   );
 }

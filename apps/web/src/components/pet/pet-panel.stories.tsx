@@ -332,6 +332,20 @@ export const StatsAllZero: Story = {
   },
 };
 
+// ── Hide affordance ───────────────────────────────────
+
+export const WithHideButton: Story = {
+  args: {
+    state: makePetState({
+      mood: "happy",
+      current_stats: { hunger: 75, happiness: 80, energy: 65 },
+    }),
+    onHide: () => {
+      // no-op for stories — shows the collapse button in the header
+    },
+  },
+};
+
 // ── Settings panel ────────────────────────────────────
 
 export const WithSettings: Story = {
