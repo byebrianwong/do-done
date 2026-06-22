@@ -109,15 +109,17 @@ export default function OverdueSection({
         <View style={styles.list}>
           {visible.map((t) => (
             <View key={t.id} style={styles.row}>
-              <View
-                style={[
-                  styles.dot,
-                  { backgroundColor: PRIORITY_CONFIG[t.priority].color },
-                ]}
-              />
-              <Text style={styles.title} numberOfLines={1}>
-                {t.title}
-              </Text>
+              <View style={styles.titleLine}>
+                <View
+                  style={[
+                    styles.dot,
+                    { backgroundColor: PRIORITY_CONFIG[t.priority].color },
+                  ]}
+                />
+                <Text style={styles.title} numberOfLines={2}>
+                  {t.title}
+                </Text>
+              </View>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -215,10 +217,14 @@ const styles = StyleSheet.create({
   bulkLabel: { color: '#fff', fontSize: 12, fontWeight: '700' },
   list: { gap: 6 },
   row: {
+    flexDirection: 'column',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  titleLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 4,
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
   title: { fontSize: 14, color: '#111827', flex: 1 },
