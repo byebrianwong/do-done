@@ -23,11 +23,15 @@ export default function InboxScreen() {
 
   useRefreshOnFocus(refetch);
 
-  // Mirror the server-derived list into a drag-reorderable copy.
+  // Mirror the server-derived list into a drag-reorderable copy. Key the
+  // re-sync on task *content*, not just ids: a field edit (e.g. priority) keeps
+  // the id list identical, so an id-only key left `order` rendering the
+  // pre-edit task objects after the query cache reconciled.
+  const sig = tasks.map((t) => JSON.stringify(t)).join('|');
   useEffect(() => {
     setOrder(tasks);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks.map((t) => t.id).join(',')]);
+  }, [sig]);
 
   function persistOrder(next: Task[]) {
     setOrder(next);
