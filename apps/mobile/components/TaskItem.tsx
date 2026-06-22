@@ -225,6 +225,20 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
     </View>
   );
 
+  const showStatus =
+    task.status !== 'not_started' && task.status !== 'inbox';
+  // The row stacks into two lines: the title gets its own line (up to two)
+  // so it's never crowded out, and every secondary attribute wraps onto an
+  // indented second line below it.
+  const hasMeta = Boolean(
+    task.duration_minutes ||
+      task.recurrence_rule ||
+      project ||
+      showStatus ||
+      task.when_date ||
+      task.due_date
+  );
+
   return (
     <ReanimatedSwipeable
       ref={swipeRef}
@@ -284,62 +298,66 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           ) : null}
           <Text
             style={[styles.title, completed && styles.titleDone]}
-            numberOfLines={1}
+            numberOfLines={2}
           >
             {task.title}
           </Text>
-          {task.duration_minutes ? (
-            <View style={styles.metaChip}>
-              <Text style={styles.metaChipLabel}>
-                ~{formatDuration(task.duration_minutes)}
-              </Text>
-            </View>
-          ) : null}
-          {task.recurrence_rule ? (
-            <Ionicons name="repeat" size={13} color="#9ca3af" />
-          ) : null}
-          {project ? (
-            <Pressable
-              onPress={() => setProjectPickerOpen(true)}
-              hitSlop={6}
-              style={styles.projectChip}
-            >
+        </View>
+        {hasMeta ? (
+          <View style={styles.metaRow}>
+            {task.duration_minutes ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipLabel}>
+                  ~{formatDuration(task.duration_minutes)}
+                </Text>
+              </View>
+            ) : null}
+            {task.recurrence_rule ? (
+              <Ionicons name="repeat" size={13} color="#9ca3af" />
+            ) : null}
+            {project ? (
+              <Pressable
+                onPress={() => setProjectPickerOpen(true)}
+                hitSlop={6}
+                style={styles.projectChip}
+              >
+                <View
+                  style={[styles.projectDot, { backgroundColor: project.color }]}
+                />
+                <Text style={styles.projectChipLabel} numberOfLines={1}>
+                  {project.name}
+                </Text>
+              </Pressable>
+            ) : null}
+            {showStatus ? (
               <View
-                style={[styles.projectDot, { backgroundColor: project.color }]}
-              />
-              <Text style={styles.projectChipLabel} numberOfLines={1}>
-                {project.name}
-              </Text>
-            </Pressable>
-          ) : null}
-          {task.status !== 'not_started' && task.status !== 'inbox' ? (
-            <View
-              style={[
-                styles.statusChip,
-                { backgroundColor: STATUS_CONFIG[task.status].color + '22' },
-              ]}
-            >
-              <Text
                 style={[
-                  styles.statusChipLabel,
-                  { color: STATUS_CONFIG[task.status].color },
+                  styles.statusChip,
+                  { backgroundColor: STATUS_CONFIG[task.status].color + '22' },
                 ]}
               >
-                {STATUS_CONFIG[task.status].label}
+                <Text
+                  style={[
+                    styles.statusChipLabel,
+                    { color: STATUS_CONFIG[task.status].color },
+                  ]}
+                >
+                  {STATUS_CONFIG[task.status].label}
+                </Text>
+              </View>
+            ) : null}
+            {task.when_date ? (
+              <Text style={styles.dueDate}>
+                {formatDueDate(task.when_date)}
+                {task.when_time ? ` ${formatWhenTime(task.when_time)}` : ''}
               </Text>
-            </View>
-          ) : null}
-        </View>
-        {task.when_date ? (
-          <Text style={styles.dueDate}>
-            {formatDueDate(task.when_date)}
-            {task.when_time ? ` ${formatWhenTime(task.when_time)}` : ''}
-          </Text>
-        ) : task.due_date ? (
-          <Text style={styles.dueDate}>
-            {formatDueDate(task.due_date)}
-            {task.due_time ? ` ${task.due_time}` : ''}
-          </Text>
+            ) : task.due_date ? (
+              <Text style={styles.dueDate}>
+                {formatDueDate(task.due_date)}
+                {task.due_time ? ` ${task.due_time}` : ''}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
       </View>
       {onDragHandle ? (
@@ -427,7 +445,9 @@ function formatDueDate(dateStr: string): string {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Top-align so the checkbox + priority bars sit on the title's first
+    // line when the row grows to two lines.
+    alignItems: 'flex-start',
     paddingVertical: 12,
     paddingHorizontal: 16,
     backgroundColor: '#fff',
@@ -480,6 +500,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 2,
     marginRight: 10,
+    // Nudge down to center the short bars on the title's first line.
+    marginTop: 4,
     width: 18,
     height: 14,
   },
@@ -489,18 +511,21 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
+    gap: 3,
   },
   titleRow: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginRight: 8,
   },
-  title: { fontSize: 16, color: '#111827', flexShrink: 1 },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  title: { fontSize: 16, lineHeight: 22, color: '#111827', flex: 1 },
   titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
   dueDate: { fontSize: 13, color: '#6b7280' },
   dragHandle: {
