@@ -1,6 +1,6 @@
 "use client";
 
-import { addDaysLocalISO, isManualSort, isOverdue, type Project, type Task } from "@do-done/shared";
+import { addDaysLocalISO, isManualSort, isOverdue, toggleCollapsed, type Project, type Task } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
@@ -92,11 +92,16 @@ export function UpcomingView({
       projects={projects}
       beforeContent={beforeContent}
       curatedWhen={(c) => c.group === "date" && isManualSort(c)}
-      renderCurated={(tasks) => {
+      renderCurated={(tasks, config, onConfigChange) => {
         const groups = buildDateGroups(tasks);
         const hasAny = groups.some((g) => g.tasks.length > 0);
         return hasAny ? (
-          <DraggableUpcoming groups={groups} projects={projects} />
+          <DraggableUpcoming
+            groups={groups}
+            projects={projects}
+            collapsed={config.collapsed}
+            onToggleCollapse={(key) => onConfigChange(toggleCollapsed(config, key))}
+          />
         ) : (
           <div className="py-16 text-center">
             <p className="text-sm text-neutral-400">

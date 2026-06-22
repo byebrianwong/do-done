@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import {
   isManualSort,
+  toggleCollapsed,
   todayLocalISO,
   type Project,
   type Task,
@@ -35,8 +36,13 @@ export function TodayView({
       projects={projects}
       beforeContent={<TaskForm defaultStatus="not_started" />}
       curatedWhen={(c) => c.group === "none" && isManualSort(c)}
-      renderCurated={(tasks) => (
-        <DraggableToday tasks={tasks} projects={projects} />
+      renderCurated={(tasks, config, onConfigChange) => (
+        <DraggableToday
+          tasks={tasks}
+          projects={projects}
+          collapsed={config.collapsed}
+          onToggleCollapse={(key) => onConfigChange(toggleCollapsed(config, key))}
+        />
       )}
     />
   );

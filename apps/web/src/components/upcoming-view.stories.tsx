@@ -47,6 +47,21 @@ export const WithDisplayMenuOpen: Story = {
   },
 };
 
+// Collapsed day: clicking a day header hides that day's rows (chevron points
+// right). State persists in the view's Display config.
+export const DayCollapsed: Story = {
+  args: {
+    allTasks: SAMPLE_TASKS,
+    projects: SAMPLE_PROJECTS,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // findByRole waits for the per-day columns to mount before clicking.
+    const day = await canvas.findByRole("button", { name: /^No date/i });
+    await userEvent.click(day);
+  },
+};
+
 // Override: Group by → Status flips the per-day columns to the generic list.
 export const OverrideGroupedByStatus: Story = {
   args: {

@@ -36,6 +36,29 @@ export interface DraggableUpcomingProps {
     emptyHint?: string;
   }>;
   projects?: Project[];
+  /** Collapsed day keys (g.date) — persisted in the view's config. */
+  collapsed?: string[];
+  onToggleCollapse?: (key: string) => void;
+}
+
+/** Right-pointing chevron that rotates down when the day is expanded. */
+function Chevron({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M4.5 2.5 8 6l-3.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 function SortableRow({
@@ -111,6 +134,8 @@ function DateGroup({
   projects,
   emptyHint,
   isDragActive,
+  collapsed,
+  onToggleCollapse,
 }: {
   date: string;
   label: string;
@@ -119,48 +144,80 @@ function DateGroup({
   projects?: Project[];
   emptyHint?: string;
   isDragActive: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
 }) {
   // Empty groups still need to be drop targets — use a fixed placeholder id
   // so SortableContext has something, but mark it as non-draggable.
   const { setNodeRef, isOver } = useDroppable({ id: `group:${date}` });
+  const headingClass =
+    "mb-2 flex w-full items-center gap-2 border-b border-neutral-100 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:border-neutral-800";
+  const headingInner = (
+    <>
+      <Chevron collapsed={collapsed} />
+      {label}
+      {taskIds.length > 0 ? (
+        <span className="font-normal opacity-60">({taskIds.length})</span>
+      ) : null}
+    </>
+  );
   return (
     <section className="group">
-      <h2 className="mb-2 border-b border-neutral-100 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:border-neutral-800">
-        {label}
-      </h2>
-      <SortableContext
-        id={`group:${date}`}
-        items={taskIds}
-        strategy={verticalListSortingStrategy}
-      >
-        <div
-          ref={setNodeRef}
-          className={`min-h-[2.5rem] space-y-0.5 rounded-md p-0.5 transition-colors ${
-            isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
-          }`}
+      {onToggleCollapse ? (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-expanded={!collapsed}
+          className={`${headingClass} transition-opacity hover:opacity-70`}
         >
-          {/* The empty-state hint is drag guidance — show it only mid-drag. */}
-          {isDragActive && taskIds.length === 0 && (
-            <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
-              {emptyHint ?? "Drop here"}
-            </div>
-          )}
-          {taskIds.map((id) => {
-            const t = tasks.get(id);
-            if (!t) return null;
-            return <SortableRow key={id} task={t} projects={projects} />;
-          })}
-        </div>
-      </SortableContext>
-      {/* Overdue is a read-only bucket — no composer (can't add into the past). */}
-      {!isDragActive && date !== OVERDUE_KEY && (
-        <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
+          {headingInner}
+        </button>
+      ) : (
+        <h2 className={headingClass}>{headingInner}</h2>
       )}
+      {/* Collapsed days aren't drop targets in v1 — expand to drop in. */}
+      {!collapsed ? (
+        <>
+          <SortableContext
+            id={`group:${date}`}
+            items={taskIds}
+            strategy={verticalListSortingStrategy}
+          >
+            <div
+              ref={setNodeRef}
+              className={`min-h-[2.5rem] space-y-0.5 rounded-md p-0.5 transition-colors ${
+                isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
+              }`}
+            >
+              {/* The empty-state hint is drag guidance — show it only mid-drag. */}
+              {isDragActive && taskIds.length === 0 && (
+                <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
+                  {emptyHint ?? "Drop here"}
+                </div>
+              )}
+              {taskIds.map((id) => {
+                const t = tasks.get(id);
+                if (!t) return null;
+                return <SortableRow key={id} task={t} projects={projects} />;
+              })}
+            </div>
+          </SortableContext>
+          {/* Overdue is a read-only bucket — no composer (can't add into the past). */}
+          {!isDragActive && date !== OVERDUE_KEY && (
+            <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
+          )}
+        </>
+      ) : null}
     </section>
   );
 }
 
-export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) {
+export function DraggableUpcoming({
+  groups,
+  projects,
+  collapsed = [],
+  onToggleCollapse,
+}: DraggableUpcomingProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -435,6 +492,10 @@ export function DraggableUpcoming({ groups, projects }: DraggableUpcomingProps) 
             projects={projects}
             emptyHint={g.emptyHint}
             isDragActive={draggingId !== null}
+            collapsed={collapsed.includes(g.date)}
+            onToggleCollapse={
+              onToggleCollapse ? () => onToggleCollapse(g.date) : undefined
+            }
           />
         ))}
       </div>
