@@ -95,6 +95,11 @@ export const DisplayConfigSchema = z.object({
   sort: z.array(SortRuleSchema).default([{ field: "manual", dir: "asc" }]),
   filters: z.array(FilterRuleSchema).default([]),
   showCompleted: z.boolean().default(false),
+  // Group keys (e.g. "status:next") the user has collapsed in this view. Purely
+  // a render concern — applyDisplay ignores it. Excluded from "is this the
+  // default view?" checks (see isDisplayDefault) so collapsing doesn't read as
+  // a customization.
+  collapsed: z.array(z.string()).default([]),
 });
 export type DisplayConfig = z.infer<typeof DisplayConfigSchema>;
 
@@ -107,6 +112,7 @@ export const DEFAULT_DISPLAY: DisplayConfig = {
   sort: [{ field: "manual", dir: "asc" }],
   filters: [],
   showCompleted: false,
+  collapsed: [],
 };
 
 /**
@@ -130,6 +136,20 @@ export const VIEW_DISPLAY_DEFAULTS: Record<string, DisplayConfig> = {
 
 export function defaultDisplayFor(viewKey: string): DisplayConfig {
   return VIEW_DISPLAY_DEFAULTS[viewKey] ?? DEFAULT_DISPLAY;
+}
+
+/**
+ * Is `config` equivalent to `fallback` for the purposes of the "customized"
+ * indicator? Ignores `collapsed`: collapsing a section is view state, not a
+ * sort/group/filter customization, so it must not light the Display dot or the
+ * Reset affordance.
+ */
+export function isDisplayDefault(
+  config: DisplayConfig,
+  fallback: DisplayConfig
+): boolean {
+  const strip = ({ collapsed: _c, ...rest }: DisplayConfig) => rest;
+  return JSON.stringify(strip(config)) === JSON.stringify(strip(fallback));
 }
 
 /**
@@ -176,6 +196,22 @@ export function withGroup(config: DisplayConfig, group: GroupKey): DisplayConfig
 /** Flip the group layout direction (natural order ⇄ reversed). */
 export function toggleGroupDir(config: DisplayConfig): DisplayConfig {
   return { ...config, groupDir: config.groupDir === "asc" ? "desc" : "asc" };
+}
+
+/** Is the group with this key currently collapsed? */
+export function isCollapsed(config: DisplayConfig, groupKey: string): boolean {
+  return config.collapsed.includes(groupKey);
+}
+
+/** Collapse ⇄ expand a group section (by its DisplayGroup.key), immutably. */
+export function toggleCollapsed(
+  config: DisplayConfig,
+  groupKey: string
+): DisplayConfig {
+  const collapsed = config.collapsed.includes(groupKey)
+    ? config.collapsed.filter((k) => k !== groupKey)
+    : [...config.collapsed, groupKey];
+  return { ...config, collapsed };
 }
 
 /** Set the (single) active sort key, keeping direction unless overridden. */
