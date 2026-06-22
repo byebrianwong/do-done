@@ -7,7 +7,7 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import { invalidateTasks, reorderTasks, updateTask } from '@/lib/task-queries';
-import { applyDisplay, isManualSort } from '@do-done/shared';
+import { applyDisplay, isManualSort, withSort } from '@do-done/shared';
 import type {
   DisplayConfig,
   GroupDropTarget,
@@ -28,6 +28,9 @@ interface Props {
   projects?: DisplayProject[];
   config: DisplayConfig;
   onTaskPress: (t: Task) => void;
+  /** Lets a drag in a *sorted* view convert it to manual sort. Without it, a
+   *  drag under a non-manual sort just snaps back. */
+  onConfigChange?: (next: DisplayConfig) => void;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: object;
 }
@@ -57,6 +60,7 @@ export default function GroupedTaskList({
   projects,
   config,
   onTaskPress,
+  onConfigChange,
   refreshControl,
   contentContainerStyle,
 }: Props) {
@@ -75,13 +79,33 @@ export default function GroupedTaskList({
   metaRef.current = meta;
   const manualRef = useRef(isManualSort(config));
   manualRef.current = isManualSort(config);
+  // Refs so the stable callbacks below can read the latest sections/config and
+  // freeze the displayed order when converting a sorted view to manual.
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+  const configRef = useRef(config);
+  configRef.current = config;
+  const onConfigChangeRef = useRef(onConfigChange);
+  onConfigChangeRef.current = onConfigChange;
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    if (!manualRef.current) {
+  const onReorder = useCallback((sectionKey: string, ids: string[]) => {
+    if (manualRef.current) {
+      void reorderTasks(ids).catch(() => {});
+      return;
+    }
+    // Sorted view: dragging converts it to manual. Freeze the full displayed
+    // order (this section reordered) into sort_order, then flip sort to manual.
+    const convert = onConfigChangeRef.current;
+    if (!convert) {
       invalidateTasks();
       return;
     }
-    void reorderTasks(ids).catch(() => {});
+    const allIds = sectionsRef.current.flatMap((s) =>
+      s.key === sectionKey ? ids : s.data.map((t) => t.id)
+    );
+    void reorderTasks(allIds)
+      .then(() => convert(withSort(configRef.current, 'manual')))
+      .catch(() => {});
   }, []);
 
   const onMove = useCallback(
@@ -91,8 +115,28 @@ export default function GroupedTaskList({
         invalidateTasks();
         return;
       }
+      if (manualRef.current) {
+        void updateTask(taskId, patchForDrop(drop))
+          .then(() => reorderTasks(destIds))
+          .catch(() => {});
+        return;
+      }
+      // Sorted view: apply the field change AND freeze the full displayed order
+      // (moved task removed from its old section, dest uses destIds), then flip
+      // sort to manual.
+      const convert = onConfigChangeRef.current;
+      if (!convert) {
+        invalidateTasks();
+        return;
+      }
+      const allIds = sectionsRef.current.flatMap((s) =>
+        s.key === toKey
+          ? destIds
+          : s.data.map((t) => t.id).filter((id) => id !== taskId)
+      );
       void updateTask(taskId, patchForDrop(drop))
-        .then(() => reorderTasks(destIds))
+        .then(() => reorderTasks(allIds))
+        .then(() => convert(withSort(configRef.current, 'manual')))
         .catch(() => {});
     },
     []

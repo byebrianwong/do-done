@@ -17,6 +17,7 @@ import {
   selectedFilterValues,
   toggleFilterValue,
   toggleFlagFilter,
+  toggleGroupDir,
   toggleSortDir,
   withGroup,
   withSort,
@@ -84,6 +85,13 @@ export default function DisplaySheet({
                     onPress={() => onChange(withGroup(config, g.key))}
                   />
                 ))}
+                {config.group !== 'none' ? (
+                  <Pill
+                    label="⇅ Reverse"
+                    active={config.groupDir === 'desc'}
+                    onPress={() => onChange(toggleGroupDir(config))}
+                  />
+                ) : null}
               </View>
             </Section>
 
@@ -107,7 +115,7 @@ export default function DisplaySheet({
               </View>
               {!isManualSort(config) ? (
                 <Text style={styles.hint}>
-                  Drag-to-reorder is off while a sort is applied.
+                  Drag a task to switch to manual order.
                 </Text>
               ) : null}
             </Section>
