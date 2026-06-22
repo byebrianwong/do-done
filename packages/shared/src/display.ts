@@ -87,6 +87,11 @@ export type FilterRule = z.infer<typeof FilterRuleSchema>;
 export const DisplayConfigSchema = z.object({
   view: ViewMode.default("list"),
   group: GroupKey.default("none"),
+  // Direction the groups themselves are laid out in. "asc" is each axis's
+  // natural order (status lifecycle, p1→p4, overdue→later); "desc" reverses
+  // them so active work floats to the top. Catch-all buckets ("No project"
+  // etc.) stay pinned to the bottom either way — see applyDisplay.
+  groupDir: SortDir.default("asc"),
   sort: z.array(SortRuleSchema).default([{ field: "manual", dir: "asc" }]),
   filters: z.array(FilterRuleSchema).default([]),
   showCompleted: z.boolean().default(false),
@@ -98,6 +103,7 @@ export type DisplayConfig = z.infer<typeof DisplayConfigSchema>;
 export const DEFAULT_DISPLAY: DisplayConfig = {
   view: "list",
   group: "none",
+  groupDir: "asc",
   sort: [{ field: "manual", dir: "asc" }],
   filters: [],
   showCompleted: false,
@@ -165,6 +171,11 @@ export const SORT_OPTIONS: { field: SortField; label: string }[] = [
 
 export function withGroup(config: DisplayConfig, group: GroupKey): DisplayConfig {
   return { ...config, group };
+}
+
+/** Flip the group layout direction (natural order ⇄ reversed). */
+export function toggleGroupDir(config: DisplayConfig): DisplayConfig {
+  return { ...config, groupDir: config.groupDir === "asc" ? "desc" : "asc" };
 }
 
 /** Set the (single) active sort key, keeping direction unless overridden. */
@@ -260,6 +271,9 @@ export interface DisplayGroup {
   count: number;
   tasks: Task[];
   drop: GroupDropTarget | null;
+  /** "No value" bucket (No project / No date / No label). Stays pinned to the
+   *  bottom when `groupDir` reverses the rest of the groups. */
+  catchAll?: boolean;
 }
 
 export interface DisplayProject {
@@ -509,6 +523,7 @@ function groupTasks(
         groups.get(key)!.tasks.push(t);
       }
       const noProject = blank("project:none", "No project", { field: "project_id", value: null });
+      noProject.catchAll = true;
       for (const t of tasks) if (t.project_id === null) noProject.tasks.push(t);
       const ordered = [...groups.values()];
       if (noProject.tasks.length) ordered.push(noProject);
@@ -532,6 +547,7 @@ function groupTasks(
         a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
       );
       const noTag = blank("tag:none", "No label", null);
+      noTag.catchAll = true;
       for (const t of tasks) if (t.tags.length === 0) noTag.tasks.push(t);
       if (noTag.tasks.length) ordered.push(noTag);
       return ordered;
@@ -542,10 +558,13 @@ function groupTasks(
       for (const t of tasks) {
         const b = dateBucketOf(t, today);
         if (!groups.has(b.key)) {
-          groups.set(
+          const g = blank(
             b.key,
-            blank(b.key, b.label, b.dropDate ? { field: "when_date", value: b.dropDate } : null)
+            b.label,
+            b.dropDate ? { field: "when_date", value: b.dropDate } : null
           );
+          if (b.key === "date:none") g.catchAll = true;
+          groups.set(b.key, g);
         }
         groups.get(b.key)!.tasks.push(t);
       }
@@ -572,7 +591,13 @@ export function applyDisplay(
 ): DisplayGroup[] {
   const today = ctx?.today ?? todayLocalISO();
   const filtered = filterTasks(tasks, config, today);
-  const groups = groupTasks(filtered, config, ctx, today);
+  let groups = groupTasks(filtered, config, ctx, today);
+  if (config.groupDir === "desc") {
+    // Reverse the real groups but keep "No value" buckets pinned to the bottom.
+    const real = groups.filter((g) => !g.catchAll).reverse();
+    const tail = groups.filter((g) => g.catchAll);
+    groups = [...real, ...tail];
+  }
   for (const g of groups) {
     g.tasks = sortTasks(g.tasks, config.sort);
     g.count = g.tasks.length;

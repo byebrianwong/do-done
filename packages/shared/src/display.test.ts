@@ -14,6 +14,7 @@ import {
   sortTasks,
   toggleFilterValue,
   toggleFlagFilter,
+  toggleGroupDir,
   toggleSortDir,
   withGroup,
   withSort,
@@ -64,6 +65,7 @@ describe("parseDisplayConfig", () => {
     const cfg: DisplayConfig = {
       view: "list",
       group: "priority",
+      groupDir: "asc",
       sort: [{ field: "priority", dir: "asc" }],
       filters: [],
       showCompleted: false,
@@ -85,6 +87,11 @@ describe("parseDisplayConfig", () => {
   it("backfills sort-rule defaults", () => {
     const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "title" }] });
     expect(cfg.sort[0]).toEqual({ field: "title", dir: "asc" });
+  });
+
+  it("defaults groupDir to asc for pre-groupDir configs", () => {
+    const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
+    expect(cfg.groupDir).toBe("asc");
   });
 });
 
@@ -298,6 +305,83 @@ describe("grouping", () => {
     // Overdue / this_week / no-date are read-only (ambiguous reschedule).
     expect(g.find((x) => x.key === "date:overdue")!.drop).toBeNull();
     expect(g.find((x) => x.key === "date:this_week")!.drop).toBeNull();
+  });
+});
+
+describe("group direction (groupDir)", () => {
+  const desc = (group: DisplayConfig["group"]): DisplayConfig => ({
+    ...DEFAULT_DISPLAY,
+    group,
+    groupDir: "desc",
+  });
+
+  it("reverses status groups so active work is on top", () => {
+    const tasks = [task({ status: "next" })];
+    const g = applyDisplay(tasks, desc("status"), ctx());
+    // asc is inbox → not_started → next → in_progress; desc flips it.
+    expect(g.map((x) => x.key)).toEqual([
+      "status:in_progress",
+      "status:next",
+      "status:not_started",
+      "status:inbox",
+    ]);
+  });
+
+  it("reverses priority groups (p4 → p1)", () => {
+    const g = applyDisplay([task({ priority: "p2" })], desc("priority"), ctx());
+    expect(g.map((x) => x.key)).toEqual([
+      "priority:p4",
+      "priority:p3",
+      "priority:p2",
+      "priority:p1",
+    ]);
+  });
+
+  it("reverses real projects but keeps No project pinned last", () => {
+    const tasks = [
+      task({ project_id: "a" as unknown as string }),
+      task({ project_id: "b" as unknown as string }),
+      task({ project_id: null }),
+    ];
+    const g = applyDisplay(tasks, desc("project"), ctx({
+      projects: [
+        { id: "a", name: "Alpha", color: "#111111" },
+        { id: "b", name: "Beta", color: "#222222" },
+      ],
+    } as Parameters<typeof applyDisplay>[2]));
+    expect(g.map((x) => x.key)).toEqual(["project:b", "project:a", "project:none"]);
+    expect(g[g.length - 1].key).toBe("project:none");
+  });
+
+  it("reverses date buckets but keeps No date pinned last", () => {
+    const tasks = [
+      task({ status: "next", when_date: addDaysLocalISO(-1) }), // overdue
+      task({ when_date: TODAY }), // today
+      task({ when_date: addDaysLocalISO(1) }), // tomorrow
+      task({}), // no date
+    ];
+    const g = applyDisplay(tasks, desc("date"), ctx());
+    expect(g.map((x) => x.key)).toEqual([
+      "date:tomorrow",
+      "date:today",
+      "date:overdue",
+      "date:none",
+    ]);
+  });
+
+  it("is a no-op for group:none", () => {
+    const tasks = [task(), task()];
+    const g = applyDisplay(tasks, desc("none"), ctx());
+    expect(g).toHaveLength(1);
+    expect(g[0].key).toBe("none");
+  });
+
+  it("toggleGroupDir flips asc ⇄ desc immutably", () => {
+    expect(DEFAULT_DISPLAY.groupDir).toBe("asc");
+    const flipped = toggleGroupDir(DEFAULT_DISPLAY);
+    expect(flipped.groupDir).toBe("desc");
+    expect(DEFAULT_DISPLAY.groupDir).toBe("asc");
+    expect(toggleGroupDir(flipped).groupDir).toBe("asc");
   });
 });
 
