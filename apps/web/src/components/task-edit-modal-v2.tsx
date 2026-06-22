@@ -1497,7 +1497,9 @@ function nearestHourSlot(now: Date): string {
 // a when_date is set, so the caller gates rendering on that. Picking is a quick
 // scroll through half-hour slots (auto-centered on the hour nearest now); the
 // precise native input is tucked behind "Specific time" for the rare case.
-function WhenTimeField({
+// Exported so the task row's inline reschedule popover reuses the exact same
+// picker instead of a bare native time input.
+export function WhenTimeField({
   value,
   onChange,
 }: {
