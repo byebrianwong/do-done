@@ -30,8 +30,10 @@ import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
   filterByConfig,
+  isCollapsed,
   isManualSort,
   isOverdue,
+  toggleCollapsed,
   todayLocalISO,
   type Task,
   type UpdateTaskInput,
@@ -138,34 +140,61 @@ export default function UpcomingScreen() {
     [tasks, config]
   );
 
+  // Collapsed days keep their header but drop their rows from the list.
+  const renderSections = useMemo(
+    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
+    [sections, config]
+  );
+  const countByKey = useMemo(
+    () => new Map(sections.map((s) => [s.key, s.data.length])),
+    [sections]
+  );
+
   const onReorder = useCallback((_key: string, ids: string[]) => {
     void reorderTasks(ids).catch(() => {});
   }, []);
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      // A collapsed day isn't a drop target (v1) — snap back.
+      if (isCollapsed(config, toKey)) {
+        invalidateTasks();
+        return;
+      }
       void updateTask(taskId, sectionTarget(toKey))
         .then(() => reorderTasks(destIds))
         .catch(() => {});
     },
-    []
+    [config]
   );
 
   const renderHeader = useCallback(
-    (section: DraggableSection) => (
-      <View style={styles.sectionHeader}>
-        <Text
-          style={[
-            styles.sectionHeaderText,
-            section.key === 'overdue' && styles.overdueText,
-          ]}
+    (section: DraggableSection) => {
+      const collapsed = isCollapsed(config, section.key);
+      const count = countByKey.get(section.key) ?? section.data.length;
+      return (
+        <Pressable
+          style={styles.sectionHeader}
+          onPress={() => setConfig(toggleCollapsed(config, section.key))}
         >
-          {section.title}{' '}
-          <Text style={styles.sectionCount}>({section.data.length})</Text>
-        </Text>
-      </View>
-    ),
-    []
+          <Ionicons
+            name={collapsed ? 'chevron-forward' : 'chevron-down'}
+            size={14}
+            color={section.key === 'overdue' ? '#ef4444' : '#9ca3af'}
+          />
+          <Text
+            style={[
+              styles.sectionHeaderText,
+              section.key === 'overdue' && styles.overdueText,
+            ]}
+          >
+            {section.title}{' '}
+            <Text style={styles.sectionCount}>({count})</Text>
+          </Text>
+        </Pressable>
+      );
+    },
+    [config, setConfig, countByKey]
   );
 
   const renderTask = useCallback(
@@ -202,7 +231,7 @@ export default function UpcomingScreen() {
 
       {curated ? (
         <SectionedDraggableList
-          sections={sections}
+          sections={renderSections}
           renderHeader={renderHeader}
           renderTask={renderTask}
           onReorder={onReorder}

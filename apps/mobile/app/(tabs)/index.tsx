@@ -29,7 +29,13 @@ import {
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
-import { filterByConfig, isManualSort, todayLocalISO } from '@do-done/shared';
+import {
+  filterByConfig,
+  isCollapsed,
+  isManualSort,
+  toggleCollapsed,
+  todayLocalISO,
+} from '@do-done/shared';
 import type { Task } from '@do-done/shared';
 
 const FOCUS = 'focus';
@@ -85,36 +91,64 @@ export default function TodayScreen() {
     [focus, other]
   );
 
+  // Collapsed sections keep their header but drop their rows from the list.
+  const renderSections = useMemo<DraggableSection[]>(
+    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
+    [sections, config]
+  );
+  const countByKey = useMemo(
+    () => new Map(sections.map((s) => [s.key, s.data.length])),
+    [sections]
+  );
+
   const onReorder = useCallback((_key: string, ids: string[]) => {
     void reorderTasks(ids).catch(() => {});
   }, []);
 
   // Dragging across the Focus ↔ Other boundary pins the task in or forces it
-  // out, then persists the destination order.
+  // out, then persists the destination order. A collapsed destination isn't a
+  // drop target (v1) — snap back.
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+      if (isCollapsed(config, toKey)) {
+        invalidateTasks();
+        return;
+      }
       const focus_override = toKey === FOCUS ? 'include' : 'exclude';
       void updateTask(taskId, { focus_override })
         .then(() => reorderTasks(destIds))
         .catch(() => {});
     },
-    []
+    [config]
   );
 
-  const renderHeader = useCallback((section: DraggableSection) => {
-    const isFocus = section.key === FOCUS;
-    return (
-      <View style={styles.sectionHeader}>
-        {isFocus ? <Ionicons name="flash" size={13} color="#6366f1" /> : null}
-        <Text
-          style={[styles.sectionHeaderText, isFocus && styles.focusHeaderText]}
+  const renderHeader = useCallback(
+    (section: DraggableSection) => {
+      const isFocus = section.key === FOCUS;
+      const collapsed = isCollapsed(config, section.key);
+      const count = countByKey.get(section.key) ?? section.data.length;
+      return (
+        <Pressable
+          style={styles.sectionHeader}
+          onPress={() => setConfig(toggleCollapsed(config, section.key))}
         >
-          {section.title}{' '}
-          <Text style={styles.sectionCount}>({section.data.length})</Text>
-        </Text>
-      </View>
-    );
-  }, []);
+          <Ionicons
+            name={collapsed ? 'chevron-forward' : 'chevron-down'}
+            size={14}
+            color="#9ca3af"
+          />
+          {isFocus ? <Ionicons name="flash" size={13} color="#6366f1" /> : null}
+          <Text
+            style={[styles.sectionHeaderText, isFocus && styles.focusHeaderText]}
+          >
+            {section.title}{' '}
+            <Text style={styles.sectionCount}>({count})</Text>
+          </Text>
+        </Pressable>
+      );
+    },
+    [config, setConfig, countByKey]
+  );
 
   const renderTask = useCallback(
     (task: Task, drag: () => void, isActive: boolean) => (
@@ -174,7 +208,7 @@ export default function TodayScreen() {
           </View>
         ) : (
           <SectionedDraggableList
-            sections={sections}
+            sections={renderSections}
             renderHeader={renderHeader}
             renderTask={renderTask}
             onReorder={onReorder}
