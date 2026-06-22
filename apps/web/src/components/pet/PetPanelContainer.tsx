@@ -20,8 +20,11 @@ const POLL_INTERVAL_MS = 30_000;
  */
 export function PetPanelContainer({
   className,
+  onHide,
 }: {
   className?: string;
+  /** Collapse the panel. Rendered as a button in the panel header. */
+  onHide?: () => void;
 }) {
   const [state, setState] = useState<PetState | null>(null);
   const [petSettings, setPetSettings] = useState<PetSettingsValues | null>(null);
@@ -128,6 +131,7 @@ export function PetPanelContainer({
           onDismissGoal={handleDismissGoal}
           petSettings={petSettings ?? undefined}
           onSavePetSettings={handleSavePetSettings}
+          onHide={onHide}
         />
       ) : (
         <PetPanelSkeleton />
