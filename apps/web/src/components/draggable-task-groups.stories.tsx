@@ -32,6 +32,15 @@ export const GroupedByPriority: Story = { args: { ...base, config: cfg({ group: 
 export const GroupedByProject: Story = { args: { ...base, config: cfg({ group: "project" }) } };
 export const GroupedByDate: Story = { args: { ...base, config: cfg({ group: "date" }) } };
 
+// groupDir: "desc" reverses the group order (status lifecycle flipped) while the
+// "No project"-style catch-all buckets stay pinned to the bottom.
+export const GroupedByStatusReversed: Story = {
+  args: { ...base, config: cfg({ group: "status", groupDir: "desc" }) },
+};
+export const GroupedByProjectReversed: Story = {
+  args: { ...base, config: cfg({ group: "project", groupDir: "desc" }) },
+};
+
 // Non-manual sort renders a flat, static (non-draggable) list.
 export const SortedByDueDate: Story = {
   args: { ...base, config: cfg({ group: "none", sort: [{ field: "due_date", dir: "asc" }] }) },

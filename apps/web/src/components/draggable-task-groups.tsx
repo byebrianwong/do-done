@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   applyDisplay,
   isManualSort,
+  withSort,
   type DisplayConfig,
   type DisplayGroup,
   type GroupDropTarget,
@@ -41,6 +42,9 @@ export interface DraggableTaskGroupsProps {
   tasks: Task[];
   projects?: Project[];
   config: DisplayConfig;
+  /** Lets a drag in a *sorted* view convert it to manual sort. When omitted,
+   *  sorted views stay static (drag disabled) — the pre-feature behaviour. */
+  onConfigChange?: (next: DisplayConfig) => void;
   /** Hide group headers when there's only a single "none" group. */
   hideHeaderForSingle?: boolean;
   /** Show the per-section inline "Add task" affordance. Off for read-only
@@ -68,6 +72,7 @@ export function DraggableTaskGroups({
   tasks,
   projects,
   config,
+  onConfigChange,
   hideHeaderForSingle = true,
   quickAdd = true,
 }: DraggableTaskGroupsProps) {
@@ -79,12 +84,21 @@ export function DraggableTaskGroups({
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks);
   useEffect(() => setLocalTasks(tasks), [tasks]);
 
-  const groups = useMemo(
-    () => applyDisplay(localTasks, config, { projects }),
-    [localTasks, config, projects]
+  // A sorted view can be dragged to *convert* it to manual sort (Todoist-style):
+  // on drag start we freeze the current order into sort_order and render as
+  // manual for the gesture; on drop we persist that order + flip sort to manual.
+  const sortedView = !isManualSort(config);
+  const canConvert = sortedView && !!onConfigChange;
+  const [converting, setConverting] = useState(false);
+  const effectiveConfig = useMemo(
+    () => (sortedView && converting ? withSort(config, "manual") : config),
+    [sortedView, converting, config]
   );
 
-  const manual = isManualSort(config);
+  const groups = useMemo(
+    () => applyDisplay(localTasks, effectiveConfig, { projects }),
+    [localTasks, effectiveConfig, projects]
+  );
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
@@ -110,8 +124,8 @@ export function DraggableTaskGroups({
     );
   }
 
-  if (!manual) {
-    // Sorted view: static groups, no drag affordances.
+  if (sortedView && !canConvert) {
+    // Sorted view with no convert handler: static groups, no drag affordances.
     return (
       <div>
         {groups.map((g) => (
@@ -142,7 +156,22 @@ export function DraggableTaskGroups({
 
   function handleDragStart(e: DragStartEvent) {
     setDraggingId(String(e.active.id));
-    dragSnapshot.current = localTasks.map((t) => ({ ...t }));
+    if (canConvert) {
+      // Freeze the current sorted order into sort_order so flipping to manual
+      // rendering keeps the rows exactly where they are (no jump), then let the
+      // gesture proceed as a manual drag. Snapshot the seeded order so the
+      // drop's no-op check compares against what the user actually saw.
+      const orderedIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+      const orders = applySortOrder(orderedIds);
+      const seeded = localTasks.map((t) =>
+        orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t
+      );
+      dragSnapshot.current = seeded.map((t) => ({ ...t }));
+      setLocalTasks(seeded);
+      setConverting(true);
+    } else {
+      dragSnapshot.current = localTasks.map((t) => ({ ...t }));
+    }
   }
 
   // Live cross-group move. As the dragged row crosses into another group, apply
@@ -159,7 +188,7 @@ export function DraggableTaskGroups({
     if (activeId === overId) return;
 
     setLocalTasks((prev) => {
-      const g = applyDisplay(prev, config, { projects });
+      const g = applyDisplay(prev, effectiveConfig, { projects });
       const fromGroup = g.find((grp) => grp.tasks.some((t) => t.id === activeId));
       const toGroup = overId.startsWith("g:")
         ? g.find((grp) => grp.key === overId.slice(2))
@@ -196,6 +225,7 @@ export function DraggableTaskGroups({
 
   function handleDragCancel() {
     setDraggingId(null);
+    setConverting(false);
     if (dragSnapshot.current) setLocalTasks(dragSnapshot.current);
     dragSnapshot.current = null;
   }
@@ -204,6 +234,8 @@ export function DraggableTaskGroups({
     setDraggingId(null);
     const snapshot = dragSnapshot.current;
     dragSnapshot.current = null;
+    const convert = converting;
+    setConverting(false);
     const { active, over } = e;
     const activeId = String(active.id);
 
@@ -218,7 +250,7 @@ export function DraggableTaskGroups({
 
     // Where it started (snapshot) vs where the live drag left it (current).
     const fromGroup = snapshot
-      ? applyDisplay(snapshot, config, { projects }).find((grp) =>
+      ? applyDisplay(snapshot, effectiveConfig, { projects }).find((grp) =>
           grp.tasks.some((t) => t.id === activeId)
         )
       : findGroupOf(activeId);
@@ -247,9 +279,10 @@ export function DraggableTaskGroups({
       }
     }
 
-    // Nothing changed? (same group, identical order) → skip the write.
+    // Nothing changed? (same group, identical order) → skip the write (and don't
+    // convert a sorted view from a drag that didn't actually move anything).
     const sameGroup = fromGroup.key === toGroup.key;
-    const finalToIds = applyDisplay(finalTasks, config, { projects })
+    const finalToIds = applyDisplay(finalTasks, effectiveConfig, { projects })
       .find((grp) => grp.key === toGroup.key)!
       .tasks.map((t) => t.id);
     if (sameGroup) {
@@ -258,36 +291,59 @@ export function DraggableTaskGroups({
         before.length === finalToIds.length &&
         before.every((id, i) => id === finalToIds[i])
       ) {
+        restore();
         return;
       }
     }
 
     const api = await getClientTasksApi();
-    const orders = applySortOrder(finalToIds);
 
     let updates: Array<{ id: string; input: UpdateTaskInput }>;
-    if (sameGroup) {
-      updates = finalToIds.map((id) => ({
+    if (convert) {
+      // Converting a sorted view → manual: lock in the *entire* displayed order
+      // (across every group) as sort_order so nothing reshuffles after refresh,
+      // plus the dragged task's cross-group field change.
+      const allIds = applyDisplay(finalTasks, effectiveConfig, { projects }).flatMap(
+        (grp) => grp.tasks.map((t) => t.id)
+      );
+      const orders = applySortOrder(allIds);
+      const patch = !sameGroup && toGroup.drop ? patchForDrop(toGroup.drop) : {};
+      updates = allIds.map((id) => ({
         id,
-        input: { sort_order: orders.get(id)! },
+        input:
+          id === activeId
+            ? { ...patch, sort_order: orders.get(id)! }
+            : { sort_order: orders.get(id)! },
       }));
     } else {
-      const patch = toGroup.drop ? patchForDrop(toGroup.drop) : {};
-      updates = [
-        { id: activeId, input: { ...patch, sort_order: orders.get(activeId)! } },
-      ];
-      for (const id of finalToIds) {
-        if (id === activeId) continue;
-        updates.push({ id, input: { sort_order: orders.get(id)! } });
+      const orders = applySortOrder(finalToIds);
+      if (sameGroup) {
+        updates = finalToIds.map((id) => ({
+          id,
+          input: { sort_order: orders.get(id)! },
+        }));
+      } else {
+        const patch = toGroup.drop ? patchForDrop(toGroup.drop) : {};
+        updates = [
+          { id: activeId, input: { ...patch, sort_order: orders.get(activeId)! } },
+        ];
+        for (const id of finalToIds) {
+          if (id === activeId) continue;
+          updates.push({ id, input: { sort_order: orders.get(id)! } });
+        }
       }
     }
 
     const { error } = await api.bulkUpdate(updates);
     if (error) {
-      console.error(sameGroup ? "Reorder failed:" : "Move failed:", error);
+      console.error(
+        convert ? "Convert-to-manual failed:" : sameGroup ? "Reorder failed:" : "Move failed:",
+        error
+      );
       restore();
       return;
     }
+    if (convert && onConfigChange) onConfigChange(withSort(config, "manual"));
     startTransition(() => router.refresh());
   }
 
