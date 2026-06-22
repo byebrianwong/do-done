@@ -87,8 +87,14 @@ export default function SectionedDraggableList({
 }: Props) {
   const [rows, setRows] = useState<Row[]>(() => flatten(sections));
 
+  // Re-sync the internal `rows` copy whenever `sections` changes. The signature
+  // must cover task *content*, not just id/order: a field edit (e.g. changing a
+  // task's priority) leaves membership and order identical, so an id-only
+  // signature never fired this effect — the list kept rendering the pre-edit
+  // task objects even after the query cache reconciled. Stringifying each task
+  // makes any field change (priority, title, when, tags, …) re-seed the rows.
   const sig = sections
-    .map((s) => `${s.key}#${s.data.map((t) => t.id).join(',')}`)
+    .map((s) => `${s.key}#${s.data.map((t) => JSON.stringify(t)).join(',')}`)
     .join('|');
   useEffect(() => {
     setRows(flatten(sections));
