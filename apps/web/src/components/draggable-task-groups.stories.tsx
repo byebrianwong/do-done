@@ -41,6 +41,15 @@ export const GroupedByProjectReversed: Story = {
   args: { ...base, config: cfg({ group: "project", groupDir: "desc" }) },
 };
 
+// A collapsed section ("Not started") hides its rows and shows a right-pointing
+// chevron; the header + count stay. (No onConfigChange here, so it's render-only.)
+export const GroupWithCollapsedSection: Story = {
+  args: {
+    ...base,
+    config: cfg({ group: "status", collapsed: ["status:not_started"] }),
+  },
+};
+
 // Non-manual sort renders a flat, static (non-draggable) list.
 export const SortedByDueDate: Story = {
   args: { ...base, config: cfg({ group: "none", sort: [{ field: "due_date", dir: "asc" }] }) },

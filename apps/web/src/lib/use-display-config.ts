@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   defaultDisplayFor,
+  isDisplayDefault,
   parseDisplayConfig,
   type DisplayConfig,
 } from "@do-done/shared";
@@ -109,8 +110,10 @@ export function useDisplayConfig(viewKey: string) {
     persistDb(fallback);
   }, [viewKey, fallback, persistDb]);
 
+  // Ignores `collapsed` — collapsing a section isn't a sort/group/filter change,
+  // so it shouldn't light the "customized" dot or show Reset.
   const isDefault = useMemo(
-    () => JSON.stringify(config) === JSON.stringify(fallback),
+    () => isDisplayDefault(config, fallback),
     [config, fallback]
   );
 
