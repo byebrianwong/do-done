@@ -215,6 +215,7 @@ export default function UpcomingScreen() {
           tasks={tasks}
           projects={projectList}
           config={config}
+          onConfigChange={setConfig}
           onTaskPress={handlePress}
           refreshControl={refreshControl}
           contentContainerStyle={styles.listContent}

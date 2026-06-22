@@ -193,6 +193,7 @@ export default function TodayScreen() {
           tasks={universe}
           projects={projectList}
           config={config}
+          onConfigChange={setConfig}
           onTaskPress={handlePress}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
