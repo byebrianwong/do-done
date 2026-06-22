@@ -8,10 +8,13 @@ import {
   defaultDisplayFor,
   filterByConfig,
   hasFlagFilter,
+  isCollapsed,
+  isDisplayDefault,
   isManualSort,
   parseDisplayConfig,
   selectedFilterValues,
   sortTasks,
+  toggleCollapsed,
   toggleFilterValue,
   toggleFlagFilter,
   toggleGroupDir,
@@ -69,6 +72,7 @@ describe("parseDisplayConfig", () => {
       sort: [{ field: "priority", dir: "asc" }],
       filters: [],
       showCompleted: false,
+      collapsed: [],
     };
     expect(parseDisplayConfig(cfg).group).toBe("priority");
   });
@@ -92,6 +96,11 @@ describe("parseDisplayConfig", () => {
   it("defaults groupDir to asc for pre-groupDir configs", () => {
     const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
     expect(cfg.groupDir).toBe("asc");
+  });
+
+  it("defaults collapsed to [] for pre-collapse configs", () => {
+    const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
+    expect(cfg.collapsed).toEqual([]);
   });
 });
 
@@ -382,6 +391,47 @@ describe("group direction (groupDir)", () => {
     expect(flipped.groupDir).toBe("desc");
     expect(DEFAULT_DISPLAY.groupDir).toBe("asc");
     expect(toggleGroupDir(flipped).groupDir).toBe("asc");
+  });
+});
+
+describe("collapsed sections", () => {
+  it("toggleCollapsed adds then removes a group key, immutably", () => {
+    expect(isCollapsed(DEFAULT_DISPLAY, "status:next")).toBe(false);
+    const collapsed = toggleCollapsed(DEFAULT_DISPLAY, "status:next");
+    expect(isCollapsed(collapsed, "status:next")).toBe(true);
+    expect(DEFAULT_DISPLAY.collapsed).toEqual([]); // original untouched
+    const expanded = toggleCollapsed(collapsed, "status:next");
+    expect(isCollapsed(expanded, "status:next")).toBe(false);
+  });
+
+  it("tracks multiple collapsed groups independently", () => {
+    let cfg = toggleCollapsed(DEFAULT_DISPLAY, "status:next");
+    cfg = toggleCollapsed(cfg, "status:inbox");
+    expect(cfg.collapsed.sort()).toEqual(["status:inbox", "status:next"]);
+    cfg = toggleCollapsed(cfg, "status:next");
+    expect(cfg.collapsed).toEqual(["status:inbox"]);
+  });
+
+  it("does not affect applyDisplay output (collapse is render-only)", () => {
+    const tasks = [task({ status: "next" }), task({ status: "inbox" })];
+    const base = applyDisplay(tasks, { ...DEFAULT_DISPLAY, group: "status" }, ctx());
+    const withCollapse = applyDisplay(
+      tasks,
+      { ...DEFAULT_DISPLAY, group: "status", collapsed: ["status:next"] },
+      ctx()
+    );
+    expect(withCollapse.map((g) => [g.key, g.count])).toEqual(
+      base.map((g) => [g.key, g.count])
+    );
+  });
+
+  it("isDisplayDefault ignores collapsed but catches real changes", () => {
+    const fb = defaultDisplayFor("all");
+    expect(isDisplayDefault(fb, fb)).toBe(true);
+    // Only collapse differs → still "default".
+    expect(isDisplayDefault(toggleCollapsed(fb, "status:next"), fb)).toBe(true);
+    // A real change (groupDir) → not default.
+    expect(isDisplayDefault(toggleGroupDir(fb), fb)).toBe(false);
   });
 });
 
