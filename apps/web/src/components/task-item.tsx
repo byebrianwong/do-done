@@ -19,6 +19,7 @@ import {
   PickerPopover,
   useClickOutside,
   estimateBarIndex,
+  WhenTimeField,
   PRIORITY_OPTIONS,
   ESTIMATE_OPTIONS,
 } from "./task-edit-modal-v2";
@@ -372,19 +373,21 @@ function InlineWhenEditor({
               className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             />
           </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="w-8 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-              At
-            </span>
-            <input
-              type="time"
-              value={whenTime ?? ""}
-              disabled={!whenDate}
-              title={whenDate ? "Time you plan to start" : "Pick a date first"}
-              onChange={(e) => onChange({ when_time: e.target.value || null })}
-              className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
-            />
-          </div>
+          {/* Time-of-day reuses the modal's half-hour scroller (auto-centered
+              on "now", with a "Specific time" escape hatch) so inline editing
+              matches the full editor exactly. Only meaningful once a do-date is
+              set, mirroring the modal's gating. */}
+          {whenDate ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="w-8 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                At
+              </span>
+              <WhenTimeField
+                value={whenTime}
+                onChange={(v) => onChange({ when_time: v })}
+              />
+            </div>
+          ) : null}
           {whenDate || whenTime ? (
             <button
               type="button"
