@@ -78,6 +78,7 @@ export function TaskDisplayView({
           tasks={tasks}
           projects={projects}
           config={config}
+          onConfigChange={setConfig}
           quickAdd={quickAdd}
         />
       )}

@@ -82,6 +82,7 @@ export function CuratedDisplayView({
           tasks={allTasks}
           projects={projects}
           config={config}
+          onConfigChange={setConfig}
         />
       )}
     </div>

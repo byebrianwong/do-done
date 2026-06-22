@@ -11,6 +11,7 @@ import {
   selectedFilterValues,
   toggleFilterValue,
   toggleFlagFilter,
+  toggleGroupDir,
   toggleSortDir,
   withGroup,
   withSort,
@@ -61,6 +62,7 @@ export function DisplayMenu({
 
   const sortField = config.sort[0]?.field ?? "manual";
   const sortDir = config.sort[0]?.dir ?? "asc";
+  const groupReversed = config.groupDir === "desc";
   const filterCount = activeFilterCount(config);
   const selectedPriorities = selectedFilterValues(config, "priority");
   const selectedProjects = selectedFilterValues(config, "project");
@@ -101,7 +103,7 @@ export function DisplayMenu({
           className="absolute right-0 top-full z-30 mt-2 w-[300px] overflow-hidden rounded-xl border border-neutral-200 bg-white p-3.5 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
         >
           <Section label="Group by">
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {GROUP_OPTIONS.map((g) => (
                 <Pill
                   key={g.key}
@@ -111,6 +113,23 @@ export function DisplayMenu({
                   {g.label}
                 </Pill>
               ))}
+              {config.group !== "none" ? (
+                <button
+                  type="button"
+                  onClick={() => onChange(toggleGroupDir(config))}
+                  aria-pressed={groupReversed}
+                  aria-label={
+                    groupReversed ? "Group order reversed" : "Reverse group order"
+                  }
+                  className={`ml-auto inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors ${
+                    groupReversed
+                      ? "border-indigo-300 bg-indigo-50/70 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300"
+                      : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900"
+                  }`}
+                >
+                  ⇅ Reverse
+                </button>
+              ) : null}
             </div>
           </Section>
 
@@ -138,7 +157,7 @@ export function DisplayMenu({
             </div>
             {!isManualSort(config) ? (
               <p className="mt-1.5 text-[11px] text-neutral-400">
-                Drag-to-reorder is off while a sort is applied.
+                Drag a task to switch to manual order.
               </p>
             ) : null}
           </Section>

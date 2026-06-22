@@ -61,3 +61,18 @@ export const Customized: Story = {
   },
   play: openMenu,
 };
+
+// Grouped by status: the "⇅ Reverse" group-direction toggle is shown next to
+// the group pills (only appears when a grouping is active).
+export const GroupReverseAvailable: Story = {
+  args: { initial: { ...defaultDisplayFor("all"), group: "status" } },
+  play: openMenu,
+};
+
+// Group order reversed (groupDir: "desc") — the Reverse toggle is highlighted.
+export const GroupReversed: Story = {
+  args: {
+    initial: { ...defaultDisplayFor("all"), group: "status", groupDir: "desc" },
+  },
+  play: openMenu,
+};
