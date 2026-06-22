@@ -21,9 +21,23 @@ import type { TasksApi } from "./tasks.js";
  * The hook is React-only (no DOM/RN-specific code) so it works in both
  * apps/web and apps/mobile.
  *
+ * Reconciling the list views (`onSaved`):
+ *   The save writes straight to Supabase via `api.update`. That PATCH is
+ *   invisible to whatever holds the list views' data (Next's server-component
+ *   cache on web, TanStack Query on mobile), so without a nudge they keep
+ *   rendering the pre-edit row until a hard refresh. `onSaved` fires *after
+ *   each successful commit* — wire it to `router.refresh()` (web) or
+ *   `invalidateTasks()` (mobile). Firing it post-commit (not on modal close)
+ *   is deliberate: a close-time refresh races the in-flight/debounced PATCH and
+ *   re-reads the stale row.
+ *
  * Race-condition guards:
  *   - `taskRef` always reads the latest task at debounce-fire time
  *     (avoids closing over a stale value).
+ *   - `flushOnExit` flushes a still-pending save when the modal unmounts.
+ *     Without it, closing within the debounce window drops the edit entirely
+ *     (use-debounce no-ops a queued timer once the hook is unmounted), so the
+ *     "Saved" the user saw would be a lie.
  *   - `undoAll` cancels the pending debounce before writing the snapshot
  *     (otherwise a flushed save could land after the revert).
  *   - Errors from individual saves don't roll back local state — surface
@@ -49,6 +63,13 @@ export interface UseAutoSaveTaskResult {
 export interface UseAutoSaveTaskOptions {
   /** Debounce in ms before each save fires. Defaults to 250. */
   debounceMs?: number;
+  /**
+   * Called after each successful save (debounced, flushed-on-unmount, or the
+   * `undoAll` write-back). Use it to reconcile the list views with the row that
+   * just changed — `router.refresh()` on web, `invalidateTasks()` on mobile.
+   * Not called when a save fails (watch `lastError` for that).
+   */
+  onSaved?: () => void;
 }
 
 /**
@@ -126,26 +147,40 @@ export function useAutoSaveTask(
     taskRef.current = task;
   }, [task]);
 
-  const debouncedSave = useDebouncedCallback(async () => {
-    const current = taskRef.current;
-    const patch = shallowDiff(snapshotRef.current, current);
-    if (Object.keys(patch).length === 0) return;
+  // Same trick for `onSaved`: read the latest via a ref so a changing callback
+  // identity never recreates the debounce (which would drop a queued save).
+  const onSavedRef = useRef(options.onSaved);
+  useEffect(() => {
+    onSavedRef.current = options.onSaved;
+  }, [options.onSaved]);
 
-    setIsSaving(true);
-    try {
-      const { error } = await api.update(current.id, toUpdateInput(patch));
-      if (error) {
-        setLastError(error as Error);
-      } else {
-        setLastError(null);
-        setLastSavedAt(new Date());
+  const debouncedSave = useDebouncedCallback(
+    async () => {
+      const current = taskRef.current;
+      const patch = shallowDiff(snapshotRef.current, current);
+      if (Object.keys(patch).length === 0) return;
+
+      setIsSaving(true);
+      try {
+        const { error } = await api.update(current.id, toUpdateInput(patch));
+        if (error) {
+          setLastError(error as Error);
+        } else {
+          setLastError(null);
+          setLastSavedAt(new Date());
+          onSavedRef.current?.();
+        }
+      } catch (err) {
+        setLastError(err as Error);
+      } finally {
+        setIsSaving(false);
       }
-    } catch (err) {
-      setLastError(err as Error);
-    } finally {
-      setIsSaving(false);
-    }
-  }, debounceMs);
+    },
+    debounceMs,
+    // Flush a still-pending save when the modal unmounts, so closing within the
+    // debounce window persists the edit (and fires `onSaved`) instead of losing it.
+    { flushOnExit: true }
+  );
 
   const setField = useCallback(
     <K extends keyof Task>(key: K, value: Task[K]) => {
@@ -172,6 +207,7 @@ export function useAutoSaveTask(
         setLastError(error as Error);
       } else {
         setLastSavedAt(new Date());
+        onSavedRef.current?.();
       }
     } catch (err) {
       setLastError(err as Error);

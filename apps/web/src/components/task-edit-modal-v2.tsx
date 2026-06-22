@@ -1846,7 +1846,12 @@ export function TaskEditModalV2({
     lastSavedAt,
     isSaving,
     lastError,
-  } = useAutoSaveTask(task, tasksApi);
+  } = useAutoSaveTask(task, tasksApi, {
+    // Re-run the server components so the list views pick up the row that was
+    // just saved. Fires after the PATCH commits, so it never re-reads the stale
+    // row the way a close-time refresh did.
+    onSaved: () => router.refresh(),
+  });
 
   const [titleDraft, setTitleDraft] = useState(current.title);
   useEffect(() => {
