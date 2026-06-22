@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultDisplayFor,
+  isDisplayDefault,
   parseDisplayConfig,
   type DisplayConfig,
 } from '@do-done/shared';
@@ -91,8 +92,10 @@ export function useDisplayConfig(viewKey: string) {
     persistDb(fallback);
   }, [viewKey, fallback, persistDb]);
 
+  // Ignores `collapsed` (see isDisplayDefault) so collapsing a section isn't
+  // treated as a customization.
   const isDefault = useMemo(
-    () => JSON.stringify(config) === JSON.stringify(fallback),
+    () => isDisplayDefault(config, fallback),
     [config, fallback]
   );
 
