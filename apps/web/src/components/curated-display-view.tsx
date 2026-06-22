@@ -19,8 +19,13 @@ export interface CuratedDisplayViewProps {
   projects?: Project[];
   /** Rendered under the header (e.g. a quick-add form). */
   beforeContent?: React.ReactNode;
-  /** Bespoke default layout, given the filtered task set. */
-  renderCurated: (filteredTasks: Task[]) => React.ReactNode;
+  /** Bespoke default layout, given the filtered task set + the live config and
+   *  its setter (so curated sections can persist collapse state). */
+  renderCurated: (
+    filteredTasks: Task[],
+    config: DisplayConfig,
+    onConfigChange: (next: DisplayConfig) => void
+  ) => React.ReactNode;
   /**
    * Show the curated layout for this config (typically: the view's default
    * grouping + manual sort). Filters still apply *within* the curated layout;
@@ -76,7 +81,7 @@ export function CuratedDisplayView({
       {beforeContent}
 
       {curatedWhen(config) ? (
-        renderCurated(filtered)
+        renderCurated(filtered, config, setConfig)
       ) : (
         <DraggableTaskGroups
           tasks={allTasks}

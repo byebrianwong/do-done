@@ -84,6 +84,21 @@ export const WithDisplayMenuOpen: Story = {
   },
 };
 
+// Collapsed Focus section: clicking the Focus header hides its rows (chevron
+// points right, count stays). State persists in the view's Display config.
+export const FocusCollapsed: Story = {
+  args: {
+    allTasks: SAMPLE_TASKS,
+    projects: SAMPLE_PROJECTS,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // findByRole waits for the curated Focus section to mount before clicking.
+    const focus = await canvas.findByRole("button", { name: /^Focus/i });
+    await userEvent.click(focus);
+  },
+};
+
 // Override: changing Group by → Priority flips the curated layout to the
 // generic grouped list (the menu's escape hatch).
 export const OverrideGroupedByPriority: Story = {

@@ -53,9 +53,14 @@ function patchForSection(key: string): UpdateTaskInput {
 export function DraggableToday({
   tasks,
   projects,
+  collapsed = [],
+  onToggleCollapse,
 }: {
   tasks: Task[];
   projects?: Project[];
+  /** Collapsed section keys (FOCUS / OTHER) — persisted in the view's config. */
+  collapsed?: string[];
+  onToggleCollapse?: (key: string) => void;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -274,11 +279,15 @@ export function DraggableToday({
           tasks={focus}
           projects={projects}
           isDragActive={isDragActive}
+          collapsed={collapsed.includes(FOCUS)}
+          onToggleCollapse={onToggleCollapse ? () => onToggleCollapse(FOCUS) : undefined}
         />
         <OtherSection
           tasks={other}
           projects={projects}
           isDragActive={isDragActive}
+          collapsed={collapsed.includes(OTHER)}
+          onToggleCollapse={onToggleCollapse ? () => onToggleCollapse(OTHER) : undefined}
         />
         <TaskDragOverlay task={activeTask} projects={projects} />
       </DndContext>
@@ -325,43 +334,115 @@ function DroppableList({
   );
 }
 
+/** Right-pointing chevron that rotates down when the section is expanded. */
+function Chevron({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M4.5 2.5 8 6l-3.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Section heading; a button (collapse toggle) when onToggle is provided. */
+function SectionHeading({
+  label,
+  count,
+  collapsed,
+  onToggle,
+  colorClass,
+  icon,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle?: () => void;
+  colorClass: string;
+  icon?: React.ReactNode;
+}) {
+  const base = `mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${colorClass}`;
+  const inner = (
+    <>
+      <Chevron collapsed={collapsed} />
+      {icon}
+      {label}
+      <span className="font-normal opacity-60">({count})</span>
+    </>
+  );
+  return onToggle ? (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className={`${base} transition-opacity hover:opacity-70`}
+    >
+      {inner}
+    </button>
+  ) : (
+    <h2 className={base}>{inner}</h2>
+  );
+}
+
 function FocusSection({
   tasks,
   projects,
   isDragActive,
+  collapsed,
+  onToggleCollapse,
 }: {
   tasks: Task[];
   projects?: Project[];
   isDragActive: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
 }) {
   // Hidden when empty and idle; shown during a drag so it can receive a drop.
   if (tasks.length === 0 && !isDragActive) return null;
   return (
     <section className="mb-8">
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
-        <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M13 10V3L4 14h7v7l9-11h-7z"
-            />
-          </svg>
-          Focus
-        </h2>
-        <DroppableList
-          groupKey={FOCUS}
-          tasks={tasks}
-          projects={projects}
-          isDragActive={isDragActive}
-          className="space-y-0.5"
+        <SectionHeading
+          label="Focus"
+          count={tasks.length}
+          collapsed={collapsed}
+          onToggle={onToggleCollapse}
+          colorClass="text-indigo-600 dark:text-indigo-400"
+          icon={
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+          }
         />
+        {/* Collapsed sections aren't drop targets in v1 — expand to drop in. */}
+        {!collapsed ? (
+          <DroppableList
+            groupKey={FOCUS}
+            tasks={tasks}
+            projects={projects}
+            isDragActive={isDragActive}
+            className="space-y-0.5"
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -371,24 +452,34 @@ function OtherSection({
   tasks,
   projects,
   isDragActive,
+  collapsed,
+  onToggleCollapse,
 }: {
   tasks: Task[];
   projects?: Project[];
   isDragActive: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
 }) {
   if (tasks.length === 0 && !isDragActive) return null;
   return (
     <section>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-        Other tasks
-      </h2>
-      <DroppableList
-        groupKey={OTHER}
-        tasks={tasks}
-        projects={projects}
-        isDragActive={isDragActive}
-        className="divide-y divide-neutral-100 dark:divide-neutral-800"
+      <SectionHeading
+        label="Other tasks"
+        count={tasks.length}
+        collapsed={collapsed}
+        onToggle={onToggleCollapse}
+        colorClass="text-neutral-400"
       />
+      {!collapsed ? (
+        <DroppableList
+          groupKey={OTHER}
+          tasks={tasks}
+          projects={projects}
+          isDragActive={isDragActive}
+          className="divide-y divide-neutral-100 dark:divide-neutral-800"
+        />
+      ) : null}
     </section>
   );
 }
