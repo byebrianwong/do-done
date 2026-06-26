@@ -113,6 +113,53 @@ export const Empty: Story = {
   },
 };
 
+// All-day tasks (no due_time/duration) render as in-flow chips in the day
+// header strip. Titles of varying length across days exercise the equal-column
+// layout and text wrapping.
+export const AllDayHeavy: Story = {
+  args: {
+    weekStart: todayLocalISO(monday),
+    tasks: [
+      makeTask({
+        title: "Finish quarterly planning doc and circulate for review",
+        priority: "p1",
+        when_date: dayOffset(0),
+        project_id: "proj-1",
+      }),
+      makeTask({ title: "Email", priority: "p3", when_date: dayOffset(0) }),
+      makeTask({
+        title: "Renew passport",
+        priority: "p2",
+        when_date: dayOffset(1),
+        project_id: "proj-2",
+      }),
+      makeTask({
+        title: "Reorganize the entire garage this weekend",
+        priority: "p3",
+        when_date: dayOffset(2),
+      }),
+      makeTask({
+        title: "Pay rent",
+        priority: "p1",
+        when_date: dayOffset(3),
+        project_id: "proj-3",
+      }),
+      makeTask({
+        title: "Call dentist",
+        priority: "p2",
+        when_date: dayOffset(4),
+      }),
+      makeTask({
+        title: "Weekly review",
+        priority: "p2",
+        when_date: dayOffset(4),
+        project_id: "proj-1",
+      }),
+    ],
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
 export const SparseTasks: Story = {
   args: {
     weekStart: todayLocalISO(monday),
