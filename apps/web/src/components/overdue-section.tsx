@@ -158,10 +158,10 @@ export function OverdueSection({ tasks }: OverdueSectionProps) {
     startTransition(() => router.refresh());
   }
 
-  async function rescheduleAllToToday() {
+  async function rescheduleAll(date: string) {
     setBusy(true);
     const api = await getClientTasksApi();
-    const target = { kind: "date" as const, date: todayLocalISO() };
+    const target = { kind: "date" as const, date };
     const updates = visible.map((t) => ({
       id: t.id,
       input: buildRescheduleInput(t, target),
@@ -203,14 +203,35 @@ export function OverdueSection({ tasks }: OverdueSectionProps) {
           </svg>
           Overdue ({visible.length})
         </button>
-        <button
-          type="button"
-          onClick={rescheduleAllToToday}
-          disabled={busy}
-          className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
-        >
-          Reschedule all to today
-        </button>
+        <div className="flex items-center gap-1.5">
+          <span className="hidden text-xs font-medium text-red-700/70 sm:inline dark:text-red-400/70">
+            Reschedule all
+          </span>
+          <button
+            type="button"
+            onClick={() => rescheduleAll(todayLocalISO())}
+            disabled={busy}
+            className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => rescheduleAll(addDaysLocalISO(1))}
+            disabled={busy}
+            className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-950/60 dark:text-red-300 dark:hover:bg-red-900"
+          >
+            Tomorrow
+          </button>
+          <button
+            type="button"
+            onClick={() => rescheduleAll(resolveQuickSchedule("next_week"))}
+            disabled={busy}
+            className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-950/60 dark:text-red-300 dark:hover:bg-red-900"
+          >
+            Next week
+          </button>
+        </div>
       </header>
       {open && (
         <div className="space-y-0.5">
