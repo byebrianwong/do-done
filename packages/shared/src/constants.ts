@@ -43,7 +43,15 @@ export const FOCUS_SCORES = {
   DUE_TODAY: 50,
   IN_PROGRESS: 20,
   HAS_TIME_BLOCK: 30,
+  // Quick wins: small tasks that can be knocked out fast get a boost so they
+  // surface in the default focus list alongside overdue / high-priority work.
+  QUICK_WIN: 25, // estimate <= QUICK_WIN_MAX_MINUTES
+  QUICK_WIN_PARTIAL: 12, // estimate <= QUICK_WIN_PARTIAL_MAX_MINUTES
 } as const;
+
+// Duration thresholds (minutes) for the quick-win focus bonus above.
+export const QUICK_WIN_MAX_MINUTES = 15;
+export const QUICK_WIN_PARTIAL_MAX_MINUTES = 30;
 
 export const DEFAULT_PROJECT_COLORS = [
   "#6366f1", // indigo (primary)
