@@ -63,11 +63,11 @@ export default function OverdueSection({
     onChange?.();
   }
 
-  async function bulkToday() {
+  async function bulkReschedule(date: string) {
     hapticLight();
     setBusy(true);
     const api = await getTasksApi();
-    const target = { kind: 'date' as const, date: todayLocalISO() };
+    const target = { kind: 'date' as const, date };
     const updates = visible.map((t) => ({
       id: t.id,
       input: buildReschedule(t, target),
@@ -93,17 +93,26 @@ export default function OverdueSection({
           <Text style={styles.headerCaret}>{collapsed ? '▶' : '▼'}</Text>
           <Text style={styles.headerTitle}>Overdue ({visible.length})</Text>
         </Pressable>
-        <Pressable
-          onPress={bulkToday}
+        {busy && <ActivityIndicator color="#dc2626" size="small" />}
+      </View>
+      <View style={styles.bulkRow}>
+        <Text style={styles.bulkRowLabel}>Reschedule all</Text>
+        <BulkBtn
+          label="Today"
+          emphasis
           disabled={busy}
-          style={[styles.bulkBtn, busy && styles.bulkBtnBusy]}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.bulkLabel}>Reschedule all to today</Text>
-          )}
-        </Pressable>
+          onPress={() => bulkReschedule(todayLocalISO())}
+        />
+        <BulkBtn
+          label="Tomorrow"
+          disabled={busy}
+          onPress={() => bulkReschedule(addDaysLocalISO(1))}
+        />
+        <BulkBtn
+          label="Next week"
+          disabled={busy}
+          onPress={() => bulkReschedule(resolveQuickSchedule('next_week'))}
+        />
       </View>
       {!collapsed && (
         <View style={styles.list}>
@@ -160,6 +169,40 @@ export default function OverdueSection({
   );
 }
 
+function BulkBtn({
+  label,
+  onPress,
+  emphasis,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  emphasis?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[
+        styles.bulkBtn,
+        emphasis ? styles.bulkBtnEmphasis : styles.bulkBtnSoft,
+        disabled && styles.bulkBtnBusy,
+      ]}
+      hitSlop={4}
+    >
+      <Text
+        style={[
+          styles.bulkLabel,
+          emphasis ? styles.bulkLabelEmphasis : styles.bulkLabelSoft,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function Chip({
   label,
   onPress,
@@ -207,14 +250,33 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  bulkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  bulkRowLabel: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '600',
+    marginRight: 2,
+  },
   bulkBtn: {
-    backgroundColor: '#dc2626',
-    borderRadius: 8,
-    paddingVertical: 6,
+    borderRadius: 999,
+    paddingVertical: 5,
     paddingHorizontal: 10,
   },
-  bulkBtnBusy: { opacity: 0.7 },
-  bulkLabel: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  bulkBtnEmphasis: { backgroundColor: '#dc2626' },
+  bulkBtnSoft: {
+    backgroundColor: '#fee2e2',
+    borderColor: '#fecaca',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  bulkBtnBusy: { opacity: 0.5 },
+  bulkLabel: { fontSize: 12, fontWeight: '700' },
+  bulkLabelEmphasis: { color: '#fff' },
+  bulkLabelSoft: { color: '#b91c1c' },
   list: { gap: 6 },
   row: {
     flexDirection: 'column',
