@@ -115,18 +115,51 @@ describe("generateFocusList", () => {
 
   // ── Manual overrides ────────────────────────────────────
 
-  it("pins an include task in, taking an auto slot from a higher-scored task", () => {
+  it("pins a task in additively, without pushing an auto pick out", () => {
     const tasks = [
       makeTask({ title: "p1", priority: "p1" }),
       makeTask({ title: "p2", priority: "p2" }),
       makeTask({ title: "pinned p4", priority: "p4", focus_override: "include" }),
     ];
-    // 2 slots: the pin + one auto pick (the top-scored p1). p2 is squeezed out.
+    // 2 auto slots fill with p1 + p2; the pin layers on top — nothing evicted.
     const result = generateFocusList(tasks, 2);
     const titles = result.map((t) => t.title);
-    expect(titles).toContain("pinned p4");
     expect(titles).toContain("p1");
-    expect(titles).not.toContain("p2");
+    expect(titles).toContain("p2");
+    expect(titles).toContain("pinned p4");
+    expect(result).toHaveLength(3);
+  });
+
+  it("does not double-count a pin that already ranks in the auto picks", () => {
+    const tasks = [
+      makeTask({ title: "pinned p1", priority: "p1", focus_override: "include" }),
+      makeTask({ title: "p2", priority: "p2" }),
+      makeTask({ title: "p3", priority: "p3" }),
+    ];
+    // The pin is already the top auto pick, so it appears exactly once.
+    const result = generateFocusList(tasks, 2);
+    const titles = result.map((t) => t.title);
+    expect(titles).toEqual(["pinned p1", "p2"]);
+  });
+
+  it("boosts quick wins above longer same-priority tasks", () => {
+    const tasks = [
+      makeTask({ title: "long p3", priority: "p3", duration_minutes: 120 }),
+      makeTask({ title: "quick p3", priority: "p3", duration_minutes: 10 }),
+    ];
+    const result = generateFocusList(tasks);
+    expect(result[0].title).toBe("quick p3");
+  });
+
+  it("lifts a quick low-priority task above a longer higher-priority one", () => {
+    const tasks = [
+      // p2 (30) with no quick bonus.
+      makeTask({ title: "long p2", priority: "p2", duration_minutes: 90 }),
+      // p4 (10) + quick-win bonus (25) = 35, edging out the long p2.
+      makeTask({ title: "quick p4", priority: "p4", duration_minutes: 10 }),
+    ];
+    const result = generateFocusList(tasks);
+    expect(result[0].title).toBe("quick p4");
   });
 
   it("drops an exclude task even when it would otherwise rank highest", () => {
@@ -193,6 +226,18 @@ describe("partitionToday", () => {
     const { focus, other } = partitionToday(tasks, 1);
     expect(focus.map((t) => t.title)).toEqual(["due today"]);
     expect(other.map((t) => t.title)).toEqual(["someday"]);
+  });
+
+  it("pulls a pinned 'other' task into focus without evicting the auto pick", () => {
+    const tasks = [
+      makeTask({ title: "due today", priority: "p1", due_date: "2026-04-12" }),
+      makeTask({ title: "pinned someday", priority: "p4", focus_override: "include" }),
+    ];
+    const { focus, other } = partitionToday(tasks, 1);
+    const titles = focus.map((t) => t.title);
+    expect(titles).toContain("due today");
+    expect(titles).toContain("pinned someday");
+    expect(other).toHaveLength(0);
   });
 
   it("sends an excluded task to other instead of focus", () => {
