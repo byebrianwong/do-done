@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { Project } from "@do-done/shared";
 import { TaskItem } from "./task-item";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
@@ -34,5 +35,38 @@ describe("TaskItem — touch affordances", () => {
     expect(
       screen.getByRole("button", { name: /mark (in)?complete/i })
     ).toBeInTheDocument();
+  });
+});
+
+describe("TaskItem — project chip stays in sync with props", () => {
+  // Regression: editing a task elsewhere (e.g. the edit modal) re-feeds fresh
+  // props after router.refresh; the row's optimistic projectId must follow.
+  it("updates the chip when the task is reassigned to another project", () => {
+    const task = makeTask({ title: "Ship it", project_id: "proj-1" });
+    const { rerender } = render(
+      <TaskItem task={task} projects={SAMPLE_PROJECTS} />
+    );
+    expect(screen.getByText("Engineering")).toBeInTheDocument();
+
+    rerender(
+      <TaskItem task={{ ...task, project_id: "proj-2" }} projects={SAMPLE_PROJECTS} />
+    );
+    expect(screen.getByText("Personal")).toBeInTheDocument();
+    expect(screen.queryByText("Engineering")).not.toBeInTheDocument();
+  });
+
+  it("updates the chip when the project itself is renamed", () => {
+    const task = makeTask({ title: "Ship it", project_id: "proj-1" });
+    const { rerender } = render(
+      <TaskItem task={task} projects={SAMPLE_PROJECTS} />
+    );
+    expect(screen.getByText("Engineering")).toBeInTheDocument();
+
+    const renamed: Project[] = SAMPLE_PROJECTS.map((p) =>
+      p.id === "proj-1" ? { ...p, name: "Platform" } : p
+    );
+    rerender(<TaskItem task={task} projects={renamed} />);
+    expect(screen.getByText("Platform")).toBeInTheDocument();
+    expect(screen.queryByText("Engineering")).not.toBeInTheDocument();
   });
 });

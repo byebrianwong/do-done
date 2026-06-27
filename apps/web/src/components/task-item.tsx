@@ -415,6 +415,11 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   // before the server round-trip / router.refresh lands.
   const [priority, setPriority] = useState(task.priority);
   const [duration, setDuration] = useState(task.duration_minutes);
+  // Like the schedule fields below, these inline-editable values must sync back
+  // from props after a router.refresh — otherwise an edit made elsewhere (e.g.
+  // the edit modal) leaves the row's optimistic state frozen at its old value.
+  useEffect(() => setPriority(task.priority), [task.priority]);
+  useEffect(() => setDuration(task.duration_minutes), [task.duration_minutes]);
   // Schedule fields are optimistic too (for the inline When editor) but also
   // sync back from props — the Upcoming view mutates when_date on drag, and
   // router.refresh re-feeds the server value after any edit.
@@ -433,6 +438,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   // `createdProjects` holds projects made via the inline picker so the chip can
   // render them before the router.refresh round-trip lands.
   const [projectId, setProjectId] = useState(task.project_id);
+  useEffect(() => setProjectId(task.project_id), [task.project_id]);
   const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
   const allProjects = useMemo(
     () => [...(projects ?? []), ...createdProjects],
