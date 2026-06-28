@@ -3,7 +3,17 @@ import { NextResponse, type NextRequest } from "next/server";
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/auth/signout"];
+// Paths that skip the auth redirect. Besides the login/auth flows, the calendar
+// worker and webhook are server-to-server endpoints (called by pg_cron and
+// Google, with no user session) — they authenticate via their own secrets:
+// the cron secret header and the Google channel token, respectively.
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth/callback",
+  "/auth/signout",
+  "/api/calendar/worker",
+  "/api/calendar/webhook",
+];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
