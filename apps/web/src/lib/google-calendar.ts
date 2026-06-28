@@ -140,6 +140,49 @@ export async function deleteCalendarEvent(
   });
 }
 
+/**
+ * Open a push-notification (watch) channel on the user's primary calendar.
+ * Google POSTs to `address` whenever the calendar changes. Channels expire, so
+ * the returned `expiration` must be stored and the channel renewed before then.
+ */
+export async function watchCalendar(
+  refreshToken: string,
+  opts: { channelId: string; address: string; token: string }
+): Promise<{ resourceId: string | null; expiration: Date | null }> {
+  const calendar = calendarClientFor(refreshToken);
+  const { data } = await calendar.events.watch({
+    calendarId: "primary",
+    requestBody: {
+      id: opts.channelId,
+      type: "web_hook",
+      address: opts.address,
+      token: opts.token,
+    },
+  });
+  return {
+    resourceId: data.resourceId ?? null,
+    expiration: data.expiration ? new Date(Number(data.expiration)) : null,
+  };
+}
+
+/**
+ * Stop a previously opened watch channel. Tolerates an already-gone channel.
+ */
+export async function stopChannel(
+  refreshToken: string,
+  channelId: string,
+  resourceId: string
+): Promise<void> {
+  const calendar = calendarClientFor(refreshToken);
+  try {
+    await calendar.channels.stop({
+      requestBody: { id: channelId, resourceId },
+    });
+  } catch {
+    // Channel may already be expired/stopped — nothing to clean up.
+  }
+}
+
 export interface CalendarChange {
   eventId: string;
   taskId: string | null;

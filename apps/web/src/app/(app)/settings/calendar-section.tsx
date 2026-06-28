@@ -50,7 +50,9 @@ export function CalendarSection({
             Google Calendar
           </h3>
           <p className="mt-1 text-xs text-neutral-500">
-            Sync tasks with start times and durations as calendar timeblocks.
+            Two-way sync: tasks with a start time and duration appear as calendar
+            timeblocks, and edits in Google Calendar flow back automatically.
+            &ldquo;Sync now&rdquo; forces an immediate reconcile.
           </p>
           {isConnected && syncedAt && (
             <p className="mt-2 text-xs text-neutral-400">
