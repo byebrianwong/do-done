@@ -1706,6 +1706,7 @@ function SlashCommandInput({
   onRemoveTag,
   onAddTag,
   autoFocus,
+  selectOnFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1713,14 +1714,21 @@ function SlashCommandInput({
   onRemoveTag: (tag: string) => void;
   onAddTag: (tag: string) => void;
   autoFocus?: boolean;
+  /** Select the whole title on mount (draft "New task" → typing replaces it). */
+  selectOnFocus?: boolean;
 }) {
   const [addingTag, setAddingTag] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const titleRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (addingTag) inputRef.current?.focus();
   }, [addingTag]);
+
+  useEffect(() => {
+    if (selectOnFocus) titleRef.current?.select();
+  }, [selectOnFocus]);
 
   const submit = () => {
     const trimmed = draft.trim().replace(/^#/, "");
@@ -1735,6 +1743,7 @@ function SlashCommandInput({
           longer renders an almost-empty second row under the input. */}
       <div className="flex items-center gap-2">
         <input
+          ref={titleRef}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -1825,6 +1834,12 @@ interface TaskEditModalV2Props {
   projects?: Project[];
   open: boolean;
   onClose: () => void;
+  /**
+   * The task was created as a throwaway draft (e.g. "expand" from an empty
+   * quick-add). Selects the title on open so it's instantly replaceable, and
+   * deletes the task on close if the user never touched it.
+   */
+  draft?: boolean;
 }
 
 export function TaskEditModalV2({
@@ -1832,6 +1847,7 @@ export function TaskEditModalV2({
   projects,
   open,
   onClose,
+  draft,
 }: TaskEditModalV2Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClientSupabase(), []);
@@ -1900,9 +1916,14 @@ export function TaskEditModalV2({
   }, [open]);
 
   const handleClose = useCallback(() => {
+    // A throwaway draft the user opened but never edited: drop it instead of
+    // leaving an orphaned "New task" behind.
+    if (draft && !hasChanges) {
+      void tasksApi.delete(task.id);
+    }
     onClose();
     router.refresh();
-  }, [onClose, router]);
+  }, [draft, hasChanges, tasksApi, task.id, onClose, router]);
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
@@ -2095,6 +2116,7 @@ export function TaskEditModalV2({
             onRemoveTag={handleRemoveTag}
             onAddTag={handleAddTag}
             autoFocus
+            selectOnFocus={draft}
           />
         </div>
 

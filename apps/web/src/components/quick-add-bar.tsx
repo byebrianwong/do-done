@@ -84,11 +84,9 @@ export function QuickAddBar({
   }
 
   async function handleExpand() {
-    if (!composer.input.trim()) {
-      inputRef.current?.focus();
-      return;
-    }
-    await composer.openEditor();
+    // Open the full editor even with an empty composer — it creates a fresh
+    // draft to edit (dropped again if closed untouched).
+    await composer.openEditor({ allowEmpty: true });
   }
 
   return (
@@ -173,6 +171,7 @@ export function QuickAddBar({
           task={composer.handoffTask}
           projects={ctx.projects}
           open
+          draft={composer.handoffIsDraft}
           onClose={() => {
             composer.clearHandoff();
             composer.resetAll();

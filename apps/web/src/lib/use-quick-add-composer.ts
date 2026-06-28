@@ -18,7 +18,7 @@ export function useQuickAddComposer(
   opts: UseQuickAddOptions = {}
 ) {
   const base = useQuickAdd(seed, opts);
-  const { submit, reset } = base;
+  const { submit, reset, input } = base;
 
   // Chip overrides — explicit selections that win over parsed text + seed.
   const [priority, setPriority] = useState<TaskPriority | null>(null);
@@ -26,8 +26,11 @@ export function useQuickAddComposer(
   const [whenDate, setWhenDate] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
 
-  // The task created by "expand", handed off to the full editor.
+  // The task created by "expand", handed off to the full editor. `isDraft` marks
+  // a task created from an *empty* composer (a throwaway titled "New task") so
+  // the editor can drop it again if the user closes without editing.
   const [handoffTask, setHandoffTask] = useState<Task | null>(null);
+  const [handoffIsDraft, setHandoffIsDraft] = useState(false);
 
   const anyChipSet =
     priority != null ||
@@ -63,17 +66,35 @@ export function useQuickAddComposer(
     [submit, buildOverride]
   );
 
-  /** Create now (no route refresh) and stage the task for the full editor. */
-  const openEditor = useCallback(async (): Promise<Task | null> => {
-    const created = await submit({
-      override: buildOverride(),
-      skipRefresh: true,
-    });
-    if (created) setHandoffTask(created);
-    return created;
-  }, [submit, buildOverride]);
+  /**
+   * Create now (no route refresh) and stage the task for the full editor. With
+   * an empty composer this returns null unless `allowEmpty` is set, in which
+   * case it creates a throwaway draft (title "New task") so the editor still has
+   * something to open on — the inline surfaces pass `allowEmpty` so you can
+   * expand straight into the full editor without typing first.
+   */
+  const openEditor = useCallback(
+    async (opts?: { allowEmpty?: boolean }): Promise<Task | null> => {
+      const isDraft = !input.trim();
+      if (isDraft && !opts?.allowEmpty) return null;
+      const created = await submit({
+        override: buildOverride(),
+        skipRefresh: true,
+        ...(isDraft ? { defaultTitle: "New task" } : {}),
+      });
+      if (created) {
+        setHandoffTask(created);
+        setHandoffIsDraft(isDraft);
+      }
+      return created;
+    },
+    [input, submit, buildOverride]
+  );
 
-  const clearHandoff = useCallback(() => setHandoffTask(null), []);
+  const clearHandoff = useCallback(() => {
+    setHandoffTask(null);
+    setHandoffIsDraft(false);
+  }, []);
 
   return {
     ...base,
@@ -91,6 +112,7 @@ export function useQuickAddComposer(
     resetChips,
     resetAll,
     handoffTask,
+    handoffIsDraft,
     openEditor,
     clearHandoff,
   };
