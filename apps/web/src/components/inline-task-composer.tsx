@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { PRIORITY_CONFIG, type ParsedTask } from "@do-done/shared";
-import { formatRrule } from "@do-done/task-engine";
-import { useQuickAdd } from "@/lib/use-quick-add";
+import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
+import { useQuickAddContext } from "@/lib/quick-add-context";
 import type { QuickAddSeed } from "@/lib/quick-add";
+import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
+import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
 function PlusIcon() {
   return (
@@ -21,54 +22,32 @@ function PlusIcon() {
   );
 }
 
-/** Compact read-only preview of what the natural-language input parsed into. */
-function ParsedChips({ parsed }: { parsed: ParsedTask }) {
+function ExpandIcon() {
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-9 text-[11px] text-neutral-500">
-      {parsed.priority && (
-        <span
-          className="rounded-full px-2 py-0.5 font-medium"
-          style={{
-            color: PRIORITY_CONFIG[parsed.priority].color,
-            backgroundColor: PRIORITY_CONFIG[parsed.priority].color + "15",
-          }}
-        >
-          {PRIORITY_CONFIG[parsed.priority].label}
-        </span>
-      )}
-      {parsed.due_date && (
-        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
-          {parsed.due_date}
-          {parsed.due_time && ` ${parsed.due_time}`}
-        </span>
-      )}
-      {parsed.tags?.map((tag) => (
-        <span
-          key={tag}
-          className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-        >
-          #{tag}
-        </span>
-      ))}
-      {parsed.duration_minutes && (
-        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-          {parsed.duration_minutes}min
-        </span>
-      )}
-      {parsed.recurrence_rule && (
-        <span className="rounded-full bg-violet-50 px-2 py-0.5 text-violet-600 dark:bg-violet-950 dark:text-violet-400">
-          {formatRrule(parsed.recurrence_rule)}
-        </span>
-      )}
-    </div>
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 20.25h-4.5m4.5 0v-4.5m0 4.5L15 15"
+      />
+    </svg>
   );
 }
 
 /**
  * A per-section inline quick-add. Collapsed it's a faint "Add task" affordance
  * (revealed on section hover or keyboard focus); expanded it's a
- * natural-language input pre-seeded with the section's context. Enter creates
- * and keeps the row open for rapid entry; Esc / empty-blur collapses it.
+ * natural-language input pre-seeded with the section's context, plus the shared
+ * When / Priority / Project / Estimate chips and an expand-to-editor button.
+ * Enter creates and keeps the row open for rapid entry; Esc / empty-blur
+ * collapses it.
  *
  * The collapsed button is revealed by the nearest `group` ancestor's hover, so
  * wrap the section in a `group` class.
@@ -80,42 +59,55 @@ export function InlineTaskComposer({
   seed: QuickAddSeed;
   placeholder?: string;
 }) {
+  const ctx = useQuickAddContext();
+  const composer = useQuickAddComposer(seed, { keepOpen: true });
   const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const { input, setInput, parsed, submitting, error, submit, reset } =
-    useQuickAdd(seed, { keepOpen: true });
+  const formRef = useRef<HTMLFormElement>(null);
 
   function expand() {
     setExpanded(true);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
-  function collapse() {
-    reset();
+  function collapse(focusButton: boolean) {
+    composer.resetAll();
     setExpanded(false);
-    requestAnimationFrame(() => buttonRef.current?.focus());
+    if (focusButton) requestAnimationFrame(() => buttonRef.current?.focus());
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const created = await submit();
+    const created = await composer.add();
     // keepOpen cleared the input; refocus for the next task.
-    if (created) requestAnimationFrame(() => inputRef.current?.focus());
+    if (created) {
+      composer.resetChips();
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }
+
+  async function handleExpand() {
+    if (!composer.input.trim()) {
+      inputRef.current?.focus();
+      return;
+    }
+    await composer.openEditor();
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
-      collapse();
+      collapse(true);
     }
   }
 
-  function handleBlur() {
-    // Leaving an empty composer collapses it; mid-typing it stays open.
-    if (!input.trim()) {
-      reset();
-      setExpanded(false);
+  function handleBlur(e: React.FocusEvent<HTMLFormElement>) {
+    // Stay open while focus is anywhere inside the composer (input, a chip, an
+    // open popover). Leaving an empty composer with no chips set collapses it.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    if (!composer.input.trim() && !composer.anyChipSet) {
+      collapse(false);
     }
   }
 
@@ -134,29 +126,78 @@ export function InlineTaskComposer({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="py-1">
-      <div className="flex items-center gap-2 rounded-md border border-indigo-300 bg-white px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 dark:border-indigo-700 dark:bg-neutral-900 dark:focus-within:ring-indigo-950">
-        <span className="text-indigo-500">
-          <PlusIcon />
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={handleBlur}
-          disabled={submitting}
-          aria-label="Add a task"
-          placeholder={placeholder}
-          className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:opacity-50 dark:text-neutral-100 dark:placeholder:text-neutral-600"
+    <>
+      <form
+        ref={formRef}
+        onSubmit={handleSubmit}
+        onBlur={handleBlur}
+        className="py-1"
+      >
+        <div className="rounded-md border border-indigo-300 bg-white px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 dark:border-indigo-700 dark:bg-neutral-900 dark:focus-within:ring-indigo-950">
+          <div className="flex items-center gap-2">
+            <span className="text-indigo-500">
+              <PlusIcon />
+            </span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={composer.input}
+              onChange={(e) => composer.setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={composer.submitting}
+              aria-label="Add a task"
+              placeholder={placeholder}
+              className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:opacity-50 dark:text-neutral-100 dark:placeholder:text-neutral-600"
+            />
+            <button
+              type="button"
+              onClick={handleExpand}
+              aria-label="Open full editor"
+              title="More options"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-indigo-600 dark:hover:bg-neutral-800 dark:hover:text-indigo-400"
+            >
+              <ExpandIcon />
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+            <QuickAddChipRow
+              priority={composer.priority}
+              setPriority={composer.setPriority}
+              duration={composer.duration}
+              setDuration={composer.setDuration}
+              whenDate={composer.whenDate}
+              setWhenDate={composer.setWhenDate}
+              projectId={composer.projectId}
+              setProjectId={composer.setProjectId}
+              projects={ctx.projects}
+              userId={ctx.userId}
+              onCreatedProject={ctx.addProject}
+            />
+          </div>
+          {composer.parsed && composer.parsed.title ? (
+            <ParsedPreview
+              parsed={composer.parsed}
+              omitChipFields
+              className="mt-1.5"
+            />
+          ) : null}
+        </div>
+        {composer.error ? (
+          <div className="mt-1 pl-9 text-xs text-red-500">{composer.error}</div>
+        ) : null}
+      </form>
+
+      {composer.handoffTask ? (
+        <TaskEditModalV2
+          task={composer.handoffTask}
+          projects={ctx.projects}
+          open
+          onClose={() => {
+            composer.clearHandoff();
+            collapse(false);
+          }}
         />
-        <kbd className="hidden rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400 sm:inline dark:border-neutral-700 dark:bg-neutral-800">
-          ↵
-        </kbd>
-      </div>
-      {parsed && parsed.title && <ParsedChips parsed={parsed} />}
-      {error && <div className="mt-1 pl-9 text-xs text-red-500">{error}</div>}
-    </form>
+      ) : null}
+    </>
   );
 }

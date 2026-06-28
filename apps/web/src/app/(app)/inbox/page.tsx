@@ -1,4 +1,4 @@
-import { TaskForm } from "@/components/task-form";
+import { QuickAddBar } from "@/components/quick-add-bar";
 import { TaskDisplayView } from "@/components/task-display-view";
 import {
   getServerTasksApi,
@@ -21,7 +21,7 @@ export default async function InboxPage() {
         Inbox
       </h1>
 
-      <TaskForm defaultStatus="inbox" />
+      <QuickAddBar seed={{ status: "inbox" }} />
 
       <div className="mt-4">
         <TaskDisplayView

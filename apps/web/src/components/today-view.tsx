@@ -11,7 +11,7 @@ import {
 import { todayUniverse } from "@do-done/task-engine";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableToday } from "./draggable-today-client";
-import { TaskForm } from "./task-form";
+import { QuickAddBar } from "./quick-add-bar";
 
 export function TodayView({
   allTasks,
@@ -34,7 +34,7 @@ export function TodayView({
       title="Today"
       allTasks={universe}
       projects={projects}
-      beforeContent={<TaskForm defaultStatus="not_started" />}
+      beforeContent={<QuickAddBar seed={{ status: "not_started" }} />}
       curatedWhen={(c) => c.group === "none" && isManualSort(c)}
       renderCurated={(tasks, config, onConfigChange) => (
         <DraggableToday

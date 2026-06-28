@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TaskDisplayView } from "@/components/task-display-view";
-import { TaskForm } from "@/components/task-form";
+import { QuickAddBar } from "@/components/quick-add-bar";
 import { ProjectActions } from "./project-actions";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi, TasksApi } from "@do-done/api-client";
@@ -57,7 +57,7 @@ export default async function ProjectDetailPage({
         <ProjectActions project={project} />
       </div>
 
-      <TaskForm defaultStatus="not_started" />
+      <QuickAddBar seed={{ status: "not_started", project_id: id }} />
 
       <div className="mt-4">
         <TaskDisplayView
