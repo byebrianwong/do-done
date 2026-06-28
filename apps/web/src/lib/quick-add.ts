@@ -32,7 +32,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  *  - tags / due_* / duration / recurrence ← parsed only
  *
  * `parsed.project` is a *name* (`/groceries`), not a UUID, so it cannot become
- * `project_id` — it is intentionally dropped (same behaviour as `TaskForm`).
+ * `project_id` — it is intentionally dropped (the chips set `project_id`).
  */
 export function buildCreateInput(
   raw: string,

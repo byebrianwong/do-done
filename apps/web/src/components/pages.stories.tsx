@@ -6,7 +6,8 @@ import { todayLocalISO, type Task } from "@do-done/shared";
 import { AppShell } from "./app-shell";
 import { UndoToastProvider } from "./undo-toast";
 import { CommandPalette } from "./command-palette";
-import { TaskForm } from "./task-form";
+import { QuickAddBar } from "./quick-add-bar";
+import { QuickAddProvider } from "@/lib/quick-add-context";
 import { TaskDisplayView } from "./task-display-view";
 import { TodayView } from "./today-view";
 import { UpcomingView } from "./upcoming-view";
@@ -62,12 +63,14 @@ function PageShell({
 }) {
   return (
     <UndoToastProvider>
-      <AppShell projects={SAMPLE_PROJECTS} userEmail="ada@dodone.app">
-        {children}
-      </AppShell>
-      {withCommandPalette ? (
-        <CommandPalette projects={SAMPLE_PROJECTS} />
-      ) : null}
+      <QuickAddProvider projects={SAMPLE_PROJECTS} userId="user-1">
+        <AppShell projects={SAMPLE_PROJECTS} userEmail="ada@dodone.app">
+          {children}
+        </AppShell>
+        {withCommandPalette ? (
+          <CommandPalette projects={SAMPLE_PROJECTS} />
+        ) : null}
+      </QuickAddProvider>
     </UndoToastProvider>
   );
 }
@@ -254,7 +257,7 @@ function InboxContent({ tasks }: { tasks: Task[] }) {
       <h1 className="mb-6 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
         Inbox
       </h1>
-      <TaskForm defaultStatus="inbox" />
+      <QuickAddBar seed={{ status: "inbox" }} />
       <div className="mt-4">
         <TaskDisplayView
           viewKey="inbox"

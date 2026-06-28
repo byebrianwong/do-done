@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { InlineTaskComposer } from "./inline-task-composer";
+import { QuickAddProvider } from "@/lib/quick-add-context";
+import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 /**
  * The per-section inline quick-add. Collapsed it's a faint "Add task" affordance
- * revealed on the section's hover; expanded it's a natural-language input with a
- * live parsed-chip preview. Stories with an expanded state drive it via `play`.
+ * revealed on the section's hover; expanded it's a natural-language input with
+ * the shared attribute chips, an expand-to-editor button, and a slim parsed
+ * preview. Stories with an expanded state drive it via `play`.
  */
 const meta: Meta<typeof InlineTaskComposer> = {
   title: "Components/InlineTaskComposer",
@@ -16,9 +19,11 @@ const meta: Meta<typeof InlineTaskComposer> = {
   },
   decorators: [
     (Story) => (
-      <div className="group mx-auto max-w-2xl bg-white p-6 dark:bg-neutral-900">
-        <Story />
-      </div>
+      <QuickAddProvider projects={SAMPLE_PROJECTS} userId="user-1">
+        <div className="group mx-auto max-w-2xl bg-white p-6 dark:bg-neutral-900">
+          <Story />
+        </div>
+      </QuickAddProvider>
     ),
   ],
 };
@@ -43,7 +48,7 @@ export const Expanded: Story = {
   args: { seed: { priority: "p1" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /add task/i }));
+    await userEvent.click(canvas.getByRole("button", { name: /^add task$/i }));
     await waitFor(() => canvas.getByLabelText(/add a task/i));
   },
 };
@@ -52,9 +57,9 @@ export const ExpandedWithChips: Story = {
   args: { seed: { project_id: "proj-1" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /add task/i }));
+    await userEvent.click(canvas.getByRole("button", { name: /^add task$/i }));
     const input = await waitFor(() => canvas.getByLabelText(/add a task/i));
     // Stable tokens only (no date phrases) so the snapshot doesn't drift daily.
-    await userEvent.type(input, "Email the team p1 #work #m");
+    await userEvent.type(input, "Email the team #work every monday");
   },
 };

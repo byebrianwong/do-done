@@ -3,6 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { CommandPalette } from "@/components/command-palette";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { UndoToastProvider } from "@/components/undo-toast";
+import { QuickAddProvider } from "@/lib/quick-add-context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { PIP_HIDDEN_COOKIE } from "@/lib/pip-visibility";
 import { ProjectsApi } from "@do-done/api-client";
@@ -30,15 +31,17 @@ export default async function AppLayout({
 
   return (
     <UndoToastProvider>
-      <AppShell
-        projects={projects}
-        userEmail={user?.email ?? null}
-        pipHidden={pipHidden}
-      >
-        {children}
-      </AppShell>
-      <CommandPalette projects={projects} />
-      <QuickAddModal projects={projects} userId={user?.id ?? null} />
+      <QuickAddProvider projects={projects} userId={user?.id ?? null}>
+        <AppShell
+          projects={projects}
+          userEmail={user?.email ?? null}
+          pipHidden={pipHidden}
+        >
+          {children}
+        </AppShell>
+        <CommandPalette projects={projects} />
+        <QuickAddModal projects={projects} userId={user?.id ?? null} />
+      </QuickAddProvider>
     </UndoToastProvider>
   );
 }

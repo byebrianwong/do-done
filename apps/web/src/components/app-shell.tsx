@@ -6,7 +6,6 @@ import { SidebarNav } from "@/components/sidebar-nav";
 import { PetPanelContainer } from "@/components/pet/PetPanelContainer";
 import { PetRevealTab } from "@/components/pet/PetRevealTab";
 import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/command-palette";
-import { QuickAddFab } from "@/components/quick-add-fab";
 import {
   TOGGLE_PIP_PANEL_EVENT,
   writePipHiddenCookie,
@@ -253,11 +252,6 @@ export function AppShell({
           )
         ) : null}
       </div>
-
-      <QuickAddFab
-        hasPetPanel={!!userEmail && !petHidden}
-        hidden={drawerOpen}
-      />
     </div>
   );
 }
