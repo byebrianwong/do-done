@@ -19,6 +19,9 @@ export interface QuickAddSubmitOptions {
   /** Skip the post-create router.refresh() — used when handing off to the edit
    *  modal, which refreshes the route on its own close. */
   skipRefresh?: boolean;
+  /** When the input is empty, create with this title instead of bailing — lets
+   *  "expand to editor" open on a fresh draft without the user typing first. */
+  defaultTitle?: string;
 }
 
 export interface UseQuickAdd {
@@ -63,11 +66,12 @@ export function useQuickAdd(
 
   const submit = useCallback(
     async (submitOpts: QuickAddSubmitOptions = {}): Promise<Task | null> => {
-      if (!input.trim() || submitting) return null;
+      const raw = input.trim() || submitOpts.defaultTitle?.trim() || "";
+      if (!raw || submitting) return null;
       setSubmitting(true);
       setError(null);
 
-      let finalInput = buildCreateInput(input, seed);
+      let finalInput = buildCreateInput(raw, seed);
       if (submitOpts.override)
         finalInput = applyOverride(finalInput, submitOpts.override);
 
