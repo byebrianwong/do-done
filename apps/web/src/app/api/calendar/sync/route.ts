@@ -90,12 +90,9 @@ export async function POST(request: NextRequest) {
       if (change.status === "cancelled") {
         await tasks.update(change.taskId, { calendar_event_id: null });
       } else if (change.allDay && change.date) {
-        // All-day event → date only; clear time and duration.
-        await tasks.update(change.taskId, {
-          when_date: change.date,
-          when_time: null,
-          duration_minutes: null,
-        });
+        // All-day event → update only the date. Preserve when_time/duration so
+        // our own all-day push echo doesn't wipe the task's estimate.
+        await tasks.update(change.taskId, { when_date: change.date });
       } else if (change.start) {
         // change.start is an absolute instant; store the date/time the user
         // sees on their wall clock, not the UTC representation.

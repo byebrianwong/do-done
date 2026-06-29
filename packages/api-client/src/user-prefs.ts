@@ -85,6 +85,37 @@ export class UserPrefsApi {
   }
 
   /**
+   * Update the user's IANA timezone (e.g. "America/Los_Angeles"). Seeds a
+   * defaults row if none exists yet.
+   */
+  async updateTimezone(
+    timezone: string
+  ): Promise<{ data: UserPreferences | null; error: Error | null }> {
+    let query = this.supabase
+      .from("user_preferences")
+      .update({ timezone });
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query.select().maybeSingle();
+    if (error) return { data: null, error: error as Error };
+    if (data) return { data: data as UserPreferences, error: null };
+    if (!this.userId) {
+      return {
+        data: null,
+        error: new Error("updateTimezone requires userId to seed defaults"),
+      };
+    }
+    const insert = await this.supabase
+      .from("user_preferences")
+      .insert({ user_id: this.userId, timezone })
+      .select()
+      .single();
+    return {
+      data: (insert.data as UserPreferences | null) ?? null,
+      error: insert.error as Error | null,
+    };
+  }
+
+  /**
    * Read the per-view Display preferences map (viewKey -> DisplayConfig).
    * Read-only (no insert) — returns {} when there's no prefs row yet. Callers
    * validate each entry with `parseDisplayConfig` from @do-done/shared.

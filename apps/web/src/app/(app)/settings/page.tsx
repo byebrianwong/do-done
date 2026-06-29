@@ -1,5 +1,6 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { CalendarSection } from "./calendar-section";
+import { TimezoneSection } from "./timezone-section";
 
 export default async function SettingsPage({
   searchParams,
@@ -20,6 +21,13 @@ export default async function SettingsPage({
 
   const isConnected = !!sync;
 
+  const { data: prefs } = await supabase
+    .from("user_preferences")
+    .select("timezone")
+    .eq("user_id", user?.id ?? "")
+    .maybeSingle();
+  const timezone = prefs?.timezone ?? "America/New_York";
+
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="mb-6 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
@@ -36,6 +44,13 @@ export default async function SettingsPage({
             {user?.email}
           </p>
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400">
+          Preferences
+        </h2>
+        <TimezoneSection timezone={timezone} />
       </section>
 
       <section className="mb-8">
