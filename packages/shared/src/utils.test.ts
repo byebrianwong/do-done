@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   addDaysLocalISO,
+  formatScheduleHint,
   formatWhenTime,
   nextWeekdayLocalISO,
   resolveQuickSchedule,
@@ -66,5 +67,35 @@ describe("resolveQuickSchedule", () => {
 
   it("defaults the reference date to today", () => {
     expect(resolveQuickSchedule("today")).toBe(todayLocalISO());
+  });
+});
+
+describe("formatScheduleHint", () => {
+  // 2026-06-17 is a Wednesday. Assertions recompute the expected label with the
+  // same locale APIs so the test stays correct regardless of the CI locale —
+  // what's under test is the today/tomorrow vs. full-date branching.
+  const wed = new Date(2026, 5, 17);
+  const weekday = (iso: string) =>
+    new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+      weekday: "short",
+    });
+  const full = (iso: string) =>
+    `${weekday(iso)} ${new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    })}`;
+
+  it("shows the weekday alone for today and tomorrow", () => {
+    expect(formatScheduleHint("2026-06-17", wed)).toBe(weekday("2026-06-17"));
+    expect(formatScheduleHint("2026-06-18", wed)).toBe(weekday("2026-06-18"));
+  });
+
+  it("adds month + day for dates beyond tomorrow", () => {
+    expect(formatScheduleHint("2026-06-19", wed)).toBe(full("2026-06-19")); // Fri
+    expect(formatScheduleHint("2026-06-24", wed)).toBe(full("2026-06-24")); // +7
+  });
+
+  it("returns the input unchanged when it isn't a parseable date", () => {
+    expect(formatScheduleHint("not a date", wed)).toBe("not a date");
   });
 });
