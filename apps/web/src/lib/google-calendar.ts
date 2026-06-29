@@ -91,9 +91,23 @@ export function taskToEvent(
 ): calendar_v3.Schema$Event | null {
   if (!task.when_date) return null;
 
+  // Deep-link back to the task in DoDone (the /task/[id] route). Surfaced both
+  // as the event `source` and appended to the description, since clients vary
+  // in which they show.
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  const taskUrl = appUrl ? `${appUrl}/task/${task.id}` : null;
+  const description =
+    [
+      task.description ?? undefined,
+      taskUrl ? `Open in DoDone: ${taskUrl}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
+
   const base: calendar_v3.Schema$Event = {
     summary: task.title,
-    description: task.description ?? undefined,
+    description,
+    ...(taskUrl ? { source: { title: "DoDone", url: taskUrl } } : {}),
     extendedProperties: {
       private: {
         [SYNC_TAG]: "1",
