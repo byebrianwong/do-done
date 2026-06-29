@@ -832,7 +832,12 @@ function WhenCalendar({
   onPickDate: (date: string) => void;
   onChangeDueDate: (v: string | null) => void;
 }) {
-  const [expanded, setExpanded] = useState<CalendarExpansion>("collapsed");
+  // Near the weekend (Thu–Sat), default to the two-week view so the next
+  // week is visible at a glance; otherwise start collapsed to one week.
+  const [expanded, setExpanded] = useState<CalendarExpansion>(() => {
+    const day = new Date().getDay(); // 0=Sun … 4=Thu, 5=Fri, 6=Sat
+    return day >= 4 && day <= 6 ? "two-weeks" : "collapsed";
+  });
   // Number of months visible in the scroll view. Grows when the user
   // scrolls near the bottom.
   const [monthsAhead, setMonthsAhead] = useState(6);
