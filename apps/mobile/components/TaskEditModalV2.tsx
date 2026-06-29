@@ -365,7 +365,12 @@ export function WhenCalendar({
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Near the weekend (Thu–Sat), default to the two-week view so the next
+  // week is visible at a glance; otherwise start collapsed to one week.
+  const [expanded, setExpanded] = useState(() => {
+    const day = new Date().getDay(); // 0=Sun … 4=Thu, 5=Fri, 6=Sat
+    return day >= 4 && day <= 6;
+  });
 
   const today = useMemo(() => {
     const t = new Date();
