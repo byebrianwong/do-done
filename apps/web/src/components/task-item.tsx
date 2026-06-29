@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -25,6 +26,7 @@ import {
   ESTIMATE_OPTIONS,
 } from "./task-edit-modal-v2";
 import { ProjectPickerPopover } from "./project-picker";
+import { TaskContextMenu } from "./task-context-menu";
 import { useUndoToast } from "./undo-toast";
 
 export interface TaskItemProps {
@@ -421,6 +423,8 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
   const [editing, setEditing] = useState(false);
+  // Right-click context menu, anchored at the cursor. Null = closed.
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   // Optimistic local state for the inline row editors — keeps the row snappy
   // before the server round-trip / router.refresh lands.
   const [priority, setPriority] = useState(task.priority);
@@ -566,6 +570,16 @@ export function TaskItem({ task, projects }: TaskItemProps) {
       <div
         className="group flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
         onClick={() => setEditing(true)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // Clamp so the ~256px-wide menu stays on screen near the edges.
+          const menuW = 280;
+          const menuH = 460;
+          setMenuPos({
+            x: Math.min(e.clientX, window.innerWidth - menuW),
+            y: Math.min(e.clientY, window.innerHeight - menuH),
+          });
+        }}
       >
         <button
           onClick={handleToggleComplete}
@@ -749,6 +763,33 @@ export function TaskItem({ task, projects }: TaskItemProps) {
         open={editing}
         onClose={() => setEditing(false)}
       />
+
+      {menuPos &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setMenuPos(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenuPos(null);
+            }}
+          >
+            <div
+              className="absolute"
+              style={{ top: menuPos.y, left: menuPos.x }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <TaskContextMenu
+                task={task}
+                projects={allProjects}
+                onEdit={() => setEditing(true)}
+                onClose={() => setMenuPos(null)}
+                onMutated={() => startTransition(() => router.refresh())}
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }
