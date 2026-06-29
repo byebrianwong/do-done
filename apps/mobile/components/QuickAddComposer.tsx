@@ -216,7 +216,7 @@ export default function QuickAddComposer({
               color={whenSet ? '#4338ca' : '#6b7280'}
             />
             <Text style={[styles.chipText, whenSet && styles.chipTextActive]}>
-              {whenSet ? shortDateLabel(whenDate) : 'Schedule'}
+              {whenSet ? shortDateLabel(whenDate) : 'Date'}
             </Text>
           </Pressable>
 
@@ -257,10 +257,10 @@ export default function QuickAddComposer({
         </View>
       </View>
 
-      {/* When sheet — reuses the detailed editor's calendar */}
+      {/* Date sheet — reuses the detailed editor's calendar */}
       <PickerSheet
         visible={whenSheet}
-        title="When"
+        title="Date"
         options={[]}
         selectedKey=""
         onSelect={() => {}}

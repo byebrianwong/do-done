@@ -28,6 +28,7 @@ import {
 } from "react-native";
 import {
   PRIORITY_CONFIG,
+  formatScheduleHint,
   formatWhenTime,
   type Project,
   type Task,
@@ -526,6 +527,14 @@ export function WhenCalendar({
           >
             Next week
           </Text>
+          <Text
+            style={[
+              styles.bucketChipHint,
+              whenDate === nextWeekStr && styles.bucketChipTextActive,
+            ]}
+          >
+            {formatScheduleHint(nextWeekStr)}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -952,10 +961,10 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           />
         </View>
 
-        {/* WHEN */}
+        {/* DATE */}
         <View style={{ marginTop: 16 }}>
           <View style={styles.rowHead}>
-            <Text style={styles.sectionLabel}>When</Text>
+            <Text style={styles.sectionLabel}>Date</Text>
             <Text style={styles.sectionValue}>
               {shortDateLabel(current.when_date)}
               {current.when_date && current.when_time
@@ -1409,6 +1418,7 @@ const styles = StyleSheet.create({
   bucketChipActive: { backgroundColor: "#eef2ff" },
   bucketChipText: { fontSize: 11, color: "#374151", fontWeight: "500" },
   bucketChipTextActive: { color: "#4338ca", fontWeight: "700" },
+  bucketChipHint: { fontSize: 10, color: "#9ca3af", fontWeight: "400", marginTop: 1 },
 
   timeRow: { gap: 6, paddingVertical: 2, paddingRight: 12 },
   timeChip: {
