@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { createServiceSupabase } from "@/lib/supabase/service";
 import { exchangeCodeForTokens } from "@/lib/google-calendar";
 
 export async function GET(request: NextRequest) {
@@ -45,6 +46,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(
         `${origin}/settings?error=${encodeURIComponent(upsertError.message)}`
       );
+    }
+
+    // Backfill: enqueue all of this user's existing timeblocked tasks so they
+    // appear in Google right away. The DB trigger only fires on future task
+    // changes, so without this a freshly connected calendar would stay empty
+    // until each task is next edited. Best-effort; the worker and manual sync
+    // recover if it fails. Uses the service role to write the RLS-protected
+    // outbox. Duplicate pending upserts are harmless — the worker is idempotent.
+    try {
+      const service = createServiceSupabase();
+      const { data: dueTasks } = await service
+        .from("tasks")
+        .select("id")
+        .eq("user_id", user.id)
+        .not("due_date", "is", null)
+        .not("duration_minutes", "is", null)
+        .not("status", "in", "(done,cancelled)");
+      if (dueTasks && dueTasks.length > 0) {
+        await service.from("calendar_outbox").insert(
+          dueTasks.map((t) => ({
+            user_id: user.id,
+            task_id: t.id as string,
+            op: "upsert",
+          }))
+        );
+      }
+    } catch {
+      // best-effort backfill — non-fatal
     }
 
     return NextResponse.redirect(`${origin}/settings?connected=1`);
