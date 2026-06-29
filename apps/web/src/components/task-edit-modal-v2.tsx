@@ -11,6 +11,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  formatScheduleHint,
   formatWhenTime,
   type Project,
   type Task,
@@ -603,6 +604,9 @@ export interface PickerOption {
   selected: boolean;
   onSelect: () => void;
   accentClass: string;
+  /** Optional muted secondary label, right-aligned (e.g. the resolved date
+   *  "Sun Jul 5" next to a friendly shorthand like "Next week"). */
+  hint?: string;
 }
 
 export function PickerPopover({
@@ -625,11 +629,17 @@ export function PickerPopover({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Date pickers carry a resolved-date hint per row; give them extra room so the
+  // label and the hint sit on one line instead of wrapping.
+  const hasHint = options.some((o) => o.hint);
+
   return (
     <div
       role="listbox"
       aria-label={ariaLabel}
-      className="absolute left-0 top-full z-20 mt-2 min-w-[180px] overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+      className={`absolute left-0 top-full z-20 mt-2 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
+        hasHint ? "min-w-[240px]" : "min-w-[180px]"
+      }`}
     >
       {options.map((opt) => (
         <button
@@ -652,10 +662,15 @@ export function PickerPopover({
           <span className="text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
             {opt.label}
           </span>
+          {opt.hint ? (
+            <span className="ml-auto text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+              {opt.hint}
+            </span>
+          ) : null}
           {opt.selected ? (
             <span
               aria-hidden
-              className="ml-auto text-[11px] font-semibold text-indigo-600 dark:text-indigo-400"
+              className={`${opt.hint ? "ml-1.5" : "ml-auto"} text-[11px] font-semibold text-indigo-600 dark:text-indigo-400`}
             >
               ✓
             </span>
@@ -1053,13 +1068,22 @@ function WhenCalendar({
         <button
           type="button"
           onClick={() => onPickDate(nextWeekStr)}
-          className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
             whenDate === nextWeekStr
               ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
               : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
           }`}
         >
           Next week
+          <span
+            className={
+              whenDate === nextWeekStr
+                ? "text-indigo-500/80 dark:text-indigo-300/70"
+                : "text-neutral-400 dark:text-neutral-500"
+            }
+          >
+            {formatScheduleHint(nextWeekStr)}
+          </span>
         </button>
         <DueDateField
           value={dueDate}
@@ -2122,11 +2146,11 @@ export function TaskEditModalV2({
 
         {/* Body */}
         <div className="flex flex-col gap-5 px-5 py-4">
-          {/* WHEN calendar */}
+          {/* DATE calendar */}
           <div>
             <div className="mb-2 flex items-baseline gap-2.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-                When
+                Date
               </span>
               <span className="text-sm font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
                 {current.when_date

@@ -7,6 +7,7 @@ import {
   STATUS_CONFIG,
   QUICK_SCHEDULE,
   formatDuration,
+  formatScheduleHint,
   formatWhenTime,
   resolveQuickSchedule,
 } from "@do-done/shared";
@@ -341,7 +342,7 @@ function InlineWhenEditor({
           className="absolute right-0 top-full z-30 mt-2 w-60 rounded-lg border border-neutral-200 bg-white p-2.5 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
         >
           <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-            When
+            Date
           </div>
           <div className="grid grid-cols-3 gap-1">
             {quick.map((q) => {
@@ -351,13 +352,22 @@ function InlineWhenEditor({
                   key={q.label}
                   type="button"
                   onClick={() => onChange({ when_date: q.date })}
-                  className={`rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors ${
+                  className={`flex flex-col items-center gap-0.5 rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors ${
                     selected
                       ? "bg-indigo-500 text-white"
                       : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   }`}
                 >
-                  {q.label}
+                  <span>{q.label}</span>
+                  <span
+                    className={`text-[10px] font-normal ${
+                      selected
+                        ? "text-white/70"
+                        : "text-neutral-400 dark:text-neutral-500"
+                    }`}
+                  >
+                    {formatScheduleHint(q.date)}
+                  </span>
                 </button>
               );
             })}

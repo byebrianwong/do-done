@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   PRIORITY_CONFIG,
   QUICK_SCHEDULE,
+  formatScheduleHint,
   resolveQuickSchedule,
   type ParsedTask,
   type Project,
@@ -95,8 +96,8 @@ export function WhenChip({
   );
 
   const label = whenDate
-    ? options.find((o) => o.date === whenDate)?.label ?? whenDate
-    : "When";
+    ? options.find((o) => o.date === whenDate)?.label ?? formatScheduleHint(whenDate)
+    : "Date";
 
   return (
     <div className="relative" ref={ref}>
@@ -109,13 +110,14 @@ export function WhenChip({
       </ChipButton>
       {open ? (
         <PickerPopover
-          ariaLabel="When"
+          ariaLabel="Date"
           onClose={() => setOpen(false)}
           options={[
             ...options.map((o) => ({
               key: o.key,
               code: "",
               label: o.label,
+              hint: formatScheduleHint(o.date),
               selected: whenDate === o.date,
               onSelect: () => {
                 onChange(whenDate === o.date ? null : o.date);
