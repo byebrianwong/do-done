@@ -15,6 +15,7 @@ export const STATUS_CONFIG: Record<
   { label: string; icon: string; color: string }
 > = {
   inbox: { label: "Inbox", icon: "tray", color: "#6b7280" },
+  later: { label: "Later", icon: "clock", color: "#b6c2d9" },
   not_started: { label: "Not started", icon: "circle", color: "#94a3b8" },
   next: { label: "Next", icon: "arrow-right", color: "#6366f1" },
   in_progress: { label: "In progress", icon: "play", color: "#f59e0b" },
@@ -25,6 +26,7 @@ export const STATUS_CONFIG: Record<
 // Status ordering for pickers / sort. Mirrors the natural lifecycle.
 export const STATUS_ORDER: readonly TaskStatus[] = [
   "inbox",
+  "later",
   "not_started",
   "next",
   "in_progress",

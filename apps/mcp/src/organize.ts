@@ -43,6 +43,11 @@ function parseInstruction(text: string): ParsedInstruction | null {
     action = { kind: "complete" };
   } else if (/\bmove\s+(?:.*?\s+)?to\s+inbox\b/.test(lower)) {
     action = { kind: "set_status", status: "inbox" };
+  } else if (
+    /\bmove\s+(?:.*?\s+)?to\s+later\b/.test(lower) ||
+    /\b(?:defer|snooze)\b/.test(lower)
+  ) {
+    action = { kind: "set_status", status: "later" };
   }
 
   if (!action) return null;
