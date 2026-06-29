@@ -77,6 +77,32 @@ export function resolveQuickSchedule(
   }
 }
 
+/**
+ * Short secondary label for a YYYY-MM-DD date, shown next to a friendly
+ * shorthand (e.g. "Tomorrow") so the concrete day is always visible — the way
+ * Todoist annotates its date-picker shortcuts.
+ *
+ *   today / tomorrow → weekday only ("Sun", "Mon")
+ *   anything else    → weekday + month + day ("Sun Jul 5")
+ *
+ * `from` is injectable so tests can pin "now". Returns the input unchanged if
+ * it isn't a parseable date.
+ */
+export function formatScheduleHint(date: string, from: Date = new Date()): string {
+  const target = new Date(date + "T00:00:00");
+  if (Number.isNaN(target.getTime())) return date;
+  const today = new Date(from);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  const weekday = target.toLocaleDateString(undefined, { weekday: "short" });
+  if (diff === 0 || diff === 1) return weekday;
+  const monthDay = target.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `${weekday} ${monthDay}`;
+}
+
 export function isOverdue(task: Task): boolean {
   if (task.status === "done" || task.status === "cancelled") return false;
   const today = todayLocalISO();
