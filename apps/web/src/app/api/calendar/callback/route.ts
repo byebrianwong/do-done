@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
         .from("tasks")
         .select("id")
         .eq("user_id", user.id)
-        .not("due_date", "is", null)
+        .not("when_date", "is", null)
         .not("duration_minutes", "is", null)
         .not("status", "in", "(done,cancelled)");
       if (dueTasks && dueTasks.length > 0) {
