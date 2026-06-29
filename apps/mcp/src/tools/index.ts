@@ -46,7 +46,9 @@ export function registerTools(
     {
       title: z.string().min(1).max(500),
       description: z.string().max(5000).optional(),
-      status: z.enum(["inbox", "not_started", "next", "in_progress"]).optional(),
+      status: z
+        .enum(["inbox", "later", "not_started", "next", "in_progress"])
+        .optional(),
       priority: TaskPriority.optional(),
       project_id: z.string().uuid().optional(),
       due_date: z.string().optional(),

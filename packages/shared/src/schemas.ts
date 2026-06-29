@@ -4,6 +4,9 @@ import { z } from "zod";
 
 export const TaskStatus = z.enum([
   "inbox",
+  // "later" = parked / someday bucket: tracked but deliberately not surfaced
+  // for a while. Coldest active status, sits ahead of not_started.
+  "later",
   "not_started",
   "next",
   "in_progress",

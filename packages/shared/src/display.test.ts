@@ -249,7 +249,7 @@ describe("grouping", () => {
     const tasks = [task({ status: "next" })];
     const g = applyDisplay(tasks, { ...DEFAULT_DISPLAY, group: "status" }, ctx());
     const keys = g.map((x) => x.key);
-    expect(keys).toEqual(["status:inbox", "status:not_started", "status:next", "status:in_progress"]);
+    expect(keys).toEqual(["status:inbox", "status:later", "status:not_started", "status:next", "status:in_progress"]);
     const next = g.find((x) => x.key === "status:next")!;
     expect(next.count).toBe(1);
     expect(next.drop).toEqual({ field: "status", value: "next" });
@@ -327,11 +327,12 @@ describe("group direction (groupDir)", () => {
   it("reverses status groups so active work is on top", () => {
     const tasks = [task({ status: "next" })];
     const g = applyDisplay(tasks, desc("status"), ctx());
-    // asc is inbox → not_started → next → in_progress; desc flips it.
+    // asc is inbox → later → not_started → next → in_progress; desc flips it.
     expect(g.map((x) => x.key)).toEqual([
       "status:in_progress",
       "status:next",
       "status:not_started",
+      "status:later",
       "status:inbox",
     ]);
   });
