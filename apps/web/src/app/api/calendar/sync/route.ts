@@ -55,14 +55,15 @@ export async function POST(request: NextRequest) {
     stats.errors.push(`list_tasks: ${listErr.message}`);
   } else {
     for (const task of pushable) {
-      if (!task.when_date || !task.duration_minutes) continue;
+      if (!task.when_date) continue;
       if (task.status === "done" || task.status === "cancelled") continue;
 
       try {
         const eventId = await pushTaskToCalendar(
           sync.google_refresh_token,
           task,
-          timeZone
+          timeZone,
+          sync.calendar_id ?? "primary"
         );
         if (eventId && eventId !== task.calendar_event_id) {
           await tasks.update(task.id, { calendar_event_id: eventId });
@@ -79,7 +80,8 @@ export async function POST(request: NextRequest) {
   try {
     const { changes, nextSyncToken } = await pullCalendarChanges(
       sync.google_refresh_token,
-      sync.last_sync_token
+      sync.last_sync_token,
+      sync.calendar_id ?? "primary"
     );
 
     for (const change of changes) {
@@ -87,6 +89,13 @@ export async function POST(request: NextRequest) {
 
       if (change.status === "cancelled") {
         await tasks.update(change.taskId, { calendar_event_id: null });
+      } else if (change.allDay && change.date) {
+        // All-day event → date only; clear time and duration.
+        await tasks.update(change.taskId, {
+          when_date: change.date,
+          when_time: null,
+          duration_minutes: null,
+        });
       } else if (change.start) {
         // change.start is an absolute instant; store the date/time the user
         // sees on their wall clock, not the UTC representation.

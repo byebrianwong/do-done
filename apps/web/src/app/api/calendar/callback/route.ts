@@ -48,24 +48,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Backfill: enqueue all of this user's existing timeblocked tasks so they
+    // Backfill: enqueue all of this user's existing scheduled tasks so they
     // appear in Google right away. The DB trigger only fires on future task
     // changes, so without this a freshly connected calendar would stay empty
-    // until each task is next edited. Best-effort; the worker and manual sync
-    // recover if it fails. Uses the service role to write the RLS-protected
-    // outbox. Duplicate pending upserts are harmless — the worker is idempotent.
+    // until each task is next edited. Only a date is required (time/duration
+    // optional). Best-effort; the worker and manual sync recover if it fails.
+    // Uses the service role to write the RLS-protected outbox. Duplicate pending
+    // upserts are harmless — the worker is idempotent.
     try {
       const service = createServiceSupabase();
-      const { data: dueTasks } = await service
+      const { data: scheduledTasks } = await service
         .from("tasks")
         .select("id")
         .eq("user_id", user.id)
         .not("when_date", "is", null)
-        .not("duration_minutes", "is", null)
         .not("status", "in", "(done,cancelled)");
-      if (dueTasks && dueTasks.length > 0) {
+      if (scheduledTasks && scheduledTasks.length > 0) {
         await service.from("calendar_outbox").insert(
-          dueTasks.map((t) => ({
+          scheduledTasks.map((t) => ({
             user_id: user.id,
             task_id: t.id as string,
             op: "upsert",
