@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     stats.errors.push(`list_tasks: ${listErr.message}`);
   } else {
     for (const task of pushable) {
-      if (!task.due_date || !task.duration_minutes) continue;
+      if (!task.when_date || !task.duration_minutes) continue;
       if (task.status === "done" || task.status === "cancelled") continue;
 
       try {
@@ -96,8 +96,8 @@ export async function POST(request: NextRequest) {
           : null;
 
         await tasks.update(change.taskId, {
-          due_date: date,
-          due_time: time,
+          when_date: date,
+          when_time: time,
           ...(durationMinutes && { duration_minutes: durationMinutes }),
         });
       }
