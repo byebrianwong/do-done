@@ -31,11 +31,15 @@ interface OutboxRow {
 interface SyncRow {
   user_id: string;
   google_refresh_token: string;
+  calendar_id: string | null;
   watch_channel_id: string | null;
   watch_resource_id: string | null;
   watch_expiration: string | null;
   watch_token: string | null;
 }
+
+const SYNC_COLS =
+  "user_id, google_refresh_token, calendar_id, watch_channel_id, watch_resource_id, watch_expiration, watch_token";
 
 function backoffMs(attempts: number): number {
   return Math.min(60 * 60 * 1000, 30_000 * 2 ** attempts);
@@ -52,9 +56,7 @@ class UserContext {
     if (this.syncCache.has(userId)) return this.syncCache.get(userId)!;
     const { data } = await this.supabase
       .from("calendar_sync")
-      .select(
-        "user_id, google_refresh_token, watch_channel_id, watch_resource_id, watch_expiration, watch_token"
-      )
+      .select(SYNC_COLS)
       .eq("user_id", userId)
       .maybeSingle();
     const row = (data as SyncRow | null) ?? null;
@@ -98,9 +100,10 @@ async function markFailed(
 }
 
 function isSyncable(task: Task): boolean {
+  // Only a date is required: no time → all-day event; time without an estimate
+  // → a default 1h block (handled in taskToEvent).
   return (
     !!task.when_date &&
-    !!task.duration_minutes &&
     task.status !== "done" &&
     task.status !== "cancelled"
   );
@@ -118,10 +121,11 @@ async function processRow(
     return;
   }
   const refresh = sync.google_refresh_token;
+  const calendarId = sync.calendar_id ?? "primary";
 
   if (row.op === "delete") {
     const eventId = row.event_id;
-    if (eventId) await deleteCalendarEvent(refresh, eventId);
+    if (eventId) await deleteCalendarEvent(refresh, eventId, calendarId);
     await markProcessed(supabase, row.id);
     return;
   }
@@ -146,7 +150,7 @@ async function processRow(
   }
 
   const timeZone = await ctx.timezone(row.user_id);
-  const eventId = await pushTaskToCalendar(refresh, task, timeZone);
+  const eventId = await pushTaskToCalendar(refresh, task, timeZone, calendarId);
   if (eventId && eventId !== task.calendar_event_id) {
     // Writes only calendar_event_id, so the enqueue trigger ignores it.
     await supabase
@@ -198,9 +202,7 @@ async function renewWatches(
   const cutoff = new Date(Date.now() + RENEW_WINDOW_MS).toISOString();
   const { data } = await supabase
     .from("calendar_sync")
-    .select(
-      "user_id, google_refresh_token, watch_channel_id, watch_resource_id, watch_expiration, watch_token"
-    )
+    .select(SYNC_COLS)
     .or(`watch_expiration.is.null,watch_expiration.lt.${cutoff}`);
 
   if (!data) return 0;
@@ -212,7 +214,12 @@ async function renewWatches(
       const token = crypto.randomUUID();
       const { resourceId, expiration } = await watchCalendar(
         sync.google_refresh_token,
-        { channelId, address: webhookUrl, token }
+        {
+          channelId,
+          address: webhookUrl,
+          token,
+          calendarId: sync.calendar_id ?? "primary",
+        }
       );
       await supabase
         .from("calendar_sync")

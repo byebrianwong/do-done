@@ -13,6 +13,7 @@ const DEFAULT_TIMEZONE = "America/New_York";
 interface SyncRow {
   user_id: string;
   google_refresh_token: string;
+  calendar_id: string | null;
   last_sync_token: string | null;
   watch_token: string | null;
 }
@@ -21,13 +22,17 @@ interface SyncRow {
  * Pull changes, transparently recovering from an expired sync token (Google
  * returns 410 GONE, after which a full re-list is required).
  */
-async function pullWithRecovery(refresh: string, syncToken: string | null) {
+async function pullWithRecovery(
+  refresh: string,
+  syncToken: string | null,
+  calendarId: string
+) {
   try {
-    return await pullCalendarChanges(refresh, syncToken);
+    return await pullCalendarChanges(refresh, syncToken, calendarId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (syncToken && (msg.includes("410") || /sync token/i.test(msg))) {
-      return await pullCalendarChanges(refresh, null);
+      return await pullCalendarChanges(refresh, null, calendarId);
     }
     throw e;
   }
@@ -39,7 +44,8 @@ async function applyChanges(
 ): Promise<void> {
   const { changes, nextSyncToken } = await pullWithRecovery(
     sync.google_refresh_token,
-    sync.last_sync_token
+    sync.last_sync_token,
+    sync.calendar_id ?? "primary"
   );
 
   let timeZone = DEFAULT_TIMEZONE;
@@ -60,6 +66,15 @@ async function applyChanges(
         p_task_id: change.taskId,
         p_cancelled: true,
         p_due_date: null,
+        p_due_time: null,
+        p_duration: null,
+      });
+    } else if (change.allDay && change.date) {
+      // All-day event → set the date, clear time and duration.
+      await supabase.rpc("calendar_apply_remote_change", {
+        p_task_id: change.taskId,
+        p_cancelled: false,
+        p_due_date: change.date,
         p_due_time: null,
         p_duration: null,
       });
@@ -97,7 +112,9 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceSupabase();
   const { data } = await supabase
     .from("calendar_sync")
-    .select("user_id, google_refresh_token, last_sync_token, watch_token")
+    .select(
+      "user_id, google_refresh_token, calendar_id, last_sync_token, watch_token"
+    )
     .eq("watch_channel_id", channelId)
     .maybeSingle();
   const sync = (data as SyncRow | null) ?? null;

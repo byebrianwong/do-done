@@ -10,6 +10,9 @@ const SCOPES = [
 
 const SYNC_TAG = "do-done-sync";
 
+// Used when a timed task has no estimate — default the calendar block to 1 hour.
+const DEFAULT_DURATION_MINUTES = 60;
+
 export function getOAuth2Client(redirectUri?: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -67,32 +70,30 @@ export function calendarClientFor(refreshToken: string) {
   return google.calendar({ version: "v3", auth: oauth2 });
 }
 
+/** The day after `YYYY-MM-DD`, as `YYYY-MM-DD` (Google all-day end is exclusive). */
+function nextDay(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`;
+}
+
 /**
- * Convert a Task into a Google Calendar event.
- * Tasks tagged with the SYNC_TAG identifier in `extendedProperties.private`
- * so we can recognize our own events when pulling changes.
+ * Convert a Task into a Google Calendar event. Requires only `when_date`:
+ *  - no `when_time`            → an all-day event
+ *  - `when_time`, no estimate  → a 1-hour timed block
+ *  - `when_time` + estimate    → a timed block of that length
+ * Tagged via `extendedProperties.private` so we recognize our own events on pull.
  */
 export function taskToEvent(
   task: Task,
   timeZone: string
 ): calendar_v3.Schema$Event | null {
-  if (!task.when_date || !task.duration_minutes) return null;
+  if (!task.when_date) return null;
 
-  // The task's when_date + when_time are wall-clock values in the USER's
-  // timezone — the scheduled "do" time (NOT due_date, which is a deadline).
-  // Resolve them to an absolute instant in that zone — `new Date("…T09:00:00")`
-  // would interpret them in the server's zone (UTC on a deployed host), pushing
-  // a 9 AM task to 9:00 UTC (2 AM for a Pacific user).
-  const [y, m, d] = task.when_date.split("-").map(Number);
-  const [hh, mm] = (task.when_time ?? "09:00").split(":").map(Number);
-  const start = zonedClockToUtc(y, m, d, hh, mm, timeZone);
-  const end = new Date(start.getTime() + task.duration_minutes * 60 * 1000);
-
-  return {
+  const base: calendar_v3.Schema$Event = {
     summary: task.title,
     description: task.description ?? undefined,
-    start: { dateTime: start.toISOString() },
-    end: { dateTime: end.toISOString() },
     extendedProperties: {
       private: {
         [SYNC_TAG]: "1",
@@ -100,12 +101,39 @@ export function taskToEvent(
       },
     },
   };
+
+  // No time-of-day → all-day event. Google all-day events use `date` (not
+  // `dateTime`) with an EXCLUSIVE end, so a single day ends on the next date.
+  if (!task.when_time) {
+    return {
+      ...base,
+      start: { date: task.when_date },
+      end: { date: nextDay(task.when_date) },
+    };
+  }
+
+  // Timed block. when_date + when_time are wall-clock values in the USER's
+  // timezone (the scheduled "do" time, NOT due_date). Resolve to an absolute
+  // instant in that zone — `new Date("…T09:00:00")` would interpret them in the
+  // server's zone (UTC on a deployed host).
+  const [y, m, d] = task.when_date.split("-").map(Number);
+  const [hh, mm] = task.when_time.split(":").map(Number);
+  const start = zonedClockToUtc(y, m, d, hh, mm, timeZone);
+  const minutes = task.duration_minutes ?? DEFAULT_DURATION_MINUTES;
+  const end = new Date(start.getTime() + minutes * 60 * 1000);
+
+  return {
+    ...base,
+    start: { dateTime: start.toISOString() },
+    end: { dateTime: end.toISOString() },
+  };
 }
 
 export async function pushTaskToCalendar(
   refreshToken: string,
   task: Task,
-  timeZone: string
+  timeZone: string,
+  calendarId: string = "primary"
 ): Promise<string | null> {
   const event = taskToEvent(task, timeZone);
   if (!event) return null;
@@ -113,9 +141,9 @@ export async function pushTaskToCalendar(
   const calendar = calendarClientFor(refreshToken);
 
   if (task.calendar_event_id) {
-    // Update existing event
+    // Update existing event (full replace handles timed ↔ all-day transitions).
     const { data } = await calendar.events.update({
-      calendarId: "primary",
+      calendarId,
       eventId: task.calendar_event_id,
       requestBody: event,
     });
@@ -124,7 +152,7 @@ export async function pushTaskToCalendar(
 
   // Create new event
   const { data } = await calendar.events.insert({
-    calendarId: "primary",
+    calendarId,
     requestBody: event,
   });
   return data.id ?? null;
@@ -132,27 +160,55 @@ export async function pushTaskToCalendar(
 
 export async function deleteCalendarEvent(
   refreshToken: string,
-  eventId: string
+  eventId: string,
+  calendarId: string = "primary"
 ): Promise<void> {
   const calendar = calendarClientFor(refreshToken);
-  await calendar.events.delete({
-    calendarId: "primary",
-    eventId,
-  });
+  try {
+    await calendar.events.delete({ calendarId, eventId });
+  } catch (e: unknown) {
+    // Already gone (deleted in Google, or a stale id) — treat as success.
+    const code = (e as { code?: number })?.code;
+    if (code !== 404 && code !== 410) throw e;
+  }
+}
+
+export interface CalendarOption {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+/** List the calendars the user can write to (for the calendar picker). */
+export async function listCalendars(
+  refreshToken: string
+): Promise<CalendarOption[]> {
+  const calendar = calendarClientFor(refreshToken);
+  const { data } = await calendar.calendarList.list({ minAccessRole: "writer" });
+  return (data.items ?? []).map((c) => ({
+    id: c.id ?? "",
+    summary: c.summaryOverride ?? c.summary ?? c.id ?? "",
+    primary: !!c.primary,
+  }));
 }
 
 /**
- * Open a push-notification (watch) channel on the user's primary calendar.
- * Google POSTs to `address` whenever the calendar changes. Channels expire, so
- * the returned `expiration` must be stored and the channel renewed before then.
+ * Open a push-notification (watch) channel on the chosen calendar. Google POSTs
+ * to `address` on any change. Channels expire, so the returned `expiration`
+ * must be stored and the channel renewed before then.
  */
 export async function watchCalendar(
   refreshToken: string,
-  opts: { channelId: string; address: string; token: string }
+  opts: {
+    channelId: string;
+    address: string;
+    token: string;
+    calendarId?: string;
+  }
 ): Promise<{ resourceId: string | null; expiration: Date | null }> {
   const calendar = calendarClientFor(refreshToken);
   const { data } = await calendar.events.watch({
-    calendarId: "primary",
+    calendarId: opts.calendarId ?? "primary",
     requestBody: {
       id: opts.channelId,
       type: "web_hook",
@@ -187,24 +243,27 @@ export async function stopChannel(
 export interface CalendarChange {
   eventId: string;
   taskId: string | null;
-  start: Date | null;
-  end: Date | null;
+  allDay: boolean;
+  date: string | null; // YYYY-MM-DD, set when allDay
+  start: Date | null; // set when timed
+  end: Date | null; // set when timed
   summary: string | null;
   status: "confirmed" | "cancelled" | "tentative";
 }
 
 /**
- * Pull changes from Google Calendar for events tagged as ours.
+ * Pull changes from the chosen calendar for events tagged as ours.
  * Returns the changes plus the next sync token to persist.
  */
 export async function pullCalendarChanges(
   refreshToken: string,
-  syncToken?: string | null
+  syncToken?: string | null,
+  calendarId: string = "primary"
 ): Promise<{ changes: CalendarChange[]; nextSyncToken: string | null }> {
   const calendar = calendarClientFor(refreshToken);
 
   const params: calendar_v3.Params$Resource$Events$List = {
-    calendarId: "primary",
+    calendarId,
     privateExtendedProperty: [`${SYNC_TAG}=1`],
     singleEvents: true,
     showDeleted: true,
@@ -218,15 +277,19 @@ export async function pullCalendarChanges(
 
   const { data } = await calendar.events.list(params);
 
-  const changes: CalendarChange[] = (data.items ?? []).map((item) => ({
-    eventId: item.id ?? "",
-    taskId:
-      item.extendedProperties?.private?.do_done_task_id ?? null,
-    start: item.start?.dateTime ? new Date(item.start.dateTime) : null,
-    end: item.end?.dateTime ? new Date(item.end.dateTime) : null,
-    summary: item.summary ?? null,
-    status: (item.status as CalendarChange["status"]) ?? "confirmed",
-  }));
+  const changes: CalendarChange[] = (data.items ?? []).map((item) => {
+    const allDay = !!item.start?.date && !item.start?.dateTime;
+    return {
+      eventId: item.id ?? "",
+      taskId: item.extendedProperties?.private?.do_done_task_id ?? null,
+      allDay,
+      date: item.start?.date ?? null,
+      start: item.start?.dateTime ? new Date(item.start.dateTime) : null,
+      end: item.end?.dateTime ? new Date(item.end.dateTime) : null,
+      summary: item.summary ?? null,
+      status: (item.status as CalendarChange["status"]) ?? "confirmed",
+    };
+  });
 
   return {
     changes,
