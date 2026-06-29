@@ -99,7 +99,7 @@ async function markFailed(
 
 function isSyncable(task: Task): boolean {
   return (
-    !!task.due_date &&
+    !!task.when_date &&
     !!task.duration_minutes &&
     task.status !== "done" &&
     task.status !== "cancelled"
