@@ -149,6 +149,38 @@ export function formatWhenTime(time: string): string {
   return `${hour}:${min} ${period}`;
 }
 
+/**
+ * Format a `completed_at` ISO datetime as a short label of the LOCAL calendar
+ * day the task was finished: "Today", "Yesterday", a weekday name within the
+ * past week, then "Mon D" (gaining a year once it's a prior year).
+ *
+ * The Completed view shows this in place of the do-/due-date chip: a finished
+ * task's scheduled date is no longer actionable, and rendering it would label
+ * most of the list "Overdue" — noise that says nothing about the completed work.
+ * Returns "" for an unparseable input so callers can skip the chip.
+ */
+export function formatCompletedDate(
+  completedAt: string,
+  now: Date = new Date()
+): string {
+  const ts = new Date(completedAt);
+  if (Number.isNaN(ts.getTime())) return "";
+  const day = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays > 1 && diffDays < 7) {
+    return day.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  const sameYear = day.getFullYear() === today.getFullYear();
+  return day.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
 export function generateSortOrder(
   existingOrders: number[],
   position: "start" | "end" = "end"

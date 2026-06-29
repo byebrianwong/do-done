@@ -31,6 +31,12 @@ const yesterday = (() => {
   d.setDate(d.getDate() - 1);
   return d.toISOString().split("T")[0];
 })();
+const yesterdayAt = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  d.setHours(16, 20, 0, 0);
+  return d.toISOString();
+})();
 const nextWeek = (() => {
   const d = new Date();
   d.setDate(d.getDate() + 5);
@@ -97,11 +103,16 @@ export const Weekdays: Story = {
 };
 
 export const Completed: Story = {
+  // A finished task shows WHEN it was completed (a neutral chip), not its
+  // original do-/due-date. This task was due yesterday — pre-fix the row read
+  // "Overdue" (unhelpful for done work); now it reads "Yesterday".
   args: {
     task: makeTask({
       title: "Deploy v2 release",
       priority: "p1",
       status: "done",
+      due_date: yesterday,
+      completed_at: yesterdayAt,
     }),
   },
 };

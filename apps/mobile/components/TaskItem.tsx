@@ -17,6 +17,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   addDaysLocalISO,
+  formatCompletedDate,
   formatDuration,
   formatWhenTime,
   resolveQuickSchedule,
@@ -235,6 +236,7 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
       task.recurrence_rule ||
       project ||
       showStatus ||
+      completed ||
       task.when_date ||
       task.due_date
   );
@@ -346,7 +348,15 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
                 </Text>
               </View>
             ) : null}
-            {task.when_date ? (
+            {/* A completed task shows WHEN it was finished, not its (now
+                irrelevant, usually "overdue") scheduled date. Falls back to
+                "Today" until the optimistic completion settles and stamps
+                completed_at. */}
+            {completed ? (
+              <Text style={styles.dueDate}>
+                {task.completed_at ? formatCompletedDate(task.completed_at) : 'Today'}
+              </Text>
+            ) : task.when_date ? (
               <Text style={styles.dueDate}>
                 {formatDueDate(task.when_date)}
                 {task.when_time ? ` ${formatWhenTime(task.when_time)}` : ''}

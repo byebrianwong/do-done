@@ -7,6 +7,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   QUICK_SCHEDULE,
+  formatCompletedDate,
   formatDuration,
   formatScheduleHint,
   formatWhenTime,
@@ -695,29 +696,46 @@ export function TaskItem({ task, projects }: TaskItemProps) {
               </span>
             )}
 
-            {/* Effective scheduling chip — clickable to reschedule inline
-                (do-date if set, else deadline). When a do-date and a distinct
-                deadline both exist, show the deadline as a static second chip.
-                `@lg:ml-auto` pushes the pair to the row's right edge on wide
-                containers, preserving the desktop layout. */}
-            {(whenDate || task.due_date) && (
-              <div className="flex items-center gap-2 @lg:ml-auto">
-                <InlineWhenEditor
-                  whenDate={whenDate}
-                  whenTime={whenTime}
-                  dueDate={task.due_date}
-                  dueTime={task.due_time}
-                  onChange={handleWhenChange}
-                />
-                {whenDate && task.due_date && whenDate !== task.due_date && (
-                  <span
-                    className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
-                    title={`Hard deadline ${task.due_date}`}
-                  >
-                    due {formatDueDate(task.due_date)}
-                  </span>
-                )}
-              </div>
+            {/* A completed task shows WHEN it was finished, not its (now
+                irrelevant, usually "overdue") scheduled date — a neutral,
+                non-editable chip. Falls back to "Today" between an optimistic
+                completion and the refresh that stamps `completed_at`. */}
+            {completed ? (
+              <span
+                className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500 @lg:ml-auto dark:bg-neutral-800 dark:text-neutral-400"
+                title={
+                  task.completed_at
+                    ? `Completed ${new Date(task.completed_at).toLocaleString()}`
+                    : "Completed"
+                }
+              >
+                {task.completed_at ? formatCompletedDate(task.completed_at) : "Today"}
+              </span>
+            ) : (
+              /* Effective scheduling chip — clickable to reschedule inline
+                 (do-date if set, else deadline). When a do-date and a distinct
+                 deadline both exist, show the deadline as a static second chip.
+                 `@lg:ml-auto` pushes the pair to the row's right edge on wide
+                 containers, preserving the desktop layout. */
+              (whenDate || task.due_date) && (
+                <div className="flex items-center gap-2 @lg:ml-auto">
+                  <InlineWhenEditor
+                    whenDate={whenDate}
+                    whenTime={whenTime}
+                    dueDate={task.due_date}
+                    dueTime={task.due_time}
+                    onChange={handleWhenChange}
+                  />
+                  {whenDate && task.due_date && whenDate !== task.due_date && (
+                    <span
+                      className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
+                      title={`Hard deadline ${task.due_date}`}
+                    >
+                      due {formatDueDate(task.due_date)}
+                    </span>
+                  )}
+                </div>
+              )
             )}
           </div>
         </div>
