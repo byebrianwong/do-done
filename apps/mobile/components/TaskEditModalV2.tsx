@@ -84,6 +84,45 @@ function startOfWeek(d: Date): Date {
   return out;
 }
 
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+// n can be negative to step backward. Always lands on the 1st.
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
+function sameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
+// A 6-week (42-cell) grid covering `viewMonth`, padded with the tail of the
+// previous month and the head of the next so every row is full. `outside`
+// flags days that spill over from the adjacent months.
+function monthGridRows(
+  viewMonth: Date
+): { date: string; weekday: number; outside: boolean }[][] {
+  const first = startOfMonth(viewMonth);
+  const gridStart = new Date(first);
+  gridStart.setDate(gridStart.getDate() - first.getDay());
+  const rows: { date: string; weekday: number; outside: boolean }[][] = [];
+  for (let w = 0; w < 6; w++) {
+    const row: { date: string; weekday: number; outside: boolean }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + w * 7 + i);
+      row.push({
+        date: ymd(d),
+        weekday: i,
+        outside: d.getMonth() !== viewMonth.getMonth(),
+      });
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 function dotWidth(minutes: number): number {
   if (minutes <= 30) return 3;
   if (minutes <= 60) return 5;
@@ -356,16 +395,114 @@ function SaveStatusDot({
   );
 }
 
+// A single day tile, shared between the compact week strip and the full-month
+// grid. `dense` shrinks it (square, no "today/selected" caption, fewer dots) so
+// six rows of a month fit without a huge sheet. `outside` dims spill-over days
+// from the adjacent months in the month grid.
+function DayCell({
+  date,
+  weekday,
+  outside = false,
+  whenDate,
+  todayStr,
+  busyByDate,
+  onPickDate,
+  dense = false,
+}: {
+  date: string;
+  weekday: number;
+  outside?: boolean;
+  whenDate: string | null;
+  todayStr: string;
+  busyByDate: Map<string, DayBusyness>;
+  onPickDate: (date: string) => void;
+  dense?: boolean;
+}) {
+  const isWeekend = weekday === 0 || weekday === 6;
+  const isPast = date < todayStr;
+  const isToday = date === todayStr;
+  const isActive = whenDate === date;
+  const numLabel = parseInt(date.split("-")[2], 10);
+  const dots = (busyByDate.get(date)?.items ?? []).slice(0, dense ? 4 : 8);
+
+  let bg = "#f9fafb";
+  let borderColor: string = "transparent";
+  if (isWeekend) bg = "rgba(99,102,241,0.035)";
+  if (isToday) {
+    bg = "#fff";
+    borderColor = "#d1d5db";
+  }
+  if (isActive) {
+    bg = "#eef2ff";
+    borderColor = "#6366f1";
+  }
+  if (isPast) bg = "#f9fafb";
+
+  return (
+    <Pressable
+      disabled={isPast}
+      onPress={() => onPickDate(date)}
+      style={[
+        styles.cell,
+        dense && styles.cellDense,
+        { backgroundColor: bg, borderColor },
+        isPast && { opacity: 0.3 },
+        outside && !isActive && { opacity: 0.45 },
+      ]}
+    >
+      {isToday && <View style={styles.todayDot} />}
+      <Text style={[styles.cellNum, isActive && { color: "#4338ca" }]}>
+        {numLabel}
+      </Text>
+      {!dense && (isToday || isActive) && (
+        <Text style={[styles.cellSub, isActive && { color: "#6366f1" }]}>
+          {isActive ? "selected" : "today"}
+        </Text>
+      )}
+      <View style={[styles.dotsRow, dense && styles.dotsRowDense]}>
+        {dots.map((item) => {
+          const w = dotWidth(item.duration_minutes);
+          if (item.type === "event") {
+            return (
+              <View key={item.id} style={[styles.dotEvent, { width: w }]} />
+            );
+          }
+          const color = PRIORITY_COLORS[item.priority ?? "p3"];
+          return (
+            <View
+              key={item.id}
+              style={[styles.dot, { width: w, backgroundColor: color }]}
+            />
+          );
+        })}
+      </View>
+    </Pressable>
+  );
+}
+
 export function WhenCalendar({
   whenDate,
   busyness,
   onPickDate,
+  onRangeChange,
 }: {
   whenDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
+  /**
+   * Called with the [start, end] YYYY-MM-DD range the calendar wants busyness
+   * for whenever the full-month view navigates to a new month. The parent can
+   * lazily fetch + merge those days so dots appear for months beyond the
+   * initial two-week window. Optional — callers that don't fetch busyness
+   * (e.g. quick-add) can omit it.
+   */
+  onRangeChange?: (startDate: string, endDate: string) => void;
 }) {
-  // Near the weekend (Thu–Sat), default to the two-week view so the next
+  // View modes:
+  //   "strip"  — the compact 1- or 2-week horizontal glance (default)
+  //   "month"  — a full navigable month grid for reaching any date
+  const [mode, setMode] = useState<"strip" | "month">("strip");
+  // Near the weekend (Thu–Sat), default the strip to two weeks so the next
   // week is visible at a glance; otherwise start collapsed to one week.
   const [expanded, setExpanded] = useState(() => {
     const day = new Date().getDay(); // 0=Sun … 4=Thu, 5=Fri, 6=Sat
@@ -387,6 +524,21 @@ export function WhenCalendar({
     return ymd(d);
   }, [today]);
 
+  // The month shown in month mode. Seeded from the selected date (so opening
+  // the picker lands on the month you already scheduled) or today.
+  const [viewMonth, setViewMonth] = useState<Date>(() =>
+    startOfMonth(whenDate ? new Date(whenDate + "T00:00:00") : today)
+  );
+  const atCurrentMonth = sameMonth(viewMonth, today);
+  const monthLabel = useMemo(
+    () =>
+      viewMonth.toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      }),
+    [viewMonth]
+  );
+
   const weekRows = useMemo(() => {
     const numWeeks = expanded ? 2 : 1;
     const out: { date: string; weekday: number }[][] = [];
@@ -402,11 +554,95 @@ export function WhenCalendar({
     return out;
   }, [weekStart, expanded]);
 
+  const monthRows = useMemo(() => monthGridRows(viewMonth), [viewMonth]);
+
   const busyByDate = useMemo(() => {
     const m = new Map<string, DayBusyness>();
     for (const d of busyness) m.set(d.date, d);
     return m;
   }, [busyness]);
+
+  // When the month view is active, ask the parent to load busyness for the
+  // visible grid (which spills a few days into the neighbouring months).
+  useEffect(() => {
+    if (mode !== "month" || !onRangeChange) return;
+    const first = monthRows[0][0].date;
+    const last = monthRows[monthRows.length - 1][6].date;
+    onRangeChange(first, last);
+  }, [mode, monthRows, onRangeChange]);
+
+  const openMonth = () => {
+    setViewMonth(
+      startOfMonth(whenDate ? new Date(whenDate + "T00:00:00") : today)
+    );
+    setMode("month");
+  };
+
+  if (mode === "month") {
+    return (
+      <View>
+        <View style={styles.monthNav}>
+          <Pressable
+            onPress={() => setViewMonth((m) => addMonths(m, -1))}
+            disabled={atCurrentMonth}
+            hitSlop={10}
+            style={[styles.monthNavBtn, atCurrentMonth && { opacity: 0.25 }]}
+          >
+            <Text style={styles.monthNavArrow}>‹</Text>
+          </Pressable>
+          <Pressable onPress={() => setViewMonth(startOfMonth(today))} hitSlop={8}>
+            <Text style={styles.monthTitle}>{monthLabel}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setViewMonth((m) => addMonths(m, 1))}
+            hitSlop={10}
+            style={styles.monthNavBtn}
+          >
+            <Text style={styles.monthNavArrow}>›</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.calHeader}>
+          {WEEKDAYS.map((w, i) => (
+            <Text
+              key={i}
+              style={[
+                styles.colHead,
+                (i === 0 || i === 6) && styles.colHeadWeekend,
+              ]}
+            >
+              {w}
+            </Text>
+          ))}
+        </View>
+        <View style={styles.calGrid}>
+          {monthRows.map((week, wi) => (
+            <View key={wi} style={styles.calWeekRow}>
+              {week.map((c) => (
+                <DayCell
+                  key={c.date}
+                  date={c.date}
+                  weekday={c.weekday}
+                  outside={c.outside}
+                  whenDate={whenDate}
+                  todayStr={todayStr}
+                  busyByDate={busyByDate}
+                  onPickDate={onPickDate}
+                  dense
+                />
+              ))}
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.altRow}>
+          <Pressable onPress={() => setMode("strip")} style={styles.expandChip}>
+            <Text style={styles.expandChipText}>⇡ Week view</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -426,84 +662,17 @@ export function WhenCalendar({
       <View style={styles.calGrid}>
         {weekRows.map((week, wi) => (
           <View key={wi} style={styles.calWeekRow}>
-            {week.map((c) => {
-          const isWeekend = c.weekday === 0 || c.weekday === 6;
-          const isPast = c.date < todayStr;
-          const isToday = c.date === todayStr;
-          const isActive = whenDate === c.date;
-          const numLabel = parseInt(c.date.split("-")[2], 10);
-          const dots = (busyByDate.get(c.date)?.items ?? []).slice(0, 8);
-
-          let bg = "#f9fafb";
-          let borderColor: string = "transparent";
-          if (isWeekend) bg = "rgba(99,102,241,0.035)";
-          if (isToday) {
-            bg = "#fff";
-            borderColor = "#d1d5db";
-          }
-          if (isActive) {
-            bg = "#eef2ff";
-            borderColor = "#6366f1";
-          }
-          if (isPast) bg = "#f9fafb";
-
-          return (
-            <Pressable
-              key={c.date}
-              disabled={isPast}
-              onPress={() => onPickDate(c.date)}
-              style={[
-                styles.cell,
-                { backgroundColor: bg, borderColor },
-                isPast && { opacity: 0.3 },
-              ]}
-            >
-              {isToday && <View style={styles.todayDot} />}
-              <Text
-                style={[
-                  styles.cellNum,
-                  isActive && { color: "#4338ca" },
-                ]}
-              >
-                {numLabel}
-              </Text>
-              {(isToday || isActive) && (
-                <Text
-                  style={[
-                    styles.cellSub,
-                    isActive && { color: "#6366f1" },
-                  ]}
-                >
-                  {isActive ? "selected" : "today"}
-                </Text>
-              )}
-              <View style={styles.dotsRow}>
-                {dots.map((item) => {
-                  const w = dotWidth(item.duration_minutes);
-                  if (item.type === "event") {
-                    return (
-                      <View
-                        key={item.id}
-                        style={[
-                          styles.dotEvent,
-                          { width: w },
-                        ]}
-                      />
-                    );
-                  }
-                  const color =
-                    PRIORITY_COLORS[item.priority ?? "p3"];
-                  return (
-                    <View
-                      key={item.id}
-                      style={[styles.dot, { width: w, backgroundColor: color }]}
-                    />
-                  );
-                })}
-              </View>
-            </Pressable>
-          );
-            })}
+            {week.map((c) => (
+              <DayCell
+                key={c.date}
+                date={c.date}
+                weekday={c.weekday}
+                whenDate={whenDate}
+                todayStr={todayStr}
+                busyByDate={busyByDate}
+                onPickDate={onPickDate}
+              />
+            ))}
           </View>
         ))}
       </View>
@@ -514,9 +683,12 @@ export function WhenCalendar({
             onPress={() => setExpanded(true)}
             style={styles.expandChip}
           >
-            <Text style={styles.expandChipText}>+ more dates ⇣</Text>
+            <Text style={styles.expandChipText}>+ next week ⇣</Text>
           </Pressable>
         )}
+        <Pressable onPress={openMonth} style={styles.monthChip}>
+          <Text style={styles.monthChipText}>📅 Full calendar</Text>
+        </Pressable>
         <Pressable
           onPress={() => onPickDate(nextWeekStr)}
           style={[
@@ -855,22 +1027,45 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
     onSaved: invalidateTasks,
   });
 
-  const [busyness, setBusyness] = useState<DayBusyness[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const today = new Date();
-      const sow = startOfWeek(today);
-      const end = new Date(sow);
-      end.setDate(end.getDate() + 13);
+  // Busyness dots, keyed by date so ranges from different months merge cleanly.
+  // The calendar starts with the default two-week window; the full-month picker
+  // requests additional ranges via onRangeChange (see fetchRange below).
+  const [busyByDate, setBusyByDate] = useState<Map<string, DayBusyness>>(
+    () => new Map()
+  );
+  const fetchedRanges = useRef<Set<string>>(new Set());
+
+  const fetchRange = useCallback(
+    async (startDate: string, endDate: string) => {
+      const key = `${startDate}:${endDate}`;
+      if (fetchedRanges.current.has(key)) return;
+      fetchedRanges.current.add(key);
       const api = new BusynessApi(supabase, task.user_id);
-      const { data } = await api.getTasksRange(ymd(sow), ymd(end));
-      if (!cancelled) setBusyness(data);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [task.user_id]);
+      const { data, error } = await api.getTasksRange(startDate, endDate);
+      if (error) {
+        fetchedRanges.current.delete(key); // allow a later retry
+        return;
+      }
+      setBusyByDate((prev) => {
+        const next = new Map(prev);
+        for (const d of data) next.set(d.date, d);
+        return next;
+      });
+    },
+    [task.user_id]
+  );
+
+  useEffect(() => {
+    const sow = startOfWeek(new Date());
+    const end = new Date(sow);
+    end.setDate(end.getDate() + 13);
+    fetchRange(ymd(sow), ymd(end));
+  }, [fetchRange]);
+
+  const busyness = useMemo(
+    () => Array.from(busyByDate.values()),
+    [busyByDate]
+  );
 
   const handleUndo = useCallback(async () => {
     await undoAll();
@@ -981,6 +1176,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             whenDate={current.when_date}
             busyness={busyness}
             onPickDate={onPickDate}
+            onRangeChange={fetchRange}
           />
           {current.when_date ? (
             <WhenTimeRow
@@ -1352,6 +1548,28 @@ const styles = StyleSheet.create({
   },
   colHeadWeekend: { color: "#6b7280" },
 
+  monthNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  monthNavBtn: {
+    width: 34,
+    height: 30,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f3f4f6",
+  },
+  monthNavArrow: { fontSize: 20, color: "#4338ca", lineHeight: 22, fontWeight: "700" },
+  monthTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
   calGrid: {
     gap: 3,
   },
@@ -1369,6 +1587,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     alignItems: "center",
     overflow: "hidden",
+  },
+  // Month grid packs 6 rows, so cells go square and shed the caption row.
+  cellDense: {
+    aspectRatio: 1,
+    paddingTop: 4,
+    paddingBottom: 3,
   },
   todayDot: {
     position: "absolute",
@@ -1390,6 +1614,7 @@ const styles = StyleSheet.create({
     width: "100%",
     minHeight: 12,
   },
+  dotsRowDense: { minHeight: 6, gap: 1 },
   dot: { height: 4, borderRadius: 2 },
   dotEvent: {
     height: 4,
@@ -1413,6 +1638,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   expandChipText: { color: "#4338ca", fontSize: 12, fontWeight: "600" },
+  monthChip: {
+    flex: 1,
+    backgroundColor: "#eef2ff",
+    borderRadius: 7,
+    paddingVertical: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthChipText: { color: "#4338ca", fontSize: 11, fontWeight: "700" },
   bucketChip: {
     flex: 1,
     backgroundColor: "#f9fafb",
