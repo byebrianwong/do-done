@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+import { getUserPrefsApi, supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
+import { queryClient } from '@/lib/query-client';
+import { calendarKeys } from '@/lib/calendar-queries';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -53,6 +56,55 @@ export default function SettingsScreen() {
   const { session } = useAuth();
   const router = useRouter();
   const [checking, setChecking] = useState(false);
+
+  // null = loading the preference row; 'error' = load failed (shows a retry).
+  const [showEvents, setShowEvents] = useState<boolean | 'error' | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const api = await getUserPrefsApi();
+        const { data, error } = await api.get();
+        if (cancelled) return;
+        // Don't show a value we can't back up — surface a retry instead.
+        if (error) setShowEvents('error');
+        else setShowEvents(data?.show_calendar_events ?? true);
+      } catch {
+        if (!cancelled) setShowEvents('error');
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function retryLoadShowEvents() {
+    setShowEvents(null);
+    try {
+      const api = await getUserPrefsApi();
+      const { data, error } = await api.get();
+      if (error) throw error;
+      setShowEvents(data?.show_calendar_events ?? true);
+    } catch {
+      setShowEvents('error');
+    }
+  }
+
+  async function toggleShowEvents(next: boolean) {
+    const prev = showEvents; // roll back to what we showed, not just !next
+    setShowEvents(next); // optimistic
+    try {
+      const api = await getUserPrefsApi();
+      const { error } = await api.updateShowCalendarEvents(next);
+      if (error) throw error;
+      // Event lists gate on this pref server-side — refetch them.
+      void queryClient.invalidateQueries({ queryKey: calendarKeys.all });
+    } catch {
+      setShowEvents(prev);
+      Alert.alert('Could not save', 'Check your connection and try again.');
+    }
+  }
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const sha =
@@ -141,14 +193,38 @@ export default function SettingsScreen() {
         <SettingsRow
           icon="calendar-outline"
           label="Google Calendar"
-          value="Web only"
+          value="Connect on web"
           onPress={() =>
             Alert.alert(
               'Google Calendar',
-              'Calendar sync is configured from the DoDone web app for now. Once connected there, scheduled tasks stay in sync on mobile.'
+              'Connect your calendar from the DoDone web app. Once connected, scheduled tasks stay in sync and your calendar events show up in Today and Upcoming here.'
             )
           }
         />
+        <View style={styles.row}>
+          <Ionicons
+            name="today-outline"
+            size={20}
+            color="#6b7280"
+            style={styles.rowIcon}
+          />
+          <Text style={styles.rowLabel}>Show calendar events</Text>
+          {showEvents === null ? (
+            <ActivityIndicator size="small" color="#9ca3af" />
+          ) : showEvents === 'error' ? (
+            <Pressable onPress={() => void retryLoadShowEvents()} hitSlop={8}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          ) : (
+            <Switch
+              value={showEvents}
+              onValueChange={(v) => {
+                void toggleShowEvents(v);
+              }}
+              trackColor={{ true: '#6366f1' }}
+            />
+          )}
+        </View>
       </View>
 
       <Text style={styles.sectionHeader}>App version</Text>
@@ -252,6 +328,11 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginLeft: 8,
     maxWidth: '55%',
+  },
+  retryText: {
+    fontSize: 14,
+    color: '#6366f1',
+    fontWeight: '600',
   },
   userCard: {
     flexDirection: 'row',

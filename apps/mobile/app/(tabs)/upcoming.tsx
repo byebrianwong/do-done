@@ -15,6 +15,7 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import CalendarEventRow from '@/components/CalendarEventRow';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -25,16 +26,19 @@ import {
   useAllTasks,
   useProjectsWithCounts,
 } from '@/lib/task-queries';
+import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
   filterByConfig,
+  groupCalendarEventsByDay,
   isCollapsed,
   isManualSort,
   isOverdue,
   toggleCollapsed,
   todayLocalISO,
+  type CalendarEvent,
   type Task,
   type UpdateTaskInput,
 } from '@do-done/shared';
@@ -65,8 +69,9 @@ function sectionTarget(key: string): UpdateTaskInput {
 }
 
 // Build ordered date sections: Overdue → Today → Tomorrow → each dated day in
-// the horizon → Later (beyond the horizon) → Anytime (undated).
-function buildSections(tasks: Task[]): DraggableSection[] {
+// the horizon → Later (beyond the horizon) → Anytime (undated). Days that only
+// have calendar events (no tasks) still get a section so the events show.
+function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   const today = todayLocalISO();
   const tomorrow = addDaysLocalISO(1);
   const horizonEnd = addDaysLocalISO(HORIZON_DAYS);
@@ -76,6 +81,9 @@ function buildSections(tasks: Task[]): DraggableSection[] {
     [today, []],
     [tomorrow, []],
   ]);
+  for (const d of eventDays) {
+    if (d >= today && d <= horizonEnd && !byDate.has(d)) byDate.set(d, []);
+  }
   const later: Task[] = [];
   const anytime: Task[] = [];
 
@@ -134,10 +142,20 @@ export default function UpcomingScreen() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
 
+  // Events for the visible horizon (today through horizonEnd, end exclusive).
+  // useLocalDay keeps the window anchored to the CURRENT day across overnight
+  // foregrounds, not the day the screen last rendered.
+  const localDay = useLocalDay();
+  const { data: events = [] } = useCalendarEvents(
+    localDay,
+    addDaysISO(localDay, HORIZON_DAYS + 1)
+  );
+  const eventsByDay = useMemo(() => groupCalendarEventsByDay(events), [events]);
+
   const curated = config.group === 'date' && isManualSort(config);
   const sections = useMemo(
-    () => buildSections(filterByConfig(tasks, config)),
-    [tasks, config]
+    () => buildSections(filterByConfig(tasks, config), [...eventsByDay.keys()]),
+    [tasks, config, eventsByDay]
   );
 
   // Collapsed days keep their header but drop their rows from the list.
@@ -172,29 +190,41 @@ export default function UpcomingScreen() {
     (section: DraggableSection) => {
       const collapsed = isCollapsed(config, section.key);
       const count = countByKey.get(section.key) ?? section.data.length;
+      // Day sections are keyed by YYYY-MM-DD, so the key doubles as the
+      // events lookup; sentinel sections (overdue/later/anytime) miss the map.
+      const dayEvents: CalendarEvent[] = eventsByDay.get(section.key) ?? [];
+      // "(0)" over visible event rows reads as a bug — drop the count when
+      // the day only has events.
+      const showCount = count > 0 || dayEvents.length === 0;
       return (
-        <Pressable
-          style={styles.sectionHeader}
-          onPress={() => setConfig(toggleCollapsed(config, section.key))}
-        >
-          <Ionicons
-            name={collapsed ? 'chevron-forward' : 'chevron-down'}
-            size={14}
-            color={section.key === 'overdue' ? '#ef4444' : '#9ca3af'}
-          />
-          <Text
-            style={[
-              styles.sectionHeaderText,
-              section.key === 'overdue' && styles.overdueText,
-            ]}
+        <View>
+          <Pressable
+            style={styles.sectionHeader}
+            onPress={() => setConfig(toggleCollapsed(config, section.key))}
           >
-            {section.title}{' '}
-            <Text style={styles.sectionCount}>({count})</Text>
-          </Text>
-        </Pressable>
+            <Ionicons
+              name={collapsed ? 'chevron-forward' : 'chevron-down'}
+              size={14}
+              color={section.key === 'overdue' ? '#ef4444' : '#9ca3af'}
+            />
+            <Text
+              style={[
+                styles.sectionHeaderText,
+                section.key === 'overdue' && styles.overdueText,
+              ]}
+            >
+              {section.title}
+              {showCount ? (
+                <Text style={styles.sectionCount}> ({count})</Text>
+              ) : null}
+            </Text>
+          </Pressable>
+          {!collapsed &&
+            dayEvents.map((e) => <CalendarEventRow key={e.id} event={e} />)}
+        </View>
       );
     },
-    [config, setConfig, countByKey]
+    [config, setConfig, countByKey, eventsByDay]
   );
 
   const renderTask = useCallback(

@@ -16,6 +16,7 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import CalendarEventRow from '@/components/CalendarEventRow';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -26,26 +27,71 @@ import {
   useProjectsWithCounts,
   useTodayTasks,
 } from '@/lib/task-queries';
+import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
+  calendarEventsOnDay,
   filterByConfig,
   isCollapsed,
   isManualSort,
   toggleCollapsed,
   todayLocalISO,
 } from '@do-done/shared';
-import type { Task } from '@do-done/shared';
+import type { CalendarEvent, Task } from '@do-done/shared';
 
 const FOCUS = 'focus';
 const OTHER = 'other';
+
+/** Today's Google Calendar events — the fixed skeleton of the day, shown
+ *  above the task list so tasks can be planned around them. */
+function TodaySchedule({ events }: { events: CalendarEvent[] }) {
+  const todayEvents = calendarEventsOnDay(events, todayLocalISO());
+  if (todayEvents.length === 0) return null;
+  return (
+    <View style={scheduleStyles.card}>
+      <Text style={scheduleStyles.heading}>Today’s schedule</Text>
+      {todayEvents.map((e) => (
+        <CalendarEventRow key={e.id} event={e} />
+      ))}
+    </View>
+  );
+}
+
+const scheduleStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingVertical: 8,
+  },
+  heading: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    color: '#9ca3af',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+});
 
 export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: allTasks = [], isRefetching, refetch } = useTodayTasks();
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Today only, in the device's local day (the fetch passes the device
+  // timezone so the server resolves the same day the user is looking at;
+  // useLocalDay rolls the window over when the app foregrounds on a new day).
+  const localDay = useLocalDay();
+  const { data: events = [] } = useCalendarEvents(
+    localDay,
+    addDaysISO(localDay, 1)
+  );
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
@@ -202,9 +248,12 @@ export default function TodayScreen() {
 
       {curated ? (
         isEmpty ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>Nothing scheduled today</Text>
-            <Text style={styles.emptyHint}>Add a task below.</Text>
+          <View style={styles.emptyWrap}>
+            <TodaySchedule events={events} />
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Nothing scheduled today</Text>
+              <Text style={styles.emptyHint}>Add a task below.</Text>
+            </View>
           </View>
         ) : (
           <SectionedDraggableList
@@ -217,7 +266,10 @@ export default function TodayScreen() {
               <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
             }
             ListHeaderComponent={
-              <OverdueSection tasks={overdue} onChange={invalidateTasks} />
+              <>
+                <TodaySchedule events={events} />
+                <OverdueSection tasks={overdue} onChange={invalidateTasks} />
+              </>
             }
             contentContainerStyle={styles.listContent}
           />
@@ -286,6 +338,7 @@ const styles = StyleSheet.create({
     paddingBottom: 140,
     flexGrow: 1,
   },
+  emptyWrap: { flex: 1 },
   empty: {
     flex: 1,
     alignItems: 'center',
