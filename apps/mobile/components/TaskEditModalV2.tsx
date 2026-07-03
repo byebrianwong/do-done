@@ -28,16 +28,22 @@ import {
 } from "react-native";
 import {
   PRIORITY_CONFIG,
+  STATUS_CONFIG,
+  STATUS_ORDER,
+  formatFullDate,
+  formatRelativeDay,
   formatScheduleHint,
   formatWhenTime,
   type Project,
   type Task,
   type TaskPriority,
+  type TaskStatus,
 } from "@do-done/shared";
 import {
   useAutoSaveTask,
   BusynessApi,
   type DayBusyness,
+  type TasksApi,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
 import { createProject, invalidateTasks, useProjects } from "@/lib/task-queries";
@@ -365,7 +371,9 @@ export function PickerSheet({
                     },
                   ]}
                 />
-                <Text style={styles.pickerCode}>{opt.code}</Text>
+                {opt.code ? (
+                  <Text style={styles.pickerCode}>{opt.code}</Text>
+                ) : null}
                 <Text style={styles.pickerLabel}>{opt.label}</Text>
                 {selected && <Text style={styles.pickerCheck}>✓</Text>}
               </Pressable>
@@ -718,65 +726,141 @@ export function WhenCalendar({
   );
 }
 
-// Pure-JS time strip (no native datetime picker — that would force a dev-client
-// rebuild). 30-minute steps across the waking day; tap the active chip to clear.
-const WHEN_TIME_OPTIONS: string[] = (() => {
+// Every half hour across the day, as "HH:MM". Pure JS (no native datetime
+// picker — that would force a dev-client rebuild); mirrors the web
+// WhenTimeField's scrollable slot list.
+const TIME_SLOTS: string[] = (() => {
   const out: string[] = [];
-  for (let h = 6; h <= 22; h++) {
+  for (let h = 0; h < 24; h++) {
     out.push(`${String(h).padStart(2, "0")}:00`);
-    if (h < 22) out.push(`${String(h).padStart(2, "0")}:30`);
+    out.push(`${String(h).padStart(2, "0")}:30`);
   }
   return out;
 })();
 
-// "15:30" → "3:30p", "09:00" → "9a" — compact label for the chips.
-function compactTimeLabel(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  const period = h < 12 ? "a" : "p";
-  let hour = h % 12;
-  if (hour === 0) hour = 12;
-  return m === 0 ? `${hour}${period}` : `${hour}:${String(m).padStart(2, "0")}${period}`;
+// Round wall-clock `now` to the nearest hour, as an "HH:00" slot. Anchors the
+// scroller near "now" when it opens (2:03pm → "14:00", 2:45pm → "15:00").
+function nearestHourSlot(now: Date): string {
+  const h = (now.getHours() + Math.round(now.getMinutes() / 60)) % 24;
+  return `${String(h).padStart(2, "0")}:00`;
 }
 
+const TIME_SLOT_ROW_H = 42;
+const TIME_LIST_H = TIME_SLOT_ROW_H * 6;
+
 // Time-of-day for the when_date "do date". Only rendered once a day is picked
-// (the caller gates on whenDate). Mirrors the web WhenTimeField.
-export function WhenTimeRow({
+// (the caller gates on whenDate). A tappable field that opens a bottom sheet
+// with a vertical scroll of half-hour slots, centered on the current value
+// (or the hour nearest now) — like a normal time picker, not a chip strip.
+export function WhenTimeField({
   value,
   onChange,
 }: {
   value: string | null;
   onChange: (t: string | null) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const scrollRef = useRef<ScrollView | null>(null);
+
+  const anchorSlot =
+    value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
+  const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
+
+  // Center the anchor row as soon as the sheet's list lays out.
+  const centerOnAnchor = () => {
+    scrollRef.current?.scrollTo({
+      y: Math.max(
+        0,
+        anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
+      ),
+      animated: false,
+    });
+  };
+
   return (
-    <View style={{ marginTop: 10 }}>
-      <View style={styles.rowHead}>
-        <Text style={styles.sectionLabel}>Time</Text>
-        <Text style={styles.sectionValue}>
-          {value ? formatWhenTime(value) : "Any time"}
+    <View style={styles.timeFieldRow}>
+      <Text style={styles.sectionLabel}>Time</Text>
+      <Pressable onPress={() => setOpen(true)} style={styles.timeField}>
+        <Text style={styles.timeFieldIcon}>🕐</Text>
+        <Text
+          style={[styles.timeFieldText, !value && styles.timeFieldTextMuted]}
+        >
+          {value ? formatWhenTime(value) : "Add time"}
         </Text>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.timeRow}
+        <Text style={styles.projectFieldChevron}>▾</Text>
+      </Pressable>
+      {value ? (
+        <Pressable
+          onPress={() => onChange(null)}
+          hitSlop={8}
+          accessibilityLabel="Clear time"
+          style={styles.timeClearBtn}
+        >
+          <Text style={styles.timeClearBtnText}>×</Text>
+        </Pressable>
+      ) : null}
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
       >
-        {WHEN_TIME_OPTIONS.map((t) => {
-          const active = value === t;
-          return (
-            <Pressable
-              key={t}
-              onPress={() => onChange(active ? null : t)}
-              style={[styles.timeChip, active && styles.timeChipActive]}
-            >
-              <Text
-                style={[styles.timeChipText, active && styles.timeChipTextActive]}
+        <Pressable onPress={() => setOpen(false)} style={styles.pickerBackdrop}>
+          <Pressable onPress={() => {}} style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Time</Text>
+            <View style={{ height: TIME_LIST_H }}>
+              <ScrollView
+                ref={scrollRef}
+                onContentSizeChange={centerOnAnchor}
+                showsVerticalScrollIndicator
               >
-                {compactTimeLabel(t)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+                {TIME_SLOTS.map((slot) => {
+                  const selected = value === slot;
+                  const isAnchor = slot === anchorSlot;
+                  return (
+                    <Pressable
+                      key={slot}
+                      onPress={() => {
+                        onChange(slot);
+                        setOpen(false);
+                      }}
+                      style={[
+                        styles.timeSlotRow,
+                        isAnchor && !selected && styles.timeSlotRowAnchor,
+                        selected && styles.timeSlotRowSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.timeSlotText,
+                          selected && styles.timeSlotTextSelected,
+                        ]}
+                      >
+                        {formatWhenTime(slot)}
+                      </Text>
+                      {isAnchor && !selected ? (
+                        <Text style={styles.timeSlotNow}>NOW</Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+            {value ? (
+              <Pressable
+                onPress={() => {
+                  onChange(null);
+                  setOpen(false);
+                }}
+                style={styles.timeSheetClear}
+              >
+                <Text style={styles.timeSheetClearText}>× Clear time</Text>
+              </Pressable>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -894,6 +978,183 @@ function RepeatRow({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+// ── Status ──────────────────────────────────────────────
+
+export const STATUS_PICKER_OPTIONS: { key: string; code: string; label: string }[] =
+  STATUS_ORDER.map((s) => ({
+    key: s,
+    code: "",
+    label: STATUS_CONFIG[s].label,
+  }));
+
+// ── Subtasks ────────────────────────────────────────────
+
+function SubtaskRow({
+  task,
+  onToggle,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const done = task.status === "done" || task.status === "cancelled";
+  return (
+    <View style={styles.subtaskRow}>
+      <Pressable
+        onPress={onToggle}
+        hitSlop={8}
+        accessibilityLabel={done ? "Mark not done" : "Mark done"}
+        style={[styles.subtaskCheck, done && styles.subtaskCheckDone]}
+      >
+        {done ? <Text style={styles.subtaskCheckMark}>✓</Text> : null}
+      </Pressable>
+      <Text
+        numberOfLines={1}
+        style={[styles.subtaskTitle, done && styles.subtaskTitleDone]}
+      >
+        {task.title}
+      </Text>
+      <Pressable
+        onPress={onDelete}
+        hitSlop={8}
+        accessibilityLabel={`Delete ${task.title}`}
+        style={styles.subtaskDelete}
+      >
+        <Text style={styles.subtaskDeleteText}>×</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SubtasksSection({
+  parentTask,
+  tasksApi,
+}: {
+  parentTask: Task;
+  tasksApi: TasksApi;
+}) {
+  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<TextInput | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await tasksApi.listSubtasks(parentTask.id);
+      if (!cancelled) {
+        setSubtasks(data);
+        setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [parentTask.id, tasksApi]);
+
+  useEffect(() => {
+    if (adding) inputRef.current?.focus();
+  }, [adding]);
+
+  // DB trigger enforces depth ≤ 2, so depth 2 tasks can't have children.
+  const canAdd = parentTask.depth < 2;
+
+  const handleAdd = async () => {
+    const title = draft.trim();
+    if (!title) {
+      setAdding(false);
+      return;
+    }
+    const { data } = await tasksApi.create({
+      title,
+      parent_task_id: parentTask.id,
+    });
+    if (data) {
+      setSubtasks((prev) => [...prev, data]);
+      invalidateTasks();
+    }
+    setDraft("");
+    // Keep the input open for rapid entry.
+  };
+
+  const handleToggle = async (st: Task) => {
+    const next = st.status === "done" ? "not_started" : "done";
+    const { data } = await tasksApi.update(st.id, { status: next });
+    if (data) {
+      setSubtasks((prev) => prev.map((s) => (s.id === data.id ? data : s)));
+      invalidateTasks();
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const { error } = await tasksApi.delete(id);
+    if (!error) {
+      setSubtasks((prev) => prev.filter((s) => s.id !== id));
+      invalidateTasks();
+    }
+  };
+
+  if (!canAdd && subtasks.length === 0 && loaded) return null;
+
+  const doneCount = subtasks.filter((s) => s.status === "done").length;
+
+  return (
+    <View style={{ marginTop: 18 }}>
+      <View style={styles.rowHead}>
+        <Text style={styles.sectionLabel}>Subtasks</Text>
+        {subtasks.length > 0 ? (
+          <Text style={styles.sectionValue}>
+            {doneCount}/{subtasks.length}
+          </Text>
+        ) : null}
+      </View>
+      <View style={styles.subtaskCard}>
+        {subtasks.map((st) => (
+          <SubtaskRow
+            key={st.id}
+            task={st}
+            onToggle={() => handleToggle(st)}
+            onDelete={() => handleDelete(st.id)}
+          />
+        ))}
+        {canAdd ? (
+          adding ? (
+            <View style={styles.subtaskRow}>
+              <View style={[styles.subtaskCheck, styles.subtaskCheckGhost]} />
+              <TextInput
+                ref={inputRef}
+                value={draft}
+                onChangeText={setDraft}
+                onSubmitEditing={() => void handleAdd()}
+                blurOnSubmit={false}
+                onBlur={() => {
+                  if (draft.trim()) void handleAdd();
+                  setAdding(false);
+                }}
+                placeholder="Subtask title…"
+                placeholderTextColor="#9ca3af"
+                style={styles.subtaskInput}
+              />
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => setAdding(true)}
+              style={styles.subtaskAddRow}
+            >
+              <View style={[styles.subtaskCheck, styles.subtaskCheckGhost]}>
+                <Text style={styles.subtaskAddPlus}>+</Text>
+              </View>
+              <Text style={styles.subtaskAddText}>Add subtask</Text>
+            </Pressable>
+          )
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -1102,6 +1363,9 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  // Recurrence is a rare setting — keep it folded behind a one-line toggle.
+  const [repeatOpen, setRepeatOpen] = useState(false);
 
   // Projects created via the picker are merged locally so the field reflects
   // them immediately; the query invalidate in createProject reconciles.
@@ -1166,11 +1430,20 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Date</Text>
             <Text style={styles.sectionValue}>
-              {shortDateLabel(current.when_date)}
-              {current.when_date && current.when_time
-                ? `  ·  ${formatWhenTime(current.when_time)}`
-                : ""}
+              {current.when_date
+                ? formatFullDate(current.when_date)
+                : "Not scheduled"}
             </Text>
+            {current.when_date ? (
+              <Text style={styles.sectionValueHint}>
+                · {formatRelativeDay(current.when_date)}
+              </Text>
+            ) : null}
+            {current.when_date && current.when_time ? (
+              <Text style={styles.sectionValueTime}>
+                {formatWhenTime(current.when_time)}
+              </Text>
+            ) : null}
           </View>
           <WhenCalendar
             whenDate={current.when_date}
@@ -1179,7 +1452,7 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             onRangeChange={fetchRange}
           />
           {current.when_date ? (
-            <WhenTimeRow
+            <WhenTimeField
               value={current.when_time}
               onChange={(t) => setField("when_time", t)}
             />
@@ -1268,40 +1541,72 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           onClose={() => setEstPickerOpen(false)}
         />
 
-        {/* Project */}
-        <View style={{ marginTop: 18 }}>
-          <View style={styles.rowHead}>
-            <Text style={styles.sectionLabel}>Project</Text>
-            <Text style={styles.sectionValue}>
-              {selectedProject ? selectedProject.name : "None"}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => setProjectPickerOpen(true)}
-            style={styles.projectField}
-          >
-            <View
-              style={[
-                styles.projectFieldDot,
-                selectedProject
-                  ? { backgroundColor: selectedProject.color }
-                  : styles.projectFieldDotNone,
-              ]}
-            />
-            <Text
-              style={[
-                styles.projectFieldText,
-                !selectedProject && styles.projectFieldTextMuted,
-              ]}
-              numberOfLines={1}
+        {/* Status + Project — side by side, one tap opens each picker */}
+        <View style={styles.fieldPairRow}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.rowHead}>
+              <Text style={styles.sectionLabel}>Status</Text>
+            </View>
+            <Pressable
+              onPress={() => setStatusPickerOpen(true)}
+              style={styles.projectField}
             >
-              {selectedProject
-                ? `${selectedProject.icon ? `${selectedProject.icon} ` : ""}${selectedProject.name}`
-                : "No project"}
-            </Text>
-            <Text style={styles.projectFieldChevron}>▾</Text>
-          </Pressable>
+              <View
+                style={[
+                  styles.projectFieldDot,
+                  { backgroundColor: STATUS_CONFIG[current.status].color },
+                ]}
+              />
+              <Text style={styles.projectFieldText} numberOfLines={1}>
+                {STATUS_CONFIG[current.status].label}
+              </Text>
+              <Text style={styles.projectFieldChevron}>▾</Text>
+            </Pressable>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={styles.rowHead}>
+              <Text style={styles.sectionLabel}>Project</Text>
+            </View>
+            <Pressable
+              onPress={() => setProjectPickerOpen(true)}
+              style={styles.projectField}
+            >
+              <View
+                style={[
+                  styles.projectFieldDot,
+                  selectedProject
+                    ? { backgroundColor: selectedProject.color }
+                    : styles.projectFieldDotNone,
+                ]}
+              />
+              <Text
+                style={[
+                  styles.projectFieldText,
+                  !selectedProject && styles.projectFieldTextMuted,
+                ]}
+                numberOfLines={1}
+              >
+                {selectedProject
+                  ? `${selectedProject.icon ? `${selectedProject.icon} ` : ""}${selectedProject.name}`
+                  : "No project"}
+              </Text>
+              <Text style={styles.projectFieldChevron}>▾</Text>
+            </Pressable>
+          </View>
         </View>
+
+        <PickerSheet
+          visible={statusPickerOpen}
+          title="Status"
+          options={STATUS_PICKER_OPTIONS}
+          selectedKey={current.status}
+          onSelect={(key) => {
+            setField("status", key as TaskStatus);
+            setStatusPickerOpen(false);
+          }}
+          onClose={() => setStatusPickerOpen(false)}
+          accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
+        />
 
         <ProjectPickerSheet
           visible={projectPickerOpen}
@@ -1312,19 +1617,8 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           onCreate={handleProjectCreate}
         />
 
-        {/* Repeat */}
-        <View style={{ marginTop: 18 }}>
-          <View style={styles.rowHead}>
-            <Text style={styles.sectionLabel}>Repeat</Text>
-            <Text style={styles.sectionValue}>
-              {recurrenceShortLabel(current.recurrence_rule)}
-            </Text>
-          </View>
-          <RepeatRow
-            value={current.recurrence_rule}
-            onChange={(rule) => setField("recurrence_rule", rule)}
-          />
-        </View>
+        {/* Subtasks */}
+        <SubtasksSection parentTask={current} tasksApi={tasksApiMemo} />
 
         {/* Notes */}
         <View style={{ marginTop: 18 }}>
@@ -1341,6 +1635,33 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
             multiline
             style={styles.notesInput}
           />
+        </View>
+
+        {/* Repeat — rare, so it stays folded behind a one-line toggle */}
+        <View style={{ marginTop: 14 }}>
+          <Pressable
+            onPress={() => setRepeatOpen((o) => !o)}
+            hitSlop={6}
+            style={styles.repeatToggle}
+          >
+            <Text style={styles.repeatToggleText}>
+              ↻{" "}
+              {current.recurrence_rule
+                ? `Repeats ${recurrenceShortLabel(current.recurrence_rule).toLowerCase()}`
+                : "Repeat"}
+            </Text>
+            <Text style={styles.repeatToggleChevron}>
+              {repeatOpen ? "▾" : "▸"}
+            </Text>
+          </Pressable>
+          {repeatOpen ? (
+            <View style={{ marginTop: 8 }}>
+              <RepeatRow
+                value={current.recurrence_rule}
+                onChange={(rule) => setField("recurrence_rule", rule)}
+              />
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -1518,6 +1839,7 @@ const styles = StyleSheet.create({
 
   rowHead: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "baseline",
     gap: 10,
     marginBottom: 8,
@@ -1534,6 +1856,83 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
   },
+  sectionValueHint: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#9ca3af",
+  },
+  sectionValueTime: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4338ca",
+  },
+
+  fieldPairRow: {
+    marginTop: 18,
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  subtaskCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  subtaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  subtaskCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#d1d5db",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  subtaskCheckDone: {
+    backgroundColor: "#6366f1",
+    borderColor: "#6366f1",
+  },
+  subtaskCheckGhost: { borderStyle: "dashed" },
+  subtaskCheckMark: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  subtaskTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+  },
+  subtaskTitleDone: {
+    color: "#9ca3af",
+    textDecorationLine: "line-through",
+  },
+  subtaskDelete: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+  },
+  subtaskDeleteText: { fontSize: 16, color: "#9ca3af", lineHeight: 18 },
+  subtaskInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+    padding: 0,
+  },
+  subtaskAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  subtaskAddPlus: { fontSize: 12, color: "#9ca3af", lineHeight: 13 },
+  subtaskAddText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
 
   calHeader: { flexDirection: "row", gap: 3, marginBottom: 4 },
   colHead: {
@@ -1659,17 +2058,75 @@ const styles = StyleSheet.create({
   bucketChipTextActive: { color: "#4338ca", fontWeight: "700" },
   bucketChipHint: { fontSize: 10, color: "#9ca3af", fontWeight: "400", marginTop: 1 },
 
-  timeRow: { gap: 6, paddingVertical: 2, paddingRight: 12 },
-  timeChip: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 7,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+  timeFieldRow: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 10,
+    marginTop: 12,
   },
-  timeChipActive: { backgroundColor: "#eef2ff" },
-  timeChipText: { fontSize: 12, color: "#374151", fontWeight: "500" },
-  timeChipTextActive: { color: "#4338ca", fontWeight: "700" },
+  timeField: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  timeFieldIcon: { fontSize: 13 },
+  timeFieldText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4338ca",
+  },
+  timeFieldTextMuted: { color: "#9ca3af", fontWeight: "500" },
+  timeClearBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f3f4f6",
+  },
+  timeClearBtnText: { fontSize: 15, color: "#6b7280", lineHeight: 17 },
+
+  timeSlotRow: {
+    height: 42, // TIME_SLOT_ROW_H — keep in sync so scroll centering lands
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  timeSlotRowAnchor: { backgroundColor: "#eef2ff" },
+  timeSlotRowSelected: { backgroundColor: "#6366f1" },
+  timeSlotText: { fontSize: 14, fontWeight: "500", color: "#374151" },
+  timeSlotTextSelected: { color: "#fff", fontWeight: "700" },
+  timeSlotNow: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#6366f1",
+    letterSpacing: 1,
+  },
+  timeSheetClear: {
+    marginTop: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  timeSheetClearText: { fontSize: 13, fontWeight: "600", color: "#dc2626" },
+
+  repeatToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+  },
+  repeatToggleText: { fontSize: 12, fontWeight: "600", color: "#9ca3af" },
+  repeatToggleChevron: { fontSize: 11, color: "#9ca3af" },
 
   repeatRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   repeatChip: {

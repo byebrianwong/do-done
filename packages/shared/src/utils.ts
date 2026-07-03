@@ -103,6 +103,65 @@ export function formatScheduleHint(date: string, from: Date = new Date()): strin
   return `${weekday} ${monthDay}`;
 }
 
+/** Ordinal suffix for a day-of-month: 1 → "st", 2 → "nd", 3 → "rd", 4 → "th"… */
+function ordinalSuffix(day: number): string {
+  if (day % 100 >= 11 && day % 100 <= 13) return "th";
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+/**
+ * Full human-readable label for a YYYY-MM-DD date: "Friday, July 3rd".
+ * Appends the year ("Friday, July 3rd, 2027") when it differs from `from`'s
+ * year. Returns the input unchanged if it isn't a parseable date.
+ */
+export function formatFullDate(date: string, from: Date = new Date()): string {
+  const d = new Date(date + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return date;
+  const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
+  const month = d.toLocaleDateString(undefined, { month: "long" });
+  const day = d.getDate();
+  const base = `${weekday}, ${month} ${day}${ordinalSuffix(day)}`;
+  return d.getFullYear() === from.getFullYear()
+    ? base
+    : `${base}, ${d.getFullYear()}`;
+}
+
+/**
+ * Relative-day phrase for a YYYY-MM-DD date: "today", "tomorrow", "in 3 days",
+ * "in 2 weeks", "in 1 month", "yesterday", "3 days ago"… `from` is injectable
+ * so tests can pin "now". Returns "" if the input isn't a parseable date.
+ */
+export function formatRelativeDay(date: string, from: Date = new Date()): string {
+  const target = new Date(date + "T00:00:00");
+  if (Number.isNaN(target.getTime())) return "";
+  const today = new Date(from);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  if (diff === -1) return "yesterday";
+  if (diff >= 2 && diff <= 6) return `in ${diff} days`;
+  if (diff === 7) return "in 1 week";
+  if (diff > 7 && diff <= 27) return `in ${Math.round(diff / 7)} weeks`;
+  if (diff > 27) {
+    const m = Math.round(diff / 30);
+    return m === 1 ? "in 1 month" : `in ${m} months`;
+  }
+  if (diff <= -2 && diff >= -6) return `${-diff} days ago`;
+  if (diff < -6 && diff >= -27) return `${Math.round(-diff / 7)} weeks ago`;
+  const m = Math.round(-diff / 30);
+  return m === 1 ? "1 month ago" : `${m} months ago`;
+}
+
 export function isOverdue(task: Task): boolean {
   if (task.status === "done" || task.status === "cancelled") return false;
   const today = todayLocalISO();

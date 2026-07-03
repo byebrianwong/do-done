@@ -1,12 +1,62 @@
 import { describe, it, expect } from "vitest";
 import {
   addDaysLocalISO,
+  formatFullDate,
+  formatRelativeDay,
   formatScheduleHint,
   formatWhenTime,
   nextWeekdayLocalISO,
   resolveQuickSchedule,
   todayLocalISO,
 } from "./utils.js";
+
+describe("formatFullDate", () => {
+  const now = new Date("2026-07-03T10:00:00");
+
+  it("spells out weekday, month, and ordinal day", () => {
+    expect(formatFullDate("2026-07-03", now)).toBe("Friday, July 3rd");
+    expect(formatFullDate("2026-07-01", now)).toBe("Wednesday, July 1st");
+    expect(formatFullDate("2026-07-22", now)).toBe("Wednesday, July 22nd");
+    expect(formatFullDate("2026-07-04", now)).toBe("Saturday, July 4th");
+  });
+
+  it("uses 'th' for the teens", () => {
+    expect(formatFullDate("2026-07-11", now)).toBe("Saturday, July 11th");
+    expect(formatFullDate("2026-07-13", now)).toBe("Monday, July 13th");
+  });
+
+  it("appends the year only when it differs from now", () => {
+    expect(formatFullDate("2026-12-31", now)).toBe("Thursday, December 31st");
+    expect(formatFullDate("2027-01-01", now)).toBe("Friday, January 1st, 2027");
+  });
+
+  it("returns the input unchanged when unparseable", () => {
+    expect(formatFullDate("not a date", now)).toBe("not a date");
+  });
+});
+
+describe("formatRelativeDay", () => {
+  const now = new Date("2026-07-03T10:00:00");
+
+  it("labels nearby days", () => {
+    expect(formatRelativeDay("2026-07-03", now)).toBe("today");
+    expect(formatRelativeDay("2026-07-04", now)).toBe("tomorrow");
+    expect(formatRelativeDay("2026-07-02", now)).toBe("yesterday");
+    expect(formatRelativeDay("2026-07-06", now)).toBe("in 3 days");
+    expect(formatRelativeDay("2026-06-30", now)).toBe("3 days ago");
+  });
+
+  it("rolls up to weeks and months", () => {
+    expect(formatRelativeDay("2026-07-10", now)).toBe("in 1 week");
+    expect(formatRelativeDay("2026-07-17", now)).toBe("in 2 weeks");
+    expect(formatRelativeDay("2026-08-05", now)).toBe("in 1 month");
+    expect(formatRelativeDay("2026-06-19", now)).toBe("2 weeks ago");
+  });
+
+  it("returns empty string when unparseable", () => {
+    expect(formatRelativeDay("not a date", now)).toBe("");
+  });
+});
 
 describe("formatWhenTime", () => {
   it("formats afternoon times as 12-hour PM", () => {

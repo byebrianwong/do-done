@@ -11,6 +11,8 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  formatFullDate,
+  formatRelativeDay,
   formatScheduleHint,
   formatWhenTime,
   type Project,
@@ -55,32 +57,6 @@ function startOfWeek(d: Date): Date {
   out.setHours(0, 0, 0, 0);
   out.setDate(out.getDate() - out.getDay());
   return out;
-}
-
-// English relative-date phrase from a YYYY-MM-DD string. Returns null if
-// the input isn't parseable. Pure function — `todayStr` is injected so
-// tests can pin "now".
-function formatRelative(dateStr: string, todayStr: string): string {
-  if (dateStr === todayStr) return "today";
-  const d1 = new Date(dateStr + "T00:00:00");
-  const d2 = new Date(todayStr + "T00:00:00");
-  const diff = Math.round((d1.getTime() - d2.getTime()) / 86400000);
-  if (diff === 1) return "tomorrow";
-  if (diff === -1) return "yesterday";
-  if (diff >= 2 && diff <= 6) return `in ${diff} days`;
-  if (diff === 7) return "in 1 week";
-  if (diff > 7 && diff <= 27) {
-    const w = Math.round(diff / 7);
-    return `in ${w} weeks`;
-  }
-  if (diff > 27) {
-    const m = Math.round(diff / 30);
-    return m === 1 ? "in 1 month" : `in ${m} months`;
-  }
-  if (diff <= -2 && diff >= -6) return `${-diff} days ago`;
-  if (diff < -6 && diff >= -27) return `${Math.round(-diff / 7)} weeks ago`;
-  const m = Math.round(-diff / 30);
-  return m === 1 ? "1 month ago" : `${m} months ago`;
 }
 
 // ─── Sub-components ────────────────────────────────────────
@@ -2159,16 +2135,12 @@ export function TaskEditModalV2({
               </span>
               <span className="text-sm font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
                 {current.when_date
-                  ? new Date(current.when_date + "T00:00:00").toLocaleDateString(undefined, {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })
+                  ? formatFullDate(current.when_date)
                   : "Not scheduled"}
               </span>
               {current.when_date ? (
                 <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">
-                  · {formatRelative(current.when_date, ymd(new Date()))}
+                  · {formatRelativeDay(current.when_date)}
                 </span>
               ) : null}
               {current.when_date && current.when_time ? (
