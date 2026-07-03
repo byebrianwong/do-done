@@ -28,9 +28,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const start = searchParams.get("start");
   const end = searchParams.get("end");
-  if (!start || !end) {
+  // Reject malformed bounds loudly — a silent {events: []} would make a
+  // client-side date-formatting bug look like a disconnected calendar.
+  const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!start || !end || !DAY_RE.test(start) || !DAY_RE.test(end)) {
     return NextResponse.json(
-      { error: "missing start or end query param (YYYY-MM-DD)" },
+      { error: "start and end query params must be YYYY-MM-DD" },
       { status: 400 }
     );
   }
