@@ -150,12 +150,14 @@ async function processRow(
   }
 
   const timeZone = await ctx.timezone(row.user_id);
-  const eventId = await pushTaskToCalendar(refresh, task, timeZone, calendarId);
-  if (eventId && eventId !== task.calendar_event_id) {
-    // Writes only calendar_event_id, so the enqueue trigger ignores it.
+  const pushed = await pushTaskToCalendar(refresh, task, timeZone, calendarId);
+  if (pushed.id) {
+    // Store the pushed event id + its etag. The pull compares this etag to skip
+    // our own echoes. Neither column is trigger-relevant, so this never
+    // re-enqueues.
     await supabase
       .from("tasks")
-      .update({ calendar_event_id: eventId })
+      .update({ calendar_event_id: pushed.id, calendar_event_etag: pushed.etag })
       .eq("id", task.id);
   }
   await markProcessed(supabase, row.id);
