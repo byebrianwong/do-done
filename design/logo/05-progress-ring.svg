@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 05 · Progress Ring — the day's loop, all but closed -->
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <path d="M677 226 A 330 330 0 1 1 455 187" fill="none" stroke="#6366f1"
+        stroke-width="62" stroke-linecap="round"/>
+  <path d="M368 528 L480 640 L672 408" fill="none" stroke="#4f46e5"
+        stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

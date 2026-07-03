@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 02 · D Monogram — bold D with the check knocked out of the bowl -->
+  <rect width="1024" height="1024" fill="#4f46e5"/>
+  <path d="M282 206 L452 206 C660 206 784 344 784 512 C784 680 660 818 452 818 L282 818 Z"
+        fill="#ffffff"/>
+  <path d="M412 522 L508 618 L668 430" fill="none" stroke="#4f46e5"
+        stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

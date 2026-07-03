@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 04 · dd Ligature — first d outlined (to do), second d filled (done) -->
+  <rect width="1024" height="1024" fill="#6366f1"/>
+  <!-- d, open -->
+  <circle cx="330" cy="590" r="125" fill="none" stroke="#ffffff" stroke-width="62"/>
+  <line x1="455" y1="255" x2="455" y2="715" stroke="#ffffff" stroke-width="62" stroke-linecap="round"/>
+  <!-- d, done -->
+  <circle cx="700" cy="590" r="156" fill="#ffffff"/>
+  <line x1="825" y1="255" x2="825" y2="715" stroke="#ffffff" stroke-width="62" stroke-linecap="round"/>
+</svg>

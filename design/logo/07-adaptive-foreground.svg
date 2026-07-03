@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 07 · Double Check ×d — Android adaptive-icon foreground layer.
+       Transparent ground; marks scaled to sit inside the 66% safe zone.
+       Pair with adaptiveIcon.backgroundColor #6366f1. -->
+  <g transform="translate(512 512) scale(0.7) translate(-512.5 -516)">
+    <path d="M333 517 A92 92 0 1 0 369 653 L583 340"
+          fill="none" stroke="#ffffff" stroke-opacity="0.38"
+          stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M573 517 A92 92 0 1 0 609 653 L823 340"
+          fill="none" stroke="#ffffff"
+          stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
