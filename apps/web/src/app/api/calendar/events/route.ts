@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/calendar/events?start=YYYY-MM-DD&end=YYYY-MM-DD (end exclusive)
+ *              [&tz=<IANA zone>]
+ *
+ * `tz` resolves the day bounds and event times in the caller's zone (mobile
+ * sends its device zone); omitted, the user's stored preference applies.
  *
  * Returns { events: CalendarEvent[] } — the user's Google Calendar events for
  * read-only display, same source the web views use. Exists for clients that
@@ -38,10 +42,30 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Best-effort inside: bad bounds, no connection, pref off, Google failure
-  // all come back as [] — the client renders tasks-only.
-  const events = await getDisplayEventsFor(supabase, userId, start, end);
+  const tz = searchParams.get("tz");
+  if (tz && !isValidTimeZone(tz)) {
+    return NextResponse.json({ error: "invalid tz" }, { status: 400 });
+  }
+
+  // Best-effort inside: no connection, pref off, Google failure all come
+  // back as [] — the client renders tasks-only.
+  const events = await getDisplayEventsFor(
+    supabase,
+    userId,
+    start,
+    end,
+    tz ?? undefined
+  );
   return NextResponse.json({ events });
+}
+
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function authenticate(

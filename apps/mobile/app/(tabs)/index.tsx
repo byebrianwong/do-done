@@ -85,7 +85,8 @@ export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const { data: allTasks = [], isRefetching, refetch } = useTodayTasks();
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
-  // Today only — the device's local day IS the user's day here (no SSR).
+  // Today only, in the device's local day (the fetch passes the device
+  // timezone so the server resolves the same day the user is looking at).
   const { data: events = [] } = useCalendarEvents(
     todayLocalISO(),
     addDaysLocalISO(1)

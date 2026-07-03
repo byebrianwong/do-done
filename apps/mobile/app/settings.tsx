@@ -63,12 +63,15 @@ export default function SettingsScreen() {
     let cancelled = false;
     void getUserPrefsApi()
       .then((api) => api.get())
-      .then(({ data }) => {
-        if (!cancelled) setShowEvents(data?.show_calendar_events ?? true);
+      .then(({ data, error }) => {
+        // On error, leave the switch in its loading state — better than
+        // showing a value we can't back up. (get() resolves with an error
+        // tuple rather than rejecting, so check it explicitly.)
+        if (cancelled || error) return;
+        setShowEvents(data?.show_calendar_events ?? true);
       })
       .catch(() => {
-        // Leave the switch in its loading state — better than showing a value
-        // we can't back up.
+        // getUserPrefsApi itself failed — same call: stay loading.
       });
     return () => {
       cancelled = true;
@@ -76,7 +79,8 @@ export default function SettingsScreen() {
   }, []);
 
   async function toggleShowEvents(next: boolean) {
-    setShowEvents(next); // optimistic; rolled back on failure
+    const prev = showEvents; // roll back to what we showed, not just !next
+    setShowEvents(next); // optimistic
     try {
       const api = await getUserPrefsApi();
       const { error } = await api.updateShowCalendarEvents(next);
@@ -84,7 +88,7 @@ export default function SettingsScreen() {
       // Event lists gate on this pref server-side — refetch them.
       void queryClient.invalidateQueries({ queryKey: calendarKeys.all });
     } catch {
-      setShowEvents(!next);
+      setShowEvents(prev);
       Alert.alert('Could not save', 'Check your connection and try again.');
     }
   }

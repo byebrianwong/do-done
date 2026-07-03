@@ -189,9 +189,10 @@ export default function UpcomingScreen() {
       const count = countByKey.get(section.key) ?? section.data.length;
       // Day sections are keyed by YYYY-MM-DD, so the key doubles as the
       // events lookup; sentinel sections (overdue/later/anytime) miss the map.
-      const dayEvents: CalendarEvent[] = collapsed
-        ? []
-        : eventsByDay.get(section.key) ?? [];
+      const dayEvents: CalendarEvent[] = eventsByDay.get(section.key) ?? [];
+      // "(0)" over visible event rows reads as a bug — drop the count when
+      // the day only has events.
+      const showCount = count > 0 || dayEvents.length === 0;
       return (
         <View>
           <Pressable
@@ -209,13 +210,14 @@ export default function UpcomingScreen() {
                 section.key === 'overdue' && styles.overdueText,
               ]}
             >
-              {section.title}{' '}
-              <Text style={styles.sectionCount}>({count})</Text>
+              {section.title}
+              {showCount ? (
+                <Text style={styles.sectionCount}> ({count})</Text>
+              ) : null}
             </Text>
           </Pressable>
-          {dayEvents.map((e) => (
-            <CalendarEventRow key={e.id} event={e} />
-          ))}
+          {!collapsed &&
+            dayEvents.map((e) => <CalendarEventRow key={e.id} event={e} />)}
         </View>
       );
     },

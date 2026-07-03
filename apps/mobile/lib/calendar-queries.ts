@@ -26,6 +26,15 @@ export const calendarKeys = {
     [...calendarKeys.all, 'events', start, end] as const,
 };
 
+/** The device's IANA timezone, or null when Intl can't say (older Hermes). */
+function deviceTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchCalendarEvents(
   startDay: string,
   endDayExclusive: string
@@ -35,12 +44,20 @@ async function fetchCalendarEvents(
   const token = data.session?.access_token;
   if (!token) return [];
 
+  // Pass the device zone: the screens bucket events by the DEVICE's local
+  // day, so the server must resolve "today" in that same zone (the stored
+  // web preference can differ — travel, default-never-changed).
+  const tz = deviceTimeZone();
   const base = WEB_APP_URL.replace(/\/$/, '');
-  const res = await fetch(
-    `${base}/api/calendar/events?start=${startDay}&end=${endDayExclusive}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) return [];
+  const url =
+    `${base}/api/calendar/events?start=${startDay}&end=${endDayExclusive}` +
+    (tz ? `&tz=${encodeURIComponent(tz)}` : '');
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  // Throw on HTTP failure so React Query retries and marks the query errored,
+  // instead of caching an empty list as fresh success for staleTime.
+  if (!res.ok) throw new Error(`calendar events fetch failed: ${res.status}`);
   const body = (await res.json()) as { events?: CalendarEvent[] };
   return body.events ?? [];
 }

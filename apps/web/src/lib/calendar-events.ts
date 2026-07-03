@@ -17,12 +17,17 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * "show events" preference off, the bounds are malformed (e.g. a garbage
  * ?week= param upstream), or the Google fetch fails — callers render
  * tasks-only in all of those cases.
+ *
+ * `timeZoneOverride` (validated IANA name) resolves the bounds and event
+ * times in the CALLER's zone instead of the stored preference — the mobile
+ * app passes its device zone so "today" means the day the user is looking at.
  */
 export async function getDisplayEventsFor(
   supabase: SupabaseClient,
   userId: string,
   startDay: string,
-  endDayExclusive: string
+  endDayExclusive: string,
+  timeZoneOverride?: string
 ): Promise<CalendarEvent[]> {
   if (!DAY_RE.test(startDay) || !DAY_RE.test(endDayExclusive)) return [];
 
@@ -50,7 +55,8 @@ export async function getDisplayEventsFor(
   // The day bounds are wall-clock dates in the USER's timezone — resolve them
   // there, not in the server's zone (UTC on a deployed host). The same zone is
   // passed to Google so returned event times read as the user's wall clock.
-  const timeZone: string = prefs?.timezone ?? DEFAULT_TIMEZONE;
+  const timeZone: string =
+    timeZoneOverride ?? prefs?.timezone ?? DEFAULT_TIMEZONE;
   const [sy, sm, sd] = startDay.split("-").map(Number);
   const [ey, em, ed] = endDayExclusive.split("-").map(Number);
 
