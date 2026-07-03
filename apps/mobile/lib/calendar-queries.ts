@@ -9,9 +9,11 @@
  * tasks-only, matching the web behavior.
  */
 
+import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
-import type { CalendarEvent } from '@do-done/shared';
+import { todayLocalISO, type CalendarEvent } from '@do-done/shared';
 import { supabase } from './supabase';
 
 // Where the DoDone web app is deployed. Env var wins; app.config.ts
@@ -60,6 +62,30 @@ async function fetchCalendarEvents(
   if (!res.ok) throw new Error(`calendar events fetch failed: ${res.status}`);
   const body = (await res.json()) as { events?: CalendarEvent[] };
   return body.events ?? [];
+}
+
+/**
+ * The device's current local day (YYYY-MM-DD) as state, re-read whenever the
+ * app returns to the foreground. Query keys built from a render-time
+ * todayLocalISO() freeze overnight — the focus refetch re-runs the OLD key
+ * without re-rendering — so screens derive their event window from this hook
+ * and the key rolls over with the day.
+ */
+export function useLocalDay(): string {
+  const [day, setDay] = useState(() => todayLocalISO());
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setDay(todayLocalISO());
+    });
+    return () => sub.remove();
+  }, []);
+  return day;
+}
+
+/** Local YYYY-MM-DD `days` after a YYYY-MM-DD string (pure date math). */
+export function addDaysISO(dayISO: string, days: number): string {
+  const [y, m, d] = dayISO.split('-').map(Number);
+  return todayLocalISO(new Date(y, m - 1, d + days));
 }
 
 /**

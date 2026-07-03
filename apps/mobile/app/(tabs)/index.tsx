@@ -27,12 +27,11 @@ import {
   useProjectsWithCounts,
   useTodayTasks,
 } from '@/lib/task-queries';
-import { useCalendarEvents } from '@/lib/calendar-queries';
+import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
-  addDaysLocalISO,
   calendarEventsOnDay,
   filterByConfig,
   isCollapsed,
@@ -86,10 +85,12 @@ export default function TodayScreen() {
   const { data: allTasks = [], isRefetching, refetch } = useTodayTasks();
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   // Today only, in the device's local day (the fetch passes the device
-  // timezone so the server resolves the same day the user is looking at).
+  // timezone so the server resolves the same day the user is looking at;
+  // useLocalDay rolls the window over when the app foregrounds on a new day).
+  const localDay = useLocalDay();
   const { data: events = [] } = useCalendarEvents(
-    todayLocalISO(),
-    addDaysLocalISO(1)
+    localDay,
+    addDaysISO(localDay, 1)
   );
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);

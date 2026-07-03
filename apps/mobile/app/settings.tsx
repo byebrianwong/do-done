@@ -57,26 +57,39 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [checking, setChecking] = useState(false);
 
-  // null = still loading the preference row.
-  const [showEvents, setShowEvents] = useState<boolean | null>(null);
+  // null = loading the preference row; 'error' = load failed (shows a retry).
+  const [showEvents, setShowEvents] = useState<boolean | 'error' | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void getUserPrefsApi()
-      .then((api) => api.get())
-      .then(({ data, error }) => {
-        // On error, leave the switch in its loading state — better than
-        // showing a value we can't back up. (get() resolves with an error
-        // tuple rather than rejecting, so check it explicitly.)
-        if (cancelled || error) return;
-        setShowEvents(data?.show_calendar_events ?? true);
-      })
-      .catch(() => {
-        // getUserPrefsApi itself failed — same call: stay loading.
-      });
+    async function load() {
+      try {
+        const api = await getUserPrefsApi();
+        const { data, error } = await api.get();
+        if (cancelled) return;
+        // Don't show a value we can't back up — surface a retry instead.
+        if (error) setShowEvents('error');
+        else setShowEvents(data?.show_calendar_events ?? true);
+      } catch {
+        if (!cancelled) setShowEvents('error');
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function retryLoadShowEvents() {
+    setShowEvents(null);
+    try {
+      const api = await getUserPrefsApi();
+      const { data, error } = await api.get();
+      if (error) throw error;
+      setShowEvents(data?.show_calendar_events ?? true);
+    } catch {
+      setShowEvents('error');
+    }
+  }
 
   async function toggleShowEvents(next: boolean) {
     const prev = showEvents; // roll back to what we showed, not just !next
@@ -198,6 +211,10 @@ export default function SettingsScreen() {
           <Text style={styles.rowLabel}>Show calendar events</Text>
           {showEvents === null ? (
             <ActivityIndicator size="small" color="#9ca3af" />
+          ) : showEvents === 'error' ? (
+            <Pressable onPress={() => void retryLoadShowEvents()} hitSlop={8}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
           ) : (
             <Switch
               value={showEvents}
@@ -311,6 +328,11 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginLeft: 8,
     maxWidth: '55%',
+  },
+  retryText: {
+    fontSize: 14,
+    color: '#6366f1',
+    fontWeight: '600',
   },
   userCard: {
     flexDirection: 'row',

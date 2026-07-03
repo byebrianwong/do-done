@@ -26,7 +26,7 @@ import {
   useAllTasks,
   useProjectsWithCounts,
 } from '@/lib/task-queries';
-import { useCalendarEvents } from '@/lib/calendar-queries';
+import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
@@ -143,9 +143,12 @@ export default function UpcomingScreen() {
   }, [tasks]);
 
   // Events for the visible horizon (today through horizonEnd, end exclusive).
+  // useLocalDay keeps the window anchored to the CURRENT day across overnight
+  // foregrounds, not the day the screen last rendered.
+  const localDay = useLocalDay();
   const { data: events = [] } = useCalendarEvents(
-    todayLocalISO(),
-    addDaysLocalISO(HORIZON_DAYS + 1)
+    localDay,
+    addDaysISO(localDay, HORIZON_DAYS + 1)
   );
   const eventsByDay = useMemo(() => groupCalendarEventsByDay(events), [events]);
 
