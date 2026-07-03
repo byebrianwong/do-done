@@ -1,6 +1,6 @@
 import "server-only";
 import { google, type calendar_v3 } from "googleapis";
-import type { Task } from "@do-done/shared";
+import type { CalendarEvent, Task } from "@do-done/shared";
 import { zonedClockToUtc } from "@do-done/shared";
 
 const SCOPES = [
@@ -252,6 +252,88 @@ export async function stopChannel(
   } catch {
     // Channel may already be expired/stopped — nothing to clean up.
   }
+}
+
+// A user with many subscribed calendars (holidays, sports, …) could fan out
+// into a lot of API calls — cap how many we read events from per page load.
+const MAX_DISPLAY_CALENDARS = 10;
+
+/**
+ * List the user's Google Calendar events for read-only display inside DoDone.
+ * Reads every calendar the user has visible in Google Calendar (their
+ * `selected` calendars), not just the sync target, so the in-app day mirrors
+ * what they'd see in Google. Excludes:
+ *  - events DoDone itself created for tasks (tagged with SYNC_TAG) — the task
+ *    is already on screen, showing its mirror event would duplicate it
+ *  - events the user declined
+ *  - working-location pseudo-events
+ */
+export async function listDisplayEvents(
+  refreshToken: string,
+  timeMin: string,
+  timeMax: string
+): Promise<CalendarEvent[]> {
+  const calendar = calendarClientFor(refreshToken);
+
+  const { data: calList } = await calendar.calendarList.list();
+  const visible = (calList.items ?? [])
+    .filter((c) => c.id && (c.selected || c.primary))
+    .slice(0, MAX_DISPLAY_CALENDARS);
+
+  const perCalendar = await Promise.allSettled(
+    visible.map(async (cal) => {
+      const { data } = await calendar.events.list({
+        calendarId: cal.id!,
+        timeMin,
+        timeMax,
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 250,
+      });
+      return { cal, items: data.items ?? [] };
+    })
+  );
+
+  const events: CalendarEvent[] = [];
+  const seen = new Set<string>();
+  for (const result of perCalendar) {
+    // One unreadable calendar shouldn't blank out the rest.
+    if (result.status !== "fulfilled") continue;
+    const { cal, items } = result.value;
+    for (const e of items) {
+      if (!e.id || e.status === "cancelled") continue;
+      if (e.extendedProperties?.private?.[SYNC_TAG]) continue;
+      if (e.eventType === "workingLocation") continue;
+      const self = e.attendees?.find((a) => a.self);
+      if (self?.responseStatus === "declined") continue;
+      // The same event can live on several calendars (an invite plus a shared
+      // team calendar) — show it once, under the first calendar that has it.
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+
+      const allDay = !!e.start?.date && !e.start?.dateTime;
+      events.push({
+        id: e.id,
+        calendar_id: cal.id ?? "primary",
+        calendar_name: cal.summaryOverride ?? cal.summary ?? null,
+        color: cal.backgroundColor ?? null,
+        title: e.summary ?? "(untitled)",
+        all_day: allDay,
+        start_date: e.start?.date ?? null,
+        end_date: e.end?.date ?? null,
+        start: e.start?.dateTime ?? null,
+        end: e.end?.dateTime ?? null,
+        location: e.location ?? null,
+        html_link: e.htmlLink ?? null,
+      });
+    }
+  }
+
+  return events.sort((a, b) => {
+    const aKey = a.all_day ? `${a.start_date}` : `${a.start}`;
+    const bKey = b.all_day ? `${b.start_date}` : `${b.start}`;
+    return aKey.localeCompare(bKey);
+  });
 }
 
 export interface CalendarChange {

@@ -1,6 +1,7 @@
-import type { Task } from "@do-done/shared";
+import { addDaysLocalISO, type Task } from "@do-done/shared";
 import { UpcomingView } from "@/components/upcoming-view";
 import { InboxFilterToggle } from "@/components/inbox-filter-toggle";
+import { getDisplayEvents } from "@/lib/calendar-events";
 import {
   getServerTasksApi,
   getServerProjectsApi,
@@ -21,11 +22,16 @@ export default async function UpcomingPage({
     { data: rawUndated = [] },
     { data: rawOverdue = [] },
     { data: projects = [] },
+    events,
   ] = await Promise.all([
     tasksApi ? tasksApi.getUpcoming(30) : Promise.resolve({ data: [] }),
     tasksApi ? tasksApi.listUndated() : Promise.resolve({ data: [] }),
     tasksApi ? tasksApi.listOverdue() : Promise.resolve({ data: [] }),
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+    // Same horizon as getUpcoming, padded a day each side: the server's
+    // "today" can differ from the viewer's near midnight, and the per-day
+    // grouping drops anything outside the visible columns anyway.
+    getDisplayEvents(addDaysLocalISO(-1), addDaysLocalISO(32)),
   ]);
 
   // getUpcoming's today−1 skew buffer overlaps listOverdue on yesterday's rows,
@@ -46,6 +52,7 @@ export default async function UpcomingPage({
     <UpcomingView
       allTasks={universe}
       projects={projects}
+      events={events}
       beforeContent={
         <div className="mb-4">
           <InboxFilterToggle count={inboxCount} />

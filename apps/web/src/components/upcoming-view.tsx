@@ -1,6 +1,15 @@
 "use client";
 
-import { addDaysLocalISO, isManualSort, isOverdue, toggleCollapsed, type Project, type Task } from "@do-done/shared";
+import {
+  addDaysLocalISO,
+  calendarEventsOnDay,
+  isManualSort,
+  isOverdue,
+  toggleCollapsed,
+  type CalendarEvent,
+  type Project,
+  type Task,
+} from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
@@ -26,8 +35,15 @@ function formatDayHeading(dateStr: string): string {
  *  next 14 days as drop targets, then any further-out days that have tasks.
  *  when_date wins over due_date. */
 function buildDateGroups(
-  tasks: Task[]
-): { date: string; label: string; tasks: Task[]; emptyHint?: string }[] {
+  tasks: Task[],
+  events: CalendarEvent[]
+): {
+  date: string;
+  label: string;
+  tasks: Task[];
+  events?: CalendarEvent[];
+  emptyHint?: string;
+}[] {
   // The browser's local day is the authority on "today". Anything scheduled or
   // due strictly before it is overdue and gets its own section at the top —
   // mirroring the mobile Upcoming screen. (isOverdue is the canonical, shared
@@ -50,7 +66,13 @@ function buildDateGroups(
     byDate.set(d, list);
   }
 
-  const groups: { date: string; label: string; tasks: Task[]; emptyHint?: string }[] = [];
+  const groups: {
+    date: string;
+    label: string;
+    tasks: Task[];
+    events?: CalendarEvent[];
+    emptyHint?: string;
+  }[] = [];
   if (overdue.length > 0) {
     groups.push({ date: OVERDUE_KEY, label: "Overdue", tasks: overdue });
   }
@@ -65,12 +87,22 @@ function buildDateGroups(
     // (getUpcoming) and the chips (formatDueDate) use. toISOString() here was
     // UTC and shifted the columns by a day for positive-offset zones.
     const key = addDaysLocalISO(i);
-    groups.push({ date: key, label: formatDayHeading(key), tasks: byDate.get(key) ?? [] });
+    groups.push({
+      date: key,
+      label: formatDayHeading(key),
+      tasks: byDate.get(key) ?? [],
+      events: calendarEventsOnDay(events, key),
+    });
     byDate.delete(key);
   }
   const remaining = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
   for (const [date, dayTasks] of remaining) {
-    groups.push({ date, label: formatDayHeading(date), tasks: dayTasks });
+    groups.push({
+      date,
+      label: formatDayHeading(date),
+      tasks: dayTasks,
+      events: calendarEventsOnDay(events, date),
+    });
   }
   return groups;
 }
@@ -78,10 +110,13 @@ function buildDateGroups(
 export function UpcomingView({
   allTasks,
   projects,
+  events = [],
   beforeContent,
 }: {
   allTasks: Task[];
   projects: Project[];
+  /** Google Calendar events for the visible horizon (read-only). */
+  events?: CalendarEvent[];
   beforeContent?: React.ReactNode;
 }) {
   return (
@@ -93,8 +128,10 @@ export function UpcomingView({
       beforeContent={beforeContent}
       curatedWhen={(c) => c.group === "date" && isManualSort(c)}
       renderCurated={(tasks, config, onConfigChange) => {
-        const groups = buildDateGroups(tasks);
-        const hasAny = groups.some((g) => g.tasks.length > 0);
+        const groups = buildDateGroups(tasks, events);
+        const hasAny = groups.some(
+          (g) => g.tasks.length > 0 || (g.events?.length ?? 0) > 0
+        );
         return hasAny ? (
           <DraggableUpcoming
             groups={groups}

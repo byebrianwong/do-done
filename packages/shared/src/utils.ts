@@ -1,4 +1,4 @@
-import type { Task } from "./schemas.js";
+import type { CalendarEvent, Task } from "./schemas.js";
 
 /**
  * Today's date as YYYY-MM-DD in the runtime's LOCAL timezone.
@@ -21,6 +21,34 @@ export function addDaysLocalISO(days: number, from: Date = new Date()): string {
   const d = new Date(from);
   d.setDate(d.getDate() + days);
   return todayLocalISO(d);
+}
+
+/**
+ * The Google Calendar events that belong on local day `dayISO` (YYYY-MM-DD).
+ * All-day events span [start_date, end_date) — end exclusive, per Google —
+ * so multi-day events appear on every covered day. Timed events belong to
+ * the day their start reads in the event's own timezone (the RFC3339 date
+ * portion), matching how the user sees them in Google Calendar. Sorted
+ * all-day first, then by start time.
+ */
+export function calendarEventsOnDay(
+  events: CalendarEvent[],
+  dayISO: string
+): CalendarEvent[] {
+  const onDay = events.filter((e) => {
+    if (e.all_day) {
+      return (
+        e.start_date !== null &&
+        e.start_date <= dayISO &&
+        (e.end_date === null || dayISO < e.end_date)
+      );
+    }
+    return e.start !== null && e.start.slice(0, 10) === dayISO;
+  });
+  return onDay.sort((a, b) => {
+    if (a.all_day !== b.all_day) return a.all_day ? -1 : 1;
+    return (a.start ?? "").localeCompare(b.start ?? "");
+  });
 }
 
 /**

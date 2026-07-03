@@ -118,6 +118,29 @@ export const CalendarSyncSchema = z.object({
 });
 export type CalendarSync = z.infer<typeof CalendarSyncSchema>;
 
+// A read-only Google Calendar event as displayed inside DoDone (Today,
+// Upcoming, Calendar views). Distinct from tasks synced TO the calendar —
+// those are filtered out at fetch time so they don't show twice.
+export const CalendarEventSchema = z.object({
+  id: z.string(),
+  calendar_id: z.string(),
+  calendar_name: z.string().nullable(),
+  // Calendar color from Google (hex), used to tint the event in the UI.
+  color: z.string().nullable(),
+  title: z.string(),
+  all_day: z.boolean(),
+  // All-day events: local calendar dates, end exclusive (Google convention).
+  start_date: z.string().nullable(),
+  end_date: z.string().nullable(),
+  // Timed events: RFC3339 with the event's own UTC offset, so the date
+  // portion is the event's local day.
+  start: z.string().nullable(),
+  end: z.string().nullable(),
+  location: z.string().nullable(),
+  html_link: z.string().nullable(),
+});
+export type CalendarEvent = z.infer<typeof CalendarEventSchema>;
+
 export const UserPreferencesSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
@@ -136,6 +159,9 @@ export const UserPreferencesSchema = z.object({
   // opaque record here to avoid a circular import with display.ts (which
   // imports this module); callers validate each entry with parseDisplayConfig.
   display_prefs: z.record(z.string(), z.unknown()).default({}),
+  // Show Google Calendar events inside DoDone views (Today, Upcoming,
+  // Calendar). Only takes effect once the calendar is connected.
+  show_calendar_events: z.boolean().default(true),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });

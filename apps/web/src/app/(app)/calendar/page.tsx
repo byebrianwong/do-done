@@ -1,7 +1,13 @@
 import { getServerTasksApi, getServerProjectsApi } from "@/lib/supabase/tasks-server";
 import { WeekView } from "@/components/week-view-client";
+import { getDisplayEvents } from "@/lib/calendar-events";
 import { taskDate } from "@do-done/api-client";
-import { todayLocalISO, type Task, type Project } from "@do-done/shared";
+import {
+  todayLocalISO,
+  type CalendarEvent,
+  type Task,
+  type Project,
+} from "@do-done/shared";
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
@@ -29,25 +35,29 @@ export default async function CalendarPage({
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
 
+  // Local YYYY-MM-DD so the range matches the local when_date the user set
+  // (toISOString() would be UTC and shift the boundaries by a day).
+  const startStr = todayLocalISO(weekStart);
+  const endStr = todayLocalISO(weekEnd);
+
   let tasks: Task[] = [];
   let projects: Project[] = [];
+  let events: CalendarEvent[] = [];
   if (tasksApi && projectsApi) {
     // The list() helper filters by due_date only — that's too narrow for the
     // calendar because most tasks use when_date (the Things-style "do date").
     // Fetch the full active set and filter by effective date client-side.
-    const [allRes, projectsRes] = await Promise.all([
+    const [allRes, projectsRes, weekEvents] = await Promise.all([
       tasksApi.list({ limit: 200, offset: 0 }),
       projectsApi.list(),
+      getDisplayEvents(startStr, endStr),
     ]);
-    // Local YYYY-MM-DD so the range matches the local when_date the user set
-    // (toISOString() would be UTC and shift the boundaries by a day).
-    const startStr = todayLocalISO(weekStart);
-    const endStr = todayLocalISO(weekEnd);
     tasks = allRes.data.filter((t) => {
       const d = taskDate(t);
       return d !== null && d >= startStr && d < endStr;
     });
     projects = projectsRes.data;
+    events = weekEvents;
   }
 
   return (
@@ -59,6 +69,7 @@ export default async function CalendarPage({
         weekStart={todayLocalISO(weekStart)}
         tasks={tasks}
         projects={projects}
+        events={events}
       />
     </div>
   );

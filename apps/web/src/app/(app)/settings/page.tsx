@@ -23,10 +23,11 @@ export default async function SettingsPage({
 
   const { data: prefs } = await supabase
     .from("user_preferences")
-    .select("timezone")
+    .select("timezone, show_calendar_events")
     .eq("user_id", user?.id ?? "")
     .maybeSingle();
   const timezone = prefs?.timezone ?? "America/New_York";
+  const showEvents = prefs?.show_calendar_events ?? true;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -59,6 +60,7 @@ export default async function SettingsPage({
         </h2>
         <CalendarSection
           isConnected={isConnected}
+          showEvents={showEvents}
           syncedAt={sync?.synced_at ?? null}
           status={
             params.connected
