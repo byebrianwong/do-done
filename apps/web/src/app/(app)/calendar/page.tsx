@@ -66,7 +66,7 @@ export default async function CalendarPage({
         Calendar
       </h1>
       <WeekView
-        weekStart={todayLocalISO(weekStart)}
+        weekStart={startStr}
         tasks={tasks}
         projects={projects}
         events={events}

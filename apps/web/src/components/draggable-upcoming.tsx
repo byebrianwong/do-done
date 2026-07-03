@@ -29,15 +29,18 @@ import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
 import { CalendarEventList } from "./calendar-event-item";
 
+/** One day column of the Upcoming view (or the Overdue/No-date sentinels). */
+export interface UpcomingDateGroup {
+  date: string;
+  label: string;
+  tasks: Task[];
+  /** Read-only Google Calendar events on this day, shown above the tasks. */
+  events?: CalendarEvent[];
+  emptyHint?: string;
+}
+
 export interface DraggableUpcomingProps {
-  groups: Array<{
-    date: string;
-    label: string;
-    tasks: Task[];
-    /** Read-only Google Calendar events on this day, shown above the tasks. */
-    events?: CalendarEvent[];
-    emptyHint?: string;
-  }>;
+  groups: UpcomingDateGroup[];
   projects?: Project[];
   /** Collapsed day keys (g.date) — persisted in the view's config. */
   collapsed?: string[];

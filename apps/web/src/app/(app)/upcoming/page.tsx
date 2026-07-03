@@ -17,6 +17,10 @@ export default async function UpcomingPage({
 
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
+  // One horizon for tasks and events so the view never shows a day whose
+  // events were silently not fetched.
+  const HORIZON_DAYS = 30;
+
   const [
     { data: rawTasks = [] },
     { data: rawUndated = [] },
@@ -24,14 +28,14 @@ export default async function UpcomingPage({
     { data: projects = [] },
     events,
   ] = await Promise.all([
-    tasksApi ? tasksApi.getUpcoming(30) : Promise.resolve({ data: [] }),
+    tasksApi ? tasksApi.getUpcoming(HORIZON_DAYS) : Promise.resolve({ data: [] }),
     tasksApi ? tasksApi.listUndated() : Promise.resolve({ data: [] }),
     tasksApi ? tasksApi.listOverdue() : Promise.resolve({ data: [] }),
     projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
-    // Same horizon as getUpcoming, padded a day each side: the server's
+    // Events for the same horizon, padded a day each side: the server's
     // "today" can differ from the viewer's near midnight, and the per-day
     // grouping drops anything outside the visible columns anyway.
-    getDisplayEvents(addDaysLocalISO(-1), addDaysLocalISO(32)),
+    getDisplayEvents(addDaysLocalISO(-1), addDaysLocalISO(HORIZON_DAYS + 2)),
   ]);
 
   // getUpcoming's today−1 skew buffer overlaps listOverdue on yesterday's rows,

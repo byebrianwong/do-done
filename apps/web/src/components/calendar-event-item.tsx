@@ -1,15 +1,38 @@
 import type { CalendarEvent } from "@do-done/shared";
+import { colors } from "@do-done/ui";
 
-// Fallback when a calendar has no color — matches the app accent.
-export const EVENT_FALLBACK_COLOR = "#6366f1";
+// Fallback when a calendar has no color — the app accent token.
+export const EVENT_FALLBACK_COLOR = colors.primary[500];
 
-/** "9:00 – 10:30 AM" in the viewer's local timezone; null for all-day. */
+/** Wall-clock minutes-since-midnight from an RFC3339 string, or null. */
+export function eventClockMinutes(rfc3339: string | null): number | null {
+  if (!rfc3339) return null;
+  const hh = Number(rfc3339.slice(11, 13));
+  const mm = Number(rfc3339.slice(14, 16));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function clockLabel(minutes: number): string {
+  const hh = Math.floor(minutes / 60) % 24;
+  const mm = minutes % 60;
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  const suffix = hh < 12 ? "AM" : "PM";
+  return mm === 0 ? `${h12} ${suffix}` : `${h12}:${String(mm).padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * "9:00 – 10:30 AM"; null for all-day. Derived from the RFC3339 string's own
+ * clock portion — the fetch layer requested event times in the user's
+ * preferred timezone, and string math (unlike Date + toLocaleTimeString) gives
+ * identical output on server and client, so SSR HTML matches hydration.
+ */
 export function formatEventTime(event: CalendarEvent): string | null {
-  if (event.all_day || !event.start) return null;
-  const fmt = (d: Date) =>
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const start = new Date(event.start);
-  return event.end ? `${fmt(start)} – ${fmt(new Date(event.end))}` : fmt(start);
+  if (event.all_day) return null;
+  const start = eventClockMinutes(event.start);
+  if (start === null) return null;
+  const end = eventClockMinutes(event.end);
+  return end === null ? clockLabel(start) : `${clockLabel(start)} – ${clockLabel(end)}`;
 }
 
 /**

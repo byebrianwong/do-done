@@ -21,9 +21,12 @@ export default async function SettingsPage({
 
   const isConnected = !!sync;
 
+  // select("*"), not named columns: naming show_calendar_events would error
+  // the whole read (timezone included) on a deploy that lands before its
+  // migration; with * a missing column is simply absent and defaults apply.
   const { data: prefs } = await supabase
     .from("user_preferences")
-    .select("timezone, show_calendar_events")
+    .select("*")
     .eq("user_id", user?.id ?? "")
     .maybeSingle();
   const timezone = prefs?.timezone ?? "America/New_York";

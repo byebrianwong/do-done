@@ -1,14 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   addDaysLocalISO,
+  calendarEventsOnDay,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
   formatWhenTime,
   nextWeekdayLocalISO,
+  groupCalendarEventsByDay,
   resolveQuickSchedule,
   todayLocalISO,
 } from "./utils.js";
+import type { CalendarEvent } from "./schemas.js";
 
 describe("formatFullDate", () => {
   const now = new Date("2026-07-03T10:00:00");
@@ -147,5 +150,89 @@ describe("formatScheduleHint", () => {
 
   it("returns the input unchanged when it isn't a parseable date", () => {
     expect(formatScheduleHint("not a date", wed)).toBe("not a date");
+  });
+});
+
+describe("calendarEventsOnDay / groupCalendarEventsByDay", () => {
+  const event = (over: Partial<CalendarEvent>): CalendarEvent => ({
+    id: "e1",
+    calendar_id: "primary",
+    calendar_name: null,
+    color: null,
+    title: "Event",
+    all_day: false,
+    start_date: null,
+    end_date: null,
+    start: null,
+    end: null,
+    location: null,
+    html_link: null,
+    ...over,
+  });
+
+  const timed = event({
+    id: "timed",
+    start: "2026-07-03T10:00:00-07:00",
+    end: "2026-07-03T11:00:00-07:00",
+  });
+  const earlier = event({
+    id: "earlier",
+    start: "2026-07-03T08:00:00-07:00",
+    end: "2026-07-03T08:30:00-07:00",
+  });
+  const allDay = event({
+    id: "allday",
+    all_day: true,
+    start_date: "2026-07-03",
+    end_date: "2026-07-04", // exclusive → July 3rd only
+  });
+  const multiDay = event({
+    id: "multi",
+    all_day: true,
+    start_date: "2026-07-02",
+    end_date: "2026-07-05", // exclusive → 2nd, 3rd, 4th
+  });
+
+  it("buckets timed events on their start's date portion", () => {
+    expect(calendarEventsOnDay([timed], "2026-07-03").map((e) => e.id)).toEqual(
+      ["timed"]
+    );
+    expect(calendarEventsOnDay([timed], "2026-07-04")).toEqual([]);
+  });
+
+  it("spans all-day events across [start_date, end_date) and sorts all-day first, then by start", () => {
+    const events = [timed, earlier, allDay, multiDay];
+    expect(calendarEventsOnDay(events, "2026-07-03").map((e) => e.id)).toEqual([
+      "allday",
+      "multi",
+      "earlier",
+      "timed",
+    ]);
+    expect(calendarEventsOnDay(events, "2026-07-04").map((e) => e.id)).toEqual([
+      "multi",
+    ]);
+    expect(calendarEventsOnDay(events, "2026-07-05")).toEqual([]);
+  });
+
+  it("groupCalendarEventsByDay agrees with the per-day filter", () => {
+    const events = [timed, earlier, allDay, multiDay];
+    const grouped = groupCalendarEventsByDay(events);
+    for (const day of ["2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"]) {
+      expect((grouped.get(day) ?? []).map((e) => e.id)).toEqual(
+        calendarEventsOnDay(events, day).map((e) => e.id)
+      );
+    }
+    expect(grouped.has("2026-07-05")).toBe(false);
+  });
+
+  it("handles month boundaries when expanding multi-day events", () => {
+    const spanning = event({
+      id: "span",
+      all_day: true,
+      start_date: "2026-07-31",
+      end_date: "2026-08-02",
+    });
+    const grouped = groupCalendarEventsByDay([spanning]);
+    expect([...grouped.keys()].sort()).toEqual(["2026-07-31", "2026-08-01"]);
   });
 });

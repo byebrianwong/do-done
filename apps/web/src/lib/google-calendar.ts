@@ -258,11 +258,22 @@ export async function stopChannel(
 // into a lot of API calls — cap how many we read events from per page load.
 const MAX_DISPLAY_CALENDARS = 10;
 
+// Per-page API max is 250; follow nextPageToken a few pages per calendar so a
+// dense month isn't silently truncated, but don't chase pathological tails.
+const MAX_EVENT_PAGES = 4;
+
+// Partial-response mask: only the fields the CalendarEvent mapping below
+// reads. Keeps dense calendars from shipping attendee lists/attachments/etc.
+const EVENT_FIELDS =
+  "nextPageToken,items(id,status,summary,location,htmlLink,eventType,start,end,attendees(self,responseStatus),extendedProperties/private)";
+
 /**
  * List the user's Google Calendar events for read-only display inside DoDone.
  * Reads every calendar the user has visible in Google Calendar (their
  * `selected` calendars), not just the sync target, so the in-app day mirrors
- * what they'd see in Google. Excludes:
+ * what they'd see in Google. All dateTimes are returned in `timeZone` (the
+ * user's preferred zone), so the RFC3339 date/clock portions are directly
+ * usable as the user's wall time. Excludes:
  *  - events DoDone itself created for tasks (tagged with SYNC_TAG) — the task
  *    is already on screen, showing its mirror event would duplicate it
  *  - events the user declined
@@ -271,7 +282,8 @@ const MAX_DISPLAY_CALENDARS = 10;
 export async function listDisplayEvents(
   refreshToken: string,
   timeMin: string,
-  timeMax: string
+  timeMax: string,
+  timeZone: string
 ): Promise<CalendarEvent[]> {
   const calendar = calendarClientFor(refreshToken);
 
@@ -282,15 +294,25 @@ export async function listDisplayEvents(
 
   const perCalendar = await Promise.allSettled(
     visible.map(async (cal) => {
-      const { data } = await calendar.events.list({
-        calendarId: cal.id!,
-        timeMin,
-        timeMax,
-        singleEvents: true,
-        orderBy: "startTime",
-        maxResults: 250,
-      });
-      return { cal, items: data.items ?? [] };
+      const items: calendar_v3.Schema$Event[] = [];
+      let pageToken: string | undefined;
+      for (let page = 0; page < MAX_EVENT_PAGES; page++) {
+        const { data } = await calendar.events.list({
+          calendarId: cal.id!,
+          timeMin,
+          timeMax,
+          timeZone,
+          singleEvents: true,
+          orderBy: "startTime",
+          maxResults: 250,
+          fields: EVENT_FIELDS,
+          pageToken,
+        });
+        items.push(...(data.items ?? []));
+        if (!data.nextPageToken) break;
+        pageToken = data.nextPageToken;
+      }
+      return { cal, items };
     })
   );
 

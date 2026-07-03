@@ -48,17 +48,16 @@ export class UserPrefsApi {
   }
 
   /**
-   * Update the pet settings subset. RLS handles the user filter; we still
-   * scope by user_id when available to match the rest of the API surface.
+   * Apply a partial update to the prefs row, inserting a defaults row (with
+   * the patch applied) when none exists yet. RLS handles the user filter; we
+   * still scope by user_id when available to match the rest of the API
+   * surface. All public update methods delegate here so the update-or-seed
+   * dance lives in exactly one place.
    */
-  async updatePetSettings(
-    patch: PetSettingsPatch
+  private async patchPrefs(
+    patch: Record<string, unknown>,
+    label: string
   ): Promise<{ data: UserPreferences | null; error: Error | null }> {
-    if (Object.keys(patch).length === 0) {
-      // Nothing to write — short-circuit a `.get()` so the caller still gets
-      // the current row back.
-      return this.get();
-    }
     let query = this.supabase.from("user_preferences").update(patch);
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query.select().maybeSingle();
@@ -68,9 +67,7 @@ export class UserPrefsApi {
     if (!this.userId) {
       return {
         data: null,
-        error: new Error(
-          "UserPrefsApi.updatePetSettings requires userId to seed defaults"
-        ),
+        error: new Error(`${label} requires userId to seed defaults`),
       };
     }
     const insert = await this.supabase
@@ -84,6 +81,18 @@ export class UserPrefsApi {
     };
   }
 
+  /** Update the pet settings subset. */
+  async updatePetSettings(
+    patch: PetSettingsPatch
+  ): Promise<{ data: UserPreferences | null; error: Error | null }> {
+    if (Object.keys(patch).length === 0) {
+      // Nothing to write — short-circuit a `.get()` so the caller still gets
+      // the current row back.
+      return this.get();
+    }
+    return this.patchPrefs({ ...patch }, "UserPrefsApi.updatePetSettings");
+  }
+
   /**
    * Update the user's IANA timezone (e.g. "America/Los_Angeles"). Seeds a
    * defaults row if none exists yet.
@@ -91,28 +100,7 @@ export class UserPrefsApi {
   async updateTimezone(
     timezone: string
   ): Promise<{ data: UserPreferences | null; error: Error | null }> {
-    let query = this.supabase
-      .from("user_preferences")
-      .update({ timezone });
-    if (this.userId) query = query.eq("user_id", this.userId);
-    const { data, error } = await query.select().maybeSingle();
-    if (error) return { data: null, error: error as Error };
-    if (data) return { data: data as UserPreferences, error: null };
-    if (!this.userId) {
-      return {
-        data: null,
-        error: new Error("updateTimezone requires userId to seed defaults"),
-      };
-    }
-    const insert = await this.supabase
-      .from("user_preferences")
-      .insert({ user_id: this.userId, timezone })
-      .select()
-      .single();
-    return {
-      data: (insert.data as UserPreferences | null) ?? null,
-      error: insert.error as Error | null,
-    };
+    return this.patchPrefs({ timezone }, "updateTimezone");
   }
 
   /**
@@ -122,30 +110,10 @@ export class UserPrefsApi {
   async updateShowCalendarEvents(
     show: boolean
   ): Promise<{ data: UserPreferences | null; error: Error | null }> {
-    let query = this.supabase
-      .from("user_preferences")
-      .update({ show_calendar_events: show });
-    if (this.userId) query = query.eq("user_id", this.userId);
-    const { data, error } = await query.select().maybeSingle();
-    if (error) return { data: null, error: error as Error };
-    if (data) return { data: data as UserPreferences, error: null };
-    if (!this.userId) {
-      return {
-        data: null,
-        error: new Error(
-          "updateShowCalendarEvents requires userId to seed defaults"
-        ),
-      };
-    }
-    const insert = await this.supabase
-      .from("user_preferences")
-      .insert({ user_id: this.userId, show_calendar_events: show })
-      .select()
-      .single();
-    return {
-      data: (insert.data as UserPreferences | null) ?? null,
-      error: insert.error as Error | null,
-    };
+    return this.patchPrefs(
+      { show_calendar_events: show },
+      "updateShowCalendarEvents"
+    );
   }
 
   /**

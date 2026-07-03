@@ -16,12 +16,16 @@ import {
 import type { CalendarEvent, Task, Project } from "@do-done/shared";
 import {
   PRIORITY_CONFIG,
-  calendarEventsOnDay,
+  groupCalendarEventsByDay,
   todayLocalISO,
 } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
-import { EVENT_FALLBACK_COLOR, formatEventTime } from "./calendar-event-item";
+import {
+  EVENT_FALLBACK_COLOR,
+  eventClockMinutes,
+  formatEventTime,
+} from "./calendar-event-item";
 
 interface WeekViewProps {
   weekStart: string; // local YYYY-MM-DD (Monday)
@@ -73,6 +77,10 @@ export function WeekView({
     for (const p of projects) m.set(p.id, p.color);
     return m;
   }, [projects]);
+
+  // Bucket once per events change — DayColumn re-renders every drag frame and
+  // shouldn't re-scan the whole events array 7 times each time.
+  const eventsByDay = useMemo(() => groupCalendarEventsByDay(events), [events]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -206,7 +214,7 @@ export function WeekView({
               key={d.toISOString()}
               day={d}
               tasks={localTasks}
-              events={events}
+              events={eventsByDay.get(todayLocalISO(d)) ?? []}
               projectColors={projectColors}
             />
           ))}
@@ -244,9 +252,8 @@ function DayColumn({
   // Everything else (no due_time, or no duration) shows in the all-day strip.
   const allDay = onThisDay.filter((t) => !timed.includes(t));
 
-  const eventsToday = calendarEventsOnDay(events, dayKey);
-  const allDayEvents = eventsToday.filter((e) => e.all_day);
-  const timedEvents = eventsToday.filter((e) => !e.all_day);
+  const allDayEvents = events.filter((e) => e.all_day);
+  const timedEvents = events.filter((e) => !e.all_day);
 
   return (
     <div
@@ -323,22 +330,34 @@ function AllDayEventChip({ event }: { event: CalendarEvent }) {
 /**
  * A timed Google Calendar event positioned on the day grid. Rendered UNDER
  * task blocks (tasks stay grabbable) with a hollow outline treatment so
- * meetings read as context, not to-dos.
+ * meetings read as context, not to-dos. Positioned from the RFC3339 string's
+ * own clock (the fetch layer returns times in the user's preferred zone) —
+ * the same basis that chose this event's day column. Events poking past the
+ * grid's visible hours are clamped, not dropped, so a 5–7 AM meeting still
+ * shows its 6–7 portion.
  */
 function EventBlock({ event }: { event: CalendarEvent }) {
-  if (!event.start) return null;
+  const clockStart = eventClockMinutes(event.start);
+  if (clockStart === null) return null;
+  const durationMin =
+    event.start && event.end
+      ? Math.max(
+          15,
+          Math.round(
+            (new Date(event.end).getTime() - new Date(event.start).getTime()) /
+              60_000
+          )
+        )
+      : 60;
 
-  // Position in the viewer's local timezone, matching the grid's hour labels.
-  const start = new Date(event.start);
-  const end = event.end ? new Date(event.end) : null;
-  const startMin = (start.getHours() - HOUR_START) * 60 + start.getMinutes();
-  const durationMin = end
-    ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60_000))
-    : 60;
-  const top = startMin / MIN_PER_PX;
-  const height = durationMin / MIN_PER_PX;
+  const gridMin = (HOUR_END - HOUR_START) * 60;
+  const startMin = clockStart - HOUR_START * 60;
+  const visibleStart = Math.max(startMin, 0);
+  const visibleEnd = Math.min(startMin + durationMin, gridMin);
+  if (visibleEnd <= visibleStart) return null; // entirely outside grid hours
 
-  if (top < 0 || top > (HOUR_END - HOUR_START) * HOUR_HEIGHT) return null;
+  const top = visibleStart / MIN_PER_PX;
+  const height = (visibleEnd - visibleStart) / MIN_PER_PX;
 
   const color = event.color ?? EVENT_FALLBACK_COLOR;
   const style: React.CSSProperties = {

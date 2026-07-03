@@ -38,6 +38,9 @@ export function CalendarSection({
   const [showEventsLocal, setShowEventsLocal] = useState(showEvents);
   const [savingShowEvents, setSavingShowEvents] = useState(false);
 
+  // No router.refresh() here: the checkbox is driven by local state (with
+  // rollback on failure), and the pref only affects OTHER pages' server
+  // renders — they refetch on navigation anyway.
   async function handleToggleShowEvents(next: boolean) {
     setShowEventsLocal(next);
     setSavingShowEvents(true);
@@ -53,7 +56,6 @@ export function CalendarSection({
       setSyncResult(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSavingShowEvents(false);
-      startTransition(() => router.refresh());
     }
   }
 

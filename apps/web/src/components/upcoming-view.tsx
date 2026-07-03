@@ -2,7 +2,7 @@
 
 import {
   addDaysLocalISO,
-  calendarEventsOnDay,
+  groupCalendarEventsByDay,
   isManualSort,
   isOverdue,
   toggleCollapsed,
@@ -13,7 +13,11 @@ import {
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
-import { NO_DATE_KEY, OVERDUE_KEY } from "./draggable-upcoming";
+import {
+  NO_DATE_KEY,
+  OVERDUE_KEY,
+  type UpcomingDateGroup,
+} from "./draggable-upcoming";
 
 function formatDayHeading(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -37,13 +41,7 @@ function formatDayHeading(dateStr: string): string {
 function buildDateGroups(
   tasks: Task[],
   events: CalendarEvent[]
-): {
-  date: string;
-  label: string;
-  tasks: Task[];
-  events?: CalendarEvent[];
-  emptyHint?: string;
-}[] {
+): UpcomingDateGroup[] {
   // The browser's local day is the authority on "today". Anything scheduled or
   // due strictly before it is overdue and gets its own section at the top —
   // mirroring the mobile Upcoming screen. (isOverdue is the canonical, shared
@@ -66,13 +64,10 @@ function buildDateGroups(
     byDate.set(d, list);
   }
 
-  const groups: {
-    date: string;
-    label: string;
-    tasks: Task[];
-    events?: CalendarEvent[];
-    emptyHint?: string;
-  }[] = [];
+  // One bucketing pass instead of a per-column scan of the whole events array.
+  const eventsByDay = groupCalendarEventsByDay(events);
+
+  const groups: UpcomingDateGroup[] = [];
   if (overdue.length > 0) {
     groups.push({ date: OVERDUE_KEY, label: "Overdue", tasks: overdue });
   }
@@ -91,17 +86,25 @@ function buildDateGroups(
       date: key,
       label: formatDayHeading(key),
       tasks: byDate.get(key) ?? [],
-      events: calendarEventsOnDay(events, key),
+      events: eventsByDay.get(key) ?? [],
     });
     byDate.delete(key);
   }
-  const remaining = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
-  for (const [date, dayTasks] of remaining) {
+  // Beyond the fixed 14 days, a day earns a column if it has tasks OR events —
+  // an event-only day 3 weeks out would otherwise be fetched but never shown.
+  // (Days before today can appear in eventsByDay from the fetch padding; only
+  // future days get event columns.)
+  const lastFixedDay = addDaysLocalISO(13);
+  const extraDays = new Set(byDate.keys());
+  for (const day of eventsByDay.keys()) {
+    if (day > lastFixedDay) extraDays.add(day);
+  }
+  for (const date of [...extraDays].sort()) {
     groups.push({
       date,
       label: formatDayHeading(date),
-      tasks: dayTasks,
-      events: calendarEventsOnDay(events, date),
+      tasks: byDate.get(date) ?? [],
+      events: eventsByDay.get(date) ?? [],
     });
   }
   return groups;

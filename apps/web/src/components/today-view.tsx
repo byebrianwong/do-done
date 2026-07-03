@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   calendarEventsOnDay,
   isManualSort,
@@ -19,12 +19,16 @@ import { CalendarEventRow } from "./calendar-event-item";
 /** Today's Google Calendar events — the fixed skeleton of the day, shown
  *  above the task list so tasks can be planned around them. */
 function TodaySchedule({ events }: { events: CalendarEvent[] }) {
-  // Re-filter to the VIEWER's today: the server fetched a padded range, and
-  // its "today" may differ from the browser's near midnight.
-  const todayEvents = useMemo(
-    () => calendarEventsOnDay(events, todayLocalISO()),
-    [events]
-  );
+  // Render only after mount: "today" is the VIEWER's local day, which can
+  // differ from the server's during SSR (UTC host, evening in the Americas) —
+  // rendering server-side would flash the wrong day's events and trip a
+  // hydration mismatch. Recomputed every render (cheap — a few events) so an
+  // overnight tab picks up the new day on its next interaction.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+
+  const todayEvents = calendarEventsOnDay(events, todayLocalISO());
   if (todayEvents.length === 0) return null;
   return (
     <div className="mb-4 rounded-xl border border-neutral-200 bg-white py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
