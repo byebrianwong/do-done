@@ -17,6 +17,7 @@ no second hue.
 | 04 | dd Ligature | Geometric lowercase "dd": first d outlined (to do), second d filled (done). |
 | 05 | Progress Ring | The day's loop, all but closed, with the check already inside. White background. |
 | 06 | Night Check | Dark-mode mark — gradient tick with an indigo afterglow, Linear-style. |
+| 07 | Double Check ×d | 01's ghost/solid pair redrawn as italic d's: a nearly-closed bowl with the check's diagonal as the slanted ascender — the pair reads "dd". |
 
 ## Adopting one as the app icon
 
