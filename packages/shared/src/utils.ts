@@ -53,6 +53,41 @@ function compareCalendarEvents(a: CalendarEvent, b: CalendarEvent): number {
   return (a.start ?? "").localeCompare(b.start ?? "");
 }
 
+/** Wall-clock minutes-since-midnight from an RFC3339 string, or null. */
+export function eventClockMinutes(rfc3339: string | null): number | null {
+  if (!rfc3339) return null;
+  const hh = Number(rfc3339.slice(11, 13));
+  const mm = Number(rfc3339.slice(14, 16));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function clockLabel(minutes: number): string {
+  const hh = Math.floor(minutes / 60) % 24;
+  const mm = minutes % 60;
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  const suffix = hh < 12 ? "AM" : "PM";
+  return mm === 0
+    ? `${h12} ${suffix}`
+    : `${h12}:${String(mm).padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * "9:00 – 10:30 AM"; null for all-day. Derived from the RFC3339 string's own
+ * clock portion — the fetch layer requests event times in the user's
+ * preferred timezone, and string math (unlike Date + toLocaleTimeString) gives
+ * identical output everywhere (web SSR, browser, React Native).
+ */
+export function formatEventTime(event: CalendarEvent): string | null {
+  if (event.all_day) return null;
+  const start = eventClockMinutes(event.start);
+  if (start === null) return null;
+  const end = eventClockMinutes(event.end);
+  return end === null
+    ? clockLabel(start)
+    : `${clockLabel(start)} – ${clockLabel(end)}`;
+}
+
 // Multi-day all-day events expand to one entry per covered day; cap the
 // expansion so a malformed or years-long event can't explode the map.
 const MAX_ALL_DAY_SPAN = 62;

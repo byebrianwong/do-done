@@ -123,5 +123,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       projectId: "e987bcc6-0e98-4b76-960c-40756e452fef",
     },
     git: gitInfo(),
+    // Deployed DoDone web app — the mobile app calls its /api/calendar/events
+    // route to show Google Calendar events. EXPO_PUBLIC_WEB_APP_URL overrides
+    // at runtime; leaving both unset just hides calendar events on mobile.
+    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? null,
   },
 });

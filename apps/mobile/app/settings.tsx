@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+import { getUserPrefsApi, supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
+import { queryClient } from '@/lib/query-client';
+import { calendarKeys } from '@/lib/calendar-queries';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -53,6 +56,38 @@ export default function SettingsScreen() {
   const { session } = useAuth();
   const router = useRouter();
   const [checking, setChecking] = useState(false);
+
+  // null = still loading the preference row.
+  const [showEvents, setShowEvents] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getUserPrefsApi()
+      .then((api) => api.get())
+      .then(({ data }) => {
+        if (!cancelled) setShowEvents(data?.show_calendar_events ?? true);
+      })
+      .catch(() => {
+        // Leave the switch in its loading state — better than showing a value
+        // we can't back up.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggleShowEvents(next: boolean) {
+    setShowEvents(next); // optimistic; rolled back on failure
+    try {
+      const api = await getUserPrefsApi();
+      const { error } = await api.updateShowCalendarEvents(next);
+      if (error) throw error;
+      // Event lists gate on this pref server-side — refetch them.
+      void queryClient.invalidateQueries({ queryKey: calendarKeys.all });
+    } catch {
+      setShowEvents(!next);
+      Alert.alert('Could not save', 'Check your connection and try again.');
+    }
+  }
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const sha =
@@ -141,14 +176,34 @@ export default function SettingsScreen() {
         <SettingsRow
           icon="calendar-outline"
           label="Google Calendar"
-          value="Web only"
+          value="Connect on web"
           onPress={() =>
             Alert.alert(
               'Google Calendar',
-              'Calendar sync is configured from the DoDone web app for now. Once connected there, scheduled tasks stay in sync on mobile.'
+              'Connect your calendar from the DoDone web app. Once connected, scheduled tasks stay in sync and your calendar events show up in Today and Upcoming here.'
             )
           }
         />
+        <View style={styles.row}>
+          <Ionicons
+            name="today-outline"
+            size={20}
+            color="#6b7280"
+            style={styles.rowIcon}
+          />
+          <Text style={styles.rowLabel}>Show calendar events</Text>
+          {showEvents === null ? (
+            <ActivityIndicator size="small" color="#9ca3af" />
+          ) : (
+            <Switch
+              value={showEvents}
+              onValueChange={(v) => {
+                void toggleShowEvents(v);
+              }}
+              trackColor={{ true: '#6366f1' }}
+            />
+          )}
+        </View>
       </View>
 
       <Text style={styles.sectionHeader}>App version</Text>
