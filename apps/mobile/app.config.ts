@@ -33,7 +33,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   splash: {
     image: "./assets/images/splash-icon.png",
     resizeMode: "contain",
-    backgroundColor: "#ffffff",
+    backgroundColor: "#6366f1",
   },
   ios: {
     supportsTablet: true,
@@ -53,7 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: "com.beamer408.dodone",
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#ffffff",
+      backgroundColor: "#6366f1",
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
