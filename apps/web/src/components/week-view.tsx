@@ -13,15 +13,26 @@ import {
   useDroppable,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import type { Task, Project } from "@do-done/shared";
-import { PRIORITY_CONFIG, todayLocalISO } from "@do-done/shared";
+import type { CalendarEvent, Task, Project } from "@do-done/shared";
+import {
+  PRIORITY_CONFIG,
+  groupCalendarEventsByDay,
+  todayLocalISO,
+} from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import {
+  EVENT_FALLBACK_COLOR,
+  eventClockMinutes,
+  formatEventTime,
+} from "./calendar-event-item";
 
 interface WeekViewProps {
   weekStart: string; // local YYYY-MM-DD (Monday)
   tasks: Task[];
   projects: Project[];
+  /** Google Calendar events overlapping the week (read-only overlay). */
+  events?: CalendarEvent[];
 }
 
 const HOUR_START = 6;
@@ -29,7 +40,12 @@ const HOUR_END = 22; // exclusive
 const HOUR_HEIGHT = 48; // px
 const MIN_PER_PX = 60 / HOUR_HEIGHT;
 
-export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
+export function WeekView({
+  weekStart,
+  tasks,
+  projects,
+  events = [],
+}: WeekViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [localTasks, setLocalTasks] = useState(tasks);
@@ -61,6 +77,10 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
     for (const p of projects) m.set(p.id, p.color);
     return m;
   }, [projects]);
+
+  // Bucket once per events change — DayColumn re-renders every drag frame and
+  // shouldn't re-scan the whole events array 7 times each time.
+  const eventsByDay = useMemo(() => groupCalendarEventsByDay(events), [events]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -194,6 +214,7 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
               key={d.toISOString()}
               day={d}
               tasks={localTasks}
+              events={eventsByDay.get(todayLocalISO(d)) ?? []}
               projectColors={projectColors}
             />
           ))}
@@ -208,10 +229,12 @@ export function WeekView({ weekStart, tasks, projects }: WeekViewProps) {
 function DayColumn({
   day,
   tasks,
+  events,
   projectColors,
 }: {
   day: Date;
   tasks: Task[];
+  events: CalendarEvent[];
   projectColors: Map<string, string>;
 }) {
   const dayKey = todayLocalISO(day); // local YYYY-MM-DD, matches stored when_date
@@ -229,6 +252,9 @@ function DayColumn({
   // Everything else (no due_time, or no duration) shows in the all-day strip.
   const allDay = onThisDay.filter((t) => !timed.includes(t));
 
+  const allDayEvents = events.filter((e) => e.all_day);
+  const timedEvents = events.filter((e) => !e.all_day);
+
   return (
     <div
       ref={setNodeRef}
@@ -237,6 +263,9 @@ function DayColumn({
       }`}
     >
       <div className="min-h-[28px] space-y-0.5 border-b border-neutral-200 bg-neutral-50/60 px-1 py-1 dark:border-neutral-800 dark:bg-neutral-900/40">
+        {allDayEvents.map((event) => (
+          <AllDayEventChip key={event.id} event={event} />
+        ))}
         {allDay.map((task) => (
           <AllDayChip
             key={task.id}
@@ -258,6 +287,10 @@ function DayColumn({
           />
         ))}
 
+        {timedEvents.map((event) => (
+          <EventBlock key={event.id} event={event} />
+        ))}
+
         {timed.map((task) => (
           <TaskBlock
             key={task.id}
@@ -270,6 +303,88 @@ function DayColumn({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * A Google Calendar event in the all-day strip. Visually distinct from task
+ * chips — dashed border instead of a solid fill — and links out to Google
+ * Calendar rather than dragging (events are edited there, not here).
+ */
+function AllDayEventChip({ event }: { event: CalendarEvent }) {
+  const color = event.color ?? EVENT_FALLBACK_COLOR;
+  return (
+    <a
+      href={event.html_link ?? undefined}
+      target="_blank"
+      rel="noreferrer"
+      title={event.calendar_name ?? undefined}
+      style={{ borderColor: color, color }}
+      className="block break-words rounded-sm border border-dashed px-1.5 py-0.5 text-[11px] font-medium leading-tight hover:opacity-80"
+    >
+      {event.title}
+    </a>
+  );
+}
+
+/**
+ * A timed Google Calendar event positioned on the day grid. Rendered UNDER
+ * task blocks (tasks stay grabbable) with a hollow outline treatment so
+ * meetings read as context, not to-dos. Positioned from the RFC3339 string's
+ * own clock (the fetch layer returns times in the user's preferred zone) —
+ * the same basis that chose this event's day column. Events poking past the
+ * grid's visible hours are clamped, not dropped, so a 5–7 AM meeting still
+ * shows its 6–7 portion.
+ */
+function EventBlock({ event }: { event: CalendarEvent }) {
+  const clockStart = eventClockMinutes(event.start);
+  if (clockStart === null) return null;
+  const durationMin =
+    event.start && event.end
+      ? Math.max(
+          15,
+          Math.round(
+            (new Date(event.end).getTime() - new Date(event.start).getTime()) /
+              60_000
+          )
+        )
+      : 60;
+
+  const gridMin = (HOUR_END - HOUR_START) * 60;
+  const startMin = clockStart - HOUR_START * 60;
+  const visibleStart = Math.max(startMin, 0);
+  const visibleEnd = Math.min(startMin + durationMin, gridMin);
+  if (visibleEnd <= visibleStart) return null; // entirely outside grid hours
+
+  const top = visibleStart / MIN_PER_PX;
+  const height = (visibleEnd - visibleStart) / MIN_PER_PX;
+
+  const color = event.color ?? EVENT_FALLBACK_COLOR;
+  const style: React.CSSProperties = {
+    top,
+    height: Math.max(height, 18),
+    borderColor: color,
+    backgroundColor: `${color}0d`,
+  };
+
+  return (
+    <a
+      href={event.html_link ?? undefined}
+      target="_blank"
+      rel="noreferrer"
+      title={event.calendar_name ?? undefined}
+      style={style}
+      className="absolute left-1 right-1 overflow-hidden rounded-md border border-dashed px-2 py-1 text-left text-xs hover:opacity-80"
+    >
+      <div className="break-words font-medium leading-tight text-neutral-700 dark:text-neutral-200">
+        {event.title}
+      </div>
+      {height > 30 && (
+        <div className="mt-0.5 text-[10px] text-neutral-500">
+          {formatEventTime(event)}
+        </div>
+      )}
+    </a>
   );
 }
 

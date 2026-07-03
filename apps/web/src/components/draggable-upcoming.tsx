@@ -21,20 +21,26 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { Task, Project } from "@do-done/shared";
+import type { CalendarEvent, Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
 import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
+import { CalendarEventList } from "./calendar-event-item";
+
+/** One day column of the Upcoming view (or the Overdue/No-date sentinels). */
+export interface UpcomingDateGroup {
+  date: string;
+  label: string;
+  tasks: Task[];
+  /** Read-only Google Calendar events on this day, shown above the tasks. */
+  events?: CalendarEvent[];
+  emptyHint?: string;
+}
 
 export interface DraggableUpcomingProps {
-  groups: Array<{
-    date: string;
-    label: string;
-    tasks: Task[];
-    emptyHint?: string;
-  }>;
+  groups: UpcomingDateGroup[];
   projects?: Project[];
   /** Collapsed day keys (g.date) — persisted in the view's config. */
   collapsed?: string[];
@@ -131,6 +137,7 @@ function DateGroup({
   label,
   taskIds,
   tasks,
+  events = [],
   projects,
   emptyHint,
   isDragActive,
@@ -141,6 +148,7 @@ function DateGroup({
   label: string;
   taskIds: string[];
   tasks: Map<string, Task>;
+  events?: CalendarEvent[];
   projects?: Project[];
   emptyHint?: string;
   isDragActive: boolean;
@@ -178,6 +186,9 @@ function DateGroup({
       {/* Collapsed days aren't drop targets in v1 — expand to drop in. */}
       {!collapsed ? (
         <>
+          {/* Calendar events sit above the tasks: they're fixed points in the
+              day the tasks schedule around. Not drag targets. */}
+          <CalendarEventList events={events} />
           <SortableContext
             id={`group:${date}`}
             items={taskIds}
@@ -489,6 +500,7 @@ export function DraggableUpcoming({
             label={g.label}
             taskIds={byDate.get(g.date) ?? []}
             tasks={tasks}
+            events={g.events}
             projects={projects}
             emptyHint={g.emptyHint}
             isDragActive={draggingId !== null}

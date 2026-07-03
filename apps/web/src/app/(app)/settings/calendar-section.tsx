@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { getClientUserPrefsApi } from "@/lib/supabase/user-prefs-client";
 
 interface CalendarOption {
   id: string;
@@ -11,6 +12,8 @@ interface CalendarOption {
 
 interface CalendarSectionProps {
   isConnected: boolean;
+  /** user_preferences.show_calendar_events — show events inside DoDone views. */
+  showEvents: boolean;
   syncedAt: string | null;
   status: "connected" | "disconnected" | "error" | null;
   errorMessage: string | null;
@@ -18,6 +21,7 @@ interface CalendarSectionProps {
 
 export function CalendarSection({
   isConnected,
+  showEvents,
   syncedAt,
   status,
   errorMessage,
@@ -30,6 +34,30 @@ export function CalendarSection({
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [selectedCal, setSelectedCal] = useState("primary");
   const [savingCal, setSavingCal] = useState(false);
+
+  const [showEventsLocal, setShowEventsLocal] = useState(showEvents);
+  const [savingShowEvents, setSavingShowEvents] = useState(false);
+
+  // No router.refresh() here: the checkbox is driven by local state (with
+  // rollback on failure), and the pref only affects OTHER pages' server
+  // renders — they refetch on navigation anyway.
+  async function handleToggleShowEvents(next: boolean) {
+    setShowEventsLocal(next);
+    setSavingShowEvents(true);
+    try {
+      const prefs = await getClientUserPrefsApi();
+      const { error } = await prefs.updateShowCalendarEvents(next);
+      if (error) {
+        setShowEventsLocal(!next);
+        setSyncResult(`Error saving preference: ${error.message}`);
+      }
+    } catch (e) {
+      setShowEventsLocal(!next);
+      setSyncResult(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingShowEvents(false);
+    }
+  }
 
   // Load the user's Google calendars once connected, so they can pick which one
   // to sync to.
@@ -176,6 +204,30 @@ export function CalendarSection({
             Switching re-syncs your tasks to the chosen calendar. Events already
             on the previous calendar aren&rsquo;t removed automatically.
           </p>
+        </div>
+      )}
+
+      {isConnected && (
+        <div className="mt-4 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={showEventsLocal}
+              disabled={savingShowEvents}
+              onChange={(e) => handleToggleShowEvents(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-indigo-500"
+            />
+            <span>
+              <span className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                Show calendar events in DoDone
+              </span>
+              <span className="mt-0.5 block text-[11px] text-neutral-400">
+                Display events from your visible Google calendars alongside
+                tasks in Today, Upcoming, and Calendar — so you can see
+                everything happening in your day.
+              </span>
+            </span>
+          </label>
         </div>
       )}
 

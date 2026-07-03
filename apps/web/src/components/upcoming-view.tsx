@@ -1,10 +1,23 @@
 "use client";
 
-import { addDaysLocalISO, isManualSort, isOverdue, toggleCollapsed, type Project, type Task } from "@do-done/shared";
+import {
+  addDaysLocalISO,
+  groupCalendarEventsByDay,
+  isManualSort,
+  isOverdue,
+  toggleCollapsed,
+  type CalendarEvent,
+  type Project,
+  type Task,
+} from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { CuratedDisplayView } from "./curated-display-view";
 import { DraggableUpcoming } from "./draggable-upcoming-client";
-import { NO_DATE_KEY, OVERDUE_KEY } from "./draggable-upcoming";
+import {
+  NO_DATE_KEY,
+  OVERDUE_KEY,
+  type UpcomingDateGroup,
+} from "./draggable-upcoming";
 
 function formatDayHeading(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -26,8 +39,9 @@ function formatDayHeading(dateStr: string): string {
  *  next 14 days as drop targets, then any further-out days that have tasks.
  *  when_date wins over due_date. */
 function buildDateGroups(
-  tasks: Task[]
-): { date: string; label: string; tasks: Task[]; emptyHint?: string }[] {
+  tasks: Task[],
+  events: CalendarEvent[]
+): UpcomingDateGroup[] {
   // The browser's local day is the authority on "today". Anything scheduled or
   // due strictly before it is overdue and gets its own section at the top —
   // mirroring the mobile Upcoming screen. (isOverdue is the canonical, shared
@@ -50,7 +64,10 @@ function buildDateGroups(
     byDate.set(d, list);
   }
 
-  const groups: { date: string; label: string; tasks: Task[]; emptyHint?: string }[] = [];
+  // One bucketing pass instead of a per-column scan of the whole events array.
+  const eventsByDay = groupCalendarEventsByDay(events);
+
+  const groups: UpcomingDateGroup[] = [];
   if (overdue.length > 0) {
     groups.push({ date: OVERDUE_KEY, label: "Overdue", tasks: overdue });
   }
@@ -65,12 +82,30 @@ function buildDateGroups(
     // (getUpcoming) and the chips (formatDueDate) use. toISOString() here was
     // UTC and shifted the columns by a day for positive-offset zones.
     const key = addDaysLocalISO(i);
-    groups.push({ date: key, label: formatDayHeading(key), tasks: byDate.get(key) ?? [] });
+    groups.push({
+      date: key,
+      label: formatDayHeading(key),
+      tasks: byDate.get(key) ?? [],
+      events: eventsByDay.get(key) ?? [],
+    });
     byDate.delete(key);
   }
-  const remaining = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
-  for (const [date, dayTasks] of remaining) {
-    groups.push({ date, label: formatDayHeading(date), tasks: dayTasks });
+  // Beyond the fixed 14 days, a day earns a column if it has tasks OR events —
+  // an event-only day 3 weeks out would otherwise be fetched but never shown.
+  // (Days before today can appear in eventsByDay from the fetch padding; only
+  // future days get event columns.)
+  const lastFixedDay = addDaysLocalISO(13);
+  const extraDays = new Set(byDate.keys());
+  for (const day of eventsByDay.keys()) {
+    if (day > lastFixedDay) extraDays.add(day);
+  }
+  for (const date of [...extraDays].sort()) {
+    groups.push({
+      date,
+      label: formatDayHeading(date),
+      tasks: byDate.get(date) ?? [],
+      events: eventsByDay.get(date) ?? [],
+    });
   }
   return groups;
 }
@@ -78,10 +113,13 @@ function buildDateGroups(
 export function UpcomingView({
   allTasks,
   projects,
+  events = [],
   beforeContent,
 }: {
   allTasks: Task[];
   projects: Project[];
+  /** Google Calendar events for the visible horizon (read-only). */
+  events?: CalendarEvent[];
   beforeContent?: React.ReactNode;
 }) {
   return (
@@ -93,8 +131,10 @@ export function UpcomingView({
       beforeContent={beforeContent}
       curatedWhen={(c) => c.group === "date" && isManualSort(c)}
       renderCurated={(tasks, config, onConfigChange) => {
-        const groups = buildDateGroups(tasks);
-        const hasAny = groups.some((g) => g.tasks.length > 0);
+        const groups = buildDateGroups(tasks, events);
+        const hasAny = groups.some(
+          (g) => g.tasks.length > 0 || (g.events?.length ?? 0) > 0
+        );
         return hasAny ? (
           <DraggableUpcoming
             groups={groups}

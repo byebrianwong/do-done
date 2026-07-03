@@ -1,4 +1,4 @@
-import type { Task } from "./schemas.js";
+import type { CalendarEvent, Task } from "./schemas.js";
 
 /**
  * Today's date as YYYY-MM-DD in the runtime's LOCAL timezone.
@@ -21,6 +21,81 @@ export function addDaysLocalISO(days: number, from: Date = new Date()): string {
   const d = new Date(from);
   d.setDate(d.getDate() + days);
   return todayLocalISO(d);
+}
+
+/**
+ * The Google Calendar events that belong on local day `dayISO` (YYYY-MM-DD).
+ * All-day events span [start_date, end_date) — end exclusive, per Google —
+ * so multi-day events appear on every covered day. Timed events belong to
+ * the date portion of their RFC3339 start; the fetch layer requests event
+ * times in the user's preferred timezone, so that date IS the user's day.
+ * Sorted all-day first, then by start time.
+ */
+export function calendarEventsOnDay(
+  events: CalendarEvent[],
+  dayISO: string
+): CalendarEvent[] {
+  const onDay = events.filter((e) => {
+    if (e.all_day) {
+      return (
+        e.start_date !== null &&
+        e.start_date <= dayISO &&
+        (e.end_date === null || dayISO < e.end_date)
+      );
+    }
+    return e.start !== null && e.start.slice(0, 10) === dayISO;
+  });
+  return onDay.sort(compareCalendarEvents);
+}
+
+function compareCalendarEvents(a: CalendarEvent, b: CalendarEvent): number {
+  if (a.all_day !== b.all_day) return a.all_day ? -1 : 1;
+  return (a.start ?? "").localeCompare(b.start ?? "");
+}
+
+// Multi-day all-day events expand to one entry per covered day; cap the
+// expansion so a malformed or years-long event can't explode the map.
+const MAX_ALL_DAY_SPAN = 62;
+
+/** `YYYY-MM-DD` + 1 day, computed on string parts (no timezone involved). */
+function nextDayISO(dayISO: string): string {
+  const [y, m, d] = dayISO.split("-").map(Number);
+  return todayLocalISO(new Date(y, m - 1, d + 1));
+}
+
+/**
+ * Bucket events by day in one pass — same membership rule as
+ * `calendarEventsOnDay`, for callers that need many days at once (Upcoming's
+ * date columns, the week grid). Keys exist only for days that have events.
+ */
+export function groupCalendarEventsByDay(
+  events: CalendarEvent[]
+): Map<string, CalendarEvent[]> {
+  const byDay = new Map<string, CalendarEvent[]>();
+  const add = (day: string, e: CalendarEvent) => {
+    const list = byDay.get(day);
+    if (list) list.push(e);
+    else byDay.set(day, [e]);
+  };
+  for (const e of events) {
+    if (e.all_day) {
+      if (!e.start_date) continue;
+      let day = e.start_date;
+      for (
+        let i = 0;
+        i < MAX_ALL_DAY_SPAN && (e.end_date === null || day < e.end_date);
+        i++
+      ) {
+        add(day, e);
+        if (e.end_date === null) break; // single known day
+        day = nextDayISO(day);
+      }
+    } else if (e.start) {
+      add(e.start.slice(0, 10), e);
+    }
+  }
+  for (const list of byDay.values()) list.sort(compareCalendarEvents);
+  return byDay;
 }
 
 /**
