@@ -148,9 +148,9 @@ export async function pushTaskToCalendar(
   task: Task,
   timeZone: string,
   calendarId: string = "primary"
-): Promise<string | null> {
+): Promise<{ id: string | null; etag: string | null }> {
   const event = taskToEvent(task, timeZone);
-  if (!event) return null;
+  if (!event) return { id: null, etag: null };
 
   const calendar = calendarClientFor(refreshToken);
 
@@ -161,7 +161,7 @@ export async function pushTaskToCalendar(
       eventId: task.calendar_event_id,
       requestBody: event,
     });
-    return data.id ?? null;
+    return { id: data.id ?? null, etag: data.etag ?? null };
   }
 
   // Create new event
@@ -169,7 +169,7 @@ export async function pushTaskToCalendar(
     calendarId,
     requestBody: event,
   });
-  return data.id ?? null;
+  return { id: data.id ?? null, etag: data.etag ?? null };
 }
 
 export async function deleteCalendarEvent(
@@ -256,6 +256,7 @@ export async function stopChannel(
 
 export interface CalendarChange {
   eventId: string;
+  etag: string | null; // event version — used to skip our own push echoes
   taskId: string | null;
   allDay: boolean;
   date: string | null; // YYYY-MM-DD, set when allDay
@@ -295,6 +296,7 @@ export async function pullCalendarChanges(
     const allDay = !!item.start?.date && !item.start?.dateTime;
     return {
       eventId: item.id ?? "",
+      etag: item.etag ?? null,
       taskId: item.extendedProperties?.private?.do_done_task_id ?? null,
       allDay,
       date: item.start?.date ?? null,

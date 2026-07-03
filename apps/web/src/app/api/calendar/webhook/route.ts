@@ -68,6 +68,7 @@ async function applyChanges(
         p_due_date: null,
         p_due_time: null,
         p_duration: null,
+        p_etag: change.etag,
       });
     } else if (change.allDay && change.date) {
       // All-day event → set the date, clear time and duration.
@@ -77,6 +78,7 @@ async function applyChanges(
         p_due_date: change.date,
         p_due_time: null,
         p_duration: null,
+        p_etag: change.etag,
       });
     } else if (change.start) {
       const { date, time } = wallClockInZone(change.start, timeZone);
@@ -89,6 +91,7 @@ async function applyChanges(
         p_due_date: date,
         p_due_time: time,
         p_duration: duration,
+        p_etag: change.etag,
       });
     }
   }

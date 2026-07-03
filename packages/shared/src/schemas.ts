@@ -189,6 +189,7 @@ export const UpdateTaskInput = z.object({
   duration_minutes: z.number().int().positive().nullable().optional(),
   recurrence_rule: z.string().nullable().optional(),
   calendar_event_id: z.string().nullable().optional(),
+  calendar_event_etag: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   parent_task_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().optional(),

@@ -1,11 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { createServiceSupabase } from "@/lib/supabase/service";
 import { TasksApi } from "@do-done/api-client";
 import { wallClockInZone } from "@do-done/shared";
-import {
-  pushTaskToCalendar,
-  pullCalendarChanges,
-} from "@/lib/google-calendar";
+import { pushTaskToCalendar, pullCalendarChanges } from "@/lib/google-calendar";
+
+// googleapis needs the Node runtime; never run this on the edge.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Matches UserPreferencesSchema's default — used when a user has no prefs row.
 const DEFAULT_TIMEZONE = "America/New_York";
@@ -20,7 +22,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Get refresh token for this user
   const { data: sync, error: syncErr } = await supabase
     .from("calendar_sync")
     .select("*")
@@ -28,10 +29,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (syncErr || !sync) {
-    return NextResponse.json(
-      { error: "calendar_not_connected" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "calendar_not_connected" }, { status: 400 });
   }
 
   // Tasks store wall-clock dates/times in the user's timezone; pushing to and
@@ -42,11 +40,15 @@ export async function POST(request: NextRequest) {
     .eq("user_id", user.id)
     .maybeSingle();
   const timeZone = prefs?.timezone ?? DEFAULT_TIMEZONE;
+  const calendarId = sync.calendar_id ?? "primary";
 
   const tasks = new TasksApi(supabase, user.id);
+  // Pull changes go through the RPC (service role): it stamps app.sync_origin so
+  // the enqueue trigger doesn't loop, and applies etag-based echo suppression.
+  const service = createServiceSupabase();
   const stats = { pushed: 0, pulled: 0, errors: [] as string[] };
 
-  // ── PUSH: tasks with date+duration that aren't yet on the calendar
+  // ── PUSH: scheduled tasks (date required; time/duration optional)
   const { data: pushable, error: listErr } = await tasks.list({
     limit: 100,
     offset: 0,
@@ -59,14 +61,17 @@ export async function POST(request: NextRequest) {
       if (task.status === "done" || task.status === "cancelled") continue;
 
       try {
-        const eventId = await pushTaskToCalendar(
+        const pushed = await pushTaskToCalendar(
           sync.google_refresh_token,
           task,
           timeZone,
-          sync.calendar_id ?? "primary"
+          calendarId
         );
-        if (eventId && eventId !== task.calendar_event_id) {
-          await tasks.update(task.id, { calendar_event_id: eventId });
+        if (pushed.id) {
+          await tasks.update(task.id, {
+            calendar_event_id: pushed.id,
+            calendar_event_etag: pushed.etag,
+          });
         }
         stats.pushed++;
       } catch (e) {
@@ -81,33 +86,42 @@ export async function POST(request: NextRequest) {
     const { changes, nextSyncToken } = await pullCalendarChanges(
       sync.google_refresh_token,
       sync.last_sync_token,
-      sync.calendar_id ?? "primary"
+      calendarId
     );
 
     for (const change of changes) {
       if (!change.taskId) continue;
 
       if (change.status === "cancelled") {
-        await tasks.update(change.taskId, { calendar_event_id: null });
+        await service.rpc("calendar_apply_remote_change", {
+          p_task_id: change.taskId,
+          p_cancelled: true,
+          p_due_date: null,
+          p_due_time: null,
+          p_duration: null,
+          p_etag: change.etag,
+        });
       } else if (change.allDay && change.date) {
-        // All-day event → set the date and clear the time (self-corrects a
-        // stale time from a push/pull race); preserve the duration/estimate.
-        await tasks.update(change.taskId, {
-          when_date: change.date,
-          when_time: null,
+        await service.rpc("calendar_apply_remote_change", {
+          p_task_id: change.taskId,
+          p_cancelled: false,
+          p_due_date: change.date,
+          p_due_time: null,
+          p_duration: null,
+          p_etag: change.etag,
         });
       } else if (change.start) {
-        // change.start is an absolute instant; store the date/time the user
-        // sees on their wall clock, not the UTC representation.
         const { date, time } = wallClockInZone(change.start, timeZone);
-        const durationMinutes = change.end
+        const duration = change.end
           ? Math.round((change.end.getTime() - change.start.getTime()) / 60000)
           : null;
-
-        await tasks.update(change.taskId, {
-          when_date: date,
-          when_time: time,
-          ...(durationMinutes && { duration_minutes: durationMinutes }),
+        await service.rpc("calendar_apply_remote_change", {
+          p_task_id: change.taskId,
+          p_cancelled: false,
+          p_due_date: date,
+          p_due_time: time,
+          p_duration: duration,
+          p_etag: change.etag,
         });
       }
       stats.pulled++;
