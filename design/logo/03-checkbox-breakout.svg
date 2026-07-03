@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 03 · Checkbox Breakout — the tick overshoots the box: done, and then some -->
+  <rect width="1024" height="1024" fill="#f4f5fb"/>
+  <rect x="232" y="348" width="460" height="460" rx="104" fill="none"
+        stroke="#6366f1" stroke-width="50"/>
+  <!-- casing slices the box border where the tick crosses it -->
+  <path d="M356 592 L484 716 L800 320" fill="none" stroke="#f4f5fb"
+        stroke-width="122" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M356 592 L484 716 L800 320" fill="none" stroke="#4f46e5"
+        stroke-width="70" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
