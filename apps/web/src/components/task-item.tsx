@@ -33,6 +33,10 @@ import { useUndoToast } from "./undo-toast";
 export interface TaskItemProps {
   task: Task;
   projects?: Project[];
+  /** Suppress the per-row status pill. Set when the surrounding list is
+   *  grouped by status: the group header already states the status for every
+   *  row, so the badge is pure redundancy there. Defaults to false (shown). */
+  hideStatusBadge?: boolean;
 }
 
 /**
@@ -420,7 +424,7 @@ function InlineWhenEditor({
   );
 }
 
-export function TaskItem({ task, projects }: TaskItemProps) {
+export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
   const [editing, setEditing] = useState(false);
@@ -470,8 +474,11 @@ export function TaskItem({ task, projects }: TaskItemProps) {
   const statusColor = statusCfg?.color ?? "#94a3b8";
   // Show a status text chip for everything that isn't the boring default —
   // the circle color already encodes status, so this is redundant for the
-  // default cases. Kept for `next`, `in_progress`, `done`, `cancelled`.
+  // default cases. Kept for `next`, `later`, `in_progress`, `done`,
+  // `cancelled`. When the list is grouped by status, the group header states
+  // the status for every row, so the chip is redundant there too — hide it.
   const showStatusBadge =
+    !hideStatusBadge &&
     !!statusCfg &&
     task.status !== "not_started" &&
     task.status !== "inbox";
