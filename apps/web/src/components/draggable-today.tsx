@@ -321,8 +321,10 @@ function DroppableList({
           isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
         } ${className ?? ""}`}
       >
+        {/* py-1 + text-xs = exactly the list's min-h (1.5rem), so an empty
+            section doesn't grow when the hint appears at drag start. */}
         {isDragActive && tasks.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
+          <div className="px-3 py-1 text-xs text-neutral-400 dark:text-neutral-600">
             Drop here
           </div>
         ) : null}

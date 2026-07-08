@@ -288,9 +288,14 @@ function DateGroup({
               })}
             </div>
           </SortableContext>
-          {/* Overdue is a read-only bucket — no composer (can't add into the past). */}
-          {!isDragActive && date !== OVERDUE_KEY && (
-            <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
+          {/* Overdue is a read-only bucket — no composer (can't add into the
+              past). Hidden (not unmounted) while a drag is active: unmounting
+              collapses the composer's row and shifts every day below it the
+              moment a drag starts. `invisible` keeps the layout box. */}
+          {date !== OVERDUE_KEY && (
+            <div className={isDragActive ? "invisible" : undefined}>
+              <InlineTaskComposer seed={seedFromUpcomingDate(date)} />
+            </div>
           )}
         </>
       ) : null}
