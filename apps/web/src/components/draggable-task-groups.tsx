@@ -427,8 +427,10 @@ function GroupSection({
         isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
       }`}
     >
+      {/* py-1 + text-xs = exactly the body's min-h (1.5rem), so an empty
+          group doesn't grow when the hint appears at drag start. */}
       {isDragActive && group.tasks.length === 0 && droppable ? (
-        <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-600">
+        <div className="px-3 py-1 text-xs text-neutral-400 dark:text-neutral-600">
           Drop here
         </div>
       ) : null}
@@ -506,8 +508,14 @@ function GroupSection({
           body
         )
       ) : null}
-      {!collapsed && quickAdd && !isDragActive ? (
-        <InlineTaskComposer seed={seedFromDrop(group.drop)} />
+      {/* Hidden (not unmounted) while a drag is active: unmounting collapses
+          the composer's row, shifting the whole list under the pointer the
+          moment a drag starts — and invalidating the droppable rects dnd-kit
+          measured at drag start. `invisible` keeps the layout box. */}
+      {!collapsed && quickAdd ? (
+        <div className={isDragActive ? "invisible" : undefined}>
+          <InlineTaskComposer seed={seedFromDrop(group.drop)} />
+        </div>
       ) : null}
     </section>
   );
