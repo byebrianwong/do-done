@@ -22,7 +22,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { CalendarEvent, Task, Project } from "@do-done/shared";
+import {
+  addDaysLocalISO,
+  resolveQuickSchedule,
+  todayLocalISO,
+} from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -122,6 +128,51 @@ function DragHandleIndicator() {
   );
 }
 
+/**
+ * The Overdue header's "Reschedule all" shortcut — mirrors the Today view's
+ * OverdueSection so both surfaces clear a backlog with one tap. Moves every
+ * overdue task in the group to Today / Tomorrow / Next week at once.
+ */
+function RescheduleAllButtons({
+  busy,
+  onReschedule,
+}: {
+  busy: boolean;
+  onReschedule: (date: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="hidden text-[11px] font-medium normal-case text-neutral-400 sm:inline">
+        Reschedule all
+      </span>
+      <button
+        type="button"
+        onClick={() => onReschedule(todayLocalISO())}
+        disabled={busy}
+        className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold normal-case text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
+      >
+        Today
+      </button>
+      <button
+        type="button"
+        onClick={() => onReschedule(addDaysLocalISO(1))}
+        disabled={busy}
+        className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold normal-case text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-950/60 dark:text-red-300 dark:hover:bg-red-900"
+      >
+        Tomorrow
+      </button>
+      <button
+        type="button"
+        onClick={() => onReschedule(resolveQuickSchedule("next_week"))}
+        disabled={busy}
+        className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold normal-case text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-950/60 dark:text-red-300 dark:hover:bg-red-900"
+      >
+        Next week
+      </button>
+    </div>
+  );
+}
+
 // Sentinel "date" for the No-date group. Treated specially in the drag
 // handler: dropping a task here clears when_date; dragging FROM here onto a
 // real date sets when_date on the target.
@@ -143,6 +194,8 @@ function DateGroup({
   isDragActive,
   collapsed,
   onToggleCollapse,
+  onRescheduleAll,
+  rescheduleBusy = false,
 }: {
   date: string;
   label: string;
@@ -154,12 +207,23 @@ function DateGroup({
   isDragActive: boolean;
   collapsed: boolean;
   onToggleCollapse?: () => void;
+  /** Overdue-only: reschedule every task in the group to a chosen day. */
+  onRescheduleAll?: (date: string) => void;
+  rescheduleBusy?: boolean;
 }) {
   // Empty groups still need to be drop targets — use a fixed placeholder id
   // so SortableContext has something, but mark it as non-draggable.
   const { setNodeRef, isOver } = useDroppable({ id: `group:${date}` });
-  const headingClass =
-    "mb-2 flex w-full items-center gap-2 border-b border-neutral-100 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:border-neutral-800";
+  // The Overdue group grows a "Reschedule all" toolbar next to its heading
+  // (only when it has tasks) — the heading loses its own bottom border so the
+  // whole row shares one.
+  const showReschedule =
+    date === OVERDUE_KEY && !!onRescheduleAll && taskIds.length > 0;
+  const headingRow =
+    "mb-2 border-b border-neutral-100 pb-2 dark:border-neutral-800";
+  const headingText =
+    "flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400";
+  const headingWidth = showReschedule ? "min-w-0 flex-1" : `${headingRow} w-full`;
   const headingInner = (
     <>
       <Chevron collapsed={collapsed} />
@@ -169,19 +233,30 @@ function DateGroup({
       ) : null}
     </>
   );
+  const heading = onToggleCollapse ? (
+    <button
+      type="button"
+      onClick={onToggleCollapse}
+      aria-expanded={!collapsed}
+      className={`${headingText} ${headingWidth} transition-opacity hover:opacity-70`}
+    >
+      {headingInner}
+    </button>
+  ) : (
+    <h2 className={`${headingText} ${headingWidth}`}>{headingInner}</h2>
+  );
   return (
     <section className="group">
-      {onToggleCollapse ? (
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-expanded={!collapsed}
-          className={`${headingClass} transition-opacity hover:opacity-70`}
-        >
-          {headingInner}
-        </button>
+      {showReschedule ? (
+        <div className={`${headingRow} flex items-center gap-2`}>
+          {heading}
+          <RescheduleAllButtons
+            busy={rescheduleBusy}
+            onReschedule={onRescheduleAll!}
+          />
+        </div>
       ) : (
-        <h2 className={headingClass}>{headingInner}</h2>
+        heading
       )}
       {/* Collapsed days aren't drop targets in v1 — expand to drop in. */}
       {!collapsed ? (
@@ -244,6 +319,10 @@ export function DraggableUpcoming({
 
   const [byDate, setByDate] = useState(initial.byDate);
   const [tasks, setTasks] = useState(initial.tasks);
+
+  // "Reschedule all" flight state: disables the toolbar while the bulk write
+  // is in progress so the buttons can't be double-fired.
+  const [rescheduling, setRescheduling] = useState(false);
 
   // Id of the row currently being dragged — drives the lifted DragOverlay clone.
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -482,6 +561,50 @@ export function DraggableUpcoming({
     startTransition(() => router.refresh());
   }
 
+  // Move every overdue task to a chosen day in one write, then let the refresh
+  // re-file them into their new columns. Slides past due dates forward via the
+  // same helper the per-row and Today reschedules use.
+  async function rescheduleAll(date: string) {
+    const overdueIds = byDate.get(OVERDUE_KEY) ?? [];
+    const overdueTasks = overdueIds
+      .map((id) => tasks.get(id))
+      .filter((t): t is Task => t !== undefined);
+    if (overdueTasks.length === 0) return;
+
+    setRescheduling(true);
+    const api = await getClientTasksApi();
+    const target = { kind: "date" as const, date };
+    const updates = overdueTasks.map((t) => ({
+      id: t.id,
+      input: buildRescheduleInput(t, target),
+    }));
+    const { error } = await api.bulkUpdate(updates);
+    setRescheduling(false);
+    if (error) {
+      console.error("Bulk reschedule failed:", error);
+      return;
+    }
+    // Empty the Overdue bucket optimistically so its group hides at once (see
+    // visibleGroups); the refresh then re-files the tasks into their new day
+    // columns and drops the group from `groups` for good.
+    setByDate((prev) => {
+      const next = new Map(prev);
+      next.set(OVERDUE_KEY, []);
+      return next;
+    });
+    startTransition(() => router.refresh());
+  }
+
+  // Drop the Overdue group once it's been emptied by a "reschedule all" — but
+  // keep it during a drag, where dragging the last row out empties it only
+  // transiently and the header shouldn't flicker away under the cursor.
+  const visibleGroups = groups.filter(
+    (g) =>
+      g.date !== OVERDUE_KEY ||
+      draggingId !== null ||
+      (byDate.get(OVERDUE_KEY)?.length ?? 0) > 0
+  );
+
   return (
     <DndContext
       id="upcoming-dnd"
@@ -493,7 +616,7 @@ export function DraggableUpcoming({
       onDragCancel={handleDragCancel}
     >
       <div className="space-y-6">
-        {groups.map((g) => (
+        {visibleGroups.map((g) => (
           <DateGroup
             key={g.date}
             date={g.date}
@@ -508,6 +631,8 @@ export function DraggableUpcoming({
             onToggleCollapse={
               onToggleCollapse ? () => onToggleCollapse(g.date) : undefined
             }
+            onRescheduleAll={g.date === OVERDUE_KEY ? rescheduleAll : undefined}
+            rescheduleBusy={rescheduling}
           />
         ))}
       </div>

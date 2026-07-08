@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Task, Project, UpdateTaskInput } from "@do-done/shared";
+import type { Task, Project } from "@do-done/shared";
 import {
   PRIORITY_CONFIG,
   addDaysLocalISO,
@@ -10,32 +10,11 @@ import {
   todayLocalISO,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { buildRescheduleInput } from "@/lib/reschedule";
 
 export interface OverdueSectionProps {
   tasks: Task[];
   projects?: Project[];
-}
-
-/**
- * Build an UpdateTaskInput that moves an overdue task to a target when_date,
- * sliding any past due_date forward to keep the deadline plausible.
- */
-function buildRescheduleInput(
-  task: Task,
-  target: { kind: "date"; date: string } | { kind: "remove" }
-): UpdateTaskInput {
-  if (target.kind === "remove") {
-    return {
-      when_date: null,
-      due_date: null,
-      due_time: null,
-    };
-  }
-  const input: UpdateTaskInput = { when_date: target.date };
-  if (task.due_date && task.due_date < target.date) {
-    input.due_date = target.date;
-  }
-  return input;
 }
 
 function OverdueRow({
