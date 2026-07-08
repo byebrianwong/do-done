@@ -63,7 +63,7 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group flex touch-manipulation items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800"
+      className="group/row flex touch-manipulation items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800"
     >
       <DragHandleIndicator />
       <div className="min-w-0 flex-1">
@@ -79,7 +79,7 @@ function DragHandleIndicator() {
   return (
     <div
       aria-hidden
-      className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 dark:text-neutral-700"
+      className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover/row:opacity-100 dark:text-neutral-700"
     >
       <svg
         className="h-3.5 w-3.5"

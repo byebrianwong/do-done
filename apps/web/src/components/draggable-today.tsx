@@ -499,11 +499,11 @@ function SortableRow({ task, projects }: { task: Task; projects?: Project[] }) {
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group flex touch-manipulation items-stretch"
+      className="group/row flex touch-manipulation items-stretch"
     >
       <div
         aria-hidden
-        className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 dark:text-neutral-700"
+        className="flex w-5 items-center justify-center text-neutral-300 opacity-0 transition-opacity group-hover/row:opacity-100 dark:text-neutral-700"
       >
         <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
           <circle cx="7" cy="5" r="1.5" />

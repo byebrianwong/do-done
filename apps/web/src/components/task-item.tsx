@@ -569,7 +569,7 @@ export function TaskItem({ task, projects }: TaskItemProps) {
           ~32rem (`@lg`) the title takes its own row. */}
       <div className="@container">
       <div
-        className="group flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
+        className="group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
         onClick={() => setEditing(true)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -741,9 +741,11 @@ export function TaskItem({ task, projects }: TaskItemProps) {
         </div>
 
         {/* Always visible on touch (no hover); reveal on hover for pointer
-            devices to keep the desktop list calm. */}
+            devices to keep the desktop list calm. Scoped to the row's own
+            `group/row` so hovering one row never reveals a sibling's controls
+            (an outer section may also be a `group`). */}
         <div
-          className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
+          className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           {canSchedule && duration && (

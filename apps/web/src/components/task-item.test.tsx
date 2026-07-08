@@ -27,7 +27,7 @@ describe("TaskItem — touch affordances", () => {
     expect(actions.className).toContain("opacity-100");
     // …but quietly hidden until hover on pointer (md+) devices.
     expect(actions.className).toContain("md:opacity-0");
-    expect(actions.className).toContain("md:group-hover:opacity-100");
+    expect(actions.className).toContain("md:group-hover/row:opacity-100");
   });
 
   it("still exposes the complete toggle (core functionality) on mobile", () => {
