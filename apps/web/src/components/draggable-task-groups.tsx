@@ -102,6 +102,12 @@ export function DraggableTaskGroups({
     [localTasks, effectiveConfig, projects]
   );
 
+  // When the list is grouped by status, each group header already states the
+  // status for every row it contains, so the per-row status pill is pure
+  // redundancy. Suppress it in that case (the drag-to-manual conversion only
+  // touches `sort`, never `group`, so `config.group` is stable here).
+  const groupedByStatus = config.group === "status";
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
@@ -135,6 +141,7 @@ export function DraggableTaskGroups({
             key={g.key}
             group={g}
             projects={projects}
+            hideStatusBadge={groupedByStatus}
             droppable={false}
             sortableIds={null}
             isDragActive={false}
@@ -373,6 +380,7 @@ export function DraggableTaskGroups({
               key={g.key}
               group={g}
               projects={projects}
+              hideStatusBadge={groupedByStatus}
               // Collapsed sections aren't drop targets in v1 — expand to drop in.
               droppable={g.drop !== null && !collapsed}
               sortableIds={g.tasks.map((t) => t.id)}
@@ -389,7 +397,11 @@ export function DraggableTaskGroups({
           );
         })}
       </div>
-      <TaskDragOverlay task={activeTask} projects={projects} />
+      <TaskDragOverlay
+        task={activeTask}
+        projects={projects}
+        hideStatusBadge={groupedByStatus}
+      />
     </DndContext>
   );
 }
@@ -397,6 +409,7 @@ export function DraggableTaskGroups({
 function GroupSection({
   group,
   projects,
+  hideStatusBadge,
   droppable,
   sortableIds,
   isDragActive,
@@ -407,6 +420,7 @@ function GroupSection({
 }: {
   group: DisplayGroup;
   projects?: Project[];
+  hideStatusBadge: boolean;
   droppable: boolean;
   sortableIds: string[] | null;
   isDragActive: boolean;
@@ -434,10 +448,15 @@ function GroupSection({
       ) : null}
       {group.tasks.map((t) =>
         sortableIds ? (
-          <SortableRow key={t.id} task={t} projects={projects} />
+          <SortableRow
+            key={t.id}
+            task={t}
+            projects={projects}
+            hideStatusBadge={hideStatusBadge}
+          />
         ) : (
           <div key={t.id} className="py-px">
-            <TaskItem task={t} projects={projects} />
+            <TaskItem task={t} projects={projects} hideStatusBadge={hideStatusBadge} />
           </div>
         )
       )}
@@ -513,7 +532,15 @@ function GroupSection({
   );
 }
 
-function SortableRow({ task, projects }: { task: Task; projects?: Project[] }) {
+function SortableRow({
+  task,
+  projects,
+  hideStatusBadge,
+}: {
+  task: Task;
+  projects?: Project[];
+  hideStatusBadge: boolean;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id });
   const style: React.CSSProperties = {
@@ -544,7 +571,7 @@ function SortableRow({ task, projects }: { task: Task; projects?: Project[] }) {
         </svg>
       </div>
       <div className="min-w-0 flex-1">
-        <TaskItem task={task} projects={projects} />
+        <TaskItem task={task} projects={projects} hideStatusBadge={hideStatusBadge} />
       </div>
     </div>
   );

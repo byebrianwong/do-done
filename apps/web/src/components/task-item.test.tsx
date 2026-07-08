@@ -70,3 +70,23 @@ describe("TaskItem — project chip stays in sync with props", () => {
     expect(screen.queryByText("Engineering")).not.toBeInTheDocument();
   });
 });
+
+describe("TaskItem — status badge redundancy", () => {
+  // Status-grouped lists (All tasks, Project) render a group header that already
+  // states the status for every row, so the per-row pill is pure redundancy —
+  // `hideStatusBadge` suppresses it there while leaving other views untouched.
+  it("shows the status pill by default for a non-default status", () => {
+    render(<TaskItem task={makeTask({ title: "Ship it", status: "next" })} />);
+    expect(screen.getByText("Next")).toBeInTheDocument();
+  });
+
+  it("hides the status pill when hideStatusBadge is set", () => {
+    render(
+      <TaskItem
+        task={makeTask({ title: "Ship it", status: "next" })}
+        hideStatusBadge
+      />
+    );
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
+  });
+});

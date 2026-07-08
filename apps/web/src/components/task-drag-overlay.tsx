@@ -30,9 +30,11 @@ const dropAnimation: DropAnimation = {
 export function TaskDragOverlay({
   task,
   projects,
+  hideStatusBadge,
 }: {
   task: Task | null;
   projects?: Project[];
+  hideStatusBadge?: boolean;
 }) {
   return (
     <DragOverlay dropAnimation={dropAnimation}>
@@ -52,7 +54,7 @@ export function TaskDragOverlay({
             </svg>
           </div>
           <div className="min-w-0 flex-1">
-            <TaskItem task={task} projects={projects} />
+            <TaskItem task={task} projects={projects} hideStatusBadge={hideStatusBadge} />
           </div>
         </div>
       ) : null}
