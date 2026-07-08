@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, within } from "storybook/test";
+import { addDaysLocalISO } from "@do-done/shared";
 import { UpcomingView } from "./upcoming-view";
-import { SAMPLE_PROJECTS, SAMPLE_TASKS } from "./__stories__/mocks";
+import { makeTask, SAMPLE_PROJECTS, SAMPLE_TASKS } from "./__stories__/mocks";
 
 const meta: Meta<typeof UpcomingView> = {
   title: "Components/UpcomingView",
@@ -59,6 +60,40 @@ export const DayCollapsed: Story = {
     // findByRole waits for the per-day columns to mount before clicking.
     const day = await canvas.findByRole("button", { name: /^No date/i });
     await userEvent.click(day);
+  },
+};
+
+// A backlog of overdue tasks: the Overdue group grows a "Reschedule all"
+// toolbar (Today / Tomorrow / Next week) in its header, mirroring the Today
+// view so the whole backlog can be cleared in one tap.
+const OVERDUE_BACKLOG = [
+  makeTask({
+    title: "Pay credit card bill",
+    priority: "p1",
+    when_date: addDaysLocalISO(-1),
+  }),
+  makeTask({
+    title: "Submit quarterly report",
+    priority: "p2",
+    due_date: addDaysLocalISO(-3),
+  }),
+  makeTask({
+    title: "Reply to landlord",
+    priority: "p3",
+    when_date: addDaysLocalISO(-5),
+  }),
+  makeTask({
+    title: "Renew car registration",
+    priority: "p2",
+    due_date: addDaysLocalISO(-8),
+  }),
+  ...SAMPLE_TASKS,
+];
+
+export const OverdueReschedule: Story = {
+  args: {
+    allTasks: OVERDUE_BACKLOG,
+    projects: SAMPLE_PROJECTS,
   },
 };
 
