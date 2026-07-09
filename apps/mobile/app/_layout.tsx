@@ -125,6 +125,14 @@ function RootLayoutNav() {
             animation: 'fade',
           }}
         />
+        <Stack.Screen
+          name="task/[id]"
+          options={{
+            presentation: 'transparentModal',
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
       </Stack>
       <DevBanner />
     </ThemeProvider>
