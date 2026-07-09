@@ -2,6 +2,12 @@
 
 _Last updated: 2026-06-07_
 
+> **See also:** [`mobile-web-parity-plan.md`](mobile-web-parity-plan.md)
+> (2026-07-08) — the current web ⇄ mobile gap audit and phased parity plan. It
+> folds in this roadmap's still-open items (2.5, 2.6, 3.2, 3.4, 4.1, PowerSync)
+> with fresh status; this doc remains the reference for the performance/data-layer
+> diagnosis and the work already shipped.
+
 A product + technical plan to make the React Native / Expo app feel **faster than
 the web app**, leaning into the affordances a phone actually has (swipe, haptics,
 voice, location) rather than porting the web's drag-and-drop interaction model.
