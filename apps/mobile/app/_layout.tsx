@@ -21,6 +21,7 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { registerUserGeofences } from '@/lib/geofencing';
+import { refreshTaskWidgets } from '@/lib/widgets';
 
 // Register widget handler at module load (Android, real builds only).
 // react-native-android-widget ships custom native code that isn't in Expo
@@ -105,6 +106,13 @@ function RootLayoutNav() {
       });
     }
   }, [session?.user]);
+
+  // Refresh home-screen widgets on launch and on sign-in/out, so they reflect
+  // current state (and the signed-out placeholder) without waiting for their
+  // ~30-minute update tick. No-op off Android / in Expo Go.
+  useEffect(() => {
+    refreshTaskWidgets();
+  }, [session?.user?.id]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

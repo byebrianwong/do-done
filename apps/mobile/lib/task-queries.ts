@@ -23,6 +23,7 @@ import type {
 } from '@do-done/shared';
 import { getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
+import { refreshTaskWidgets } from './widgets';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
 
@@ -175,6 +176,8 @@ function restoreTaskLists(prev: TaskListSnapshot) {
 export function invalidateTasks() {
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
+  refreshTaskWidgets();
 }
 
 /** Complete or reopen a task, optimistically removing it from the relevant cache. */
@@ -263,5 +266,6 @@ export async function reorderTasks(orderedIds: string[]) {
     orderedIds.map((id, i) => ({ id, input: { sort_order: (i + 1) * 1000 } }))
   );
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
+  refreshTaskWidgets();
   if (error) throw error;
 }
