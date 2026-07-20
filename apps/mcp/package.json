@@ -14,10 +14,8 @@
   },
   "dependencies": {
     "@do-done/api-client": "workspace:*",
-    "@do-done/shared": "workspace:*",
-    "@do-done/task-engine": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.24.0"
+    "@do-done/mcp-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",

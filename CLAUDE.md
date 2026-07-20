@@ -11,11 +11,12 @@ The user-facing brand name is **DoDone** (closed compound, medial capital) — u
 ```
 apps/web       — Next.js 16 (App Router, Tailwind)
 apps/mobile    — React Native / Expo (tabs template)
-apps/mcp       — MCP server for Claude Code integration
+apps/mcp       — Thin stdio entry point for the MCP server (Claude Code)
 packages/shared      — Zod schemas, types, constants, utils (leaf package)
 packages/api-client  — Supabase client, TasksApi, ProjectsApi, LocationsApi
 packages/ui          — Design tokens (colors, spacing, typography)
 packages/task-engine — NLP parser, focus algorithm, scheduler, categorizer
+packages/mcp-server  — MCP tools + resources (transport-agnostic)
 supabase/            — SQL migrations, RLS policies, edge functions
 ```
 
