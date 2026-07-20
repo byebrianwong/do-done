@@ -1,5 +1,9 @@
 import React from 'react';
-import type { WidgetTaskHandlerProps } from 'react-native-android-widget';
+import type {
+  WidgetInfo,
+  WidgetTaskHandlerProps,
+} from 'react-native-android-widget';
+import { requestWidgetUpdate } from 'react-native-android-widget';
 import { QuickAddWidget } from './QuickAddWidget';
 import { TodayWidget } from './TodayWidget';
 import { UpcomingWidget } from './UpcomingWidget';
@@ -35,6 +39,7 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
 
   // A tapped checkbox completes the task in the background, then falls through
   // to re-render this widget with the task removed from the list.
+  let completed = false;
   if (
     props.widgetAction === 'WIDGET_CLICK' &&
     props.clickAction === 'COMPLETE_TASK'
@@ -44,6 +49,7 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
       try {
         const api = await getTasksApi();
         await api.complete(taskId);
+        completed = true;
       } catch {
         // ignore — the re-render below still reflects current server state
       }
@@ -55,8 +61,30 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
   if (props.widgetAction === 'WIDGET_DELETED') return;
 
   const data = await loadWidgetTasks();
-  const Widget = TASK_LIST_WIDGETS[widgetName];
   props.renderWidget(
-    React.createElement(Widget, { data, height: props.widgetInfo.height })
+    React.createElement(TASK_LIST_WIDGETS[widgetName], {
+      data,
+      height: props.widgetInfo.height,
+    })
   );
+
+  // Completing from one widget removes the task everywhere, so keep the other
+  // task widget (if the user has it) in sync too.
+  if (completed) {
+    const sibling: TaskListWidgetName =
+      widgetName === 'Today' ? 'Upcoming' : 'Today';
+    await requestWidgetUpdate({
+      widgetName: sibling,
+      renderWidget: (info: WidgetInfo) =>
+        React.createElement(TASK_LIST_WIDGETS[sibling], {
+          data,
+          height: info.height,
+        }),
+      widgetNotFound: () => {
+        // sibling widget isn't on the home screen — nothing to update
+      },
+    }).catch(() => {
+      // best-effort — never fail the primary render because of the sibling
+    });
+  }
 }
