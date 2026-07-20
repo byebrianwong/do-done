@@ -9,14 +9,14 @@ The user-facing brand name is **DoDone** (closed compound, medial capital) — u
 ## Architecture
 
 ```
-apps/web       — Next.js 16 (App Router, Tailwind)
+apps/web       — Next.js 16 (App Router, Tailwind); also hosts the MCP endpoint at /api/mcp
 apps/mobile    — React Native / Expo (tabs template)
 apps/mcp       — Thin stdio entry point for the MCP server (Claude Code)
 packages/shared      — Zod schemas, types, constants, utils (leaf package)
 packages/api-client  — Supabase client, TasksApi, ProjectsApi, LocationsApi
 packages/ui          — Design tokens (colors, spacing, typography)
 packages/task-engine — NLP parser, focus algorithm, scheduler, categorizer
-packages/mcp-server  — MCP tools + resources (transport-agnostic)
+packages/mcp-server  — MCP tools + resources, shared by both transports
 supabase/            — SQL migrations, RLS policies, edge functions
 ```
 
@@ -55,6 +55,27 @@ Copy `.env.example` to `.env.local` and fill in:
 - POWERSYNC_URL
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 - DO_DONE_USER_ID (for MCP server)
+
+## MCP server
+
+One server implementation (`packages/mcp-server`), two transports:
+
+- **stdio** — `apps/mcp/dist/index.js`, registered in `~/.claude.json` for Claude Code.
+- **Streamable HTTP** — `apps/web/src/app/api/mcp/route.ts`, deployed with the web
+  app. Add it in Claude as a **custom connector** pointing at
+  `https://<your-app>/api/mcp` with the `MCP_BEARER_TOKEN` as a Bearer token.
+
+The HTTP endpoint is stateless (a fresh server per request, no session store) and
+single-user: it authenticates a shared secret and scopes everything to
+`DO_DONE_USER_ID`. Making it multi-user means replacing that guard with OAuth 2.1
+and deriving `userId` from the validated token — the route is structured for it.
+`/api/mcp` is in `PUBLIC_PATHS` in `proxy-helper.ts` so the auth proxy doesn't
+307 it to `/login`.
+
+> Hand-editing `claude_desktop_config.json` does **not** work on Claude Desktop
+> v1.22209.3 — the app rewrites that file and strips `mcpServers`. Its Chat tab
+> sees remote connectors only. Use the hosted endpoint for Chat, and the Claude
+> Code tab for the local stdio server.
 
 ## Design System
 

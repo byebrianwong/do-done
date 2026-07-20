@@ -178,6 +178,9 @@ importers:
       '@do-done/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@do-done/mcp-server':
+        specifier: workspace:*
+        version: link:../../packages/mcp-server
       '@do-done/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -187,6 +190,9 @@ importers:
       '@do-done/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.12.0
+        version: 1.29.0(zod@3.25.76)
       '@supabase/ssr':
         specifier: ^0.6.0
         version: 0.6.1(@supabase/supabase-js@2.103.0)

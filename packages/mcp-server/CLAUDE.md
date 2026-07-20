@@ -1,7 +1,7 @@
 # @do-done/mcp-server
 
 Transport-agnostic MCP server for do-done. Owns every tool and resource; the
-transport lives elsewhere (`apps/mcp` connects it over stdio).
+transports live elsewhere (`apps/mcp` for stdio, `apps/web` for HTTP).
 
 ## Key Files
 - `src/index.ts` — `createDoDoneServer({ supabase, userId })`, the shared factory
@@ -20,9 +20,10 @@ schema.
 ## Scoping
 
 Every registrar takes `(server, supabase, userId)` and constructs its API
-objects up front, so a server instance is permanently bound to one user. Any
-multi-user transport must therefore build a **new server per authenticated
-request** rather than sharing a process-wide instance.
+objects up front, so a server instance is permanently bound to one user. Hosted
+callers therefore build a **new server per authenticated request** rather than
+sharing a process-wide instance — cheap, and the only safe thing to do once the
+endpoint is multi-user.
 
 ## MCP SDK Patterns
 - `new McpServer({ name, version })` for server creation
