@@ -36,7 +36,12 @@ import {
 } from "./task-edit-modal-v2";
 import { ProjectPickerPopover } from "./project-picker";
 import { TaskContextMenu } from "./task-context-menu";
+import { BulkActionMenu } from "./bulk-action-menu";
 import { useUndoToast } from "./undo-toast";
+import {
+  useTaskSelection,
+  orderedTaskIdsFromDom,
+} from "@/lib/task-selection";
 
 export interface TaskItemProps {
   task: Task;
@@ -570,6 +575,23 @@ export function TaskItem({
   const [editing, setEditing] = useState(false);
   // Right-click context menu, anchored at the cursor. Null = closed.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // Bulk right-click menu, opened when this row is right-clicked while it's
+  // part of a multi-selection. Separate state so the two menus never collide.
+  const [bulkMenuPos, setBulkMenuPos] = useState<{ x: number; y: number } | null>(
+    null
+  );
+
+  // Multi-select. `registerTask`/`unregisterTask` are stable, so the row only
+  // (re)registers its Task when the task itself changes — not on every
+  // selection change elsewhere in the list.
+  const selection = useTaskSelection();
+  const { registerTask, unregisterTask } = selection;
+  const selected = selection.isSelected(task.id);
+  const selectionActive = selection.isActive;
+  useEffect(() => {
+    registerTask(task);
+    return () => unregisterTask(task.id);
+  }, [registerTask, unregisterTask, task]);
   // Optimistic local state for the inline row editors — keeps the row snappy
   // before the server round-trip / router.refresh lands.
   const [priority, setPriority] = useState(task.priority);
@@ -716,45 +738,129 @@ export function TaskItem({
           ~32rem (`@lg`) the title takes its own row. */}
       <div className="@container">
       <div
-        className="group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
-        onClick={() => setEditing(true)}
+        data-task-row={task.id}
+        className={`group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors @lg:items-center ${
+          selected
+            ? "bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60"
+            : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+        }`}
+        onMouseDown={(e) => {
+          // Stop Shift-click from painting a native text selection across rows.
+          if (e.shiftKey) e.preventDefault();
+        }}
+        onClick={(e) => {
+          // ⌘/Ctrl-click toggles one row; Shift-click extends a range; a plain
+          // click while a selection is active toggles the row (selection mode).
+          // Only a plain click with nothing selected opens the editor.
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            selection.toggle(task.id);
+            return;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            selection.selectRange(task.id, orderedTaskIdsFromDom());
+            return;
+          }
+          if (selection.isActive) {
+            selection.toggle(task.id);
+            return;
+          }
+          setEditing(true);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           // Store the raw cursor position; ContextMenuPositioner measures the
           // rendered menu and nudges it back on-screen near the edges (a fixed
           // clamp can't, since the menu's height varies with its content).
-          setMenuPos({ x: e.clientX, y: e.clientY });
+          const pos = { x: e.clientX, y: e.clientY };
+          // Right-clicking inside a multi-selection acts on the whole set;
+          // right-clicking a row that isn't part of it drops the selection and
+          // shows the single-task menu, so the menu always matches the row.
+          if (selection.isSelected(task.id) && selection.count > 1) {
+            setBulkMenuPos(pos);
+          } else {
+            if (selection.isActive) selection.clear();
+            setMenuPos(pos);
+          }
         }}
       >
-        <button
-          onClick={handleToggleComplete}
-          className="flex h-5 shrink-0 items-center justify-center"
-          aria-label={completed ? "Mark incomplete" : "Mark complete"}
-        >
-          <span
-            className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-            style={{
-              borderColor: completed ? "#d4d4d4" : statusColor,
-              backgroundColor: completed ? "#d4d4d4" : "transparent",
+        {/* Leading controls: a selection checkbox that collapses to zero width
+            when idle (so the row is visually unchanged) and slides in on hover
+            or whenever a selection is active, sitting just left of the round
+            completion circle. The square vs. round shapes keep the two apart. */}
+        <div className="flex h-5 shrink-0 items-center @lg:h-auto">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={selected ? "Deselect task" : "Select task"}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              selection.toggle(task.id);
             }}
+            className={`flex items-center justify-center overflow-hidden transition-all duration-100 ${
+              selectionActive || selected
+                ? "w-6 opacity-100"
+                : "w-0 opacity-0 md:group-hover/row:w-6 md:group-hover/row:opacity-100"
+            }`}
           >
-            {completed && (
-              <svg
-                className="h-3 w-3 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={3}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            )}
-          </span>
-        </button>
+            <span
+              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                selected
+                  ? "border-indigo-500 bg-indigo-500 text-white"
+                  : "border-neutral-300 dark:border-neutral-600"
+              }`}
+            >
+              {selected && (
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              )}
+            </span>
+          </button>
+
+          <button
+            onClick={handleToggleComplete}
+            className="flex h-5 shrink-0 items-center justify-center"
+            aria-label={completed ? "Mark incomplete" : "Mark complete"}
+          >
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+              style={{
+                borderColor: completed ? "#d4d4d4" : statusColor,
+                backgroundColor: completed ? "#d4d4d4" : "transparent",
+              }}
+            >
+              {completed && (
+                <svg
+                  className="h-3 w-3 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              )}
+            </span>
+          </button>
+        </div>
 
         {/* Wrapper keeps the priority bars centered on the title line when the
             row stacks into two rows. */}
@@ -963,6 +1069,27 @@ export function TaskItem({
                 onEdit={() => setEditing(true)}
                 onClose={() => setMenuPos(null)}
                 onMutated={() => startTransition(() => router.refresh())}
+              />
+            </ContextMenuPositioner>
+          </div>,
+          document.body
+        )}
+
+      {bulkMenuPos &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setBulkMenuPos(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setBulkMenuPos(null);
+            }}
+          >
+            <ContextMenuPositioner anchor={bulkMenuPos}>
+              <BulkActionMenu
+                count={selection.count}
+                projects={allProjects}
+                onClose={() => setBulkMenuPos(null)}
               />
             </ContextMenuPositioner>
           </div>,
