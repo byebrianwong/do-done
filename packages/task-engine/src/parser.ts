@@ -66,6 +66,35 @@ const ESTIMATE_PREFIX_PATTERN = /~\s*(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|mi
 const TAG_PATTERN = /#(\w+)/g;
 const PROJECT_PATTERN = /(?:\/|project:)(\S+)/i;
 
+// URLs must survive parsing verbatim. A raw link like
+// "https://example.com/a/b#c" is full of characters the extractors below claim:
+// the scheme's `//` reads as a `/project` delimiter (truncating the title at
+// the colon), a `#fragment` reads as a `#tag`, and `1h`-style path segments
+// read as durations. Mask every URL with an opaque placeholder BEFORE any
+// extraction runs, then restore it in the final title. The placeholder is
+// bracketed by private-use codepoints that never occur in real task text and
+// match none of the token patterns (no `/`, `#`, `~`, `!`, `p1`, or unit
+// letters), so it passes through untouched.
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+/gi;
+const URL_MASK_OPEN = "\uE000";
+const URL_MASK_CLOSE = "\uE001";
+
+function maskUrls(text: string, urls: string[]): string {
+  return text.replace(URL_PATTERN, (match) => {
+    const token = `${URL_MASK_OPEN}${urls.length}${URL_MASK_CLOSE}`;
+    urls.push(match);
+    return token;
+  });
+}
+
+function restoreUrls(text: string, urls: string[]): string {
+  if (urls.length === 0) return text;
+  return text.replace(
+    new RegExp(`${URL_MASK_OPEN}(\\d+)${URL_MASK_CLOSE}`, "g"),
+    (_full, index: string) => urls[Number(index)] ?? ""
+  );
+}
+
 function toISODate(d: Date): string {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -76,6 +105,12 @@ function toISODate(d: Date): string {
 export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
   let text = raw.trim();
   const ref = referenceDate ?? new Date();
+
+  // Mask URLs first so the token extractors below can't chew through the
+  // characters that are legal inside a link (`//`, `:`, `#`, `1h` path bits).
+  // Restored verbatim into the title at the very end.
+  const urls: string[] = [];
+  text = maskUrls(text, urls);
 
   // Extract priority
   let priority: TaskPriority | undefined;
@@ -186,10 +221,13 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
   // Clean up extra whitespace and orphan `#` chars left over when a
   // shortcut consumed only the body of a `#token` (e.g. priority match
   // `\bp2\b` strips "p2" out of "#p2" but leaves the leading `#`).
-  const title = text
+  const cleaned = text
     .replace(/(^|\s)#(?=\s|$)/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Restore any masked URLs verbatim now that all extraction is done.
+  const title = restoreUrls(cleaned, urls);
 
   return {
     title: title || raw.trim(),

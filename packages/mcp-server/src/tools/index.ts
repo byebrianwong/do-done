@@ -42,7 +42,7 @@ export function registerTools(
 
   server.tool(
     "create_task",
-    "Create a new task with title and optional details",
+    "Create a new task with title and optional details. Pass parent_task_id to make it a subtask — it inherits the parent's project automatically (override by also passing project_id).",
     {
       title: z.string().min(1).max(500),
       description: z.string().max(5000).optional(),
@@ -55,6 +55,10 @@ export function registerTools(
       due_time: z.string().optional(),
       duration_minutes: z.number().int().positive().optional(),
       tags: z.array(z.string()).optional(),
+      // Parent task for a subtask. Omit for a top-level task. The subtask
+      // inherits the parent's project when project_id isn't given; nesting is
+      // capped at 3 levels (a DB trigger rejects a deeper parent).
+      parent_task_id: z.string().uuid().optional(),
     },
     async (params) => {
       const { data, error } = await tasks.create(params);

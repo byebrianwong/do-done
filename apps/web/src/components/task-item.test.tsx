@@ -71,6 +71,48 @@ describe("TaskItem — project chip stays in sync with props", () => {
   });
 });
 
+describe("TaskItem — subtask reference", () => {
+  // A subtask must read as a subtask and point at its parent. When the caller
+  // supplies the parent, the row shows a "↳ parent" breadcrumb linking to the
+  // parent's detail page — no extra fetch.
+  it("shows a breadcrumb link to the parent task", () => {
+    const sub = makeTask({
+      title: "Write launch copy",
+      parent_task_id: "parent-1",
+      depth: 1,
+    });
+    render(
+      <TaskItem
+        task={sub}
+        parentTask={{ id: "parent-1", title: "Ship the launch" }}
+      />
+    );
+    const link = screen.getByRole("link", { name: /Ship the launch/i });
+    expect(link).toHaveAttribute("href", "/task/parent-1");
+  });
+
+  it("omits the breadcrumb for a top-level task", () => {
+    render(<TaskItem task={makeTask({ title: "Standalone task" })} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("suppresses the breadcrumb when hideParentRef is set", () => {
+    const sub = makeTask({
+      title: "Write launch copy",
+      parent_task_id: "parent-1",
+      depth: 1,
+    });
+    render(
+      <TaskItem
+        task={sub}
+        parentTask={{ id: "parent-1", title: "Ship the launch" }}
+        hideParentRef
+      />
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
 describe("TaskItem — status badge redundancy", () => {
   // Status-grouped lists (All tasks, Project) render a group header that already
   // states the status for every row, so the per-row pill is pure redundancy —
