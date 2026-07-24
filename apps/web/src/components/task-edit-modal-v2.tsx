@@ -2068,7 +2068,12 @@ export function TaskEditModalV2({
 
   return (
     <>
+    {/* data-no-dnd: this overlay renders inside a draggable task row's React
+        subtree, so pointer gestures here (e.g. selecting the title text) would
+        otherwise bubble to the row's drag sensor and yank the modal away. The
+        custom sensors in lib/dnd-sensors skip activation inside this marker. */}
     <div
+      data-no-dnd
       className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/30 p-3 backdrop-blur-sm sm:p-6"
       onClick={handleClose}
     >
@@ -2269,6 +2274,7 @@ function ConfirmDeleteDialog({
   const trimmed = title.trim();
   return (
     <div
+      data-no-dnd
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
