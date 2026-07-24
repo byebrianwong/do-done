@@ -126,6 +126,31 @@ export function useProject(projectId: string) {
   });
 }
 
+/**
+ * Resolve a parent task (title, mainly) for a subtask row's "↳ parent"
+ * reference. Deduped by parent id, so all subtasks of one parent share a single
+ * lookup. Tries the already-cached task lists first — the parent is usually
+ * loaded — and only falls back to a fetch when it isn't. Disabled (no query)
+ * when the row isn't a subtask.
+ */
+export function useParentTask(parentId: string | null) {
+  return useQuery({
+    queryKey: [...taskKeys.all, 'detail', parentId ?? 'none'] as const,
+    enabled: !!parentId,
+    queryFn: async () => {
+      const cached = queryClient
+        .getQueriesData<Task[]>({ queryKey: taskKeys.all })
+        .flatMap(([, list]) => list ?? [])
+        .find((t) => t.id === parentId);
+      if (cached) return cached;
+      const api = await getTasksApi();
+      const { data, error } = await api.getById(parentId as string);
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 /** Plain project list (no counts) — powers the project picker on rows/modal. */
 export function useProjects() {
   return useQuery({

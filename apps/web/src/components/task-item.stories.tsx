@@ -163,6 +163,66 @@ export const WithProject: Story = {
   },
 };
 
+// ── Subtask (references its parent) ────────────────────────────────────
+
+export const Subtask: Story = {
+  name: "Subtask (references parent)",
+  // A subtask row carries a "↳ parent" breadcrumb linking to the parent task,
+  // so it reads as a subtask anywhere it appears — not just under its parent.
+  args: {
+    task: makeTask({
+      title: "Draft the onboarding email",
+      priority: "p3",
+      parent_task_id: "parent-1",
+      depth: 1,
+      project_id: "proj-1",
+    }),
+    parentTask: { id: "parent-1", title: "Launch the new signup flow" },
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
+export const SubtaskInList: Story = {
+  name: "Subtask (parent + children in a list)",
+  render: () => (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      <TaskItem
+        task={makeTask({
+          id: "parent-1",
+          title: "Launch the new signup flow",
+          priority: "p1",
+          project_id: "proj-1",
+        })}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Draft the onboarding email",
+          priority: "p3",
+          parent_task_id: "parent-1",
+          depth: 1,
+          project_id: "proj-1",
+        })}
+        parentTask={{ id: "parent-1", title: "Launch the new signup flow" }}
+        projects={SAMPLE_PROJECTS}
+      />
+      <TaskItem
+        task={makeTask({
+          title: "Wire up the welcome checklist",
+          priority: "p2",
+          status: "in_progress",
+          parent_task_id: "parent-1",
+          depth: 1,
+          project_id: "proj-1",
+          when_date: tomorrow,
+        })}
+        parentTask={{ id: "parent-1", title: "Launch the new signup flow" }}
+        projects={SAMPLE_PROJECTS}
+      />
+    </div>
+  ),
+};
+
 // ── Status edge cases ──────────────────────────────────────────────────
 
 export const InboxStatus: Story = {
