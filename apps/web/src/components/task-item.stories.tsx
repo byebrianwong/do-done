@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { waitFor, within } from "storybook/test";
 import { TaskItem } from "./task-item";
+import { BulkActionBar } from "./bulk-action-bar";
+import { UndoToastProvider } from "./undo-toast";
+import { TaskSelectionProvider } from "@/lib/task-selection";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 const meta: Meta<typeof TaskItem> = {
@@ -308,6 +312,60 @@ export const MobileTwoRow: Story = {
       />
     </>
   ),
+};
+
+// ── Multi-select: rows inside the selection provider + the floating bar ────
+
+const SELECTABLE = [
+  makeTask({ id: "s1", title: "Fix critical login bug", priority: "p1", due_date: yesterday }),
+  makeTask({ id: "s2", title: "Review pull request", priority: "p2", project_id: "proj-1", duration_minutes: 60 }),
+  makeTask({ id: "s3", title: "Team standup", priority: "p2", due_date: today, due_time: "09:30" }),
+  makeTask({ id: "s4", title: "Buy groceries", priority: "p3", when_date: tomorrow }),
+  makeTask({ id: "s5", title: "Plan the launch", priority: "p2", tags: ["q3"], project_id: "proj-3" }),
+];
+
+/**
+ * A live list wrapped in the selection provider with the floating bar mounted,
+ * the way the real app shell composes them. The play function ⌘-clicks the
+ * first row and Shift-clicks the third to select a range — so the snapshot
+ * shows the selected-row highlight, the square checkboxes, and the bar.
+ */
+export const MultiSelectRange: Story = {
+  name: "Multi-select (⌘-click + Shift-click range)",
+  parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => (
+      <UndoToastProvider>
+        <TaskSelectionProvider>
+          <div className="mx-auto min-h-[420px] max-w-2xl p-4">
+            <Story />
+          </div>
+          <BulkActionBar projects={SAMPLE_PROJECTS} />
+        </TaskSelectionProvider>
+      </UndoToastProvider>
+    ),
+  ],
+  render: () => (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {SELECTABLE.map((t) => (
+        <TaskItem key={t.id} task={t} projects={SAMPLE_PROJECTS} />
+      ))}
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const click = (id: string, mods: MouseEventInit) =>
+      canvasElement
+        .querySelector<HTMLElement>(`[data-task-row="${id}"]`)!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, ...mods }));
+    // ⌘-click the first row (anchor), then Shift-click the third to extend the
+    // range. Dispatching the modifier flag directly is more reliable than
+    // driving held keys through the pointer.
+    click("s1", { metaKey: true });
+    click("s3", { shiftKey: true });
+    await waitFor(() =>
+      within(canvasElement.ownerDocument.body).getByText("3 selected")
+    );
+  },
 };
 
 // ── Gallery: a representative row stack (single change → many rows shift) ──
