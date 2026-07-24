@@ -9,6 +9,7 @@ import {
   useTransition,
 } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -44,6 +45,37 @@ export interface TaskItemProps {
    *  grouped by status: the group header already states the status for every
    *  row, so the badge is pure redundancy there. Defaults to false (shown). */
   hideStatusBadge?: boolean;
+  /** The parent task, when the row is a subtask and the caller already has it
+   *  in hand (e.g. a list that also holds the parent). Supplies the parent
+   *  title for the "↳ parent" reference without a round-trip; when omitted the
+   *  row resolves the title lazily from `task.parent_task_id`. */
+  parentTask?: Pick<Task, "id" | "title"> | null;
+  /** Suppress the "↳ parent" subtask reference. Set where the parent context is
+   *  already obvious — e.g. a task's own detail page listing its subtasks right
+   *  beneath it — so the breadcrumb isn't noisy redundancy. */
+  hideParentRef?: boolean;
+}
+
+/**
+ * A subtask breadcrumb marker: a corner arrow (↳) that both flags the row as a
+ * subtask and points at its parent. Matches the app's hand-drawn icon style.
+ */
+function SubtaskArrowIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 5v6a4 4 0 004 4h12" />
+      <path d="M15 11l5 4-5 4" />
+    </svg>
+  );
 }
 
 /**
@@ -501,9 +533,40 @@ function ContextMenuPositioner({
   );
 }
 
-export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
+export function TaskItem({
+  task,
+  projects,
+  hideStatusBadge,
+  parentTask,
+  hideParentRef,
+}: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
+  // Parent title for the "↳ parent" subtask reference. Prefer the prop the
+  // caller supplied; otherwise fall back to a lazily-resolved title so any list
+  // view flags a subtask without every caller having to thread the parent
+  // through. Derived (not synced via an effect) so the prop stays authoritative.
+  const isSubtask = !!task.parent_task_id && !hideParentRef;
+  const [fetchedParentTitle, setFetchedParentTitle] = useState<string | null>(
+    null
+  );
+  const parentTitle = parentTask?.title ?? fetchedParentTitle;
+  useEffect(() => {
+    // Skip when there's nothing to resolve: not a subtask, ref suppressed, or
+    // the caller already handed us the title.
+    if (!isSubtask || parentTask?.title) return;
+    const parentId = task.parent_task_id;
+    if (!parentId) return;
+    let cancelled = false;
+    (async () => {
+      const tasks = await getClientTasksApi();
+      const { data } = await tasks.getById(parentId);
+      if (!cancelled && data) setFetchedParentTitle(data.title);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSubtask, task.parent_task_id, parentTask?.title]);
   const [editing, setEditing] = useState(false);
   // Right-click context menu, anchored at the cursor. Null = closed.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -704,15 +767,33 @@ export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
             to a single inline row (the metadata wrapper becomes
             `display: contents`). */}
         <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:flex-row @lg:items-center @lg:gap-2">
-          <span
-            className={`line-clamp-2 text-sm leading-snug @lg:line-clamp-none ${
-              completed
-                ? "text-neutral-400 line-through dark:text-neutral-600"
-                : "text-neutral-900 dark:text-neutral-100"
-            }`}
-          >
-            {task.title}
-          </span>
+          {/* Title, with the subtask breadcrumb stacked above it so a subtask
+              row reads "↳ parent / this task" in both the wide and stacked
+              layouts. */}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            {isSubtask ? (
+              <Link
+                href={`/task/${task.parent_task_id}`}
+                onClick={(e) => e.stopPropagation()}
+                title={
+                  parentTitle ? `Subtask of “${parentTitle}”` : "Subtask"
+                }
+                className="inline-flex w-fit max-w-full items-center gap-1 text-[11px] font-medium leading-none text-neutral-400 transition-colors hover:text-indigo-600 dark:text-neutral-500 dark:hover:text-indigo-400"
+              >
+                <SubtaskArrowIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{parentTitle ?? "Parent task"}</span>
+              </Link>
+            ) : null}
+            <span
+              className={`line-clamp-2 text-sm leading-snug @lg:line-clamp-none ${
+                completed
+                  ? "text-neutral-400 line-through dark:text-neutral-600"
+                  : "text-neutral-900 dark:text-neutral-100"
+              }`}
+            >
+              {task.title}
+            </span>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2 @lg:contents">
             {task.tags.map((tag) => (

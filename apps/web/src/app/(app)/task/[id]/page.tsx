@@ -56,7 +56,16 @@ export default async function TaskDetailPage({
           </h2>
           <div>
             {subtasks.map((sub) => (
-              <TaskItem key={sub.id} task={sub} projects={projects} />
+              // The parent is the task rendered right above under the "Task"
+              // heading, so the per-row "↳ parent" breadcrumb would be pure
+              // redundancy here — suppress it.
+              <TaskItem
+                key={sub.id}
+                task={sub}
+                projects={projects}
+                parentTask={task}
+                hideParentRef
+              />
             ))}
           </div>
         </div>

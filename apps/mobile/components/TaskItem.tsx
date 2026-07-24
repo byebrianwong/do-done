@@ -30,6 +30,7 @@ import {
   deleteTask,
   toggleComplete,
   updateTask,
+  useParentTask,
   useProjects,
 } from '@/lib/task-queries';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
@@ -82,6 +83,12 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   const project = task.project_id
     ? (projects ?? []).find((p) => p.id === task.project_id) ?? null
     : null;
+
+  // Subtask reference: resolve the parent so the row reads "↳ parent" and is
+  // recognisable as a subtask wherever it appears in a list.
+  const isSubtask = !!task.parent_task_id;
+  const { data: parentTask } = useParentTask(task.parent_task_id);
+  const parentTitle = parentTask?.title ?? null;
 
   function handleProjectSelect(projectId: string | null) {
     hapticLight();
@@ -294,6 +301,14 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
         })}
       </View>
       <View style={styles.content}>
+        {isSubtask ? (
+          <View style={styles.subtaskRef}>
+            <Ionicons name="return-down-forward" size={12} color="#9ca3af" />
+            <Text style={styles.subtaskRefText} numberOfLines={1}>
+              {parentTitle ?? 'Subtask'}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.titleRow}>
           {focused && !completed ? (
             <Ionicons name="star" size={13} color="#f59e0b" />
@@ -523,6 +538,18 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'column',
     gap: 3,
+  },
+  subtaskRef: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginBottom: 1,
+  },
+  subtaskRefText: {
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '500',
+    flexShrink: 1,
   },
   titleRow: {
     flexDirection: 'row',
