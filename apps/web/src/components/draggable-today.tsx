@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  MouseSensor,
-  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -14,6 +12,10 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import {
+  ModalAwareMouseSensor,
+  ModalAwareTouchSensor,
+} from "@/lib/dnd-sensors";
 import {
   SortableContext,
   useSortable,
@@ -76,8 +78,10 @@ export function DraggableToday({
   );
 
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
+    useSensor(ModalAwareMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(ModalAwareTouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    })
   );
 
   const [draggingId, setDraggingId] = useState<string | null>(null);

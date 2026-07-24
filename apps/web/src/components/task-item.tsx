@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -456,6 +463,76 @@ function InlineWhenEditor({
   );
 }
 
+/**
+ * Positions the right-click context menu at the cursor, then measures the
+ * rendered menu and nudges it fully back on-screen: shifted left if it would
+ * spill off the right edge, and shifted up if it would spill off the bottom —
+ * the common case for rows near the bottom of a long list. Re-measures whenever
+ * the menu resizes (the Deadline / Move-to sections expand in place) or the
+ * window resizes, and caps the height so an unusually tall menu stays scrollable
+ * inside a short viewport instead of overflowing it.
+ */
+function ContextMenuPositioner({
+  anchor,
+  children,
+}: {
+  anchor: { x: number; y: number };
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Null until measured; we render hidden for the first paint so the menu never
+  // flashes at an unclamped position before the clamp runs.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const MARGIN = 8;
+    const reposition = () => {
+      const { width, height } = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      let left = anchor.x;
+      if (left + width > vw - MARGIN) left = vw - MARGIN - width;
+      left = Math.max(MARGIN, left);
+
+      let top = anchor.y;
+      if (top + height > vh - MARGIN) top = vh - MARGIN - height;
+      top = Math.max(MARGIN, top);
+
+      setPos({ top, left });
+    };
+
+    reposition();
+    // Section expansion changes the menu's height without a window resize —
+    // observe the element itself so it re-clamps as it grows.
+    const ro = new ResizeObserver(reposition);
+    ro.observe(el);
+    window.addEventListener("resize", reposition);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", reposition);
+    };
+  }, [anchor.x, anchor.y]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute max-h-[calc(100vh-16px)] overflow-y-auto"
+      style={{
+        top: pos?.top ?? anchor.y,
+        left: pos?.left ?? anchor.x,
+        visibility: pos ? "visible" : "hidden",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function TaskItem({
   task,
   projects,
@@ -643,13 +720,10 @@ export function TaskItem({
         onClick={() => setEditing(true)}
         onContextMenu={(e) => {
           e.preventDefault();
-          // Clamp so the ~256px-wide menu stays on screen near the edges.
-          const menuW = 280;
-          const menuH = 460;
-          setMenuPos({
-            x: Math.min(e.clientX, window.innerWidth - menuW),
-            y: Math.min(e.clientY, window.innerHeight - menuH),
-          });
+          // Store the raw cursor position; ContextMenuPositioner measures the
+          // rendered menu and nudges it back on-screen near the edges (a fixed
+          // clamp can't, since the menu's height varies with its content).
+          setMenuPos({ x: e.clientX, y: e.clientY });
         }}
       >
         <button
@@ -882,11 +956,7 @@ export function TaskItem({
               setMenuPos(null);
             }}
           >
-            <div
-              className="absolute"
-              style={{ top: menuPos.y, left: menuPos.x }}
-              onClick={(e) => e.stopPropagation()}
-            >
+            <ContextMenuPositioner anchor={menuPos}>
               <TaskContextMenu
                 task={task}
                 projects={allProjects}
@@ -894,7 +964,7 @@ export function TaskItem({
                 onClose={() => setMenuPos(null)}
                 onMutated={() => startTransition(() => router.refresh())}
               />
-            </div>
+            </ContextMenuPositioner>
           </div>,
           document.body
         )}

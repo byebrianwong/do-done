@@ -212,4 +212,75 @@ describe("parseTaskInput", () => {
       expect(result.duration_minutes).toBeUndefined();
     });
   });
+
+  describe("URLs in the title", () => {
+    it("keeps a full https URL — the scheme's // is not a /project", () => {
+      const result = parseTaskInput(
+        "Buy dog muzzle https://www.bigsnoofdoggear.com/",
+        REF_DATE
+      );
+      expect(result.title).toBe("Buy dog muzzle https://www.bigsnoofdoggear.com/");
+      expect(result.project).toBeUndefined();
+    });
+
+    it("does not mistake a URL path for a project", () => {
+      const result = parseTaskInput(
+        "read docs https://example.com/guide/intro",
+        REF_DATE
+      );
+      expect(result.title).toBe("read docs https://example.com/guide/intro");
+      expect(result.project).toBeUndefined();
+    });
+
+    it("does not read a URL #fragment as a tag", () => {
+      const result = parseTaskInput(
+        "check https://example.com/page#section",
+        REF_DATE
+      );
+      expect(result.title).toBe("check https://example.com/page#section");
+      expect(result.tags).toBeUndefined();
+    });
+
+    it("preserves a http (non-secure) URL", () => {
+      const result = parseTaskInput("ping http://localhost:3000/api", REF_DATE);
+      expect(result.title).toBe("ping http://localhost:3000/api");
+    });
+
+    it("preserves a bare www. URL", () => {
+      const result = parseTaskInput("visit www.example.com/x", REF_DATE);
+      expect(result.title).toBe("visit www.example.com/x");
+    });
+
+    it("a URL-only input becomes the title", () => {
+      const result = parseTaskInput("https://example.com/a/b", REF_DATE);
+      expect(result.title).toBe("https://example.com/a/b");
+    });
+
+    it("keeps two URLs in order", () => {
+      const result = parseTaskInput(
+        "compare https://a.com/x and https://b.com/y",
+        REF_DATE
+      );
+      expect(result.title).toBe("compare https://a.com/x and https://b.com/y");
+    });
+
+    it("still extracts a real /project typed alongside a URL", () => {
+      const result = parseTaskInput(
+        "read https://example.com/docs /engineering",
+        REF_DATE
+      );
+      expect(result.project).toBe("engineering");
+      expect(result.title).toBe("read https://example.com/docs");
+    });
+
+    it("still extracts priority and a date around a URL", () => {
+      const result = parseTaskInput(
+        "p1 order https://shop.example.com/item tomorrow",
+        REF_DATE
+      );
+      expect(result.priority).toBe("p1");
+      expect(result.due_date).toBe("2026-04-13");
+      expect(result.title).toBe("order https://shop.example.com/item");
+    });
+  });
 });
