@@ -5,14 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  MouseSensor,
-  TouchSensor,
   useSensor,
   useSensors,
   useDraggable,
   useDroppable,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import {
+  ModalAwareMouseSensor,
+  ModalAwareTouchSensor,
+} from "@/lib/dnd-sensors";
 import type { CalendarEvent, Task, Project } from "@do-done/shared";
 import {
   PRIORITY_CONFIG,
@@ -54,8 +56,8 @@ export function WeekView({
   // Touch drags start after a short press so a normal swipe scrolls the
   // (horizontally scrollable) week grid instead of grabbing a task.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, {
+    useSensor(ModalAwareMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(ModalAwareTouchSensor, {
       activationConstraint: { delay: 180, tolerance: 8 },
     })
   );

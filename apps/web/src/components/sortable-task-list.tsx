@@ -4,14 +4,16 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  MouseSensor,
-  TouchSensor,
   useSensor,
   useSensors,
   closestCenter,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import {
+  ModalAwareMouseSensor,
+  ModalAwareTouchSensor,
+} from "@/lib/dnd-sensors";
 import {
   SortableContext,
   useSortable,
@@ -112,8 +114,8 @@ export function SortableTaskList({
   // Mouse: drag after a 4px move. Touch: drag only after a short press, so a
   // normal vertical swipe scrolls the page instead of reordering.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, {
+    useSensor(ModalAwareMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(ModalAwareTouchSensor, {
       activationConstraint: { delay: 180, tolerance: 8 },
     })
   );
