@@ -6,6 +6,7 @@ import {
   formatRelativeDay,
   formatScheduleHint,
   formatWhenTime,
+  linkifyText,
   nextWeekdayLocalISO,
   groupCalendarEventsByDay,
   resolveQuickSchedule,
@@ -234,5 +235,83 @@ describe("calendarEventsOnDay / groupCalendarEventsByDay", () => {
     });
     const grouped = groupCalendarEventsByDay([spanning]);
     expect([...grouped.keys()].sort()).toEqual(["2026-07-31", "2026-08-01"]);
+  });
+});
+
+describe("linkifyText", () => {
+  it("splits a URL out of a title, keeping the surrounding text", () => {
+    expect(linkifyText("Buy dog muzzle https://www.bigsnoofdoggear.com/")).toEqual([
+      { type: "text", value: "Buy dog muzzle " },
+      {
+        type: "link",
+        value: "https://www.bigsnoofdoggear.com/",
+        href: "https://www.bigsnoofdoggear.com/",
+      },
+    ]);
+  });
+
+  it("returns a single text segment when there is no URL", () => {
+    expect(linkifyText("Buy dog muzzle")).toEqual([
+      { type: "text", value: "Buy dog muzzle" },
+    ]);
+  });
+
+  it("returns nothing for an empty string", () => {
+    expect(linkifyText("")).toEqual([]);
+  });
+
+  it("prepends https:// to a bare www. link for its href but not its label", () => {
+    const [seg] = linkifyText("www.example.com");
+    expect(seg).toEqual({
+      type: "link",
+      value: "www.example.com",
+      href: "https://www.example.com",
+    });
+  });
+
+  it("keeps an http:// scheme untouched", () => {
+    const [seg] = linkifyText("ping http://localhost:3000/api");
+    expect(seg).toEqual({ type: "text", value: "ping " });
+    expect(linkifyText("ping http://localhost:3000/api")[1]).toEqual({
+      type: "link",
+      value: "http://localhost:3000/api",
+      href: "http://localhost:3000/api",
+    });
+  });
+
+  it("leaves trailing sentence punctuation as text, out of the link", () => {
+    expect(linkifyText("see https://example.com.")).toEqual([
+      { type: "text", value: "see " },
+      { type: "link", value: "https://example.com", href: "https://example.com" },
+      { type: "text", value: "." },
+    ]);
+  });
+
+  it("trims an unbalanced closing paren but keeps balanced ones", () => {
+    expect(linkifyText("(https://example.com)")).toEqual([
+      { type: "text", value: "(" },
+      { type: "link", value: "https://example.com", href: "https://example.com" },
+      { type: "text", value: ")" },
+    ]);
+    const [seg] = linkifyText("https://en.wikipedia.org/wiki/Foo_(bar)");
+    expect(seg).toEqual({
+      type: "link",
+      value: "https://en.wikipedia.org/wiki/Foo_(bar)",
+      href: "https://en.wikipedia.org/wiki/Foo_(bar)",
+    });
+  });
+
+  it("links every URL when several appear in one string", () => {
+    expect(linkifyText("compare https://a.com/x and https://b.com/y")).toEqual([
+      { type: "text", value: "compare " },
+      { type: "link", value: "https://a.com/x", href: "https://a.com/x" },
+      { type: "text", value: " and " },
+      { type: "link", value: "https://b.com/y", href: "https://b.com/y" },
+    ]);
+  });
+
+  it("preserves URL fragments and query strings inside the link", () => {
+    const [seg] = linkifyText("https://example.com/page?q=1#section");
+    expect(seg.href).toBe("https://example.com/page?q=1#section");
   });
 });

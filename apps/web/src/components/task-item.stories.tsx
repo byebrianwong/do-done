@@ -51,6 +51,18 @@ export const Default: Story = {
   args: { task: makeTask({ title: "Review pull request", priority: "p3" }) },
 };
 
+export const UrlInTitle: Story = {
+  name: "URL in title (clickable link)",
+  // A raw link typed into the title renders as a clickable link in place, while
+  // the rest of the row still opens the editor on click.
+  args: {
+    task: makeTask({
+      title: "Buy dog muzzle https://www.bigsnoofdoggear.com/",
+      priority: "p3",
+    }),
+  },
+};
+
 export const HighPriority: Story = {
   args: {
     task: makeTask({
