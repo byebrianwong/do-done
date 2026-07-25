@@ -17,6 +17,8 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
 import { UndoToastProvider } from '@/components/UndoToast';
+import { BulkActionBar } from '@/components/BulkActionBar';
+import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { IS_EXPO_GO } from '@/lib/runtime';
@@ -72,7 +74,9 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <UndoToastProvider>
-            <RootLayoutNav />
+            <TaskSelectionProvider>
+              <RootLayoutNav />
+            </TaskSelectionProvider>
           </UndoToastProvider>
         </AuthProvider>
       </QueryClientProvider>
@@ -127,6 +131,8 @@ function RootLayoutNav() {
         />
       </Stack>
       <DevBanner />
+      {/* Global overlay: docks over the tab bar whenever rows are multi-selected. */}
+      <BulkActionBar />
     </ThemeProvider>
   );
 }
