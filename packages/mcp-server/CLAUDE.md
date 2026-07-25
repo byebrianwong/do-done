@@ -5,8 +5,9 @@ transports live elsewhere (`apps/mcp` for stdio, `apps/web` for HTTP).
 
 ## Key Files
 - `src/index.ts` — `createDoDoneServer({ supabase, userId })`, the shared factory
-- `src/tools/index.ts` — 8 task tools: list_tasks, create_task, update_task,
-  complete_task, search_tasks, get_focus_tasks, get_weekly_summary, organize_tasks
+- `src/tools/index.ts` — 8 task tools (list_tasks, create_task, update_task,
+  complete_task, search_tasks, get_focus_tasks, get_weekly_summary,
+  organize_tasks) + 2 project tools (list_projects, reorder_projects)
 - `src/tools/pets.ts` — 5 pet tools: get_pet_state, propose_pet_goal,
   accept_pet_goal, narrate_task_completion, get_pet_history
 - `src/resources/index.ts` — 4 resources: tasks://inbox, tasks://today,

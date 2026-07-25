@@ -279,6 +279,18 @@ export async function createProject(
 }
 
 /**
+ * Persist a reordered set of project ids (drag-to-reorder). The caller owns the
+ * optimistic local order; here we just write sort_order and reconcile. The new
+ * order flows to every project list (this tab, the picker, the web sidebar).
+ */
+export async function reorderProjects(orderedIds: string[]) {
+  const api = await getProjectsApi();
+  const { error } = await api.reorder(orderedIds);
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  if (error) throw error;
+}
+
+/**
  * Persist a reordered set of task ids (drag-to-reorder). The caller owns the
  * optimistic local order; here we just write sort_order and reconcile.
  */

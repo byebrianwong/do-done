@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { CreateTaskInput, TaskSchema, UpdateTaskInput } from "./schemas.js";
+import {
+  CreateTaskInput,
+  TaskSchema,
+  UpdateTaskInput,
+  UpdateProjectInput,
+} from "./schemas.js";
 
 // Base set of fields that satisfy TaskSchema's non-when requirements.
 // Returns a plain object so test cases can spread arbitrary overrides
@@ -75,6 +80,33 @@ describe("UpdateTaskInput", () => {
   it("accepts a new when_date", () => {
     const r = UpdateTaskInput.safeParse({ when_date: "2026-05-12" });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("UpdateProjectInput", () => {
+  it("accepts a lone sort_order (drag-to-reorder writes just this)", () => {
+    const r = UpdateProjectInput.safeParse({ sort_order: 2000 });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts an empty patch", () => {
+    expect(UpdateProjectInput.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects a non-integer sort_order", () => {
+    expect(UpdateProjectInput.safeParse({ sort_order: 1.5 }).success).toBe(
+      false
+    );
+  });
+
+  it("allows clearing the icon (set to null)", () => {
+    expect(UpdateProjectInput.safeParse({ icon: null }).success).toBe(true);
+  });
+
+  it("rejects an invalid color", () => {
+    expect(UpdateProjectInput.safeParse({ color: "indigo" }).success).toBe(
+      false
+    );
   });
 });
 
