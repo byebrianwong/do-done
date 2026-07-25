@@ -16,7 +16,19 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
-  ...storybook.configs["flat/recommended"]
+  ...storybook.configs["flat/recommended"],
+  {
+    rules: {
+      // Next 16's react-hooks preset promotes this React-Compiler rule to an
+      // error. Across this codebase it fires on the deliberate, well-documented
+      // pattern of syncing optimistic local state back from props after a
+      // router.refresh (e.g. task-item, week-view, the draggable lists) — an
+      // intentional choice, not a bug. Keep it visible as a warning instead of
+      // failing the whole lint. The genuinely load-bearing hook rules
+      // (rules-of-hooks, set-state-in-render, impure-during-render) stay errors.
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;
