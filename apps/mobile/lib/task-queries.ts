@@ -267,6 +267,79 @@ export async function deleteTask(id: string) {
   }
 }
 
+/**
+ * Apply one patch to many tasks at once (bulk reschedule / move / priority).
+ * Optimistically patches every selected row across the cache, then writes via
+ * TasksApi.bulkUpdate (which fans out to update, so pet feeding still fires).
+ */
+export async function bulkUpdateTasks(ids: string[], input: UpdateTaskInput) {
+  if (ids.length === 0) return;
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const prev = snapshotTaskLists();
+  const idSet = new Set(ids);
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+    old?.map((t) => (idSet.has(t.id) ? ({ ...t, ...input } as Task) : t))
+  );
+  try {
+    const api = await getTasksApi();
+    const { error } = await api.bulkUpdate(
+      ids.map((id) => ({ id, input }))
+    );
+    if (error) throw error;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
+  } finally {
+    invalidateTasks();
+  }
+}
+
+/** Complete many tasks at once, optimistically dropping them from active lists. */
+export async function bulkCompleteTasks(ids: string[]) {
+  if (ids.length === 0) return;
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const prev = snapshotTaskLists();
+  const idSet = new Set(ids);
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (old) =>
+    old?.filter((t) => !idSet.has(t.id))
+  );
+  try {
+    const api = await getTasksApi();
+    // status→done routes through update(), which stamps completed_at.
+    const { error } = await api.bulkUpdate(
+      ids.map((id) => ({ id, input: { status: 'done' as const } }))
+    );
+    if (error) throw error;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
+  } finally {
+    invalidateTasks();
+  }
+}
+
+/** Delete many tasks at once, optimistically removing them from every list. */
+export async function bulkDeleteTasks(ids: string[]) {
+  if (ids.length === 0) return;
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const prev = snapshotTaskLists();
+  const idSet = new Set(ids);
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+    old?.filter((t) => !idSet.has(t.id))
+  );
+  try {
+    const api = await getTasksApi();
+    const results = await Promise.all(ids.map((id) => api.delete(id)));
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw failed.error;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
+  } finally {
+    invalidateTasks();
+  }
+}
+
 /** Create a project, then refetch project lists. Returns the new project. */
 export async function createProject(
   input: CreateProjectInput
