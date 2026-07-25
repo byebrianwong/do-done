@@ -1105,10 +1105,13 @@ function WhenCalendar({
 function SubtaskRow({
   task,
   onToggle,
+  onOpen,
   onDelete,
 }: {
   task: Task;
   onToggle: () => void;
+  /** Open this subtask in the modal (drill down into its own editor). */
+  onOpen: () => void;
   onDelete: () => void;
 }) {
   const done = task.status === "done" || task.status === "cancelled";
@@ -1127,15 +1130,41 @@ function SubtaskRow({
       >
         {done ? <span className="text-[10px] leading-none">✓</span> : null}
       </button>
-      <span
-        className={`flex-1 truncate text-[13px] ${
+      {/* The title opens the subtask in its own modal view. A button (not the
+          row) so it doesn't swallow clicks meant for the toggle / delete. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        title={`Open “${task.title}”`}
+        className={`min-w-0 flex-1 truncate text-left text-[13px] transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
           done
             ? "text-neutral-400 line-through dark:text-neutral-600"
             : "text-neutral-800 dark:text-neutral-200"
         }`}
       >
         {task.title}
-      </span>
+      </button>
+      {/* Open affordance — a subtle chevron that appears on hover, echoing the
+          "row is navigable" cue. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${task.title}`}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-neutral-300 opacity-0 transition-all hover:bg-neutral-100 hover:text-neutral-600 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800"
+      >
+        <svg
+          className="h-3.5 w-3.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
       <button
         type="button"
         onClick={onDelete}
@@ -1151,9 +1180,12 @@ function SubtaskRow({
 function SubtasksSection({
   parentTask,
   tasksApi,
+  onOpenSubtask,
 }: {
   parentTask: Task;
   tasksApi: TasksApi;
+  /** Drill the modal into a subtask's own editor. */
+  onOpenSubtask: (task: Task) => void;
 }) {
   const [subtasks, setSubtasks] = useState<Task[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -1230,6 +1262,7 @@ function SubtasksSection({
             key={st.id}
             task={st}
             onToggle={() => handleToggle(st)}
+            onOpen={() => onOpenSubtask(st)}
             onDelete={() => handleDelete(st.id)}
           />
         ))}
@@ -1847,19 +1880,78 @@ interface TaskEditModalV2Props {
   draft?: boolean;
 }
 
-export function TaskEditModalV2({
+/**
+ * Public modal. Thin shell that owns *which* task is on screen: the editor can
+ * drill from the opened task into a subtask, or climb back to a parent, without
+ * ever leaving the modal. The heavy body is keyed on the active task's id so
+ * `useAutoSaveTask` re-snapshots cleanly on each hop (a still-pending save on
+ * the task we're leaving flushes on unmount).
+ */
+export function TaskEditModalV2(props: TaskEditModalV2Props) {
+  const { task, open } = props;
+  const [activeTask, setActiveTask] = useState<Task>(task);
+
+  // Re-root on open, or when the owner swaps in a different task — done in the
+  // render phase (not an effect) so an in-place re-render never clobbers a
+  // drill-down. `marker` is the (id, open) pair we last rooted on.
+  const marker = `${task.id}:${open}`;
+  const [rootedMarker, setRootedMarker] = useState(marker);
+  if (marker !== rootedMarker) {
+    setRootedMarker(marker);
+    // Closing shouldn't disturb activeTask (the body is hidden); only re-root
+    // while open, on the (possibly new) task the owner handed us.
+    if (open) setActiveTask(task);
+  }
+
+  return (
+    <TaskEditModalBody
+      key={activeTask.id}
+      {...props}
+      task={activeTask}
+      // Only the originally-opened task can be a throwaway draft; a task we
+      // drilled into is a real, saved row.
+      draft={props.draft && activeTask.id === task.id}
+      onNavigateTask={setActiveTask}
+    />
+  );
+}
+
+function TaskEditModalBody({
   task,
   projects,
   open,
   onClose,
   draft,
-}: TaskEditModalV2Props) {
+  onNavigateTask,
+}: TaskEditModalV2Props & {
+  /** Drill the modal to another task (a subtask, or this task's parent). */
+  onNavigateTask: (task: Task) => void;
+}) {
   const router = useRouter();
   const supabase = useMemo(() => createClientSupabase(), []);
   const tasksApi = useMemo(
     () => new TasksApi(supabase, task.user_id),
     [supabase, task.user_id]
   );
+
+  // Parent task, resolved when the active task is a subtask, so the top bar can
+  // offer a "← parent" way back. Fetched once per task; the button also serves
+  // as the navigation target so the click needs no extra round-trip.
+  // Starts null every mount; the body is keyed on the task id, so navigating to
+  // another task remounts this fresh rather than needing a reset here.
+  const [parentTask, setParentTask] = useState<Task | null>(null);
+  useEffect(() => {
+    const parentId = task.parent_task_id;
+    if (!parentId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await tasksApi.getById(parentId);
+      if (!cancelled) setParentTask(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [task.parent_task_id, tasksApi]);
 
   const {
     task: current,
@@ -2082,13 +2174,39 @@ export function TaskEditModalV2({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-neutral-100 bg-white px-4 py-2.5 dark:border-neutral-900 dark:bg-neutral-950">
-          <SaveStatusDot
-            saving={isSaving}
-            lastSavedAt={lastSavedAt}
-            error={lastError}
-          />
-          <div className="flex items-center gap-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-white px-4 py-2.5 dark:border-neutral-900 dark:bg-neutral-950">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* When the open task is a subtask, offer a way back up to its
+                parent — the modal drills in place, so this is the climb-out. */}
+            {current.parent_task_id ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (parentTask) onNavigateTask(parentTask);
+                }}
+                disabled={!parentTask}
+                title={
+                  parentTask
+                    ? `Back to “${parentTask.title}”`
+                    : "Back to parent task"
+                }
+                className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-indigo-600 disabled:cursor-default disabled:opacity-60 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-indigo-400"
+              >
+                <span aria-hidden className="shrink-0">
+                  ←
+                </span>
+                <span className="truncate">
+                  {parentTask ? parentTask.title : "Parent task"}
+                </span>
+              </button>
+            ) : null}
+            <SaveStatusDot
+              saving={isSaving}
+              lastSavedAt={lastSavedAt}
+              error={lastError}
+            />
+          </div>
+          <div className="flex shrink-0 items-center gap-3.5">
             {/* Always rendered so the top bar height is stable; toggled via
               opacity + pointer-events so the layout below it doesn't shift
               when the user starts editing. */}
@@ -2205,7 +2323,11 @@ export function TaskEditModalV2({
           </div>
 
           {/* Subtasks */}
-          <SubtasksSection parentTask={current} tasksApi={tasksApi} />
+          <SubtasksSection
+            parentTask={current}
+            tasksApi={tasksApi}
+            onOpenSubtask={onNavigateTask}
+          />
 
           {/* Notes */}
           <div>

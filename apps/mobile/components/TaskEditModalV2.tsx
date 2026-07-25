@@ -996,10 +996,13 @@ export const STATUS_PICKER_OPTIONS: { key: string; code: string; label: string }
 function SubtaskRow({
   task,
   onToggle,
+  onOpen,
   onDelete,
 }: {
   task: Task;
   onToggle: () => void;
+  /** Open this subtask in the sheet (drill down into its own editor). */
+  onOpen: () => void;
   onDelete: () => void;
 }) {
   const done = task.status === "done" || task.status === "cancelled";
@@ -1013,12 +1016,27 @@ function SubtaskRow({
       >
         {done ? <Text style={styles.subtaskCheckMark}>✓</Text> : null}
       </Pressable>
-      <Text
-        numberOfLines={1}
-        style={[styles.subtaskTitle, done && styles.subtaskTitleDone]}
+      {/* Tapping the title drills into the subtask's own editor. */}
+      <Pressable
+        onPress={onOpen}
+        style={styles.subtaskTitleBtn}
+        accessibilityLabel={`Open ${task.title}`}
       >
-        {task.title}
-      </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.subtaskTitle, done && styles.subtaskTitleDone]}
+        >
+          {task.title}
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={onOpen}
+        hitSlop={8}
+        accessibilityLabel={`Open ${task.title}`}
+        style={styles.subtaskDelete}
+      >
+        <Text style={styles.subtaskChevron}>›</Text>
+      </Pressable>
       <Pressable
         onPress={onDelete}
         hitSlop={8}
@@ -1034,9 +1052,12 @@ function SubtaskRow({
 function SubtasksSection({
   parentTask,
   tasksApi,
+  onOpenSubtask,
 }: {
   parentTask: Task;
   tasksApi: TasksApi;
+  /** Drill the sheet into a subtask's own editor. */
+  onOpenSubtask: (task: Task) => void;
 }) {
   const [subtasks, setSubtasks] = useState<Task[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -1120,6 +1141,7 @@ function SubtasksSection({
             key={st.id}
             task={st}
             onToggle={() => handleToggle(st)}
+            onOpen={() => onOpenSubtask(st)}
             onDelete={() => handleDelete(st.id)}
           />
         ))}
@@ -1191,6 +1213,18 @@ export default function TaskEditModalV2({
 
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
 
+  // Which task is on screen. The editor can drill from the opened task into a
+  // subtask, or climb back to a parent, all within the same sheet. Re-rooted in
+  // the render phase (not an effect) so an in-place re-render never clobbers a
+  // drill-down; `marker` is the (id, visible) pair we last rooted on.
+  const [activeTask, setActiveTask] = useState<Task | null>(task);
+  const marker = `${task?.id ?? "none"}:${visible}`;
+  const [rootedMarker, setRootedMarker] = useState(marker);
+  if (marker !== rootedMarker) {
+    setRootedMarker(marker);
+    if (visible) setActiveTask(task);
+  }
+
   // Slide the sheet up whenever it becomes visible.
   useEffect(() => {
     if (visible && task) {
@@ -1256,7 +1290,14 @@ export default function TaskEditModalV2({
               <View style={styles.grabberWrap}>
                 <View style={styles.grabber} />
               </View>
-              {task ? <Inner task={task} onClose={animatedClose} /> : null}
+              {activeTask ? (
+                <Inner
+                  key={activeTask.id}
+                  task={activeTask}
+                  onClose={animatedClose}
+                  onNavigateTask={setActiveTask}
+                />
+              ) : null}
             </Animated.View>
           </GestureDetector>
         </GestureHandlerRootView>
@@ -1265,12 +1306,39 @@ export default function TaskEditModalV2({
   );
 }
 
-function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
+function Inner({
+  task,
+  onClose,
+  onNavigateTask,
+}: {
+  task: Task;
+  onClose: () => void;
+  /** Drill the sheet to another task (a subtask, or this task's parent). */
+  onNavigateTask: (task: Task) => void;
+}) {
   const tasksApiMemo = useMemo(() => {
     // Lazy require avoids loading TasksApi at module init.
     const { TasksApi } = require("@do-done/api-client") as typeof import("@do-done/api-client");
     return new TasksApi(supabase, task.user_id);
   }, [task.user_id]);
+
+  // Parent task, resolved when the open task is a subtask, so the header can
+  // offer a way back up. Doubles as the navigation target (no extra fetch on tap).
+  // Starts null every mount; the sheet body is keyed on the task id, so
+  // navigating remounts this fresh rather than needing a reset here.
+  const [parentTask, setParentTask] = useState<Task | null>(null);
+  useEffect(() => {
+    const parentId = task.parent_task_id;
+    if (!parentId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await tasksApiMemo.getById(parentId);
+      if (!cancelled) setParentTask(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [task.parent_task_id, tasksApiMemo]);
 
   const {
     task: current,
@@ -1407,6 +1475,26 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
           <Text style={styles.closeBtnText}>×</Text>
         </Pressable>
       </View>
+
+      {/* When the open task is a subtask, offer a way back up to its parent —
+          the sheet drills in place, so this is the climb-out. */}
+      {current.parent_task_id ? (
+        <Pressable
+          onPress={() => {
+            if (parentTask) onNavigateTask(parentTask);
+          }}
+          disabled={!parentTask}
+          style={styles.parentCrumb}
+          accessibilityLabel={
+            parentTask ? `Back to ${parentTask.title}` : "Back to parent task"
+          }
+        >
+          <Text style={styles.parentCrumbArrow}>←</Text>
+          <Text style={styles.parentCrumbText} numberOfLines={1}>
+            {parentTask ? parentTask.title : "Parent task"}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {/* Title input */}
@@ -1618,7 +1706,11 @@ function Inner({ task, onClose }: { task: Task; onClose: () => void }) {
         />
 
         {/* Subtasks */}
-        <SubtasksSection parentTask={current} tasksApi={tasksApiMemo} />
+        <SubtasksSection
+          parentTask={current}
+          tasksApi={tasksApiMemo}
+          onOpenSubtask={onNavigateTask}
+        />
 
         {/* Notes */}
         <View style={{ marginTop: 18 }}>
@@ -1917,7 +2009,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 6,
   },
+  subtaskTitleBtn: { flex: 1 },
+  subtaskChevron: { fontSize: 18, color: "#c7cdd6", lineHeight: 18 },
   subtaskDeleteText: { fontSize: 16, color: "#9ca3af", lineHeight: 18 },
+  parentCrumb: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  parentCrumbArrow: { fontSize: 15, color: "#6366f1", fontWeight: "700" },
+  parentCrumbText: {
+    flexShrink: 1,
+    fontSize: 13,
+    color: "#6366f1",
+    fontWeight: "600",
+  },
   subtaskInput: {
     flex: 1,
     fontSize: 14,
