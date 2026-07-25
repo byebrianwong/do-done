@@ -231,6 +231,21 @@ export const CreateProjectInput = z.object({
 });
 export type CreateProjectInput = z.infer<typeof CreateProjectInput>;
 
+// Every field optional so callers can patch a single attribute. `sort_order`
+// is what drag-to-reorder writes to persist a user-chosen ordering (projects
+// are listed ascending by it, so lower = earlier).
+export const UpdateProjectInput = z.object({
+  name: z.string().min(1).max(100).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+  icon: z.string().max(10).nullable().optional(),
+  parent_project_id: z.string().uuid().nullable().optional(),
+  sort_order: z.number().int().optional(),
+});
+export type UpdateProjectInput = z.infer<typeof UpdateProjectInput>;
+
 export const CreateLocationInput = z.object({
   name: z.string().min(1).max(200),
   latitude: z.number().min(-90).max(90),

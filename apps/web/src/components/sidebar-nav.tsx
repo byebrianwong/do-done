@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
 import { openQuickAdd } from "@/lib/quick-add-events";
+import { SortableProjectList } from "./sortable-project-list";
 
 const NAV_ITEMS = [
   {
@@ -204,32 +205,7 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
           Projects
         </Link>
       </div>
-      <div className="space-y-0.5">
-        {projects.map((p) => {
-          const href = `/projects/${p.id}`;
-          const isActive = pathname === href;
-          return (
-            <Link
-              key={p.id}
-              href={href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                isActive
-                  ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-              }`}
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: p.color }}
-              />
-              <span className="truncate">
-                {p.icon ? `${p.icon} ` : ""}
-                {p.name}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
+      <SortableProjectList projects={projects} />
     </nav>
   );
 }

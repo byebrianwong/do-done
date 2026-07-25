@@ -30,6 +30,7 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
+import { LinkifiedText } from './LinkifiedText';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
 import { useUndoToast } from './UndoToast';
 
@@ -321,12 +322,11 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           {focused && !completed ? (
             <Ionicons name="star" size={13} color="#f59e0b" />
           ) : null}
-          <Text
+          <LinkifiedText
+            text={task.title}
             style={[styles.title, completed && styles.titleDone]}
             numberOfLines={2}
-          >
-            {task.title}
-          </Text>
+          />
         </View>
         {hasMeta ? (
           <View style={styles.metaRow}>

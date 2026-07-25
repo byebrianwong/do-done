@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarNav } from "./sidebar-nav";
+import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 const meta: Meta<typeof SidebarNav> = {
   title: "Components/SidebarNav",
@@ -35,4 +36,14 @@ export const TodayActive: Story = {
 
 export const CalendarActive: Story = {
   parameters: { nextjs: { navigation: { pathname: "/calendar" } } },
+};
+
+// The project list is drag-to-reorder; hovering a row reveals the grip handle.
+export const WithProjects: Story = {
+  args: { projects: SAMPLE_PROJECTS },
+};
+
+export const ProjectActive: Story = {
+  args: { projects: SAMPLE_PROJECTS },
+  parameters: { nextjs: { navigation: { pathname: "/projects/proj-2" } } },
 };
