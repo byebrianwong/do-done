@@ -24,6 +24,7 @@ import {
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
   TaskEditModalV2,
@@ -891,13 +892,13 @@ export function TaskItem({
               </Link>
             ) : null}
             <span
-              className={`line-clamp-2 text-sm leading-snug @lg:line-clamp-none ${
+              className={`line-clamp-2 break-words text-sm leading-snug @lg:line-clamp-none ${
                 completed
                   ? "text-neutral-400 line-through dark:text-neutral-600"
                   : "text-neutral-900 dark:text-neutral-100"
               }`}
             >
-              {task.title}
+              <LinkifiedText text={task.title} />
             </span>
           </div>
 

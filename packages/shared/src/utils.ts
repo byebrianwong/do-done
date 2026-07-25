@@ -358,3 +358,113 @@ export function generateSortOrder(
   if (position === "end") return Math.max(...existingOrders) + 1000;
   return Math.min(...existingOrders) - 1000;
 }
+
+/**
+ * One piece of a title/notes string split for link rendering: either a run of
+ * plain text or a URL. `href` is present only on links and always carries a
+ * scheme (bare `www.` links are normalised to `https://`) so a renderer can use
+ * it verbatim.
+ */
+export interface LinkSegment {
+  type: "text" | "link";
+  /** The exact substring from the input — what the user sees. */
+  value: string;
+  /** Navigable URL, links only. Guaranteed to start with a scheme. */
+  href?: string;
+}
+
+// Matches http(s):// links and scheme-less `www.` links. Kept in lockstep with
+// the task-engine parser's URL_PATTERN so a link that survives natural-language
+// parsing (masked, then restored into the title) is the same link we detect for
+// display. `[^\s]+` is deliberately greedy; trailing punctuation that isn't part
+// of the URL is trimmed back off in trimLinkTrailing below.
+const LINK_PATTERN = /\b(?:https?:\/\/|www\.)[^\s]+/gi;
+
+// Sentence punctuation that commonly abuts a link but isn't part of it:
+// "see https://example.com." → the trailing "." is prose, not the URL.
+const TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  ";",
+  ":",
+  "!",
+  "?",
+  "'",
+  '"',
+  "’", // right single quote
+]);
+
+const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+/**
+ * Trim trailing characters that punctuate the surrounding prose rather than the
+ * URL. Closing brackets are only trimmed when unbalanced — so a Wikipedia link
+ * like "…/wiki/Foo_(bar)" keeps its closing paren, but "(see https://x.com)"
+ * gives up the stray ")". The trimmed characters are re-emitted as text.
+ */
+function trimLinkTrailing(url: string): string {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url[end - 1];
+    if (TRAILING_PUNCTUATION.has(ch)) {
+      end--;
+      continue;
+    }
+    const open = CLOSERS[ch];
+    if (open) {
+      const slice = url.slice(0, end);
+      let balance = 0;
+      for (const c of slice) {
+        if (c === open) balance++;
+        else if (c === ch) balance--;
+      }
+      // balance < 0 ⇒ more closers than openers ⇒ this one is unmatched.
+      if (balance < 0) {
+        end--;
+        continue;
+      }
+    }
+    break;
+  }
+  return url.slice(0, end);
+}
+
+/** Prepend a scheme to bare `www.` links; leave http(s) links untouched. */
+function toHref(url: string): string {
+  return /^www\./i.test(url) ? `https://${url}` : url;
+}
+
+/**
+ * Split a string into plain-text and link segments for rendering URLs as
+ * clickable links. Pure and platform-agnostic (no DOM) so web and mobile share
+ * one definition of "what counts as a link". Returns a single text segment when
+ * there are no links, and `[]` for an empty string.
+ */
+export function linkifyText(text: string): LinkSegment[] {
+  const segments: LinkSegment[] = [];
+  // Fresh regex per call — a shared /g regex carries lastIndex between calls.
+  const re = new RegExp(LINK_PATTERN.source, LINK_PATTERN.flags);
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const url = trimLinkTrailing(match[0]);
+    // A degenerate match with no body left after trimming: treat as text and
+    // step forward one char so the loop can't spin.
+    if (url.length === 0) {
+      re.lastIndex = match.index + 1;
+      continue;
+    }
+    if (match.index > cursor) {
+      segments.push({ type: "text", value: text.slice(cursor, match.index) });
+    }
+    segments.push({ type: "link", value: url, href: toHref(url) });
+    cursor = match.index + url.length;
+    // Rewind the scanner to just past the URL so any punctuation we trimmed is
+    // re-scanned and folded into the next text segment.
+    re.lastIndex = cursor;
+  }
+  if (cursor < text.length) {
+    segments.push({ type: "text", value: text.slice(cursor) });
+  }
+  return segments;
+}
