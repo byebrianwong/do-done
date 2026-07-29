@@ -154,7 +154,9 @@ quick-add sheet over the live home screen without launching the main app.
   generates a translucent **`QuickAddActivity`** (`QuickAddActivity.kt`), registers it
   in `AndroidManifest.xml` with `Theme.App.QuickAddTranslucent` + the `dodoneadd`
   intent-filter, and adds that style. The activity runs in its own task
-  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`).
+  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`) with
+  `windowSoftInputMode="adjustResize"` — without that it defaults to pan, and the
+  window slides up *underneath* the composer's own keyboard offset.
 - `QuickAddActivity` mounts a **second** registered JS root, `"QuickAdd"` (see
   `index.js`, the custom bundle entry that also imports `expo-router/entry` for the
   main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
@@ -163,6 +165,16 @@ quick-add sheet over the live home screen without launching the main app.
   Todoist-style title + When/Priority/Estimate chips, reusing selectors exported from
   `components/TaskEditModalV2.tsx`). It dismisses with `BackHandler.exitApp()`, which
   finishes only the quick-add task and returns to the launcher.
+- Two composer rules keep the surface from jumping around, both matching Todoist:
+  the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
+  not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
+  **inline popovers in the same window** — an Android `Modal` opens a new window and
+  drops the keyboard. Only the full month grid takes over the screen, and it hands
+  focus back to the input on close.
+- Widget artwork is inline SVG via `SvgWidget` (`widgets/dodone-mark.ts`). Do **not**
+  use `IconWidget`: it renders the icon name as *text* in a typeface the app has to
+  ship itself, so `icon="add"` with no `material.ttf` literally drew "add" on the
+  home screen.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.

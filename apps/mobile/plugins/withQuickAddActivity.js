@@ -110,6 +110,14 @@ const withQuickAddManifest = (config) =>
           'android:launchMode': 'singleTask',
           'android:taskAffinity': '',
           'android:excludeFromRecents': 'true',
+          // Without this the activity inherits the platform default
+          // (adjustPan/adjustUnspecified), so showing the IME PANS the whole
+          // translucent window up — on top of the composer's own keyboard
+          // offset, which made the sheet jump around above the keyboard.
+          // adjustResize + edge-to-edge means the window holds still and the
+          // composer alone owns the offset (see QuickAddComposer). It also
+          // matches MainActivity, so the in-app quick-add behaves identically.
+          'android:windowSoftInputMode': 'adjustResize',
           'android:configChanges':
             'keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode',
         },
