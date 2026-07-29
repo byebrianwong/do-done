@@ -29,6 +29,45 @@ function normalizeTasks<T extends { status: string }>(rows: T[]): T[] {
   return rows.map((r) => normalizeTask(r) as T);
 }
 
+/**
+ * Outcome of a bulk write. `data` holds the tasks that were written and
+ * `failedIds` names the ones that weren't, so a caller can roll back (or report)
+ * exactly the rows that didn't land instead of writing off the whole batch.
+ * `error` is the first failure, kept for callers that only need to know whether
+ * anything broke.
+ */
+export interface BulkUpdateResult {
+  data: Task[];
+  error: Error | null;
+  failedIds: string[];
+}
+
+// Every update() is a read-then-write pair, so an unbounded fan-out over a large
+// selection opens 2N sockets at once. Browsers cap concurrent requests per host;
+// React Native does not, which is why a big multi-select bulk action was the
+// thing that fell over. Cap the fan-out instead of relying on the platform.
+const BULK_CONCURRENCY = 8;
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving order. */
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
+  return results;
+}
+
 export class TasksApi {
   constructor(
     private supabase: SupabaseClient,
@@ -215,19 +254,47 @@ export class TasksApi {
 
   async bulkUpdate(
     updates: Array<{ id: string; input: UpdateTaskInput }>
-  ): Promise<{ data: Task[]; error: Error | null }> {
+  ): Promise<BulkUpdateResult> {
     // Fan out to individual updates so each one stamps completed_at, fires pet
     // events, etc. Supabase has no native batch-update for distinct patches.
-    // Runs in parallel to amortize round-trip cost.
-    const results = await Promise.all(
-      updates.map(({ id, input }) => this.update(id, input))
+    // Runs concurrently (bounded) to amortize round-trip cost.
+    const results = await mapWithLimit(
+      updates,
+      BULK_CONCURRENCY,
+      async ({ id, input }) => {
+        // A rejected fetch used to reject the whole Promise.all and lose every
+        // other result with it; contain each write to its own row.
+        const attempt = async () => {
+          try {
+            return await this.update(id, input);
+          } catch (e) {
+            return {
+              data: null,
+              error: e instanceof Error ? e : new Error(String(e)),
+            };
+          }
+        };
+        const first = await attempt();
+        if (!first.error) return { id, ...first };
+        // Field patches are idempotent, so replaying one is safe: the retry
+        // either lands the write or confirms the failure is real. Worth doing —
+        // fanning out is exactly what provokes transient failures.
+        return { id, ...(await attempt()) };
+      }
     );
+
     const data: Task[] = [];
+    const failedIds: string[] = [];
+    let error: Error | null = null;
     for (const r of results) {
-      if (r.error) return { data: [], error: r.error };
-      if (r.data) data.push(r.data);
+      if (r.error) {
+        failedIds.push(r.id);
+        error ??= r.error;
+      } else if (r.data) {
+        data.push(r.data);
+      }
     }
-    return { data, error: null };
+    return { data, error, failedIds };
   }
 
   async listCompleted(opts?: {

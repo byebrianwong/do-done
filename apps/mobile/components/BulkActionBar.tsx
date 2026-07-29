@@ -24,9 +24,11 @@ import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
 import {
   bulkCompleteTasks,
   bulkDeleteTasks,
+  bulkRescheduleTasks,
   bulkUpdateTasks,
   createProject,
   useProjects,
+  type BulkWriteResult,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
@@ -131,26 +133,54 @@ export function BulkActionBar() {
 
   const ids = () => [...selection.selectedIds];
 
-  const apply = (input: UpdateTaskInput) => {
+  /**
+   * Run a bulk write and, if part of it didn't land, say so. The rows that
+   * failed have already snapped back to their old values by the time this
+   * runs — silently swallowing the error left that revert looking like the app
+   * had undone the action on its own.
+   */
+  const report = (verb: string, run: Promise<BulkWriteResult>) => {
+    void run
+      .then(({ failed }) => {
+        if (failed === 0) return;
+        Alert.alert(
+          `Couldn't ${verb} ${failed} task${failed > 1 ? 's' : ''}`,
+          'Those tasks were left unchanged. Check your connection and try again.'
+        );
+      })
+      .catch(() => {});
+  };
+
+  const apply = (input: UpdateTaskInput, verb = 'update') => {
     const targets = ids();
     hapticLight();
-    void bulkUpdateTasks(targets, input).catch(() => {});
+    report(verb, bulkUpdateTasks(targets, input));
     setSheet(null);
     selection.clear();
   };
 
   const pickSchedule = (key: string) => {
     if (key === 'remove') {
-      apply({ when_date: null, due_date: null, due_time: null });
+      apply(
+        { when_date: null, when_time: null, due_date: null, due_time: null },
+        'unschedule'
+      );
       return;
     }
-    apply({ when_date: resolveQuickSchedule(key as QuickScheduleKey) });
+    const targets = ids();
+    hapticLight();
+    report(
+      'reschedule',
+      bulkRescheduleTasks(targets, resolveQuickSchedule(key as QuickScheduleKey))
+    );
+    setSheet(null);
+    selection.clear();
   };
 
   const complete = () => {
     const targets = ids();
     hapticSuccess();
-    void bulkCompleteTasks(targets).catch(() => {});
+    report('complete', bulkCompleteTasks(targets));
     selection.clear();
   };
 
@@ -166,7 +196,7 @@ export function BulkActionBar() {
           style: 'destructive',
           onPress: () => {
             hapticMedium();
-            void bulkDeleteTasks(targets).catch(() => {});
+            report('delete', bulkDeleteTasks(targets));
             selection.clear();
           },
         },
@@ -234,14 +264,14 @@ export function BulkActionBar() {
         visible={sheet === 'priority'}
         title="Priority"
         options={priorityOptions}
-        onPick={(key) => apply({ priority: key as TaskPriority })}
+        onPick={(key) => apply({ priority: key as TaskPriority }, 'reprioritize')}
         onClose={() => setSheet(null)}
       />
       <ProjectPickerSheet
         visible={sheet === 'move'}
         projects={projects ?? []}
         selectedId={null}
-        onSelect={(projectId) => apply({ project_id: projectId })}
+        onSelect={(projectId) => apply({ project_id: projectId }, 'move')}
         onClose={() => setSheet(null)}
         onCreate={async (name, color) => {
           try {

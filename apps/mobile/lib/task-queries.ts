@@ -197,6 +197,43 @@ function restoreTaskLists(prev: TaskListSnapshot) {
   for (const [key, data] of prev) queryClient.setQueryData(key, data);
 }
 
+/**
+ * The cached copy of each id, taken before a bulk write patches it. Keyed by id
+ * (first cache hit wins) so a partial failure can put back exactly the rows that
+ * didn't land, instead of reverting the whole cache — including the writes that
+ * succeeded.
+ */
+function snapshotTasksById(ids: Set<string>): Map<string, Task> {
+  const byId = new Map<string, Task>();
+  for (const [, list] of queryClient.getQueriesData<Task[]>({
+    queryKey: taskKeys.all,
+  })) {
+    for (const t of list ?? []) {
+      if (ids.has(t.id) && !byId.has(t.id)) byId.set(t.id, t);
+    }
+  }
+  return byId;
+}
+
+/** Merge a per-id patch into every cached list. */
+function patchCachedTasks(patches: Map<string, UpdateTaskInput>) {
+  if (patches.size === 0) return;
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+    old?.map((t) => {
+      const input = patches.get(t.id);
+      return input ? ({ ...t, ...input } as Task) : t;
+    })
+  );
+}
+
+/** Put the pre-write copy back for `ids` only; every other row keeps its patch. */
+function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
+  if (ids.size === 0) return;
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+    old?.map((t) => (ids.has(t.id) ? prevById.get(t.id) ?? t : t))
+  );
+}
+
 export function invalidateTasks() {
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
@@ -267,77 +304,140 @@ export async function deleteTask(id: string) {
   }
 }
 
+/** How a bulk write went, so the caller can tell the user when part of it didn't. */
+export interface BulkWriteResult {
+  /** Rows the server accepted. */
+  updated: number;
+  /** Rows that didn't land and were rolled back locally. */
+  failed: number;
+}
+
 /**
- * Apply one patch to many tasks at once (bulk reschedule / move / priority).
- * Optimistically patches every selected row across the cache, then writes via
+ * Apply per-task patches in one go (bulk reschedule / move / priority).
+ * Optimistically patches every target row across the cache, then writes via
  * TasksApi.bulkUpdate (which fans out to update, so pet feeding still fires).
+ *
+ * A bulk write is not all-or-nothing: rows that landed keep their new values and
+ * only the failures are rolled back. Reverting the whole batch because one row
+ * failed is what made a bulk reschedule look like it silently undid itself.
  */
-export async function bulkUpdateTasks(ids: string[], input: UpdateTaskInput) {
-  if (ids.length === 0) return;
+async function bulkPatchTasks(
+  patches: Array<{ id: string; input: UpdateTaskInput }>
+): Promise<BulkWriteResult> {
+  if (patches.length === 0) return { updated: 0, failed: 0 };
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const byId = new Map(patches.map((p) => [p.id, p.input]));
+  const prevById = snapshotTasksById(new Set(byId.keys()));
+  patchCachedTasks(byId);
+
+  let failedIds: string[];
+  try {
+    const api = await getTasksApi();
+    ({ failedIds } = await api.bulkUpdate(patches));
+  } catch {
+    // bulkUpdate contains per-row failures itself, so reaching here means the
+    // batch never ran (no session, no client) — nothing landed.
+    failedIds = [...byId.keys()];
+  }
+
+  const failed = new Set(failedIds);
+  // Re-assert the patch for everything that landed. A background refetch kicked
+  // off mid-write (screen focus, app resume) can resolve *after* the optimistic
+  // patch and overwrite it with pre-write rows — the longer the batch, the wider
+  // that window, which is why it bit bulk actions and not single-row edits.
+  patchCachedTasks(new Map([...byId].filter(([id]) => !failed.has(id))));
+  restoreCachedTasks(prevById, failed);
+  invalidateTasks();
+  return { updated: patches.length - failed.size, failed: failed.size };
+}
+
+/** Apply one patch to many tasks at once. */
+export async function bulkUpdateTasks(
+  ids: string[],
+  input: UpdateTaskInput
+): Promise<BulkWriteResult> {
+  return bulkPatchTasks(ids.map((id) => ({ id, input })));
+}
+
+/**
+ * Bulk reschedule: set the do-date, dragging a now-stale hard deadline along
+ * with it exactly as the single-row swipe reschedule does (see
+ * TaskItem.buildReschedule).
+ *
+ * Without the due_date bump, pushing an overdue task to a later day leaves
+ * `due_date` in the past, so `isOverdue()` stays true and the task never leaves
+ * Today's Overdue section — the reschedule reads as though it reverted.
+ */
+export async function bulkRescheduleTasks(
+  ids: string[],
+  date: string
+): Promise<BulkWriteResult> {
+  const byId = snapshotTasksById(new Set(ids));
+  return bulkPatchTasks(
+    ids.map((id) => {
+      const task = byId.get(id);
+      const input: UpdateTaskInput = { when_date: date };
+      if (task?.due_date && task.due_date < date) input.due_date = date;
+      return { id, input };
+    })
+  );
+}
+
+/**
+ * Complete or delete many tasks at once, optimistically dropping them from the
+ * cache. Unlike a patch these remove rows, so a partial failure can't be undone
+ * row-by-row in place — the full snapshot goes back only when nothing landed,
+ * and otherwise the reconciling invalidate brings the stragglers back.
+ */
+async function bulkRemoveTasks(
+  ids: string[],
+  scope: readonly unknown[],
+  write: (api: Awaited<ReturnType<typeof getTasksApi>>) => Promise<string[]>
+): Promise<BulkWriteResult> {
+  if (ids.length === 0) return { updated: 0, failed: 0 };
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
   const idSet = new Set(ids);
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.map((t) => (idSet.has(t.id) ? ({ ...t, ...input } as Task) : t))
+  queryClient.setQueriesData<Task[]>({ queryKey: scope }, (old) =>
+    old?.filter((t) => !idSet.has(t.id))
   );
+
+  let failedIds: string[];
   try {
-    const api = await getTasksApi();
-    const { error } = await api.bulkUpdate(
-      ids.map((id) => ({ id, input }))
-    );
-    if (error) throw error;
-  } catch (e) {
-    restoreTaskLists(prev);
-    throw e;
-  } finally {
-    invalidateTasks();
+    failedIds = await write(await getTasksApi());
+  } catch {
+    failedIds = ids;
   }
+  if (failedIds.length === ids.length) restoreTaskLists(prev);
+  invalidateTasks();
+  return { updated: ids.length - failedIds.length, failed: failedIds.length };
 }
 
 /** Complete many tasks at once, optimistically dropping them from active lists. */
-export async function bulkCompleteTasks(ids: string[]) {
-  if (ids.length === 0) return;
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
-  const prev = snapshotTaskLists();
-  const idSet = new Set(ids);
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (old) =>
-    old?.filter((t) => !idSet.has(t.id))
-  );
-  try {
-    const api = await getTasksApi();
-    // status→done routes through update(), which stamps completed_at.
-    const { error } = await api.bulkUpdate(
+export async function bulkCompleteTasks(ids: string[]): Promise<BulkWriteResult> {
+  // status→done routes through update(), which stamps completed_at.
+  return bulkRemoveTasks(ids, taskKeys.lists(), async (api) => {
+    const { failedIds } = await api.bulkUpdate(
       ids.map((id) => ({ id, input: { status: 'done' as const } }))
     );
-    if (error) throw error;
-  } catch (e) {
-    restoreTaskLists(prev);
-    throw e;
-  } finally {
-    invalidateTasks();
-  }
+    return failedIds;
+  });
 }
 
 /** Delete many tasks at once, optimistically removing them from every list. */
-export async function bulkDeleteTasks(ids: string[]) {
-  if (ids.length === 0) return;
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
-  const prev = snapshotTaskLists();
-  const idSet = new Set(ids);
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.filter((t) => !idSet.has(t.id))
-  );
-  try {
-    const api = await getTasksApi();
-    const results = await Promise.all(ids.map((id) => api.delete(id)));
-    const failed = results.find((r) => r.error);
-    if (failed?.error) throw failed.error;
-  } catch (e) {
-    restoreTaskLists(prev);
-    throw e;
-  } finally {
-    invalidateTasks();
-  }
+export async function bulkDeleteTasks(ids: string[]): Promise<BulkWriteResult> {
+  return bulkRemoveTasks(ids, taskKeys.all, async (api) => {
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          return { id, error: (await api.delete(id)).error };
+        } catch (e) {
+          return { id, error: e as Error };
+        }
+      })
+    );
+    return results.filter((r) => r.error).map((r) => r.id);
+  });
 }
 
 /** Create a project, then refetch project lists. Returns the new project. */
