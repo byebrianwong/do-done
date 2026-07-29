@@ -588,7 +588,6 @@ export function TaskItem({
   const selection = useTaskSelection();
   const { registerTask, unregisterTask } = selection;
   const selected = selection.isSelected(task.id);
-  const selectionActive = selection.isActive;
   useEffect(() => {
     registerTask(task);
     return () => unregisterTask(task.id);
@@ -786,52 +785,11 @@ export function TaskItem({
           }
         }}
       >
-        {/* Leading controls: a selection checkbox that collapses to zero width
-            when idle (so the row is visually unchanged) and slides in on hover
-            or whenever a selection is active, sitting just left of the round
-            completion circle. The square vs. round shapes keep the two apart. */}
+        {/* Wrapper keeps the completion circle centered on the title line when
+            the row stacks into two rows. Selection has no per-row checkbox —
+            ⌘/Ctrl-click, Shift-click and the keyboard shortcuts drive it, and
+            the row highlight is the indicator. */}
         <div className="flex h-5 shrink-0 items-center @lg:h-auto">
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={selected}
-            aria-label={selected ? "Deselect task" : "Select task"}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              selection.toggle(task.id);
-            }}
-            className={`flex items-center justify-center overflow-hidden transition-all duration-100 ${
-              selectionActive || selected
-                ? "w-6 opacity-100"
-                : "w-0 opacity-0 md:group-hover/row:w-6 md:group-hover/row:opacity-100"
-            }`}
-          >
-            <span
-              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
-                selected
-                  ? "border-indigo-500 bg-indigo-500 text-white"
-                  : "border-neutral-300 dark:border-neutral-600"
-              }`}
-            >
-              {selected && (
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              )}
-            </span>
-          </button>
-
           <button
             onClick={handleToggleComplete}
             className="flex h-5 shrink-0 items-center justify-center"
