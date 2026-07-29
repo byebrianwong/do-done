@@ -6,13 +6,17 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 // Paths that skip the auth redirect. Besides the login/auth flows, the calendar
 // worker and webhook are server-to-server endpoints (called by pg_cron and
 // Google, with no user session) — they authenticate via their own secrets:
-// the cron secret header and the Google channel token, respectively.
+// the cron secret header and the Google channel token, respectively. The MCP
+// endpoint is the same shape: Claude calls it with no cookies, proving itself
+// with the MCP_BEARER_TOKEN that the route checks itself. Redirecting it to
+// /login would turn every MCP call into an HTML 307.
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
   "/auth/signout",
   "/api/calendar/worker",
   "/api/calendar/webhook",
+  "/api/mcp",
 ];
 
 export async function updateSession(request: NextRequest) {

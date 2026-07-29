@@ -1,9 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   Alert,
-  Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -20,7 +17,6 @@ import {
   formatCompletedDate,
   formatDuration,
   formatWhenTime,
-  resolveQuickSchedule,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
@@ -30,8 +26,11 @@ import {
   deleteTask,
   toggleComplete,
   updateTask,
+  useParentTask,
   useProjects,
 } from '@/lib/task-queries';
+import { useTaskSelection } from '@/lib/task-selection';
+import { LinkifiedText } from './LinkifiedText';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
 import { useUndoToast } from './UndoToast';
 
@@ -70,10 +69,41 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
   const completed = task.status === 'done';
-  const [menuOpen, setMenuOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
+
+  // Multi-select: long-press enters selection mode and selects the row; while a
+  // selection is active a tap toggles the row (instead of opening the editor)
+  // and the leading circle becomes a selection checkbox.
+  const selection = useTaskSelection();
+  const selected = selection.isSelected(task.id);
+  const selectionActive = selection.isActive;
+
+  function handleRowPress() {
+    if (selectionActive) {
+      hapticLight();
+      selection.toggle(task.id);
+      return;
+    }
+    onPress?.(task);
+  }
+
+  function handleRowLongPress() {
+    // Enter (or extend) selection mode. This replaces the single-task reschedule
+    // menu — those actions now live on the bulk bar + swipe actions.
+    hapticMedium();
+    selection.toggle(task.id);
+  }
+
+  function handleLeadingPress() {
+    if (selectionActive) {
+      hapticLight();
+      selection.toggle(task.id);
+      return;
+    }
+    handleToggle();
+  }
 
   // Projects come from the shared query cache (deduped across rows). The chip
   // only renders when this task has a project; adding one from scratch lives
@@ -82,6 +112,12 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   const project = task.project_id
     ? (projects ?? []).find((p) => p.id === task.project_id) ?? null
     : null;
+
+  // Subtask reference: resolve the parent so the row reads "↳ parent" and is
+  // recognisable as a subtask wherever it appears in a list.
+  const isSubtask = !!task.parent_task_id;
+  const { data: parentTask } = useParentTask(task.parent_task_id);
+  const parentTitle = parentTask?.title ?? null;
 
   function handleProjectSelect(projectId: string | null) {
     hapticLight();
@@ -135,41 +171,6 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
         { text: 'Delete', style: 'destructive', onPress: run },
       ]
     );
-  }
-
-  const rescheduleActions: {
-    label: string;
-    run: () => void;
-    destructive?: boolean;
-  }[] = [
-    { label: 'Move to Today', run: () => applyTarget({ kind: 'date', date: todayLocalISO() }) },
-    { label: 'Move to Tomorrow', run: () => applyTarget({ kind: 'date', date: addDaysLocalISO(1) }) },
-    { label: 'Move to This week', run: () => applyTarget({ kind: 'date', date: resolveQuickSchedule('this_week') }) },
-    { label: 'Remove dates', run: () => applyTarget({ kind: 'remove' }) },
-    { label: 'Delete', run: confirmDelete, destructive: true },
-  ];
-
-  function openLongPressMenu() {
-    if (Platform.OS === 'ios') {
-      const labels = [...rescheduleActions.map((a) => a.label), 'Cancel'];
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: labels,
-          cancelButtonIndex: labels.length - 1,
-          destructiveButtonIndex: rescheduleActions.findIndex(
-            (a) => a.destructive
-          ),
-          title: task.title,
-        },
-        (i) => {
-          if (i < rescheduleActions.length) rescheduleActions[i].run();
-        }
-      );
-      return;
-    }
-    // Android: a native Alert with >3 buttons renders malformed and can't be
-    // reliably dismissed, so present a custom bottom sheet instead.
-    setMenuOpen(true);
   }
 
   // Swipe-right reveals a single complete/reopen action; a full swipe past the
@@ -249,6 +250,9 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
       rightThreshold={40}
       overshootLeft={false}
       overshootRight={false}
+      // Swiping a row while multi-selecting is ambiguous — disable it so the
+      // whole row is a selection target in selection mode.
+      enabled={!selectionActive}
       renderLeftActions={renderLeftActions}
       renderRightActions={renderRightActions}
       onSwipeableWillOpen={(direction) => {
@@ -260,23 +264,35 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
       }}
     >
     <Pressable
-      style={({ pressed }) => [styles.container, pressed && styles.pressed]}
-      onPress={() => onPress?.(task)}
-      onLongPress={openLongPressMenu}
+      style={({ pressed }) => [
+        styles.container,
+        selected && styles.selectedRow,
+        pressed && styles.pressed,
+      ]}
+      onPress={handleRowPress}
+      onLongPress={handleRowLongPress}
       delayLongPress={350}
     >
       <Pressable
-        onPress={handleToggle}
+        onPress={handleLeadingPress}
         hitSlop={8}
         style={[
           styles.checkbox,
-          {
-            borderColor: completed ? '#d4d4d4' : statusColor,
-            backgroundColor: completed ? '#d4d4d4' : 'transparent',
-          },
+          selectionActive
+            ? {
+                borderRadius: 6,
+                borderColor: selected ? '#6366f1' : '#cbd5e1',
+                backgroundColor: selected ? '#6366f1' : 'transparent',
+              }
+            : {
+                borderColor: completed ? '#d4d4d4' : statusColor,
+                backgroundColor: completed ? '#d4d4d4' : 'transparent',
+              },
         ]}
       >
-        {completed ? <Text style={styles.check}>✓</Text> : null}
+        {(selectionActive ? selected : completed) ? (
+          <Text style={styles.check}>✓</Text>
+        ) : null}
       </Pressable>
       <View style={styles.priorityBars}>
         {[0, 1, 2, 3].map((i) => {
@@ -294,16 +310,23 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
         })}
       </View>
       <View style={styles.content}>
+        {isSubtask ? (
+          <View style={styles.subtaskRef}>
+            <Ionicons name="return-down-forward" size={12} color="#9ca3af" />
+            <Text style={styles.subtaskRefText} numberOfLines={1}>
+              {parentTitle ?? 'Subtask'}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.titleRow}>
           {focused && !completed ? (
             <Ionicons name="star" size={13} color="#f59e0b" />
           ) : null}
-          <Text
+          <LinkifiedText
+            text={task.title}
             style={[styles.title, completed && styles.titleDone]}
             numberOfLines={2}
-          >
-            {task.title}
-          </Text>
+          />
         </View>
         {hasMeta ? (
           <View style={styles.metaRow}>
@@ -370,7 +393,7 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           </View>
         ) : null}
       </View>
-      {onDragHandle ? (
+      {onDragHandle && !selectionActive ? (
         <Pressable
           onLongPress={() => {
             hapticMedium();
@@ -383,48 +406,6 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
           <Ionicons name="reorder-three" size={22} color="#cbd5e1" />
         </Pressable>
       ) : null}
-      <Modal
-        visible={menuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuOpen(false)}
-      >
-        <Pressable
-          style={styles.menuBackdrop}
-          onPress={() => setMenuOpen(false)}
-        >
-          <Pressable style={styles.menuSheet} onPress={() => {}}>
-            <Text style={styles.menuTitle} numberOfLines={1}>
-              {task.title}
-            </Text>
-            {rescheduleActions.map((a) => (
-              <Pressable
-                key={a.label}
-                style={styles.menuRow}
-                onPress={() => {
-                  setMenuOpen(false);
-                  a.run();
-                }}
-              >
-                <Text
-                  style={[
-                    styles.menuRowText,
-                    a.destructive && styles.menuRowDestructive,
-                  ]}
-                >
-                  {a.label}
-                </Text>
-              </Pressable>
-            ))}
-            <Pressable
-              style={[styles.menuRow, styles.menuCancel]}
-              onPress={() => setMenuOpen(false)}
-            >
-              <Text style={styles.menuCancelText}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
       <ProjectPickerSheet
         visible={projectPickerOpen}
         projects={projects ?? []}
@@ -465,6 +446,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   pressed: { backgroundColor: '#f9fafb' },
+  selectedRow: { backgroundColor: '#eef2ff' },
   swipeAction: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -524,6 +506,18 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     gap: 3,
   },
+  subtaskRef: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginBottom: 1,
+  },
+  subtaskRefText: {
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '500',
+    flexShrink: 1,
+  },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -545,41 +539,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(17,24,39,0.45)',
-    justifyContent: 'flex-end',
-  },
-  menuSheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    paddingHorizontal: 16,
-  },
-  menuTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9ca3af',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  menuRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-  },
-  menuRowText: { fontSize: 16, color: '#111827', fontWeight: '500' },
-  menuRowDestructive: { color: '#dc2626' },
-  menuCancel: {
-    marginTop: 6,
-    backgroundColor: '#f9fafb',
-    alignItems: 'center',
-  },
-  menuCancelText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
   metaChip: {
     backgroundColor: '#f3f4f6',
     paddingHorizontal: 6,

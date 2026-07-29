@@ -33,6 +33,22 @@ export interface PipProps {
 
 const VIEWBOX = 100;
 
+// Deterministic, SSR-safe id suffix for Pip's gradient/filter defs so multiple
+// Pips on one page don't collide on their element ids. Derived from the
+// appearance-determining inputs rather than Math.random() (which produced a
+// different value on the server vs. the client — a hydration mismatch — and
+// re-randomized on every render): two identical-looking Pips share ids
+// harmlessly (their defs are identical), while distinct ones get distinct ids.
+// Kept a plain pure function so Pip stays hook-free and server-renderable.
+function suffixFromSeed(seed: AppearanceSeed, mood: PetMood): string {
+  const raw = `${seed.bodyHue}-${seed.bodyShape}-${seed.eyeStyle}-${mood}`;
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 31 + raw.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function Pip({
   seed,
   mood,
@@ -42,7 +58,7 @@ export function Pip({
   idSuffix,
   animate = true,
 }: PipProps) {
-  const sfx = idSuffix ?? Math.random().toString(36).slice(2, 8);
+  const sfx = idSuffix ?? suffixFromSeed(seed, mood);
   const bodyFill = `hsl(${seed.bodyHue}, 55%, 75%)`;
   const bodyHighlight = `hsl(${seed.bodyHue}, 60%, 85%)`;
   const bodyShadow = `hsl(${seed.bodyHue}, 45%, 60%)`;

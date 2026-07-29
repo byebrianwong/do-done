@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  MouseSensor,
-  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -14,6 +12,10 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import {
+  ModalAwareMouseSensor,
+  ModalAwareTouchSensor,
+} from "@/lib/dnd-sensors";
 import {
   SortableContext,
   useSortable,
@@ -341,8 +343,8 @@ export function DraggableUpcoming({
   // Mouse drags after a 4px move; touch drags after a short press so a swipe
   // scrolls the page rather than picking up a task.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, {
+    useSensor(ModalAwareMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(ModalAwareTouchSensor, {
       activationConstraint: { delay: 180, tolerance: 8 },
     })
   );

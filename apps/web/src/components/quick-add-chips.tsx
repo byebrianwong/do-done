@@ -71,7 +71,9 @@ export function ChipButton({
           : "border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
       }`}
     >
-      {icon ? <span className="-ml-0.5 opacity-80">{icon}</span> : null}
+      {icon ? (
+        <span className="-ml-0.5 flex items-center opacity-80">{icon}</span>
+      ) : null}
       {children}
     </button>
   );

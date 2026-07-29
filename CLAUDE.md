@@ -9,13 +9,14 @@ The user-facing brand name is **DoDone** (closed compound, medial capital) — u
 ## Architecture
 
 ```
-apps/web       — Next.js 16 (App Router, Tailwind)
+apps/web       — Next.js 16 (App Router, Tailwind); also hosts the MCP endpoint at /api/mcp
 apps/mobile    — React Native / Expo (tabs template)
-apps/mcp       — MCP server for Claude Code integration
+apps/mcp       — Thin stdio entry point for the MCP server (Claude Code)
 packages/shared      — Zod schemas, types, constants, utils (leaf package)
 packages/api-client  — Supabase client, TasksApi, ProjectsApi, LocationsApi
 packages/ui          — Design tokens (colors, spacing, typography)
 packages/task-engine — NLP parser, focus algorithm, scheduler, categorizer
+packages/mcp-server  — MCP tools + resources, shared by both transports
 supabase/            — SQL migrations, RLS policies, edge functions
 ```
 
@@ -54,6 +55,27 @@ Copy `.env.example` to `.env.local` and fill in:
 - POWERSYNC_URL
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 - DO_DONE_USER_ID (for MCP server)
+
+## MCP server
+
+One server implementation (`packages/mcp-server`), two transports:
+
+- **stdio** — `apps/mcp/dist/index.js`, registered in `~/.claude.json` for Claude Code.
+- **Streamable HTTP** — `apps/web/src/app/api/mcp/route.ts`, deployed with the web
+  app. Add it in Claude as a **custom connector** pointing at
+  `https://<your-app>/api/mcp` with the `MCP_BEARER_TOKEN` as a Bearer token.
+
+The HTTP endpoint is stateless (a fresh server per request, no session store) and
+single-user: it authenticates a shared secret and scopes everything to
+`DO_DONE_USER_ID`. Making it multi-user means replacing that guard with OAuth 2.1
+and deriving `userId` from the validated token — the route is structured for it.
+`/api/mcp` is in `PUBLIC_PATHS` in `proxy-helper.ts` so the auth proxy doesn't
+307 it to `/login`.
+
+> Hand-editing `claude_desktop_config.json` does **not** work on Claude Desktop
+> v1.22209.3 — the app rewrites that file and strips `mcpServers`. Its Chat tab
+> sees remote connectors only. Use the hosted endpoint for Chat, and the Claude
+> Code tab for the local stdio server.
 
 ## Design System
 
@@ -132,7 +154,9 @@ quick-add sheet over the live home screen without launching the main app.
   generates a translucent **`QuickAddActivity`** (`QuickAddActivity.kt`), registers it
   in `AndroidManifest.xml` with `Theme.App.QuickAddTranslucent` + the `dodoneadd`
   intent-filter, and adds that style. The activity runs in its own task
-  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`).
+  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`) with
+  `windowSoftInputMode="adjustResize"` — without that it defaults to pan, and the
+  window slides up *underneath* the composer's own keyboard offset.
 - `QuickAddActivity` mounts a **second** registered JS root, `"QuickAdd"` (see
   `index.js`, the custom bundle entry that also imports `expo-router/entry` for the
   main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
@@ -141,6 +165,16 @@ quick-add sheet over the live home screen without launching the main app.
   Todoist-style title + When/Priority/Estimate chips, reusing selectors exported from
   `components/TaskEditModalV2.tsx`). It dismisses with `BackHandler.exitApp()`, which
   finishes only the quick-add task and returns to the launcher.
+- Two composer rules keep the surface from jumping around, both matching Todoist:
+  the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
+  not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
+  **inline popovers in the same window** — an Android `Modal` opens a new window and
+  drops the keyboard. Only the full month grid takes over the screen, and it hands
+  focus back to the input on close.
+- Widget artwork is inline SVG via `SvgWidget` (`widgets/dodone-mark.ts`). Do **not**
+  use `IconWidget`: it renders the icon name as *text* in a typeface the app has to
+  ship itself, so `icon="add"` with no `material.ttf` literally drew "add" on the
+  home screen.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SupabaseClient } from "@do-done/api-client";
-import { TasksApi } from "@do-done/api-client";
+import { TasksApi, ProjectsApi } from "@do-done/api-client";
 import { generateFocusList, generateWeeklySummary } from "@do-done/task-engine";
 import { TaskStatus, TaskPriority } from "@do-done/shared";
 import { executeOrganize } from "../organize.js";
@@ -13,6 +13,7 @@ export function registerTools(
   userId: string
 ) {
   const tasks = new TasksApi(supabase, userId);
+  const projects = new ProjectsApi(supabase, userId);
 
   server.tool(
     "list_tasks",
@@ -42,7 +43,7 @@ export function registerTools(
 
   server.tool(
     "create_task",
-    "Create a new task with title and optional details",
+    "Create a new task with title and optional details. Pass parent_task_id to make it a subtask — it inherits the parent's project automatically (override by also passing project_id).",
     {
       title: z.string().min(1).max(500),
       description: z.string().max(5000).optional(),
@@ -55,6 +56,10 @@ export function registerTools(
       due_time: z.string().optional(),
       duration_minutes: z.number().int().positive().optional(),
       tags: z.array(z.string()).optional(),
+      // Parent task for a subtask. Omit for a top-level task. The subtask
+      // inherits the parent's project when project_id isn't given; nesting is
+      // capped at 3 levels (a DB trigger rejects a deeper parent).
+      parent_task_id: z.string().uuid().optional(),
     },
     async (params) => {
       const { data, error } = await tasks.create(params);
@@ -253,6 +258,62 @@ export function registerTools(
       }
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    }
+  );
+
+  server.tool(
+    "list_projects",
+    "List the user's projects in their current display order (the order chosen via drag-to-reorder). Returns each project's id, name, color, icon, and sort_order — call this first to get the ids needed by reorder_projects.",
+    {},
+    async () => {
+      const { data, error } = await projects.list();
+      if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              data.length > 0
+                ? JSON.stringify(
+                    data.map((p) => ({
+                      id: p.id,
+                      name: p.name,
+                      color: p.color,
+                      icon: p.icon,
+                      sort_order: p.sort_order,
+                    })),
+                    null,
+                    2
+                  )
+                : "No projects yet.",
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
+    "reorder_projects",
+    "Set the order projects are shown in everywhere (sidebar, pickers, mobile). Pass ALL of the user's project ids in the desired top-to-bottom order — call list_projects first to get them. Any project omitted from the list keeps its old position value and may end up interleaved, so always send the complete set.",
+    {
+      ordered_ids: z
+        .array(z.string().uuid())
+        .min(1)
+        .describe(
+          "Every project id, in the desired display order (first = top)."
+        ),
+    },
+    async ({ ordered_ids }) => {
+      const { error } = await projects.reorder(ordered_ids);
+      if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Reordered ${ordered_ids.length} project${ordered_ids.length === 1 ? "" : "s"}.`,
+          },
+        ],
       };
     }
   );

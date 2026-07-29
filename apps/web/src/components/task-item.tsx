@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   PRIORITY_CONFIG,
@@ -16,6 +24,7 @@ import {
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
   TaskEditModalV2,
@@ -28,7 +37,12 @@ import {
 } from "./task-edit-modal-v2";
 import { ProjectPickerPopover } from "./project-picker";
 import { TaskContextMenu } from "./task-context-menu";
+import { BulkActionMenu } from "./bulk-action-menu";
 import { useUndoToast } from "./undo-toast";
+import {
+  useTaskSelection,
+  orderedTaskIdsFromDom,
+} from "@/lib/task-selection";
 
 export interface TaskItemProps {
   task: Task;
@@ -37,6 +51,37 @@ export interface TaskItemProps {
    *  grouped by status: the group header already states the status for every
    *  row, so the badge is pure redundancy there. Defaults to false (shown). */
   hideStatusBadge?: boolean;
+  /** The parent task, when the row is a subtask and the caller already has it
+   *  in hand (e.g. a list that also holds the parent). Supplies the parent
+   *  title for the "↳ parent" reference without a round-trip; when omitted the
+   *  row resolves the title lazily from `task.parent_task_id`. */
+  parentTask?: Pick<Task, "id" | "title"> | null;
+  /** Suppress the "↳ parent" subtask reference. Set where the parent context is
+   *  already obvious — e.g. a task's own detail page listing its subtasks right
+   *  beneath it — so the breadcrumb isn't noisy redundancy. */
+  hideParentRef?: boolean;
+}
+
+/**
+ * A subtask breadcrumb marker: a corner arrow (↳) that both flags the row as a
+ * subtask and points at its parent. Matches the app's hand-drawn icon style.
+ */
+function SubtaskArrowIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 5v6a4 4 0 004 4h12" />
+      <path d="M15 11l5 4-5 4" />
+    </svg>
+  );
 }
 
 /**
@@ -424,12 +469,130 @@ function InlineWhenEditor({
   );
 }
 
-export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
+/**
+ * Positions the right-click context menu at the cursor, then measures the
+ * rendered menu and nudges it fully back on-screen: shifted left if it would
+ * spill off the right edge, and shifted up if it would spill off the bottom —
+ * the common case for rows near the bottom of a long list. Re-measures whenever
+ * the menu resizes (the Deadline / Move-to sections expand in place) or the
+ * window resizes, and caps the height so an unusually tall menu stays scrollable
+ * inside a short viewport instead of overflowing it.
+ */
+function ContextMenuPositioner({
+  anchor,
+  children,
+}: {
+  anchor: { x: number; y: number };
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Null until measured; we render hidden for the first paint so the menu never
+  // flashes at an unclamped position before the clamp runs.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const MARGIN = 8;
+    const reposition = () => {
+      const { width, height } = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      let left = anchor.x;
+      if (left + width > vw - MARGIN) left = vw - MARGIN - width;
+      left = Math.max(MARGIN, left);
+
+      let top = anchor.y;
+      if (top + height > vh - MARGIN) top = vh - MARGIN - height;
+      top = Math.max(MARGIN, top);
+
+      setPos({ top, left });
+    };
+
+    reposition();
+    // Section expansion changes the menu's height without a window resize —
+    // observe the element itself so it re-clamps as it grows.
+    const ro = new ResizeObserver(reposition);
+    ro.observe(el);
+    window.addEventListener("resize", reposition);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", reposition);
+    };
+  }, [anchor.x, anchor.y]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute max-h-[calc(100vh-16px)] overflow-y-auto"
+      style={{
+        top: pos?.top ?? anchor.y,
+        left: pos?.left ?? anchor.x,
+        visibility: pos ? "visible" : "hidden",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function TaskItem({
+  task,
+  projects,
+  hideStatusBadge,
+  parentTask,
+  hideParentRef,
+}: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
+  // Parent title for the "↳ parent" subtask reference. Prefer the prop the
+  // caller supplied; otherwise fall back to a lazily-resolved title so any list
+  // view flags a subtask without every caller having to thread the parent
+  // through. Derived (not synced via an effect) so the prop stays authoritative.
+  const isSubtask = !!task.parent_task_id && !hideParentRef;
+  const [fetchedParentTitle, setFetchedParentTitle] = useState<string | null>(
+    null
+  );
+  const parentTitle = parentTask?.title ?? fetchedParentTitle;
+  useEffect(() => {
+    // Skip when there's nothing to resolve: not a subtask, ref suppressed, or
+    // the caller already handed us the title.
+    if (!isSubtask || parentTask?.title) return;
+    const parentId = task.parent_task_id;
+    if (!parentId) return;
+    let cancelled = false;
+    (async () => {
+      const tasks = await getClientTasksApi();
+      const { data } = await tasks.getById(parentId);
+      if (!cancelled && data) setFetchedParentTitle(data.title);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSubtask, task.parent_task_id, parentTask?.title]);
   const [editing, setEditing] = useState(false);
   // Right-click context menu, anchored at the cursor. Null = closed.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // Bulk right-click menu, opened when this row is right-clicked while it's
+  // part of a multi-selection. Separate state so the two menus never collide.
+  const [bulkMenuPos, setBulkMenuPos] = useState<{ x: number; y: number } | null>(
+    null
+  );
+
+  // Multi-select. `registerTask`/`unregisterTask` are stable, so the row only
+  // (re)registers its Task when the task itself changes — not on every
+  // selection change elsewhere in the list.
+  const selection = useTaskSelection();
+  const { registerTask, unregisterTask } = selection;
+  const selected = selection.isSelected(task.id);
+  const selectionActive = selection.isActive;
+  useEffect(() => {
+    registerTask(task);
+    return () => unregisterTask(task.id);
+  }, [registerTask, unregisterTask, task]);
   // Optimistic local state for the inline row editors — keeps the row snappy
   // before the server round-trip / router.refresh lands.
   const [priority, setPriority] = useState(task.priority);
@@ -576,48 +739,129 @@ export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
           ~32rem (`@lg`) the title takes its own row. */}
       <div className="@container">
       <div
-        className="group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900 @lg:items-center"
-        onClick={() => setEditing(true)}
+        data-task-row={task.id}
+        className={`group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors @lg:items-center ${
+          selected
+            ? "bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60"
+            : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+        }`}
+        onMouseDown={(e) => {
+          // Stop Shift-click from painting a native text selection across rows.
+          if (e.shiftKey) e.preventDefault();
+        }}
+        onClick={(e) => {
+          // ⌘/Ctrl-click toggles one row; Shift-click extends a range; a plain
+          // click while a selection is active toggles the row (selection mode).
+          // Only a plain click with nothing selected opens the editor.
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            selection.toggle(task.id);
+            return;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            selection.selectRange(task.id, orderedTaskIdsFromDom());
+            return;
+          }
+          if (selection.isActive) {
+            selection.toggle(task.id);
+            return;
+          }
+          setEditing(true);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
-          // Clamp so the ~256px-wide menu stays on screen near the edges.
-          const menuW = 280;
-          const menuH = 460;
-          setMenuPos({
-            x: Math.min(e.clientX, window.innerWidth - menuW),
-            y: Math.min(e.clientY, window.innerHeight - menuH),
-          });
+          // Store the raw cursor position; ContextMenuPositioner measures the
+          // rendered menu and nudges it back on-screen near the edges (a fixed
+          // clamp can't, since the menu's height varies with its content).
+          const pos = { x: e.clientX, y: e.clientY };
+          // Right-clicking inside a multi-selection acts on the whole set;
+          // right-clicking a row that isn't part of it drops the selection and
+          // shows the single-task menu, so the menu always matches the row.
+          if (selection.isSelected(task.id) && selection.count > 1) {
+            setBulkMenuPos(pos);
+          } else {
+            if (selection.isActive) selection.clear();
+            setMenuPos(pos);
+          }
         }}
       >
-        <button
-          onClick={handleToggleComplete}
-          className="flex h-5 shrink-0 items-center justify-center"
-          aria-label={completed ? "Mark incomplete" : "Mark complete"}
-        >
-          <span
-            className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-            style={{
-              borderColor: completed ? "#d4d4d4" : statusColor,
-              backgroundColor: completed ? "#d4d4d4" : "transparent",
+        {/* Leading controls: a selection checkbox that collapses to zero width
+            when idle (so the row is visually unchanged) and slides in on hover
+            or whenever a selection is active, sitting just left of the round
+            completion circle. The square vs. round shapes keep the two apart. */}
+        <div className="flex h-5 shrink-0 items-center @lg:h-auto">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={selected ? "Deselect task" : "Select task"}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              selection.toggle(task.id);
             }}
+            className={`flex items-center justify-center overflow-hidden transition-all duration-100 ${
+              selectionActive || selected
+                ? "w-6 opacity-100"
+                : "w-0 opacity-0 md:group-hover/row:w-6 md:group-hover/row:opacity-100"
+            }`}
           >
-            {completed && (
-              <svg
-                className="h-3 w-3 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={3}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            )}
-          </span>
-        </button>
+            <span
+              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                selected
+                  ? "border-indigo-500 bg-indigo-500 text-white"
+                  : "border-neutral-300 dark:border-neutral-600"
+              }`}
+            >
+              {selected && (
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              )}
+            </span>
+          </button>
+
+          <button
+            onClick={handleToggleComplete}
+            className="flex h-5 shrink-0 items-center justify-center"
+            aria-label={completed ? "Mark incomplete" : "Mark complete"}
+          >
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+              style={{
+                borderColor: completed ? "#d4d4d4" : statusColor,
+                backgroundColor: completed ? "#d4d4d4" : "transparent",
+              }}
+            >
+              {completed && (
+                <svg
+                  className="h-3 w-3 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              )}
+            </span>
+          </button>
+        </div>
 
         {/* Wrapper keeps the priority bars centered on the title line when the
             row stacks into two rows. */}
@@ -630,15 +874,33 @@ export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
             to a single inline row (the metadata wrapper becomes
             `display: contents`). */}
         <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:flex-row @lg:items-center @lg:gap-2">
-          <span
-            className={`line-clamp-2 text-sm leading-snug @lg:line-clamp-none ${
-              completed
-                ? "text-neutral-400 line-through dark:text-neutral-600"
-                : "text-neutral-900 dark:text-neutral-100"
-            }`}
-          >
-            {task.title}
-          </span>
+          {/* Title, with the subtask breadcrumb stacked above it so a subtask
+              row reads "↳ parent / this task" in both the wide and stacked
+              layouts. */}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            {isSubtask ? (
+              <Link
+                href={`/task/${task.parent_task_id}`}
+                onClick={(e) => e.stopPropagation()}
+                title={
+                  parentTitle ? `Subtask of “${parentTitle}”` : "Subtask"
+                }
+                className="inline-flex w-fit max-w-full items-center gap-1 text-[11px] font-medium leading-none text-neutral-400 transition-colors hover:text-indigo-600 dark:text-neutral-500 dark:hover:text-indigo-400"
+              >
+                <SubtaskArrowIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{parentTitle ?? "Parent task"}</span>
+              </Link>
+            ) : null}
+            <span
+              className={`line-clamp-2 break-words text-sm leading-snug @lg:line-clamp-none ${
+                completed
+                  ? "text-neutral-400 line-through dark:text-neutral-600"
+                  : "text-neutral-900 dark:text-neutral-100"
+              }`}
+            >
+              <LinkifiedText text={task.title} />
+            </span>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2 @lg:contents">
             {task.tags.map((tag) => (
@@ -801,11 +1063,7 @@ export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
               setMenuPos(null);
             }}
           >
-            <div
-              className="absolute"
-              style={{ top: menuPos.y, left: menuPos.x }}
-              onClick={(e) => e.stopPropagation()}
-            >
+            <ContextMenuPositioner anchor={menuPos}>
               <TaskContextMenu
                 task={task}
                 projects={allProjects}
@@ -813,7 +1071,28 @@ export function TaskItem({ task, projects, hideStatusBadge }: TaskItemProps) {
                 onClose={() => setMenuPos(null)}
                 onMutated={() => startTransition(() => router.refresh())}
               />
-            </div>
+            </ContextMenuPositioner>
+          </div>,
+          document.body
+        )}
+
+      {bulkMenuPos &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setBulkMenuPos(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setBulkMenuPos(null);
+            }}
+          >
+            <ContextMenuPositioner anchor={bulkMenuPos}>
+              <BulkActionMenu
+                count={selection.count}
+                projects={allProjects}
+                onClose={() => setBulkMenuPos(null)}
+              />
+            </ContextMenuPositioner>
           </div>,
           document.body
         )}

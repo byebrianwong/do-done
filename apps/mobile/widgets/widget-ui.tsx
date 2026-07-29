@@ -1,7 +1,8 @@
 import React from 'react';
-import { FlexWidget, IconWidget, TextWidget } from 'react-native-android-widget';
+import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
 import { PRIORITY_CONFIG } from '@do-done/shared';
 import type { Task, TaskPriority } from '@do-done/shared';
+import { plusSvg } from './dodone-mark';
 import {
   flattenGroups,
   rowCapacity,
@@ -16,6 +17,8 @@ function hex(color: string): `#${string}` {
 
 const INDIGO = '#6366f1';
 const QUICK_ADD_URI = 'dodone://quick-add';
+// The DoDone brand "+" mark (shared with the quick-add tile, added in #154).
+const PLUS_SVG = plusSvg(INDIGO);
 
 /** Top bar: the view name (opens its tab) + a "+" that opens quick-add. */
 function WidgetHeader({ title, tabUri }: { title: string; tabUri: string }) {
@@ -47,7 +50,7 @@ function WidgetHeader({ title, tabUri }: { title: string; tabUri: string }) {
           justifyContent: 'center',
         }}
       >
-        <IconWidget font="material" icon="add" size={18} style={{ color: INDIGO }} />
+        <SvgWidget svg={PLUS_SVG} style={{ width: 16, height: 16 }} />
       </FlexWidget>
     </FlexWidget>
   );

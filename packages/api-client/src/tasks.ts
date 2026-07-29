@@ -73,10 +73,19 @@ export class TasksApi {
   }
 
   async create(input: CreateTaskInput): Promise<{ data: Task | null; error: Error | null }> {
-    const row = {
+    const row: Record<string, unknown> = {
       ...input,
       ...(this.userId ? { user_id: this.userId } : {}),
     };
+    // Subtasks inherit their parent's project at creation time. Only when the
+    // caller didn't pick a project explicitly — an explicit choice always wins,
+    // and the inherited value is a normal field the user can change later. This
+    // lives here (not in the UI) so every creation path — web, mobile, MCP —
+    // gets it for free. Costs one extra read, but only for parented tasks.
+    if (input.parent_task_id && input.project_id === undefined) {
+      const { data: parent } = await this.getById(input.parent_task_id);
+      if (parent?.project_id) row.project_id = parent.project_id;
+    }
     const { data, error } = await this.supabase
       .from("tasks")
       .insert(row)

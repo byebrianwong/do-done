@@ -1,34 +1,38 @@
 # @do-done/mcp
 
-MCP (Model Context Protocol) server for Claude Code integration.
+Thin **stdio** entry point for the do-done MCP server. All tool and resource
+registration lives in `packages/mcp-server` so the hosted HTTP endpoint can
+share it — see `packages/mcp-server/CLAUDE.md`.
 
 ## Key Files
-- `src/index.ts` — Entry point. Creates McpServer, connects via StdioServerTransport
-- `src/tools/index.ts` — 8 task tools: list_tasks, create_task, update_task, complete_task, search_tasks, get_focus_tasks, get_weekly_summary, organize_tasks
-- `src/tools/pets.ts` — 5 pet tools: get_pet_state, propose_pet_goal, accept_pet_goal, narrate_task_completion, get_pet_history
-- `src/resources/index.ts` — 4 resources: tasks://inbox, tasks://today, tasks://upcoming, tasks://projects
+- `src/index.ts` — the whole app: reads env, builds a service-role Supabase
+  client, calls `createDoDoneServer()`, connects a `StdioServerTransport`.
 
-Task status/priority enums in the tool schemas reuse `TaskStatus` / `TaskPriority`
-from `@do-done/shared` so they can't drift from the canonical schema.
+## Two transports, one server
 
-## MCP SDK Patterns
-- `new McpServer({ name, version })` for server creation
-- `server.tool(name, description, zodSchema, handler)` for tool registration
-- `server.resource(name, uri, handler)` for resource registration
-- `new StdioServerTransport()` for Claude Code connection
-- Use `console.error()` for logging (never `console.log` — stdout is for MCP protocol)
+| Transport | Entry point | Used by |
+| --- | --- | --- |
+| stdio | `apps/mcp/dist/index.js` | Claude Code (local, `~/.claude.json`) |
+| Streamable HTTP | `apps/web/src/app/api/mcp/route.ts` | Claude custom connector (remote) |
+
+Both call `createDoDoneServer({ supabase, userId })`. Add tools in
+`packages/mcp-server` and both transports pick them up.
 
 ## Environment Variables
-- SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — database access (bypasses RLS)
-- DO_DONE_USER_ID — which user's tasks to manage
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — database access (bypasses RLS)
+- `DO_DONE_USER_ID` — which user's tasks to manage
 
-## Claude Desktop Config
+## Registering with local Claude clients
+
+**Claude Code** — top-level `mcpServers.do-done` in `~/.claude.json`:
+
 ```json
 {
   "mcpServers": {
     "do-done": {
+      "type": "stdio",
       "command": "node",
-      "args": ["path/to/do-done/apps/mcp/dist/index.js"],
+      "args": ["/absolute/path/to/do-done/apps/mcp/dist/index.js"],
       "env": {
         "SUPABASE_URL": "...",
         "SUPABASE_SERVICE_ROLE_KEY": "...",
@@ -38,3 +42,15 @@ from `@do-done/shared` so they can't drift from the canonical schema.
   }
 }
 ```
+
+> **Do not hand-edit `claude_desktop_config.json`.** Verified on Claude Desktop
+> v1.22209.3: the app owns that file, rewrites it on launch, and strips the
+> entire `mcpServers` key — a hand-added server silently disappears on the next
+> restart. In the unified desktop app the **Chat** tab reads remote
+> *connectors* only and cannot see a local stdio server; the **Claude Code** tab
+> is the surface where this stdio server works. To reach Chat, use the hosted
+> HTTP endpoint as a custom connector instead.
+
+**Gotcha:** clients load the compiled `dist/`, not the source. After changing
+MCP source you must rebuild (`pnpm --filter "@do-done/mcp..." build`) and
+restart the client. `dist/` is gitignored, so it goes stale silently.

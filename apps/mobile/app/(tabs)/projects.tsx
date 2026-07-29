@@ -1,18 +1,19 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  RefreshControl,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, RefreshControl } from 'react-native';
+import DraggableFlatList, {
+  ScaleDecorator,
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Project } from '@do-done/shared';
 
-import { useProjectsWithCounts } from '@/lib/task-queries';
+import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+
+type ProjectRow = Project & { task_count: number; open_count: number };
 
 export default function ProjectsScreen() {
   const router = useRouter();
@@ -21,41 +22,78 @@ export default function ProjectsScreen() {
     useProjectsWithCounts();
   useRefreshOnFocus(refetch);
 
+  // Local copy so a drag reorders instantly; re-seeded whenever the server list
+  // changes (a create, a reconcile after reorder, another device's edit).
+  const [ordered, setOrdered] = useState<ProjectRow[]>(projects);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const sig = projects.map((p) => `${p.id}:${p.sort_order}`).join(',');
+  useEffect(() => {
+    setOrdered(projects);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  const handleDragEnd = ({ data }: { data: ProjectRow[] }) => {
+    setOrdered(data); // optimistic
+    reorderProjects(data.map((p) => p.id)).catch(() => {
+      setOrdered(projects); // rollback to server truth
+    });
+  };
+
+  const renderItem = ({
+    item,
+    drag,
+    isActive,
+  }: RenderItemParams<ProjectRow>) => (
+    <ScaleDecorator>
+      <Pressable
+        onPress={() => router.push(`/projects/${item.id}` as never)}
+        onLongPress={drag}
+        delayLongPress={180}
+        disabled={isActive}
+        style={({ pressed }) => [
+          styles.projectRow,
+          (pressed || isActive) && styles.pressed,
+        ]}
+      >
+        <View style={[styles.colorDot, { backgroundColor: item.color }]} />
+        <View style={styles.info}>
+          <View style={styles.nameRow}>
+            {item.icon ? <Text style={styles.icon}>{item.icon}</Text> : null}
+            <Text style={styles.projectName}>{item.name}</Text>
+          </View>
+          <Text style={styles.taskCount}>
+            {item.open_count} open
+            {item.task_count > item.open_count
+              ? ` · ${item.task_count - item.open_count} done`
+              : ''}
+          </Text>
+        </View>
+        {/* Long-press anywhere on the row to drag; this is the visual cue. */}
+        <Ionicons name="reorder-three" size={22} color="#d1d5db" />
+      </Pressable>
+    </ScaleDecorator>
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Projects</Text>
+        <Pressable
+          onPress={() => setShowCreate(true)}
+          hitSlop={10}
+          style={styles.addBtn}
+          accessibilityLabel="New project"
+        >
+          <Ionicons name="add" size={24} color="#6366f1" />
+        </Pressable>
       </View>
 
-      <FlatList
-        data={projects}
+      <DraggableFlatList
+        data={ordered}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => router.push(`/projects/${item.id}` as never)}
-            style={({ pressed }) => [
-              styles.projectRow,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={[styles.colorDot, { backgroundColor: item.color }]} />
-            <View style={styles.info}>
-              <View style={styles.nameRow}>
-                {item.icon ? (
-                  <Text style={styles.icon}>{item.icon}</Text>
-                ) : null}
-                <Text style={styles.projectName}>{item.name}</Text>
-              </View>
-              <Text style={styles.taskCount}>
-                {item.open_count} open
-                {item.task_count > item.open_count
-                  ? ` · ${item.task_count - item.open_count} done`
-                  : ''}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
-          </Pressable>
-        )}
+        renderItem={renderItem}
+        onDragEnd={handleDragEnd}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -68,12 +106,17 @@ export default function ProjectsScreen() {
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No projects yet</Text>
               <Text style={styles.emptyHint}>
-                Create projects on the web app
+                Tap + to create your first project
               </Text>
             </View>
           ) : null
         }
         contentContainerStyle={styles.listContent}
+      />
+
+      <ProjectFormSheet
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
       />
     </View>
   );
@@ -92,6 +135,14 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  addBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eef2ff',
+  },
   listContent: {
     paddingTop: 8,
     paddingBottom: 40,

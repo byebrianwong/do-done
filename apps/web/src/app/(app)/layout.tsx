@@ -3,6 +3,8 @@ import { AppShell } from "@/components/app-shell";
 import { CommandPalette } from "@/components/command-palette";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { UndoToastProvider } from "@/components/undo-toast";
+import { BulkActionBar } from "@/components/bulk-action-bar";
+import { TaskSelectionProvider } from "@/lib/task-selection";
 import { QuickAddProvider } from "@/lib/quick-add-context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { PIP_HIDDEN_COOKIE } from "@/lib/pip-visibility";
@@ -31,17 +33,20 @@ export default async function AppLayout({
 
   return (
     <UndoToastProvider>
-      <QuickAddProvider projects={projects} userId={user?.id ?? null}>
-        <AppShell
-          projects={projects}
-          userEmail={user?.email ?? null}
-          pipHidden={pipHidden}
-        >
-          {children}
-        </AppShell>
-        <CommandPalette projects={projects} />
-        <QuickAddModal projects={projects} userId={user?.id ?? null} />
-      </QuickAddProvider>
+      <TaskSelectionProvider>
+        <QuickAddProvider projects={projects} userId={user?.id ?? null}>
+          <AppShell
+            projects={projects}
+            userEmail={user?.email ?? null}
+            pipHidden={pipHidden}
+          >
+            {children}
+          </AppShell>
+          <CommandPalette projects={projects} />
+          <QuickAddModal projects={projects} userId={user?.id ?? null} />
+        </QuickAddProvider>
+        <BulkActionBar projects={projects} />
+      </TaskSelectionProvider>
     </UndoToastProvider>
   );
 }
