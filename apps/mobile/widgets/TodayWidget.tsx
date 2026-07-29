@@ -1,7 +1,11 @@
 import React from 'react';
-import { FlexWidget, IconWidget, TextWidget } from 'react-native-android-widget';
+import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
 import { PRIORITY_CONFIG } from '@do-done/shared';
 import type { Task, TaskPriority } from '@do-done/shared';
+
+import { plusSvg } from './dodone-mark';
+
+const PLUS_SVG = plusSvg('#6366f1');
 
 interface TodayWidgetProps {
   tasks?: Task[];
@@ -45,12 +49,7 @@ export function TodayWidget({ tasks = [] }: TodayWidgetProps) {
           text="Today"
           style={{ color: '#111827', fontSize: 14, fontWeight: '700' }}
         />
-        <IconWidget
-          font="material"
-          icon="add"
-          size={18}
-          style={{ color: '#6366f1' }}
-        />
+        <SvgWidget svg={PLUS_SVG} style={{ width: 18, height: 18 }} />
       </FlexWidget>
 
       {top.length === 0 ? (

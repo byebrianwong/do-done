@@ -96,7 +96,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             targetCellWidth: 1,
             targetCellHeight: 1,
             resizeMode: "none",
-            previewImage: "./assets/images/icon.png",
+            // The tile itself, so the launcher's widget picker shows what you
+            // actually get rather than the app icon.
+            previewImage: "./assets/images/quick-add-preview.png",
             updatePeriodMillis: 0,
           },
           {
