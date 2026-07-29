@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,6 +51,26 @@ export default function OverdueSection({
   const visible = tasks.filter((t) => !hidden.has(t.id));
   if (visible.length === 0) return null;
 
+  // Rows are hidden locally the moment they're rescheduled, so only hide the
+  // ones that actually landed: hiding a failed write makes the reschedule look
+  // like it worked right up until the next refetch puts the row back.
+  function hide(ids: string[]) {
+    if (ids.length === 0) return;
+    setHidden((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function warn(failed: number) {
+    if (failed === 0) return;
+    Alert.alert(
+      `Couldn't reschedule ${failed} task${failed > 1 ? 's' : ''}`,
+      'Those tasks were left unchanged. Check your connection and try again.'
+    );
+  }
+
   async function applyOne(
     task: Task,
     target: Parameters<typeof buildReschedule>[1]
@@ -57,9 +78,13 @@ export default function OverdueSection({
     hapticLight();
     setBusy(true);
     const api = await getTasksApi();
-    await api.update(task.id, buildReschedule(task, target));
+    const { error } = await api.update(task.id, buildReschedule(task, target));
     setBusy(false);
-    setHidden((p) => new Set(p).add(task.id));
+    if (error) {
+      warn(1);
+    } else {
+      hide([task.id]);
+    }
     onChange?.();
   }
 
@@ -72,13 +97,11 @@ export default function OverdueSection({
       id: t.id,
       input: buildReschedule(t, target),
     }));
-    await api.bulkUpdate(updates);
+    const { failedIds } = await api.bulkUpdate(updates);
     setBusy(false);
-    setHidden((prev) => {
-      const next = new Set(prev);
-      visible.forEach((t) => next.add(t.id));
-      return next;
-    });
+    const failed = new Set(failedIds);
+    hide(visible.filter((t) => !failed.has(t.id)).map((t) => t.id));
+    warn(failed.size);
     onChange?.();
   }
 
