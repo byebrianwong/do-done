@@ -1,6 +1,8 @@
-import { timingSafeEqual } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createDoDoneServer } from "@do-done/mcp-server";
+import { getProtectedResourceMetadataUrl } from "@/lib/oauth/config";
+import { safeEqual } from "@/lib/oauth/crypto";
+import { resolveAccessToken } from "@/lib/oauth/store";
 import { createServiceSupabase } from "@/lib/supabase/service";
 
 // The MCP SDK and Supabase both need Node APIs; never run this on the edge.
@@ -11,18 +13,15 @@ export const runtime = "nodejs";
 const BEARER_PREFIX = "Bearer ";
 
 /**
- * Constant-time bearer comparison. Length is compared first because
- * `timingSafeEqual` throws on a length mismatch; leaking token length is
- * acceptable, leaking a per-character match position is not.
+ * 401 that tells the client how to authenticate.
+ *
+ * The `resource_metadata` pointer is the load-bearing part: per RFC 9728 it is
+ * how Claude discovers the authorization server and starts the OAuth flow.
+ * Without it a client sees only an opaque "unauthorized" and gives up — which
+ * is exactly what the static-token-only version of this route did.
  */
-function tokenMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided, "utf8");
-  const b = Buffer.from(expected, "utf8");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-function unauthorized(): Response {
+function unauthorized(request: Request, description: string): Response {
+  const metadataUrl = getProtectedResourceMetadataUrl(request);
   return Response.json(
     {
       jsonrpc: "2.0",
@@ -31,7 +30,9 @@ function unauthorized(): Response {
     },
     {
       status: 401,
-      headers: { "WWW-Authenticate": 'Bearer realm="do-done-mcp"' },
+      headers: {
+        "WWW-Authenticate": `Bearer realm="do-done-mcp", error="invalid_token", error_description="${description}", resource_metadata="${metadataUrl}"`,
+      },
     }
   );
 }
@@ -48,30 +49,54 @@ function misconfigured(): Response {
 }
 
 /**
+ * Resolve the caller to a user id, or null.
+ *
+ * Two accepted credentials, in priority order:
+ *
+ *   1. An OAuth access token issued by this server. The user comes from the
+ *      token, which is what makes the endpoint multi-user.
+ *   2. The legacy static `MCP_BEARER_TOKEN`, scoped to `DO_DONE_USER_ID`.
+ *      Optional — unset either env var and this path disappears. It is kept
+ *      because Claude Code can consume a header-authenticated remote server
+ *      directly, with no browser round trip.
+ */
+async function authenticate(token: string): Promise<string | null> {
+  const context = await resolveAccessToken(token);
+  if (context) return context.userId;
+
+  const staticToken = process.env.MCP_BEARER_TOKEN;
+  const staticUserId = process.env.DO_DONE_USER_ID;
+  if (staticToken && staticUserId && safeEqual(token, staticToken)) {
+    return staticUserId;
+  }
+
+  return null;
+}
+
+/**
  * Hosted do-done MCP endpoint (Streamable HTTP).
  *
- * Single-user for now: the caller proves itself with a shared secret and every
- * request is scoped to `DO_DONE_USER_ID`. Swapping this guard for OAuth 2.1 —
- * deriving `userId` from a validated access token — is the only change needed
- * to make it multi-user.
+ * A fresh server is built per request and bound to the authenticated user,
+ * because the tool registrars capture their user id at construction time —
+ * reusing one instance across requests would serve one user's tasks to another.
  */
 async function handle(request: Request): Promise<Response> {
-  const expectedToken = process.env.MCP_BEARER_TOKEN;
-  const userId = process.env.DO_DONE_USER_ID;
-
-  if (!expectedToken || !userId) {
-    console.error(
-      "MCP route misconfigured: MCP_BEARER_TOKEN and DO_DONE_USER_ID must both be set"
-    );
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    console.error("MCP route misconfigured: Supabase env vars are missing");
     return misconfigured();
   }
 
   const header = request.headers.get("authorization") ?? "";
-  if (
-    !header.startsWith(BEARER_PREFIX) ||
-    !tokenMatches(header.slice(BEARER_PREFIX.length), expectedToken)
-  ) {
-    return unauthorized();
+  if (!header.startsWith(BEARER_PREFIX)) {
+    return unauthorized(request, "A bearer token is required.");
+  }
+
+  const userId = await authenticate(header.slice(BEARER_PREFIX.length));
+  if (!userId) {
+    return unauthorized(request, "The access token is invalid or expired.");
   }
 
   const server = createDoDoneServer({

@@ -8,11 +8,20 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 // Google, with no user session) — they authenticate via their own secrets:
 // the cron secret header and the Google channel token, respectively. The MCP
 // endpoint is the same shape: Claude calls it with no cookies, proving itself
-// with the MCP_BEARER_TOKEN that the route checks itself. Redirecting it to
-// /login would turn every MCP call into an HTML 307.
+// with a bearer token that the route checks itself. Redirecting it to /login
+// would turn every MCP call into an HTML 307.
 //
-// /.well-known holds the app↔site association files that Apple and Google
-// fetch anonymously (and that must not redirect, per Apple's spec).
+// /.well-known serves two anonymous audiences: the app↔site association files
+// Apple and Google fetch (which must not redirect, per Apple's spec), and the
+// OAuth discovery documents.
+//
+// The remaining OAuth paths are listed for two different reasons:
+//   - /api/oauth/{register,token,revoke} are genuinely unauthenticated —
+//     registration and token exchange happen with no cookies.
+//   - /oauth/authorize and /api/oauth/authorize DO need a session, but they
+//     handle that themselves so they can bounce through /login?next=… and come
+//     back to the same authorization request. A blind proxy redirect would
+//     drop the OAuth parameters and strand the user on /inbox.
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
@@ -21,6 +30,8 @@ const PUBLIC_PATHS = [
   "/api/calendar/webhook",
   "/api/mcp",
   "/.well-known",
+  "/oauth/authorize",
+  "/api/oauth/",
 ];
 
 export async function updateSession(request: NextRequest) {
