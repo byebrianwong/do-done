@@ -181,9 +181,17 @@ quick-add sheet over the live home screen without launching the main app.
 
 ### Geofencing setup
 - `apps/mobile/lib/geofencing.ts` defines the background TaskManager task
-- `registerUserGeofences()` is called automatically after sign-in
+- `registerUserGeofences()` is called automatically after sign-in. It **never
+  prompts** — it reads the user's locations first, bails when there are none,
+  and only then checks (without asking) that access was already granted. A user
+  with no location-based reminders is never asked for location at all.
+- `requestGeofencePermissions()` is the prompting path. Call it from the flow
+  where the user sets up a location-based reminder, so the ask has context —
+  never on launch or sign-in.
 - Requires both foreground AND background location permission (the latter
-  shown only AFTER foreground is granted, per Android policy)
+  shown only AFTER foreground is granted, per Android policy). Since Android 11
+  the background grant has no dialog at all: the OS deep-links to the app's
+  Location permission settings screen for "Allow all the time".
 
 ## Password-manager autofill
 

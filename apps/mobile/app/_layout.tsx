@@ -101,7 +101,9 @@ function RootLayoutNav() {
     }
   }, [session, loading, segments, router]);
 
-  // Re-register geofences whenever the user signs in
+  // Re-register geofences whenever the user signs in. Silent by design: this
+  // never prompts for location, it only re-arms regions for users who already
+  // have saved locations and have already granted access.
   useEffect(() => {
     if (session?.user && Platform.OS !== 'web') {
       registerUserGeofences().catch(() => {

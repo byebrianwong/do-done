@@ -96,20 +96,60 @@ if (!IS_EXPO_GO) {
 }
 
 /**
+ * Whether we already hold both grants geofencing needs, without showing the
+ * user anything. Android splits location into a foreground grant and a
+ * separate background one, so both have to be checked.
+ */
+export async function hasGeofencePermissions(): Promise<boolean> {
+  if (Platform.OS === 'web' || IS_EXPO_GO) return false;
+
+  const fg = await Location.getForegroundPermissionsAsync();
+  if (!fg.granted) return false;
+
+  const bg = await Location.getBackgroundPermissionsAsync();
+  return bg.granted;
+}
+
+/**
+ * Prompt for the permissions geofencing needs, foreground first.
+ *
+ * Call this from the flow where the user sets up a location-based reminder —
+ * never on launch or sign-in. Two system surfaces appear back to back and the
+ * second one is jarring without that context: since Android 11 the OS refuses
+ * to show a dialog for background location and instead deep-links into the
+ * app's Location permission settings page, where the user has to select
+ * "Allow all the time" by hand.
+ */
+export async function requestGeofencePermissions(): Promise<{
+  granted: boolean;
+  error?: string;
+}> {
+  if (Platform.OS === 'web' || IS_EXPO_GO)
+    return { granted: false, error: 'unsupported_runtime' };
+
+  const fg = await Location.requestForegroundPermissionsAsync();
+  if (!fg.granted) return { granted: false, error: 'foreground_denied' };
+
+  const bg = await Location.requestBackgroundPermissionsAsync();
+  if (!bg.granted) return { granted: false, error: 'background_denied' };
+
+  return { granted: true };
+}
+
+/**
  * Re-register all of a user's geofences with the OS.
  * Call after sign-in and whenever locations change.
+ *
+ * Never prompts: it reads the user's locations first and bails when there are
+ * none, so a user who has set up no location-based reminders is never asked
+ * for location access at all. Use `requestGeofencePermissions()` at the point
+ * the user actually creates one.
  */
 export async function registerUserGeofences(): Promise<{
   registered: number;
   error?: string;
 }> {
   if (Platform.OS === 'web' || IS_EXPO_GO) return { registered: 0 };
-
-  const fg = await Location.requestForegroundPermissionsAsync();
-  if (!fg.granted) return { registered: 0, error: 'foreground_denied' };
-
-  const bg = await Location.requestBackgroundPermissionsAsync();
-  if (!bg.granted) return { registered: 0, error: 'background_denied' };
 
   const {
     data: { user },
@@ -120,13 +160,18 @@ export async function registerUserGeofences(): Promise<{
   const { data: locations, error } = await locApi.list();
   if (error) return { registered: 0, error: error.message };
 
-  // Stop any existing geofencing for our task
+  // Stop any existing geofencing for our task. Runs before the empty and
+  // permission checks below so that deleting every location — or revoking
+  // access from system settings — tears down the stale regions.
   const isRunning = await Location.hasStartedGeofencingAsync(GEOFENCE_TASK);
   if (isRunning) {
     await Location.stopGeofencingAsync(GEOFENCE_TASK);
   }
 
   if (locations.length === 0) return { registered: 0 };
+
+  if (!(await hasGeofencePermissions()))
+    return { registered: 0, error: 'permission_not_granted' };
 
   const regions: Location.LocationRegion[] = locations.map((l) => ({
     identifier: l.id,
