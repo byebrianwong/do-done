@@ -184,3 +184,33 @@ quick-add sheet over the live home screen without launching the main app.
 - `registerUserGeofences()` is called automatically after sign-in
 - Requires both foreground AND background location permission (the latter
   shown only AFTER foreground is granted, per Android policy)
+
+## Password-manager autofill
+
+Login fields on **both** surfaces carry explicit autofill metadata — without it
+the OS can't classify them and 1Password never offers to fill:
+
+- Mobile (`apps/mobile/app/(auth)/login.tsx`): `autoComplete` (→ Android
+  `autofillHints`) + `textContentType` (→ iOS AutoFill) + `importantForAutofill`.
+- Web (`apps/web/src/app/(auth)/login/page.tsx`): `name` + `autocomplete`.
+
+Both flip the password field between `current-password` and `new-password`
+based on signin/signup mode, so managers offer generation instead of a fill.
+
+**App ↔ site association** is a separate mechanism — it's what makes a saved
+`dodone.byebrianwong.com` login match the *app*, rather than the app being its
+own vault item. It needs all three of:
+
+1. `ios.associatedDomains: ["webcredentials:dodone.byebrianwong.com"]` in
+   `apps/mobile/app.config.ts` (already set; EAS syncs the capability at build).
+2. `APPLE_APP_ID` (`<TeamID>.com.beamer408.dodone`) in the web deployment →
+   served at `/.well-known/apple-app-site-association`.
+3. `ANDROID_CERT_FINGERPRINTS` (comma-separated SHA-256, usually the EAS upload
+   key *and* the Play app-signing key) → served at `/.well-known/assetlinks.json`.
+
+Both routes 404 when their env var is unset — a malformed association file is
+worse than a missing one, since Apple and Google cache them. `/.well-known` is
+in `PUBLIC_PATHS` in `proxy-helper.ts`; Apple's spec forbids a redirect there.
+
+> Test autofill in a **preview/release** build, and make sure 1Password is
+> selected under Android Settings → Passwords & accounts → Autofill service.
