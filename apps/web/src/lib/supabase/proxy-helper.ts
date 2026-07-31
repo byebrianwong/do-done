@@ -10,6 +10,9 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 // endpoint is the same shape: Claude calls it with no cookies, proving itself
 // with the MCP_BEARER_TOKEN that the route checks itself. Redirecting it to
 // /login would turn every MCP call into an HTML 307.
+//
+// /.well-known holds the app↔site association files that Apple and Google
+// fetch anonymously (and that must not redirect, per Apple's spec).
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
@@ -17,6 +20,7 @@ const PUBLIC_PATHS = [
   "/api/calendar/worker",
   "/api/calendar/webhook",
   "/api/mcp",
+  "/.well-known",
 ];
 
 export async function updateSession(request: NextRequest) {
