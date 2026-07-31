@@ -47,7 +47,12 @@ import {
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
 import { createProject, invalidateTasks, useProjects } from "@/lib/task-queries";
+import {
+  useTaskLocations,
+  type TaskLocationLink,
+} from "@/lib/location-queries";
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
+import { LocationReminderSheet } from "./LocationReminderSheet";
 import {
   Gesture,
   GestureDetector,
@@ -950,6 +955,25 @@ export function recurrenceShortLabel(rule: string | null): string {
   return RECURRENCE_PRESETS.find((p) => p.rule === rule)?.label ?? "Custom";
 }
 
+/**
+ * One-line summary of a task's location reminders for the folded row.
+ * Names the place while there's only one, since "Arriving at Tesco" is the
+ * whole setting at a glance; past that, counting is the only thing that fits.
+ */
+export function locationReminderLabel(links: TaskLocationLink[]): string {
+  if (links.length === 0) return "Remind me at a place";
+  if (links.length === 1) {
+    const { location, trigger_type } = links[0];
+    return trigger_type === "enter"
+      ? `Arriving at ${location.name}`
+      : `Leaving ${location.name}`;
+  }
+  const places = new Set(links.map((l) => l.location.id)).size;
+  return places === 1
+    ? `Arriving at and leaving ${links[0].location.name}`
+    : `${places} places`;
+}
+
 function RepeatRow({
   value,
   onChange,
@@ -1432,8 +1456,11 @@ function Inner({
   const [estPickerOpen, setEstPickerOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [locationSheetOpen, setLocationSheetOpen] = useState(false);
   // Recurrence is a rare setting — keep it folded behind a one-line toggle.
   const [repeatOpen, setRepeatOpen] = useState(false);
+
+  const { data: taskLocations = [] } = useTaskLocations(task.id);
 
   // Projects created via the picker are merged locally so the field reflects
   // them immediately; the query invalidate in createProject reconciles.
@@ -1593,6 +1620,26 @@ function Inner({
             </View>
           </View>
         </View>
+
+        {/* Location reminders — folded like Repeat, since most tasks have none */}
+        <View style={{ marginTop: 14 }}>
+          <Pressable
+            onPress={() => setLocationSheetOpen(true)}
+            hitSlop={6}
+            style={styles.repeatToggle}
+          >
+            <Text style={styles.repeatToggleText} numberOfLines={1}>
+              📍 {locationReminderLabel(taskLocations)}
+            </Text>
+            <Text style={styles.repeatToggleChevron}>▸</Text>
+          </Pressable>
+        </View>
+
+        <LocationReminderSheet
+          visible={locationSheetOpen}
+          taskId={task.id}
+          onClose={() => setLocationSheetOpen(false)}
+        />
 
         <PickerSheet
           visible={priPickerOpen}

@@ -139,10 +139,11 @@ Mobile has 4 tabs (Today/Inbox/Projects/Settings); web has far more.
   (None / Daily / Weekdays / Weekly / Monthly) that set `recurrence_rule`, plus a ↻
   badge on recurring task rows. Typed `every …` syntax still parses. **Effort: S–M.**
   _(Status: ✅ done.)_
-- **3.4 — Location-based tasks UI.** Geofencing is fully wired in the background
-  (`geofencing.ts`) and `LocationsApi` exists, but there's **no UI** to create a
-  location or attach one to a task. The plumbing is done; the surface is missing.
-  **Effort: M.**
+- **3.4 — Location-based tasks UI.** Reminders at saved places, attached from the
+  task editor's 📍 row (`LocationReminderSheet`) and managed at Settings → Saved
+  places (`app/locations.tsx`). Enter/exit triggers are dwell-filtered so a
+  drive-by doesn't fire, rate-limited per task, and trimmed to the platform's
+  region cap. **Effort: M.** _(Status: ✅ done.)_
 
 ---
 

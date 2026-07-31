@@ -179,19 +179,52 @@ quick-add sheet over the live home screen without launching the main app.
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.
 
-### Geofencing setup
-- `apps/mobile/lib/geofencing.ts` defines the background TaskManager task
-- `registerUserGeofences()` is called automatically after sign-in. It **never
-  prompts** — it reads the user's locations first, bails when there are none,
-  and only then checks (without asking) that access was already granted. A user
-  with no location-based reminders is never asked for location at all.
-- `requestGeofencePermissions()` is the prompting path. Call it from the flow
-  where the user sets up a location-based reminder, so the ask has context —
-  never on launch or sign-in.
-- Requires both foreground AND background location permission (the latter
-  shown only AFTER foreground is granted, per Android policy). Since Android 11
-  the background grant has no dialog at all: the OS deep-links to the app's
-  Location permission settings screen for "Allow all the time".
+### Location reminders (geofencing)
+A task can carry reminders at saved places — "buy milk when I get to Tesco",
+"post the letter when I leave the office". `task_locations` links a task to a
+location with a `trigger_type` of `enter` or `exit`; a task can have several.
+
+**Surfaces**
+- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor.
+  Toggles Arriving/Leaving per place, and creates places from the current
+  position or a geocoded address. **This is the only place in the app that
+  prompts for location**, and it primes with an explanation first.
+- `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete.
+- `lib/location-queries.ts` — query hooks + mutations. Every write ends in a
+  geofence sync; the OS holds its own copy of the regions.
+
+**Engine** (`lib/geofencing.ts`)
+- `registerUserGeofences()` **never prompts**. It registers only locations with
+  at least one *open* task, so finished work stops waking the device, and a
+  user with no location reminders is never asked for location at all.
+- `requestGeofencePermissions()` is the prompting path — foreground, then
+  background, then notifications (Android 13+ needs POST_NOTIFICATIONS, and a
+  location reminder that can't notify does nothing at all).
+- Requires both foreground AND background location (the latter shown only
+  AFTER foreground is granted, per Android policy). Since Android 11 the
+  background grant has no dialog: the OS deep-links to the app's Location
+  permission settings screen for "Allow all the time".
+
+**Why it isn't just "notify on enter"** — three rules, tuned in
+`packages/shared/src/constants.ts`:
+- **Dwell.** An enter fires the moment you clip the boundary, so driving past
+  the shop would fire the reminder. Notifications are scheduled
+  `GEOFENCE_DWELL_SECONDS` out and cancelled if the opposite transition lands
+  first. This is why regions register with `notifyOnEnter` *and*
+  `notifyOnExit` even when only one direction has tasks — without the opposite
+  event there's nothing to cancel on.
+- **Cooldown.** Position drift makes regions flap. Once a task fires for a
+  place it stays quiet for `GEOFENCE_COOLDOWN_MINUTES`.
+- **Region cap.** iOS silently stops monitoring past 20 regions
+  (`GEOFENCE_MAX_REGIONS`), so we trim by open-task count and mark the rest
+  "Paused" on the places screen rather than letting them fail invisibly.
+
+Radius presets start at 100 m (`LOCATION_RADIUS_PRESETS`) because a typical
+urban fix lands 20-60 m off; tighter regions miss arrivals and emit spurious
+exits while you sit still. Default is 200 m.
+
+Dwell/cooldown state lives in AsyncStorage, not module state — the background
+task runs in a fresh JS context after the OS kills the app.
 
 ## Password-manager autofill
 
