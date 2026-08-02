@@ -85,6 +85,28 @@ and deriving `userId` from the validated token — the route is structured for i
 - Aesthetic: Things 3 cleanliness + Linear speed
 - Tokens in `packages/ui/src/theme.ts`
 
+## Testing
+
+Vitest everywhere (`pnpm test` → `turbo run test`). Web component tests run in
+jsdom from `apps/web/vitest.config.ts`; the packages run plain node tests.
+
+**Keep every workspace package on one vitest version.** `@testing-library/jest-dom`
+is a direct dependent of no package here, so its `/vitest` entry resolves
+`vitest` through its own path in the pnpm store and calls `expect.extend()` on
+whatever copy it lands on. When `apps/web` was on 4.x and `packages/*` on 3.x it
+extended the copy no test ran against, and all 26 `toBeInTheDocument()`
+assertions failed with `Invalid Chai property`. Same-version-but-two-physical-
+copies does it too, so `@types/node` is pinned to `^20.19.39` across the
+packages to stop pnpm peer-splitting the install. `apps/mobile` is deliberately
+on `^25` — it has no vitest, so it can't split anything.
+
+To check: `ls node_modules/.pnpm | grep '^vitest@'` should print exactly one
+line after `pnpm install --frozen-lockfile` (a dirty `node_modules` keeps stale
+directories around and will show more).
+
+Note `pnpm test -- --force` passes `--force` to vitest, not turbo. To bypass the
+turbo cache, call it directly: `./node_modules/.bin/turbo run test --force`.
+
 ## Storybook + Chromatic
 
 Storybook lives in `apps/web/`. It loads `*.stories.tsx` files alongside components and uses `@storybook/nextjs-vite` for fast Vite-based builds with Next.js compatibility.
