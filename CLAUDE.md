@@ -162,9 +162,16 @@ quick-add sheet over the live home screen without launching the main app.
   main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
   session is shared.
 - That root is `quick-add-root.tsx` → renders `components/QuickAddComposer.tsx` (the
-  Todoist-style title + When/Priority/Estimate chips, reusing selectors exported from
-  `components/TaskEditModalV2.tsx`). It dismisses with `BackHandler.exitApp()`, which
-  finishes only the quick-add task and returns to the launcher.
+  Todoist-style title + tag/chip card). It dismisses with `BackHandler.exitApp()`,
+  which finishes only the quick-add task and returns to the launcher.
+- The When / Priority / Project / Estimate chips themselves live in
+  `components/QuickAddFields.tsx` (`useQuickAddFields` + `QuickAddChipRow` +
+  `QuickAddPickers`), reusing selectors exported from `components/TaskEditModalV2.tsx`.
+  Every mobile capture surface shares them: this widget composer, the in-app
+  `dodone://quick-add` modal, and `QuickAddBar` above the tab bar (which expands from
+  one line to the full chip card on focus, matching the web bar). Nothing in that
+  module may call a TanStack Query hook — the widget root has no QueryClientProvider,
+  so hosts that have one pass `projects` in and the widget's Project chip hides.
 - Two composer rules keep the surface from jumping around, both matching Todoist:
   the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
   not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
@@ -178,9 +185,89 @@ quick-add sheet over the live home screen without launching the main app.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.
+- **None of this has been confirmed on a device yet** — see
+  [`docs/android-widget-verification.md`](docs/android-widget-verification.md) for
+  the checklist it still needs, the `ImageWidget` fallback if `SvgWidget` turns out
+  not to render, and the build gotchas (stale checkouts, APK signing, launcher
+  caching) that have already burned three install cycles.
 
-### Geofencing setup
-- `apps/mobile/lib/geofencing.ts` defines the background TaskManager task
-- `registerUserGeofences()` is called automatically after sign-in
-- Requires both foreground AND background location permission (the latter
-  shown only AFTER foreground is granted, per Android policy)
+### Location reminders (geofencing)
+A task can carry reminders at saved places — "buy milk when I get to Tesco",
+"post the letter when I leave the office". `task_locations` links a task to a
+location with a `trigger_type` of `enter` or `exit`; a task can have several.
+
+**Surfaces**
+- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor.
+  Toggles Arriving/Leaving per place, and creates places from the current
+  position or a geocoded address. **This is the only place in the app that
+  prompts for location**, and it primes with an explanation first.
+- `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete.
+- `lib/location-queries.ts` — query hooks + mutations. Every write ends in a
+  geofence sync; the OS holds its own copy of the regions.
+
+**Engine** (`lib/geofencing.ts`)
+- `registerUserGeofences()` **never prompts**. It registers only locations with
+  at least one *open* task, so finished work stops waking the device, and a
+  user with no location reminders is never asked for location at all.
+- `requestGeofencePermissions()` is the prompting path — foreground, then
+  background, then notifications (Android 13+ needs POST_NOTIFICATIONS, and a
+  location reminder that can't notify does nothing at all).
+- Requires both foreground AND background location (the latter shown only
+  AFTER foreground is granted, per Android policy). Since Android 11 the
+  background grant has no dialog: the OS deep-links to the app's Location
+  permission settings screen for "Allow all the time".
+
+**Why it isn't just "notify on enter"** — three rules, tuned in
+`packages/shared/src/constants.ts`:
+- **Dwell.** An enter fires the moment you clip the boundary, so driving past
+  the shop would fire the reminder. Notifications are scheduled
+  `GEOFENCE_DWELL_SECONDS` out and cancelled if the opposite transition lands
+  first. This is why regions register with `notifyOnEnter` *and*
+  `notifyOnExit` even when only one direction has tasks — without the opposite
+  event there's nothing to cancel on.
+- **Cooldown.** Position drift makes regions flap. Once a task fires for a
+  place it stays quiet for `GEOFENCE_COOLDOWN_MINUTES`.
+- **Region cap.** iOS silently stops monitoring past 20 regions
+  (`GEOFENCE_MAX_REGIONS`), so we trim by open-task count and mark the rest
+  "Paused" on the places screen rather than letting them fail invisibly.
+
+Radius presets start at 100 m (`LOCATION_RADIUS_PRESETS`) because a typical
+urban fix lands 20-60 m off; tighter regions miss arrivals and emit spurious
+exits while you sit still. Default is 200 m.
+
+Dwell/cooldown state lives in AsyncStorage, not module state — the background
+task runs in a fresh JS context after the OS kills the app.
+
+## Password-manager autofill
+
+Login fields on **both** surfaces carry explicit autofill metadata — without it
+the OS can't classify them and 1Password never offers to fill:
+
+- Mobile (`apps/mobile/app/(auth)/login.tsx`): `autoComplete` (→ Android
+  `autofillHints`) + `textContentType` (→ iOS AutoFill) + `importantForAutofill`.
+- Web (`apps/web/src/app/(auth)/login/page.tsx`): `name` + `autocomplete`.
+
+Both flip the password field between `current-password` and `new-password`
+based on signin/signup mode, so managers offer generation instead of a fill.
+
+**App ↔ site association** is a separate mechanism — it's what makes a saved
+`dodone.byebrianwong.com` login match the *app*, rather than the app being its
+own vault item. It needs all three of:
+
+1. `ios.associatedDomains: ["webcredentials:dodone.byebrianwong.com"]` in
+   `apps/mobile/app.config.ts` (already set; EAS syncs the capability at build).
+2. `APPLE_APP_ID` (`<TeamID>.com.beamer408.dodone`) in the web deployment →
+   served at `/.well-known/apple-app-site-association`.
+3. `ANDROID_CERT_FINGERPRINTS` (comma-separated SHA-256, usually the EAS upload
+   key *and* the Play app-signing key) → served at `/.well-known/assetlinks.json`.
+
+Both routes 404 when their env var is unset — a malformed association file is
+worse than a missing one, since Apple and Google cache them. `/.well-known` is
+in `PUBLIC_PATHS` in `proxy-helper.ts`; Apple's spec forbids a redirect there.
+
+**Neither env var is set yet**, and the iOS entitlement needs a fresh
+`eas build` to take effect. Checklist with commands and verification steps:
+[`docs/autofill-setup.md`](docs/autofill-setup.md).
+
+> Test autofill in a **preview/release** build, and make sure 1Password is
+> selected under Android Settings → Passwords & accounts → Autofill service.

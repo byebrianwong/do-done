@@ -38,6 +38,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.beamer408.dodone",
+    // Links the app to the web login so iOS AutoFill / 1Password treat a saved
+    // dodone.byebrianwong.com credential as a match for this app. The other
+    // half is /.well-known/apple-app-site-association on the web app, which
+    // needs APPLE_APP_ID set in the web deployment. EAS syncs the Associated
+    // Domains capability onto the Apple app ID at build time.
+    associatedDomains: ["webcredentials:dodone.byebrianwong.com"],
     infoPlist: {
       NSMicrophoneUsageDescription:
         "Allow DoDone to use the microphone for voice task entry.",
@@ -104,9 +110,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           {
             name: "Today",
             label: "DoDone — Today",
-            description: "Today's focus tasks",
-            minWidth: "250dp",
-            minHeight: "180dp",
+            description: "Overdue + today's tasks",
+            // Resizable: taller/wider shows more rows. targetCell* picks a
+            // sensible default footprint on Android 12+.
+            minWidth: "180dp",
+            minHeight: "110dp",
+            targetCellWidth: 3,
+            targetCellHeight: 2,
+            resizeMode: "horizontal|vertical",
+            previewImage: "./assets/images/icon.png",
+            updatePeriodMillis: 1800000,
+          },
+          {
+            name: "Upcoming",
+            label: "DoDone — Upcoming",
+            description: "Tasks grouped by day",
+            minWidth: "180dp",
+            minHeight: "150dp",
+            targetCellWidth: 3,
+            targetCellHeight: 3,
+            resizeMode: "horizontal|vertical",
             previewImage: "./assets/images/icon.png",
             updatePeriodMillis: 1800000,
           },

@@ -72,6 +72,8 @@ Don't assume these are missing and hand the work back to Brian — all three wer
 This doc is the source of truth for *current execution state*. Reference docs in `docs/`:
 - [`docs/pet-feature.md`](pet-feature.md) — original pet feature plan (shipped; superseded by the "Pet redesign" section below for current mechanics)
 - [`docs/task-input-design/`](task-input-design/) — the round-7 task input redesign + 6-PR plan
+- [`docs/autofill-setup.md`](autofill-setup.md) — password-manager autofill: what shipped in PR #159 and the config/build steps still open
+- [`docs/android-widget-verification.md`](android-widget-verification.md) — Android quick-add widget rework (PR #154): what "correct" looks like, the on-device checklist it still needs, and the build gotchas that have already burned three install cycles
 
 ---
 
@@ -438,11 +440,13 @@ In priority order:
    - **Tag autocomplete from prior tasks** — the `+ tag` inline input today accepts free text only. No distinct-tags query exists; future PR could add a Supabase RPC (or client-side tally) and an autocomplete dropdown.
 2. ~~**V1 cleanup**~~ — shipped in PR #17 (2026-05-11). Deleted `task-edit-dialog.tsx`, `task-edit-dialog.stories.tsx`, and mobile `TaskEditModal.tsx`. V2 has no fallback now.
 3. **`due_date` editing in V2** — currently `due_date` is shown as a deferred "+ deadline" link with no editor. For tasks that have a hard deadline (separate from when_date), a date picker would help. Defer until users actually report needing it.
-4. **EAS dev client build** — still not done. Required to test widgets, voice input, geofencing, push notifications — none of which run in Expo Go. Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` (replaces `"REPLACE_WITH_EAS_PROJECT_ID"` in `app.config.ts`) → `eas build --profile development --platform android`. ~15 min cloud build, free tier.
-5. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today.
-6. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
-7. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. See also the open experiment branch below.
-8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. Stories needing approval: PR #18's `ManyTagsEditing` + `NoTagsAffordance`, PR #20's `Curious` / `Playful` / `Cozy` / `Thoughtful` / `WithSettings`, and PR #21's resized priority/estimate bars + popovers.
+4. ~~**EAS dev client build**~~ — done. `eas init` has written a real `projectId` into `app.config.ts`, and `development` / `preview` builds are routine now. For anything widget-related, build `preview`: `expo-dev-client` intercepts the widget's launch intent in debug builds.
+5. **Finish password-manager autofill setup** — PR #159 (`763e361`) shipped the code; the config is still open. Needs `ANDROID_CERT_FINGERPRINTS` + `APPLE_APP_ID` in the Vercel deployment and a fresh `eas build` for the iOS `associatedDomains` entitlement. Until then 1Password fills the login screens but treats the app as a separate vault item from the website. Full checklist with commands and verification steps: [`docs/autofill-setup.md`](autofill-setup.md).
+6. **Verify the Android quick-add widget on a device** — PR #154 (`922e2d3`) rewrote the 1×1 widget's artwork and fixed the composer's keyboard behavior; PR #161 (`4eba3fe`) refactored the chips out into `QuickAddFields.tsx`. None of it has ever been confirmed running on a phone — every install attempt so far ran an APK built from a stale checkout, which is indistinguishable from a broken fix. Checklist, the `ImageWidget` fallback if `SvgWidget` doesn't render, and the build gotchas: [`docs/android-widget-verification.md`](android-widget-verification.md).
+7. ~~**Wire the `dodone://quick-add` deep link**~~ — done. The widget opens `dodoneadd://open`, a dedicated scheme that resolves only to the translucent `QuickAddActivity` (so the sheet floats over the home screen instead of launching the app), and `app/quick-add.tsx` handles `dodone://quick-add` in-app. Both render `QuickAddComposer`.
+8. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
+9. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. See also the open experiment branch below.
+10. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. Stories needing approval: PR #18's `ManyTagsEditing` + `NoTagsAffordance`, PR #20's `Curious` / `Playful` / `Cozy` / `Thoughtful` / `WithSettings`, and PR #21's resized priority/estimate bars + popovers.
 
 ### Open experiment branches (not yet PR'd)
 

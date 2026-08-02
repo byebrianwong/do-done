@@ -103,8 +103,14 @@ export default function LoginPage() {
               <label className="block text-xs font-medium mb-1.5 text-neutral-700 dark:text-neutral-300">
                 Email
               </label>
+              {/* `name` + `autocomplete` are what password managers key off
+                  to recognise this as a login form and to save the pair as
+                  one credential. Without them 1Password et al. see two
+                  anonymous inputs. */}
               <input
                 type="email"
+                name="email"
+                autoComplete="username"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -117,6 +123,12 @@ export default function LoginPage() {
               </label>
               <input
                 type="password"
+                name="password"
+                // Signup asks for a *new* password, so managers offer to
+                // generate and save rather than fill the existing one.
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
                 required
                 minLength={6}
                 value={password}

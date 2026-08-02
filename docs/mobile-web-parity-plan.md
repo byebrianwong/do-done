@@ -35,7 +35,7 @@ The drift is concentrated in **five one-sided feature clusters**:
 | 2 | Pet / Pip companion (whole `PetsApi` surface) | Web | M–L |
 | 3 | Row-level power editing (context menu: inline priority/estimate/when editors, focus toggle, duplicate, copy link, deadline, undo-delete) | Web | M |
 | 4 | Recurrence editing UI in the task modal | **Mobile** | S (port to web) |
-| 5 | Locations / geofencing UI (mobile has the plumbing + background triggers; **neither** app has a management UI) | Mobile (plumbing only) | M |
+| 5 | Locations / geofencing UI (mobile now has the full surface: reminder sheet in the task editor + saved-places screen; web has none) | **Mobile** | M (port to web) |
 
 Plus a tail of small gaps (Google OAuth sign-in on mobile, timezone setting,
 deadline editor in the mobile modal, inbox-filter on Upcoming, week/calendar view)
@@ -160,13 +160,17 @@ Monthly presets → RRULE). Web's `task-edit-modal-v2.tsx` has **zero** recurren
 UI — web users can only set recurrence by typing NL in quick-add and can never
 change or clear it from the editor. Port the RepeatRow.
 
-**B2. Locations UI (and web awareness of locations at all).**
-Mobile has the full background half: `LocationsApi` + geofence registration +
-enter/exit local notifications (`lib/geofencing.ts`). But **no UI exists anywhere**
-— on either app — to create a location, set its radius/trigger, or attach it to a
-task. The shared schema (`LocationSchema`, `TaskLocationSchema`) and API are done;
-only the surface is missing. Mobile should get the management UI first (it's the
-consumer); web should at least display/edit task↔location links.
+**B2. Locations UI (web awareness of locations at all).**
+_(Mobile: ✅ done.)_ Mobile now has both halves — `LocationsApi` + geofence
+registration + enter/exit notifications (`lib/geofencing.ts`), plus the surface:
+`LocationReminderSheet` in the task editor and a saved-places screen at
+`app/locations.tsx`. See the location-reminders section of the root CLAUDE.md
+for the dwell/cooldown/region-cap rules.
+
+Web still has no awareness of locations at all. It can't create one or show
+that a task has a location reminder, so a task set up on mobile looks
+unscheduled on web. Web should at least display task↔location links read-only;
+geofencing itself has no browser equivalent worth shipping.
 
 **B3. Hygiene: mobile reimplements `recurrenceShortLabel`** locally instead of
 importing the shared `formatRrule` — labels can drift from web's.

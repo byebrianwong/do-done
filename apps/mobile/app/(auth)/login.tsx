@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [loading, setLoading] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   async function handleSubmit() {
     if (!email.trim() || !password) return;
@@ -70,18 +71,36 @@ export default function LoginScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
+          // Autofill hints: `autoComplete` drives Android's autofillHints,
+          // `textContentType` drives iOS AutoFill. Password managers only
+          // offer to fill fields they can identify.
+          autoComplete="email"
+          textContentType="username"
+          importantForAutofill="yes"
+          returnKeyType="next"
+          submitBehavior="submit"
+          onSubmitEditing={() => passwordRef.current?.focus()}
           value={email}
           onChangeText={setEmail}
         />
 
         <Text style={styles.label}>Password</Text>
         <TextInput
+          ref={passwordRef}
           testID="login-password"
           style={styles.input}
           placeholder="••••••••"
           placeholderTextColor="#9ca3af"
           secureTextEntry
           autoCapitalize="none"
+          autoCorrect={false}
+          // Signup asks for a *new* password so managers offer to generate
+          // and save one instead of filling the existing credential.
+          autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+          textContentType={mode === 'signin' ? 'password' : 'newPassword'}
+          importantForAutofill="yes"
+          returnKeyType="go"
+          onSubmitEditing={handleSubmit}
           value={password}
           onChangeText={setPassword}
         />

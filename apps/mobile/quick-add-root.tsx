@@ -57,7 +57,6 @@ export default function QuickAddRoot() {
               defaultStatus="not_started"
               autoFocus
               onCreated={dismiss}
-              onClose={dismiss}
             />
           ) : (
             <View style={styles.signinCard}>
