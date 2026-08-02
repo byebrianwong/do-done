@@ -400,7 +400,7 @@ const SELECTABLE = [
  * A live list wrapped in the selection provider with the floating bar mounted,
  * the way the real app shell composes them. The play function ⌘-clicks the
  * first row and Shift-clicks the third to select a range — so the snapshot
- * shows the selected-row highlight, the square checkboxes, and the bar.
+ * shows the selected-row highlight and the bar.
  */
 export const MultiSelectRange: Story = {
   name: "Multi-select (⌘-click + Shift-click range)",

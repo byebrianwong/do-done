@@ -102,7 +102,9 @@ function RootLayoutNav() {
     }
   }, [session, loading, segments, router]);
 
-  // Re-register geofences whenever the user signs in
+  // Re-register geofences whenever the user signs in. Silent by design: this
+  // never prompts for location, it only re-arms regions for users who already
+  // have saved locations and have already granted access.
   useEffect(() => {
     if (session?.user && Platform.OS !== 'web') {
       registerUserGeofences().catch(() => {
@@ -126,6 +128,7 @@ function RootLayoutNav() {
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         <Stack.Screen name="completed" options={{ title: 'Completed' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="locations" options={{ title: 'Saved places' }} />
         <Stack.Screen name="search" options={{ headerShown: false }} />
         <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />
         <Stack.Screen name="today" options={{ headerShown: false }} />

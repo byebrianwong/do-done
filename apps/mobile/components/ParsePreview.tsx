@@ -28,14 +28,25 @@ type ChipSpec = {
   color: string;
 };
 
-export default function ParsePreview({ text }: { text: string }) {
+export default function ParsePreview({
+  text,
+  omitChipFields = false,
+}: {
+  text: string;
+  /**
+   * Drop When / Priority / Estimate from the preview. Set it on surfaces that
+   * already expose those as chips, so the preview only echoes what the chips
+   * don't cover (deadline, tags, recurrence).
+   */
+  omitChipFields?: boolean;
+}) {
   const chips = useMemo<ChipSpec[]>(() => {
     const trimmed = text.trim();
     if (!trimmed) return [];
     const parsed = parseTaskInput(trimmed);
     const out: ChipSpec[] = [];
 
-    if (parsed.when_date) {
+    if (!omitChipFields && parsed.when_date) {
       out.push({
         key: 'when',
         icon: 'calendar-outline',
@@ -51,7 +62,7 @@ export default function ParsePreview({ text }: { text: string }) {
         color: '#b45309',
       });
     }
-    if (parsed.priority) {
+    if (!omitChipFields && parsed.priority) {
       out.push({
         key: 'pri',
         icon: 'flag',
@@ -59,7 +70,7 @@ export default function ParsePreview({ text }: { text: string }) {
         color: PRIORITY_COLORS[parsed.priority],
       });
     }
-    if (parsed.duration_minutes) {
+    if (!omitChipFields && parsed.duration_minutes) {
       out.push({
         key: 'dur',
         icon: 'time-outline',
@@ -84,7 +95,7 @@ export default function ParsePreview({ text }: { text: string }) {
       });
     }
     return out;
-  }, [text]);
+  }, [text, omitChipFields]);
 
   if (chips.length === 0) return null;
 

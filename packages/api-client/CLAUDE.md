@@ -6,7 +6,7 @@ Supabase client wrapper and typed API classes.
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
 - `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming
 - `src/projects.ts` — ProjectsApi: list, getById, create
-- `src/locations.ts` — LocationsApi: list, create, linkTask, getTaskLocations
+- `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
 
 ## Rules
 - Always check `.error` from Supabase responses

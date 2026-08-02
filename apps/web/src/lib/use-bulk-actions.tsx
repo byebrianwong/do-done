@@ -40,13 +40,17 @@ export function useBulkActions(): BulkActions {
       const ids = [...selection.selectedIds];
       if (ids.length === 0) return;
       const api = await getClientTasksApi();
-      const { error } = await api.bulkUpdate(
+      const { error, failedIds } = await api.bulkUpdate(
         ids.map((id) => ({ id, input: patch }))
       );
       if (error) {
-        console.error("Bulk update failed:", error);
-        return;
+        console.error(
+          `Bulk update failed for ${failedIds.length}/${ids.length} tasks:`,
+          error
+        );
       }
+      // A partial failure still wrote most of the batch, so clear and refresh
+      // either way — bailing early left those writes invisible until a reload.
       selection.clear();
       startTransition(() => router.refresh());
     },

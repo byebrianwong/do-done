@@ -197,3 +197,146 @@ describe("TasksApi.create — subtask project inheritance", () => {
     expect(inserts[0].project_id).toBeUndefined();
   });
 });
+
+// ── bulkUpdate: partial failure + bounded fan-out ──────────────────────
+
+/**
+ * A stub for the `update()` round-trip pair (prior read, then write). Ids in
+ * `failTimes` fail that many attempts before succeeding (`Infinity` = always);
+ * ids in `throwIds` reject instead of returning an error tuple. Records every
+ * persisted patch, per-id attempt counts, and the peak number of writes in
+ * flight at once.
+ */
+function makeBulkStub(
+  opts: { failTimes?: Map<string, number>; throwIds?: Set<string> } = {}
+) {
+  const updates: { id: string; patch: Record<string, unknown> }[] = [];
+  const attempts = new Map<string, number>();
+  let inFlight = 0;
+  let peak = 0;
+
+  const supabase = {
+    from(_table: string) {
+      const state = {
+        op: "select" as "select" | "update",
+        patch: null as Record<string, unknown> | null,
+        id: "",
+      };
+      const proxy: unknown = new Proxy(
+        {},
+        {
+          get(_t, prop: string) {
+            if (prop === "update") {
+              return (patch: Record<string, unknown>) => {
+                state.op = "update";
+                state.patch = patch;
+                return proxy;
+              };
+            }
+            if (prop === "eq") {
+              return (_col: string, val: unknown) => {
+                state.id = String(val);
+                return proxy;
+              };
+            }
+            if (prop === "single" || prop === "maybeSingle") {
+              return async () => {
+                if (state.op !== "update") {
+                  return { data: makeTask({ id: state.id }), error: null };
+                }
+                const n = (attempts.get(state.id) ?? 0) + 1;
+                attempts.set(state.id, n);
+                inFlight++;
+                peak = Math.max(peak, inFlight);
+                try {
+                  await new Promise((r) => setTimeout(r, 1));
+                  if (n <= (opts.failTimes?.get(state.id) ?? 0)) {
+                    if (opts.throwIds?.has(state.id)) throw new Error("network");
+                    return { data: null, error: new Error("write failed") };
+                  }
+                  updates.push({ id: state.id, patch: state.patch! });
+                  return {
+                    data: makeTask({ id: state.id, ...state.patch }),
+                    error: null,
+                  };
+                } finally {
+                  inFlight--;
+                }
+              };
+            }
+            return () => proxy;
+          },
+        }
+      );
+      return proxy;
+    },
+  };
+  return { supabase, updates, attempts, peak: () => peak };
+}
+
+describe("TasksApi.bulkUpdate", () => {
+  const patch = { when_date: "2026-06-18" };
+  const batch = (ids: string[]) => ids.map((id) => ({ id, input: patch }));
+
+  it("names the rows that failed and keeps the ones that landed", async () => {
+    const { supabase, updates } = makeBulkStub({
+      failTimes: new Map([["b", Infinity]]),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const res = await api.bulkUpdate(batch(["a", "b", "c"]));
+
+    // One bad row must not discard the two good ones — reverting a whole bulk
+    // reschedule over a single failure is what made it look self-undoing.
+    expect(res.failedIds).toEqual(["b"]);
+    expect(res.data.map((t) => t.id)).toEqual(["a", "c"]);
+    expect(res.error).toBeInstanceOf(Error);
+    expect(updates.map((u) => u.id).sort()).toEqual(["a", "c"]);
+  });
+
+  it("retries a transient failure once before giving up on a row", async () => {
+    const { supabase, attempts } = makeBulkStub({
+      failTimes: new Map([["b", 1]]),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const res = await api.bulkUpdate(batch(["a", "b"]));
+
+    expect(res.failedIds).toEqual([]);
+    expect(res.error).toBeNull();
+    expect(attempts.get("b")).toBe(2);
+    expect(attempts.get("a")).toBe(1);
+  });
+
+  it("contains a rejected write to its own row", async () => {
+    const { supabase } = makeBulkStub({
+      failTimes: new Map([["b", Infinity]]),
+      throwIds: new Set(["b"]),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    // A thrown fetch used to reject the whole Promise.all and lose every other
+    // result with it.
+    const res = await api.bulkUpdate(batch(["a", "b", "c"]));
+
+    expect(res.failedIds).toEqual(["b"]);
+    expect(res.data.map((t) => t.id)).toEqual(["a", "c"]);
+  });
+
+  it("bounds how many writes are in flight at once", async () => {
+    const { supabase, peak } = makeBulkStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const ids = Array.from({ length: 40 }, (_, i) => `t${i}`);
+    const res = await api.bulkUpdate(batch(ids));
+
+    expect(res.data).toHaveLength(40);
+    expect(peak()).toBeLessThanOrEqual(8);
+    // Still concurrent, just capped — not serialized one-at-a-time.
+    expect(peak()).toBeGreaterThan(1);
+  });
+});
