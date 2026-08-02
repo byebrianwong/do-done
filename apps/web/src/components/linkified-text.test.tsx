@@ -4,11 +4,11 @@ import { LinkifiedText } from "./linkified-text";
 
 describe("LinkifiedText", () => {
   it("renders a URL in the title as an anchor to that URL", () => {
-    render(<LinkifiedText text="Buy dog muzzle https://www.bigsnoofdoggear.com/" />);
+    render(<LinkifiedText text="Buy dog food https://www.example.com/" />);
     const link = screen.getByRole("link", {
-      name: "https://www.bigsnoofdoggear.com/",
+      name: "https://www.example.com/",
     });
-    expect(link.getAttribute("href")).toBe("https://www.bigsnoofdoggear.com/");
+    expect(link.getAttribute("href")).toBe("https://www.example.com/");
     // Opens safely in a new tab.
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
@@ -16,9 +16,9 @@ describe("LinkifiedText", () => {
 
   it("keeps the non-URL text alongside the link", () => {
     const { container } = render(
-      <LinkifiedText text="Buy dog muzzle https://example.com/" />
+      <LinkifiedText text="Buy dog food https://example.com/" />
     );
-    expect(container.textContent).toBe("Buy dog muzzle https://example.com/");
+    expect(container.textContent).toBe("Buy dog food https://example.com/");
   });
 
   it("gives a bare www. link an https:// href", () => {
@@ -28,9 +28,9 @@ describe("LinkifiedText", () => {
   });
 
   it("renders plain text with no links when there is no URL", () => {
-    const { container } = render(<LinkifiedText text="Buy dog muzzle" />);
+    const { container } = render(<LinkifiedText text="Buy dog food" />);
     expect(container.querySelector("a")).toBeNull();
-    expect(container.textContent).toBe("Buy dog muzzle");
+    expect(container.textContent).toBe("Buy dog food");
   });
 
   it("does not bubble the link click up to a clickable ancestor (row → editor)", () => {

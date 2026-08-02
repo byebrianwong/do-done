@@ -240,19 +240,19 @@ describe("calendarEventsOnDay / groupCalendarEventsByDay", () => {
 
 describe("linkifyText", () => {
   it("splits a URL out of a title, keeping the surrounding text", () => {
-    expect(linkifyText("Buy dog muzzle https://www.bigsnoofdoggear.com/")).toEqual([
-      { type: "text", value: "Buy dog muzzle " },
+    expect(linkifyText("Buy dog food https://www.example.com/")).toEqual([
+      { type: "text", value: "Buy dog food " },
       {
         type: "link",
-        value: "https://www.bigsnoofdoggear.com/",
-        href: "https://www.bigsnoofdoggear.com/",
+        value: "https://www.example.com/",
+        href: "https://www.example.com/",
       },
     ]);
   });
 
   it("returns a single text segment when there is no URL", () => {
-    expect(linkifyText("Buy dog muzzle")).toEqual([
-      { type: "text", value: "Buy dog muzzle" },
+    expect(linkifyText("Buy dog food")).toEqual([
+      { type: "text", value: "Buy dog food" },
     ]);
   });
 

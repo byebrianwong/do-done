@@ -57,7 +57,7 @@ export const UrlInTitle: Story = {
   // the rest of the row still opens the editor on click.
   args: {
     task: makeTask({
-      title: "Buy dog muzzle https://www.bigsnoofdoggear.com/",
+      title: "Buy dog food https://www.example.com/",
       priority: "p3",
     }),
   },
