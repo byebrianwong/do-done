@@ -186,6 +186,11 @@ export default function SettingsScreen() {
           label="Completed tasks"
           onPress={() => router.push('/completed' as never)}
         />
+        <SettingsRow
+          icon="location-outline"
+          label="Saved places"
+          onPress={() => router.push('/locations' as never)}
+        />
       </View>
 
       <Text style={styles.sectionHeader}>Calendar Integration</Text>
