@@ -1,21 +1,15 @@
-import { afterEach, expect } from "vitest";
-import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
+// Registers jest-dom's matchers on vitest's expect.
+//
+// This entry point resolves `vitest` itself, so it only works while the whole
+// workspace is on one vitest major — jest-dom is a direct dependent of no
+// package here, so pnpm picks the copy in its own resolution path. When
+// apps/web was on 4.x and packages/* on 3.x, it extended the v3 copy that no
+// test ran against, and every toBeInTheDocument() died with "Invalid Chai
+// property". Keep the versions aligned (see the root CLAUDE.md) rather than
+// working around it here.
+import "@testing-library/jest-dom/vitest";
+import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-
-// Register jest-dom's matchers against *this* package's vitest, rather than
-// importing "@testing-library/jest-dom/vitest".
-//
-// That entry point does its own bare `import { expect } from 'vitest'`. The
-// repo has two majors installed — vitest 4 here, vitest 3 in packages/* — and
-// jest-dom is not a direct dependent of either, so pnpm resolves its bare
-// specifier to the v3 copy in the virtual store. Its expect.extend() then
-// lands on an instance no test ever uses, and every toBeInTheDocument()
-// assertion dies with "Invalid Chai property".
-//
-// The "/matchers" entry is runner-agnostic (no vitest import at all), so
-// extending it here binds the matchers to the expect these tests actually run
-// against. Keep it this way until packages/* and apps/web share one vitest.
-expect.extend(jestDomMatchers);
 
 // Components/libraries (and Tailwind responsive probing) sometimes read
 // matchMedia, which jsdom doesn't implement. Provide an inert stub.
