@@ -23,6 +23,7 @@ import type {
 } from '@do-done/shared';
 import { getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
+import { refreshTaskWidgets } from './widgets';
 import { scheduleGeofenceSync } from './location-queries';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
@@ -238,6 +239,8 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
 export function invalidateTasks() {
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
+  refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and
   // reopening one should bring it back. Debounced — this runs on every write.
   scheduleGeofenceSync();
@@ -477,5 +480,6 @@ export async function reorderTasks(orderedIds: string[]) {
     orderedIds.map((id, i) => ({ id, input: { sort_order: (i + 1) * 1000 } }))
   );
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
+  refreshTaskWidgets();
   if (error) throw error;
 }
