@@ -185,6 +185,11 @@ quick-add sheet over the live home screen without launching the main app.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.
+- **None of this has been confirmed on a device yet** — see
+  [`docs/android-widget-verification.md`](docs/android-widget-verification.md) for
+  the checklist it still needs, the `ImageWidget` fallback if `SvgWidget` turns out
+  not to render, and the build gotchas (stale checkouts, APK signing, launcher
+  caching) that have already burned three install cycles.
 
 ### Location reminders (geofencing)
 A task can carry reminders at saved places — "buy milk when I get to Tesco",
