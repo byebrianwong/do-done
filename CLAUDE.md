@@ -162,9 +162,16 @@ quick-add sheet over the live home screen without launching the main app.
   main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
   session is shared.
 - That root is `quick-add-root.tsx` → renders `components/QuickAddComposer.tsx` (the
-  Todoist-style title + When/Priority/Estimate chips, reusing selectors exported from
-  `components/TaskEditModalV2.tsx`). It dismisses with `BackHandler.exitApp()`, which
-  finishes only the quick-add task and returns to the launcher.
+  Todoist-style title + tag/chip card). It dismisses with `BackHandler.exitApp()`,
+  which finishes only the quick-add task and returns to the launcher.
+- The When / Priority / Project / Estimate chips themselves live in
+  `components/QuickAddFields.tsx` (`useQuickAddFields` + `QuickAddChipRow` +
+  `QuickAddPickers`), reusing selectors exported from `components/TaskEditModalV2.tsx`.
+  Every mobile capture surface shares them: this widget composer, the in-app
+  `dodone://quick-add` modal, and `QuickAddBar` above the tab bar (which expands from
+  one line to the full chip card on focus, matching the web bar). Nothing in that
+  module may call a TanStack Query hook — the widget root has no QueryClientProvider,
+  so hosts that have one pass `projects` in and the widget's Project chip hides.
 - Two composer rules keep the surface from jumping around, both matching Todoist:
   the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
   not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
