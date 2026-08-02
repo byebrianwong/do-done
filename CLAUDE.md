@@ -260,5 +260,9 @@ Both routes 404 when their env var is unset — a malformed association file is
 worse than a missing one, since Apple and Google cache them. `/.well-known` is
 in `PUBLIC_PATHS` in `proxy-helper.ts`; Apple's spec forbids a redirect there.
 
+**Neither env var is set yet**, and the iOS entitlement needs a fresh
+`eas build` to take effect. Checklist with commands and verification steps:
+[`docs/autofill-setup.md`](docs/autofill-setup.md).
+
 > Test autofill in a **preview/release** build, and make sure 1Password is
 > selected under Android Settings → Passwords & accounts → Autofill service.

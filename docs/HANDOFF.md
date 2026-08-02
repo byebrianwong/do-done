@@ -23,6 +23,7 @@ Last updated: 2026-05-14 by Claude (Opus 4.7, 1M context). Most recent ship: PRs
 This doc is the source of truth for *current execution state*. Reference docs in `docs/`:
 - [`docs/pet-feature.md`](pet-feature.md) — original pet feature plan (shipped; superseded by the "Pet redesign" section below for current mechanics)
 - [`docs/task-input-design/`](task-input-design/) — the round-7 task input redesign + 6-PR plan
+- [`docs/autofill-setup.md`](autofill-setup.md) — password-manager autofill: what shipped in PR #159 and the config/build steps still open
 
 ---
 
@@ -390,10 +391,11 @@ In priority order:
 2. ~~**V1 cleanup**~~ — shipped in PR #17 (2026-05-11). Deleted `task-edit-dialog.tsx`, `task-edit-dialog.stories.tsx`, and mobile `TaskEditModal.tsx`. V2 has no fallback now.
 3. **`due_date` editing in V2** — currently `due_date` is shown as a deferred "+ deadline" link with no editor. For tasks that have a hard deadline (separate from when_date), a date picker would help. Defer until users actually report needing it.
 4. **EAS dev client build** — still not done. Required to test widgets, voice input, geofencing, push notifications — none of which run in Expo Go. Steps: `npm i -g eas-cli` → `eas login` → `cd apps/mobile && eas init` (replaces `"REPLACE_WITH_EAS_PROJECT_ID"` in `app.config.ts`) → `eas build --profile development --platform android`. ~15 min cloud build, free tier.
-5. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today.
-6. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
-7. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. See also the open experiment branch below.
-8. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. Stories needing approval: PR #18's `ManyTagsEditing` + `NoTagsAffordance`, PR #20's `Curious` / `Playful` / `Cozy` / `Thoughtful` / `WithSettings`, and PR #21's resized priority/estimate bars + popovers.
+5. **Finish password-manager autofill setup** — PR #159 (`763e361`) shipped the code; the config is still open. Needs `ANDROID_CERT_FINGERPRINTS` + `APPLE_APP_ID` in the Vercel deployment and a fresh `eas build` for the iOS `associatedDomains` entitlement. Until then 1Password fills the login screens but treats the app as a separate vault item from the website. Full checklist with commands and verification steps: [`docs/autofill-setup.md`](autofill-setup.md).
+6. **Wire the `dodone://quick-add` deep link** — `widgets/QuickAddWidget.tsx` opens the app with `dodone://quick-add` but `app/_layout.tsx` has no `Linking` handler. Currently tapping the widget just lands on Today.
+7. **DNS cleanups** — remove the wildcard CNAME, add CAA records, DMARC, DNSSEC. Optional.
+8. **Tune pet feeding deltas** in `packages/shared/src/pet-decay.ts` based on real usage. See also the open experiment branch below.
+9. **Accept Chromatic baselines** for the mobile/V2-modal-related Storybook builds — multiple PRs flagged visual diffs that need explicit acceptance in the Chromatic UI. Stories needing approval: PR #18's `ManyTagsEditing` + `NoTagsAffordance`, PR #20's `Curious` / `Playful` / `Cozy` / `Thoughtful` / `WithSettings`, and PR #21's resized priority/estimate bars + popovers.
 
 ### Open experiment branches (not yet PR'd)
 
