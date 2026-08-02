@@ -216,10 +216,10 @@ describe("parseTaskInput", () => {
   describe("URLs in the title", () => {
     it("keeps a full https URL — the scheme's // is not a /project", () => {
       const result = parseTaskInput(
-        "Buy dog muzzle https://www.bigsnoofdoggear.com/",
+        "Buy dog food https://www.example.com/",
         REF_DATE
       );
-      expect(result.title).toBe("Buy dog muzzle https://www.bigsnoofdoggear.com/");
+      expect(result.title).toBe("Buy dog food https://www.example.com/");
       expect(result.project).toBeUndefined();
     });
 

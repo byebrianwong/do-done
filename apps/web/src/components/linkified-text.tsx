@@ -10,7 +10,7 @@ export interface LinkifiedTextProps {
 
 /**
  * Renders a string as inline content, turning any URLs it contains into
- * clickable links. Task titles are entered as free text ("Buy dog muzzle
+ * clickable links. Task titles are entered as free text ("Buy dog food
  * https://…"), and a bare URL in that text should be tappable rather than dead
  * characters.
  *

@@ -21,7 +21,7 @@ interface LinkifiedTextProps {
 /**
  * Renders a string as a `Text` block, turning any URLs it contains into
  * tappable links (opened with the OS's default handler). Titles are free text
- * ("Buy dog muzzle https://…"), so a bare URL should be tappable rather than
+ * ("Buy dog food https://…"), so a bare URL should be tappable rather than
  * dead characters. Link detection lives in `@do-done/shared` so mobile and web
  * linkify identically.
  */
