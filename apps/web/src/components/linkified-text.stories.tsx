@@ -17,11 +17,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const UrlInTitle: Story = {
-  args: { text: "Buy dog muzzle https://www.bigsnoofdoggear.com/" },
+  args: { text: "Buy dog food https://www.example.com/" },
 };
 
 export const BareWwwLink: Story = {
-  args: { text: "Order from www.bigsnoofdoggear.com before Friday" },
+  args: { text: "Order from www.example.com before Friday" },
 };
 
 export const TrailingPunctuation: Story = {
@@ -33,5 +33,5 @@ export const MultipleLinks: Story = {
 };
 
 export const NoLink: Story = {
-  args: { text: "Buy dog muzzle" },
+  args: { text: "Buy dog food" },
 };
