@@ -4,9 +4,58 @@
 
 Last updated: 2026-05-14 by Claude (Opus 4.7, 1M context). Most recent ship: PRs #20 + #21 (Pip positive redesign + priority/estimate hitbox fix).
 
+> **⚠️ Everything below the next section is stale.** It was last revised at PR #21 (2026-05-12); `main` is now past PR #156. The architecture notes, gotchas, and deploy config are still broadly accurate and worth reading, but the PR tables, "Open work", and any "where things stand" claims are not. The dated section immediately below is current.
+
 ---
 
-## TL;DR — where things stand right now
+## Current state — 2026-07-30
+
+Most recent deployment work: **calendar events in Today / Upcoming ([PR #134](https://github.com/byebrianwong/do-done/pull/134), merged 2026-07-03)**. The code sat on `main` for several weeks with its deployment config unfinished; that config is now done.
+
+### Calendar events — deployed, nothing outstanding
+
+- Migration `20260703000001_show_calendar_events` **applied to prod 2026-07-29** — adds `user_preferences.show_calendar_events` (boolean, default true). The app tolerates the column's absence and defaults the preference on, so its only practical effect is making the Settings toggle savable.
+- `20260724000001_project_sort_order_backfill` (from merged PR #149) went out in the **same** `supabase db push` — prod had silently been behind on it. Confirmed applied via `supabase migration list --linked`.
+- `EXPO_PUBLIC_WEB_APP_URL=https://dodone.byebrianwong.com` is set in the EAS **preview** and **production** environments, and in `apps/mobile/.env` for local dev. Mobile reaches the web app's `/api/calendar/events` route through it; **unset means mobile silently hides events entirely**, with no error.
+- OTA update published to the `preview` channel 2026-07-30 (group `8660f8af…`, runtime 1.0.0, android + ios), so installed preview builds pick up that variable on next launch.
+
+### Still open (both small, neither blocking)
+
+1. **Unverified: is the deployed web app serving a build that includes #134?** Every path on the production URL returns 307 → `/login`, and the session that did this work had no Vercel auth, so it couldn't be checked from the CLI. #134 merged 2026-07-03 with many deploys since, so it is near-certain — but confirm by loading Today in a signed-in browser and looking for calendar events rather than assuming.
+2. **Optional perf.** The events fetch hits Google live on every page load (~2 round trips). A short server-side cache (~60s) in [`apps/web/src/app/api/calendar/events/route.ts`](../apps/web/src/app/api/calendar/events/route.ts) would make Today / Upcoming snappier. Not needed at current scale — do it only if it starts to feel slow.
+
+### Gotcha: don't run `eas update` from this machine
+
+It fails, and the error points nowhere near the cause. Android and iOS bundle fine (~10s each), then the **web** export crashes:
+
+```
+TypeError: localStorage.getItem is not a function
+  at ServerRegistrationModule.web.js  (expo-notifications)
+```
+
+Node 25 ships a built-in `localStorage` global. `expo-notifications`' web shim guards with `typeof localStorage !== 'undefined'`, so it's skipped on CI's Node 20 but hits a non-functional stub locally. Nothing is wrong with the repo.
+
+Publish through CI instead — [`.github/workflows/eas-update.yml`](../.github/workflows/eas-update.yml) has `workflow_dispatch`, and runs the identical command on Node 20:
+
+```bash
+gh workflow run eas-update.yml --ref main
+```
+
+Confirm with `cd apps/mobile && eas channel:view preview`. Manual runs land with the message `"manual update"` (the workflow reads its message from a commit, and dispatch has none).
+
+### Credentials that are already set up locally
+
+Don't assume these are missing and hand the work back to Brian — all three were live as of 2026-07-30:
+
+- **Supabase** — main checkout `/Users/brian/Projects/do-done` is linked to `qvglgxixiwoolsxnmsag`, DB password cached in the macOS keychain, so `supabase db push --linked` runs.
+- **EAS / Expo** — `eas` CLI logged in as `byebrianwong` (`@byebrianwong/do-done`). Read with `eas env:list --environment preview`, write with `eas env:create --scope project --environment <env> --name X --value Y --visibility plaintext`.
+- **GitHub** — `gh` authenticated with `repo` + `workflow` scopes.
+
+**Caveat:** `supabase db push` applies *every* pending migration, not just the one you came for, and prod regularly trails `main` by several. Always run `supabase migration list --linked` first and check what else would ride along — especially anything that mutates data.
+
+---
+
+## TL;DR — where things stand right now (stale as of PR #21)
 
 - **`main`** has the task input redesign + V1 cleanup + tag editing + Pip positive redesign + priority/estimate UI polish all shipped. HEAD is `d69cc88` (PR #21).
 - **App is LIVE** at https://dodone.byebrianwong.com. Vercel auto-deploys main as production. SSL via Let's Encrypt, valid through 2 Aug 2026.
