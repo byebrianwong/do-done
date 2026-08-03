@@ -11,6 +11,7 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { buildRescheduleInput } from "@/lib/reschedule";
+import { LinkifiedText } from "./linkified-text";
 
 export interface OverdueSectionProps {
   tasks: Task[];
@@ -38,7 +39,7 @@ function OverdueRow({
         style={{ backgroundColor: priorityColor }}
       />
       <span className="min-w-0 flex-1 truncate text-sm text-neutral-900 dark:text-neutral-100">
-        {task.title}
+        <LinkifiedText text={task.title} />
       </span>
       {lateBy && (
         <span className="text-xs text-red-500" title={`Was ${lateBy}`}>

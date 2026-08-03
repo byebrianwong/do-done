@@ -17,6 +17,7 @@ import {
 import type { Task, UpdateTaskInput } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticLight } from '@/lib/haptics';
+import { LinkifiedText } from './LinkifiedText';
 
 function buildReschedule(
   task: Task,
@@ -148,9 +149,11 @@ export default function OverdueSection({
                     { backgroundColor: PRIORITY_CONFIG[t.priority].color },
                   ]}
                 />
-                <Text style={styles.title} numberOfLines={2}>
-                  {t.title}
-                </Text>
+                <LinkifiedText
+                  text={t.title}
+                  style={styles.title}
+                  numberOfLines={2}
+                />
               </View>
               <ScrollView
                 horizontal

@@ -41,6 +41,20 @@ export const Default: Story = {
   },
 };
 
+/** Notes read as links until you click them, so a pasted URL stays followable. */
+export const UrlInNotes: Story = {
+  args: {
+    task: makeTask({
+      title: "Review the design doc",
+      priority: "p2",
+      description:
+        "Spec: https://example.com/specs/widget-v2\nFigma at www.example.com/file/abc",
+    }),
+    open: true,
+    onClose: () => {},
+  },
+};
+
 export const NotScheduled: Story = {
   args: {
     task: makeTask({ title: "Untitled task", priority: "p4" }),
