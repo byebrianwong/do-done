@@ -260,6 +260,12 @@ exits while you sit still. Default is 200 m.
 Dwell/cooldown state lives in AsyncStorage, not module state — the background
 task runs in a fresh JS context after the OS kills the app.
 
+> **None of this has run on a device yet.** Geofences, the dwell filter, the
+> notification channel and all three permission prompts are unverified outside
+> a type-checker — none of them execute in Expo Go or CI. See the 2026-08-02
+> section of [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check things
+> in; each failure mode here is silent.
+
 ## Password-manager autofill
 
 Login fields on **both** surfaces carry explicit autofill metadata — without it

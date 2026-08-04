@@ -2,9 +2,88 @@
 
 **For a new Claude Code instance picking up this project.** Read this end-to-end before doing anything; the project is live in production and there's open work that needs care.
 
-Last updated: 2026-05-14 by Claude (Opus 4.7, 1M context). Most recent ship: PRs #20 + #21 (Pip positive redesign + priority/estimate hitbox fix).
+Last updated: 2026-08-02 by Claude. Most recent ship: PRs #160 + #162 (location reminders) and #167 (one vitest across the workspace).
 
-> **⚠️ Everything below the next section is stale.** It was last revised at PR #21 (2026-05-12); `main` is now past PR #156. The architecture notes, gotchas, and deploy config are still broadly accurate and worth reading, but the PR tables, "Open work", and any "where things stand" claims are not. The dated section immediately below is current.
+> **⚠️ Everything below the "Current state" sections is stale.** It was last revised at PR #21 (2026-05-12); `main` is now past PR #168. The architecture notes, gotchas, and deploy config are still broadly accurate and worth reading, but the PR tables, "Open work", and any "where things stand" claims are not. The dated sections immediately below are current, newest first.
+
+---
+
+## Current state — 2026-08-02
+
+Shipped: **location reminders** (PRs [#160](https://github.com/byebrianwong/do-done/pull/160), [#162](https://github.com/byebrianwong/do-done/pull/162)) and a **workspace-wide vitest alignment** ([#167](https://github.com/byebrianwong/do-done/pull/167)).
+
+### ⚠️ Location reminders have never run on a device
+
+This is the single most important thing on this page. The whole feature — geofence
+registration, the dwell filter, the cooldown, the Android notification channel, and
+all three permission prompts — is **unverified outside a type-checker**. None of it
+runs in Expo Go or in CI; it needs an EAS dev-client or preview build on real
+hardware. Treat it as "written, not working" until someone has walked into a
+geofence and seen a notification.
+
+What to check first, in order, because each one fails silently:
+
+1. **Does the permission flow complete?** Task editor → 📍 row → toggle "Arriving".
+   Three surfaces should appear: foreground location, then (Android 11+) a
+   *deep-link into system settings* where "Allow all the time" must be chosen by
+   hand, then notifications. If the second one looks like a dead end to a real
+   user, that's a UX bug worth fixing — it's the step most likely to lose people.
+2. **Does a region actually register?** `registerUserGeofences()` returns
+   `{registered, skipped, error}` but every caller currently discards it. Log it.
+   `error: 'permission_not_granted'` here means step 1 silently didn't finish.
+3. **Does a notification fire, and after the right delay?** Expect
+   ~`GEOFENCE_DWELL_SECONDS` (90 s) *after* crossing the boundary, not on crossing.
+   Nothing arriving at all points at the Android channel or the POST_NOTIFICATIONS
+   grant — neither existed before #162, so there is no prior art proving they work.
+4. **Does a drive-by stay silent?** The dwell filter is the design's whole claim.
+   Drive past a saved place without stopping; no notification should land.
+
+Radius/dwell/cooldown are tuned in `packages/shared/src/constants.ts`. If reminders
+land late or not at all, widen the radius before touching the dwell — a typical
+urban fix is 20-60 m off and the 100 m floor exists for that reason. Design
+rationale for all three rules is in the root `CLAUDE.md` under "Location reminders".
+
+### Location permission is no longer requested at sign-in
+
+Worth knowing because it looks like a regression if you don't. `registerUserGeofences()`
+used to prompt for foreground **and** background location on every login, before
+checking whether the user had any saved places — which they never did, since no UI
+existed to create one. It now never prompts: it reads locations first, bails when
+there are none, and only then checks grants without asking. `requestGeofencePermissions()`
+is the only prompting path and belongs in the reminder-setup flow, never at launch.
+Don't "fix" a missing prompt by moving it back to startup.
+
+### Open, unowned
+
+1. **Web has no awareness of locations at all.** A task with a location reminder
+   renders as unscheduled on web — no indicator, no way to view or edit the link.
+   Geofencing has no browser equivalent worth shipping, but read-only display of
+   task↔location links is a real gap. Tracked in `docs/mobile-web-parity-plan.md` §B2.
+2. **Play Store background-location justification.** `ACCESS_BACKGROUND_LOCATION`
+   in `apps/mobile/app.config.ts` is now genuinely used, so it's no longer a
+   spurious declaration — but it does require a written justification and a demo
+   video at review. Budget time for it before the next production submission.
+3. **`registerUserGeofences()`'s return value is discarded everywhere.** `skipped > 0`
+   means places were dropped for the platform region cap; users see "Paused" on the
+   saved-places screen but nothing else surfaces it. Fine for now, wrong at scale.
+
+### Testing: keep one vitest across the workspace
+
+`apps/web` was on vitest 4 while `packages/*` were on 3, which silently broke all 26
+`toBeInTheDocument()` assertions in the web suite — jest-dom extended a copy no test
+ran against. #167 aligned everything on 4.1.5 and pinned `@types/node` to `^20.19.39`
+across the packages so pnpm can't peer-split one version into two physical copies
+(two copies are two module instances, which reproduces the same bug with the version
+numbers looking identical). The full explanation and the one-line check are in the
+root `CLAUDE.md` under "Testing". **Don't bump one package's vitest on its own.**
+
+Two traps that cost time here and will again:
+
+- `ls node_modules/.pnpm | grep '^vitest@'` over-reports on a dirty `node_modules` —
+  pnpm leaves stale version directories behind that nothing links to. Only a
+  `rm -rf node_modules && pnpm install --frozen-lockfile` gives a trustworthy count.
+- `pnpm test -- --force` passes `--force` to **vitest**, not turbo, and fails
+  confusingly. Use `./node_modules/.bin/turbo run test --force`.
 
 ---
 
