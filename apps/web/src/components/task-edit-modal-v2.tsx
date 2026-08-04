@@ -684,45 +684,144 @@ export function useClickOutside(
   }, [ref, onOutside]);
 }
 
-function DoneButton({
-  onClick,
-  status,
-}: {
-  onClick: () => void;
-  status: SaveStatus;
-}) {
-  // The subtitle is a claim about the user's data, so it has to track the same
-  // status the indicator does — "all saved" sitting under a keystroke that
-  // hasn't left the device is the same lie, just in a bigger font.
-  const pending = status === "pending" || status === "saving";
-  const subtitle =
-    status === "error" ? "save failed" : pending ? "saving…" : "all saved";
+// Dismisses the editor. Deliberately quiet: everything auto-saves, so there is
+// nothing to commit here, and this used to be a primary button wearing a green
+// ✓ labelled "Done" — which read as "complete the task" rather than "close the
+// editor". The ✓ now belongs to `CompleteToggle` alone.
+//
+// It carries no save-state caption either. That caption was a second claim
+// about the user's data in a bigger font than the top-bar indicator, so it had
+// to be kept honest in two places; with it gone, `SaveStatusDot` is the single
+// place that speaks for save state.
+function CloseButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title="Close (all changes auto-saved)"
-      className="group inline-flex items-center gap-2.5 rounded-lg bg-indigo-500 px-3.5 py-2 text-white shadow-lg shadow-indigo-500/30 transition-colors hover:bg-indigo-600"
+      className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-1.5 text-[13px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-neutral-100"
     >
-      <span
-        className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-[12px] font-bold transition-colors ${
-          status === "error"
-            ? "bg-red-500"
-            : pending
-              ? "animate-pulse bg-amber-500"
-              : "bg-green-500"
-        }`}
-      >
-        ✓
-      </span>
-      <span className="flex flex-col items-start leading-tight">
-        <span className="text-[13px] font-bold">Done</span>
-        <span className="text-[10px] font-medium text-white/75">{subtitle}</span>
-      </span>
-      <span className="ml-0.5 rounded bg-white/20 px-1.5 text-[10px] font-mono">
+      Close
+      <span className="rounded bg-neutral-100 px-1.5 text-[10px] font-mono text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
         Esc
       </span>
     </button>
+  );
+}
+
+// The completion circle from a task row, brought into the editor so completing
+// the open task is one click here too — it was previously reachable only as one
+// of seven entries in the Status dropdown. Same geometry and status colouring as
+// `task-item.tsx`, so the control is the one the user already knows from the
+// list. Writes through `setField`, so the Status field stays in sync.
+function CompleteToggle({
+  status,
+  onChange,
+}: {
+  status: TaskStatus;
+  onChange: (status: TaskStatus) => void;
+}) {
+  const completed = status === "done" || status === "cancelled";
+  // STATUS_CONFIG[status] can be undefined for an unmigrated DB still serving
+  // legacy values — guard before reading .color, as the row does.
+  const statusColor = STATUS_CONFIG[status]?.color ?? "#94a3b8";
+  const label = completed ? "Mark incomplete" : "Mark complete";
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(completed ? "not_started" : "done")}
+      aria-label={label}
+      aria-pressed={completed}
+      title={label}
+      className="flex h-5 shrink-0 items-center justify-center"
+    >
+      <span
+        className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+        style={{
+          borderColor: completed ? "#d4d4d4" : statusColor,
+          backgroundColor: completed ? "#d4d4d4" : "transparent",
+        }}
+      >
+        {completed ? (
+          <svg
+            className="h-3 w-3 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={3}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
+          </svg>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
+// Overflow menu in the top bar. Holds the actions that shouldn't sit in the
+// chrome competing with the task's own controls — Delete was previously loose
+// in the footer, a red button one slip away from the dismiss control.
+// `open` is owned by the modal body so its Esc handler can close this first
+// rather than dismissing the whole editor.
+function TaskMenu({
+  open,
+  onOpenChange,
+  onDelete,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDelete: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+  useClickOutside(ref, close);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        aria-label="Task menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-900"
+      >
+        <svg
+          aria-hidden
+          className="h-3.5 w-3.5"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.75}
+          strokeLinecap="round"
+        >
+          <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Task actions"
+          className="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onOpenChange(false);
+              onDelete();
+            }}
+            className="flex w-full items-center px-3 py-1.5 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Delete task
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -2280,6 +2379,7 @@ function TaskEditModalBody({
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Projects created via the inline picker are merged locally so the Project
   // field can show them immediately; router.refresh on close reconciles.
@@ -2339,12 +2439,13 @@ function TaskEditModalBody({
     handleClose();
   }, [tasksApi, task.id, handleClose]);
 
-  // Reset the delete confirmation whenever the modal closes so it never
-  // reappears pre-opened on the next launch.
+  // Reset the delete confirmation and overflow menu whenever the modal closes
+  // so neither reappears pre-opened on the next launch.
   useEffect(() => {
     if (!open) {
       setConfirmingDelete(false);
       setDeleting(false);
+      setMenuOpen(false);
     }
   }, [open]);
 
@@ -2355,6 +2456,12 @@ function TaskEditModalBody({
       // While the delete confirmation is up, its own handler owns the keyboard.
       if (confirmingDelete) return;
       if (e.key === "Escape") {
+        // The overflow menu owns Esc while it's open — back out of the menu
+        // rather than dismissing the whole editor under it.
+        if (menuOpen) {
+          setMenuOpen(false);
+          return;
+        }
         handleClose();
         return;
       }
@@ -2370,7 +2477,7 @@ function TaskEditModalBody({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose, setField, confirmingDelete]);
+  }, [open, handleClose, setField, confirmingDelete, menuOpen]);
 
   // Esc cancels the delete confirmation (captured so it never reaches the
   // main modal's Esc-to-close handler).
@@ -2522,31 +2629,42 @@ function TaskEditModalBody({
             >
               <span>↶</span>Undo all changes
             </button>
-            <button
-              type="button"
-              onClick={handleClose}
-              aria-label="Close"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-900"
-            >
-              ×
-            </button>
+            <TaskMenu
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              onDelete={() => setConfirmingDelete(true)}
+            />
           </div>
         </div>
 
         {/* Scrollable region — keeps the modal within the viewport on short
             screens (phones) instead of overflowing off the bottom. */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Input */}
-        <div className="border-b border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
-          <SlashCommandInput
-            value={titleDraft}
-            onChange={handleTitleChange}
-            parsedTokens={tokens}
-            onRemoveTag={handleRemoveTag}
-            onAddTag={handleAddTag}
-            autoFocus
-            selectOnFocus={draft}
-          />
+        {/* Input — the completion circle sits to the left of the title, the
+            same arrangement as a task row in the list. The wrapper pins it to
+            the title's line so it doesn't drift when tags wrap the input to a
+            second row. */}
+        <div className="flex items-start gap-3 border-b border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
+          {/* pt matches the input card's own top inset (1px border + py-2.5),
+              so the circle lands on the title's line and stays there when the
+              chip row appears underneath. */}
+          <div className="shrink-0 pt-[11px]">
+            <CompleteToggle
+              status={current.status}
+              onChange={(s) => setField("status", s)}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <SlashCommandInput
+              value={titleDraft}
+              onChange={handleTitleChange}
+              parsedTokens={tokens}
+              onRemoveTag={handleRemoveTag}
+              onAddTag={handleAddTag}
+              autoFocus
+              selectOnFocus={draft}
+            />
+          </div>
         </div>
 
         {/* Body */}
@@ -2646,13 +2764,6 @@ function TaskEditModalBody({
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-neutral-100 bg-neutral-50 px-4 py-3 dark:border-neutral-900 dark:bg-neutral-900/50">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
-            >
-              Delete
-            </button>
             <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
               <Kbd>1</Kbd>-<Kbd>4</Kbd>
               <span className="mx-1">priority</span>
@@ -2660,7 +2771,7 @@ function TaskEditModalBody({
               <span className="mx-1">close</span>
             </div>
           </div>
-          <DoneButton onClick={handleClose} status={saveStatus} />
+          <CloseButton onClick={handleClose} />
         </div>
       </div>
     </div>

@@ -256,7 +256,8 @@ export const PickingTime: Story = {
 /**
  * The delete confirmation dialog, opened automatically. It centers over the
  * viewport (the underlying edit modal is dimmed + blurred behind it) instead
- * of the browser's native top-anchored confirm.
+ * of the browser's native top-anchored confirm. Delete now lives in the top-bar
+ * overflow menu, so the route there is two clicks.
  */
 export const ConfirmingDelete: Story = {
   args: {
@@ -270,9 +271,48 @@ export const ConfirmingDelete: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByText("Delete"));
+    await userEvent.click(await canvas.findByLabelText("Task menu"));
+    await userEvent.click(await canvas.findByText("Delete task"));
     await waitFor(() =>
       expect(canvas.getByText("Delete task?")).toBeInTheDocument()
     );
+  },
+};
+
+/** The top-bar overflow menu, open. Holds Delete, off the main chrome. */
+export const TaskMenuOpen: Story = {
+  args: {
+    task: makeTask({
+      title: "Archive the Q3 board",
+      priority: "p3",
+      tags: ["ops"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByLabelText("Task menu"));
+    await waitFor(() =>
+      expect(canvas.getByText("Delete task")).toBeInTheDocument()
+    );
+  },
+};
+
+/**
+ * A finished task: the completion circle beside the title is filled and the
+ * title's Status field agrees, since the circle writes through the same field.
+ */
+export const CompletedTask: Story = {
+  args: {
+    task: makeTask({
+      title: "Send the invoice",
+      priority: "p2",
+      status: "done",
+      when_date: today,
+      tags: ["finance"],
+    }),
+    open: true,
+    onClose: () => {},
   },
 };
