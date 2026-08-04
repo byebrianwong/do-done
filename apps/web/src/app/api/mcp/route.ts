@@ -1,6 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createDoDoneServer } from "@do-done/mcp-server";
-import { getProtectedResourceMetadataUrl } from "@/lib/oauth/config";
+import { getBaseUrl, getProtectedResourceMetadataUrl } from "@/lib/oauth/config";
 import { safeEqual } from "@/lib/oauth/crypto";
 import { resolveAccessToken } from "@/lib/oauth/store";
 import { createServiceSupabase } from "@/lib/supabase/service";
@@ -99,9 +99,12 @@ async function handle(request: Request): Promise<Response> {
     return unauthorized(request, "The access token is invalid or expired.");
   }
 
+  // `baseUrl` is branding only: it points the connector's icon at this
+  // deployment's /icon.png and links the entry back to the app.
   const server = createDoDoneServer({
     supabase: createServiceSupabase(),
     userId,
+    baseUrl: getBaseUrl(request),
   });
 
   // Stateless: each serverless invocation is independent, so there is no
