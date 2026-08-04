@@ -15,10 +15,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: "not_started",
     priority: "p4",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -62,7 +62,7 @@ describe("generateFocusList", () => {
   it("overdue tasks rank highest", () => {
     const tasks = [
       makeTask({ title: "p1 no date", priority: "p1" }),
-      makeTask({ title: "overdue p4", priority: "p4", due_date: "2026-04-10" }),
+      makeTask({ title: "overdue p4", priority: "p4", deadline_date: "2026-04-10" }),
     ];
     const result = generateFocusList(tasks);
     expect(result[0].title).toBe("overdue p4");
@@ -104,13 +104,13 @@ describe("generateFocusList", () => {
     expect(result).toHaveLength(3);
   });
 
-  it("due-today tasks rank above tasks with no date", () => {
+  it("deadline-today tasks rank above tasks with no date", () => {
     const tasks = [
       makeTask({ title: "no date", priority: "p3" }),
-      makeTask({ title: "due today", priority: "p3", due_date: "2026-04-12" }),
+      makeTask({ title: "deadline today", priority: "p3", deadline_date: "2026-04-12" }),
     ];
     const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("due today");
+    expect(result[0].title).toBe("deadline today");
   });
 
   // ── Manual overrides ────────────────────────────────────
@@ -167,7 +167,7 @@ describe("generateFocusList", () => {
       makeTask({
         title: "overdue but excluded",
         priority: "p1",
-        due_date: "2026-04-10",
+        deadline_date: "2026-04-10",
         focus_override: "exclude",
       }),
       makeTask({ title: "p3", priority: "p3" }),
@@ -208,10 +208,10 @@ describe("partitionToday", () => {
     const tasks = [
       makeTask({
         title: "overdue + pinned",
-        due_date: "2026-04-10",
+        deadline_date: "2026-04-10",
         focus_override: "include",
       }),
-      makeTask({ title: "today", due_date: "2026-04-12" }),
+      makeTask({ title: "today", deadline_date: "2026-04-12" }),
     ];
     const { overdue, focus } = partitionToday(tasks);
     expect(overdue.map((t) => t.title)).toEqual(["overdue + pinned"]);
@@ -220,22 +220,22 @@ describe("partitionToday", () => {
 
   it("splits non-overdue tasks into focus and other by focusMax", () => {
     const tasks = [
-      makeTask({ title: "due today", priority: "p1", due_date: "2026-04-12" }),
+      makeTask({ title: "deadline today", priority: "p1", deadline_date: "2026-04-12" }),
       makeTask({ title: "someday", priority: "p4" }),
     ];
     const { focus, other } = partitionToday(tasks, 1);
-    expect(focus.map((t) => t.title)).toEqual(["due today"]);
+    expect(focus.map((t) => t.title)).toEqual(["deadline today"]);
     expect(other.map((t) => t.title)).toEqual(["someday"]);
   });
 
   it("pulls a pinned 'other' task into focus without evicting the auto pick", () => {
     const tasks = [
-      makeTask({ title: "due today", priority: "p1", due_date: "2026-04-12" }),
+      makeTask({ title: "deadline today", priority: "p1", deadline_date: "2026-04-12" }),
       makeTask({ title: "pinned someday", priority: "p4", focus_override: "include" }),
     ];
     const { focus, other } = partitionToday(tasks, 1);
     const titles = focus.map((t) => t.title);
-    expect(titles).toContain("due today");
+    expect(titles).toContain("deadline today");
     expect(titles).toContain("pinned someday");
     expect(other).toHaveLength(0);
   });
@@ -259,15 +259,15 @@ describe("todayUniverse", () => {
   afterEach(() => vi.useRealTimers());
 
   it("includes overdue, today-scheduled and pinned-undated; excludes a future excluded task", () => {
-    const overdue = makeTask({ title: "overdue", due_date: "2026-04-10" });
-    const today = makeTask({ title: "today", when_date: "2026-04-12" });
+    const overdue = makeTask({ title: "overdue", deadline_date: "2026-04-10" });
+    const today = makeTask({ title: "today", scheduled_date: "2026-04-12" });
     const pinnedUndated = makeTask({
       title: "pinned undated",
       focus_override: "include",
     });
     const futureExcluded = makeTask({
       title: "future excluded",
-      when_date: "2026-04-20",
+      scheduled_date: "2026-04-20",
       focus_override: "exclude",
     });
     const universe = todayUniverse(

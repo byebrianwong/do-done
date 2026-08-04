@@ -179,8 +179,8 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
         kind: "task",
         title: t.title,
         subtitle:
-          t.due_date
-            ? `Due ${t.due_date}${t.due_time ? ` ${t.due_time}` : ""}`
+          t.deadline_date
+            ? `Deadline ${t.deadline_date}${t.deadline_time ? ` ${t.deadline_time}` : ""}`
             : t.status,
         color: PRIORITY_CONFIG[t.priority].color,
         href: t.project_id ? `/projects/${t.project_id}` : "/inbox",

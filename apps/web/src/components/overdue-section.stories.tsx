@@ -41,7 +41,7 @@ export const Single: Story = {
       makeTask({
         title: "Pay credit card bill",
         priority: "p1",
-        when_date: yesterday,
+        scheduled_date: yesterday,
       }),
     ],
     projects: SAMPLE_PROJECTS,
@@ -54,7 +54,7 @@ export const UrlInTitle: Story = {
       makeTask({
         title: "Renew the domain https://example.com/billing",
         priority: "p1",
-        when_date: yesterday,
+        scheduled_date: yesterday,
       }),
     ],
     projects: SAMPLE_PROJECTS,
@@ -67,22 +67,22 @@ export const Multiple: Story = {
       makeTask({
         title: "Pay credit card bill",
         priority: "p1",
-        when_date: yesterday,
+        scheduled_date: yesterday,
       }),
       makeTask({
         title: "Submit quarterly report",
         priority: "p2",
-        due_date: lastWeek,
+        deadline_date: lastWeek,
       }),
       makeTask({
         title: "Send invoice to client",
         priority: "p3",
-        when_date: lastWeek,
+        scheduled_date: lastWeek,
       }),
       makeTask({
         title: "Review old draft",
         priority: "p4",
-        due_date: yesterday,
+        deadline_date: yesterday,
       }),
     ],
     projects: SAMPLE_PROJECTS,

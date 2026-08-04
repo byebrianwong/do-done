@@ -79,11 +79,11 @@ export function ChipButton({
   );
 }
 
-export function WhenChip({
-  whenDate,
+export function ScheduleChip({
+  scheduledDate,
   onChange,
 }: {
-  whenDate: string | null;
+  scheduledDate: string | null;
   onChange: (date: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -97,14 +97,14 @@ export function WhenChip({
     []
   );
 
-  const label = whenDate
-    ? options.find((o) => o.date === whenDate)?.label ?? formatScheduleHint(whenDate)
+  const label = scheduledDate
+    ? options.find((o) => o.date === scheduledDate)?.label ?? formatScheduleHint(scheduledDate)
     : "Date";
 
   return (
     <div className="relative" ref={ref}>
       <ChipButton
-        active={whenDate != null}
+        active={scheduledDate != null}
         onClick={() => setOpen((o) => !o)}
         icon={<ChipIcon d={ICON.calendar} />}
       >
@@ -120,9 +120,9 @@ export function WhenChip({
               code: "",
               label: o.label,
               hint: formatScheduleHint(o.date),
-              selected: whenDate === o.date,
+              selected: scheduledDate === o.date,
               onSelect: () => {
-                onChange(whenDate === o.date ? null : o.date);
+                onChange(scheduledDate === o.date ? null : o.date);
                 setOpen(false);
               },
               accentClass: "bg-indigo-500",
@@ -131,7 +131,7 @@ export function WhenChip({
               key: "none",
               code: "",
               label: "No date",
-              selected: whenDate == null,
+              selected: scheduledDate == null,
               onSelect: () => {
                 onChange(null);
                 setOpen(false);
@@ -297,8 +297,8 @@ export function QuickAddChipRow({
   setPriority,
   duration,
   setDuration,
-  whenDate,
-  setWhenDate,
+  scheduledDate,
+  setScheduledDate,
   projectId,
   setProjectId,
   projects,
@@ -309,8 +309,8 @@ export function QuickAddChipRow({
   setPriority: (p: TaskPriority | null) => void;
   duration: number | null;
   setDuration: (m: number | null) => void;
-  whenDate: string | null;
-  setWhenDate: (d: string | null) => void;
+  scheduledDate: string | null;
+  setScheduledDate: (d: string | null) => void;
   projectId: string | null;
   setProjectId: (id: string | null) => void;
   projects: Project[];
@@ -319,7 +319,7 @@ export function QuickAddChipRow({
 }) {
   return (
     <>
-      <WhenChip whenDate={whenDate} onChange={setWhenDate} />
+      <ScheduleChip scheduledDate={scheduledDate} onChange={setScheduledDate} />
       <PriorityChip value={priority} onChange={setPriority} />
       {userId ? (
         <ProjectChip
@@ -367,23 +367,23 @@ export function ParsedPreview({
         {PRIORITY_CONFIG[parsed.priority].label}
       </span>
     );
-  if (!omitChipFields && parsed.when_date)
+  if (!omitChipFields && parsed.scheduled_date)
     chips.push(
       <span
         key="when"
         className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
       >
-        {parsed.when_date}
+        {parsed.scheduled_date}
       </span>
     );
-  if (parsed.due_date)
+  if (parsed.deadline_date)
     chips.push(
       <span
-        key="due"
+        key="deadline"
         className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
       >
-        due {parsed.due_date}
-        {parsed.due_time ? ` ${parsed.due_time}` : ""}
+        by {parsed.deadline_date}
+        {parsed.deadline_time ? ` ${parsed.deadline_time}` : ""}
       </span>
     );
   parsed.tags?.forEach((tag) =>

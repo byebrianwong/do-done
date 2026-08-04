@@ -162,7 +162,7 @@ export function BulkActionBar() {
   const pickSchedule = (key: string) => {
     if (key === 'remove') {
       apply(
-        { when_date: null, when_time: null, due_date: null, due_time: null },
+        { scheduled_date: null, scheduled_time: null, deadline_date: null, deadline_time: null },
         'unschedule'
       );
       return;

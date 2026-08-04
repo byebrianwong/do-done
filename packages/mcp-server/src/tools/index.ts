@@ -20,15 +20,15 @@ import { registerPetTools } from "./pets.js";
 /**
  * The one paragraph every date-touching tool description leads with. DoDone has
  * two date fields and they are not interchangeable; a caller that assumes
- * "dated" means `due_date` will report a fully planned week as having nothing
- * on it, because almost every DoDone task carries a when_date and almost none
- * carries a due_date.
+ * "dated" means `deadline_date` will report a fully planned week as having
+ * nothing on it, because almost every DoDone task carries a scheduled_date and
+ * almost none carries a deadline_date.
  */
 const DATE_MODEL =
-  "DoDone has TWO date fields. `when_date` is the day the user plans to DO the task — " +
-  "this is the field the app schedules by and what the user means by 'today', 'tomorrow', " +
-  "'this week', and usually by 'due'. `due_date` is a hard external deadline and is rarely set. " +
-  "Never report a task as undated because it has no due_date.";
+  "DoDone has TWO date fields. `scheduled_date` is the day the user plans to DO the task — " +
+  "this is the field the app schedules by, and what the user means by 'today', 'tomorrow', " +
+  "'this week', or by asking what they have on. `deadline_date` is a hard external deadline " +
+  "and is rarely set. Never report a task as undated because it has no deadline_date.";
 
 /** A calendar date, the shape every date column in DoDone stores. */
 const isoDate = z
@@ -54,7 +54,7 @@ export function registerTools(
   server.tool(
     "list_tasks",
     `List tasks with optional filters for status, project, priority, date windows, and search. ${DATE_MODEL} ` +
-      "Use when_after/when_before to filter by the planned day and due_after/due_before for deadlines. " +
+      "Use scheduled_after/scheduled_before to filter by the planned day and deadline_after/deadline_before for deadlines. " +
       "For 'what do I have today / this week', prefer get_agenda — it also surfaces overdue work, which a " +
       "plain date window silently excludes. Every returned task carries a `dates` block resolving its dates " +
       "against the user's real today.",
@@ -62,16 +62,16 @@ export function registerTools(
       status: TaskStatus.optional(),
       project_id: z.string().uuid().optional(),
       priority: TaskPriority.optional(),
-      when_after: isoDate
+      scheduled_after: isoDate
         .optional()
-        .describe("Only tasks planned on or after this date (when_date)."),
-      when_before: isoDate
+        .describe("Only tasks planned on or after this date (scheduled_date)."),
+      scheduled_before: isoDate
         .optional()
-        .describe("Only tasks planned on or before this date (when_date)."),
-      due_after: isoDate
+        .describe("Only tasks planned on or before this date (scheduled_date)."),
+      deadline_after: isoDate
         .optional()
         .describe("Only tasks with a deadline on or after this date."),
-      due_before: isoDate
+      deadline_before: isoDate
         .optional()
         .describe("Only tasks with a deadline on or before this date."),
       search_query: z.string().optional(),
@@ -106,7 +106,7 @@ export function registerTools(
   server.tool(
     "create_task",
     `Create a new task with title and optional details. ${DATE_MODEL} ` +
-      "To schedule a task ('do this Friday', 'add it to today') set when_date — setting due_date instead " +
+      "To schedule a task ('do this Friday', 'add it to today') set scheduled_date — setting deadline_date instead " +
       "puts it nowhere the user looks. Pass parent_task_id to make it a subtask — it inherits the parent's " +
       "project automatically (override by also passing project_id).",
     {
@@ -117,20 +117,20 @@ export function registerTools(
         .optional(),
       priority: TaskPriority.optional(),
       project_id: z.string().uuid().optional(),
-      when_date: isoDate
+      scheduled_date: isoDate
         .optional()
         .describe(
           "The day the user plans to do this (YYYY-MM-DD). This is how a task gets scheduled."
         ),
-      when_time: isoTime
+      scheduled_time: isoTime
         .optional()
-        .describe("Optional time of day for when_date, HH:MM."),
-      due_date: isoDate
+        .describe("Optional time of day for scheduled_date, HH:MM."),
+      deadline_date: isoDate
         .optional()
         .describe(
           "Hard deadline (YYYY-MM-DD). Only set this for a real external deadline; it does not schedule the task."
         ),
-      due_time: isoTime.optional().describe("Deadline time of day, HH:MM."),
+      deadline_time: isoTime.optional().describe("Deadline time of day, HH:MM."),
       duration_minutes: z.number().int().positive().optional(),
       tags: z.array(z.string()).optional(),
       // Parent task for a subtask. Omit for a top-level task. The subtask
@@ -141,8 +141,8 @@ export function registerTools(
     async (params) => {
       const { data, error } = await tasks.create(params);
       if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
-      // Echo the dates back resolved against today, so a mis-set date ("due
-      // 2027-08-03") is visible in the confirmation instead of a week later.
+      // Echo the dates back resolved against today, so a mis-set date
+      // ("2027-08-03") is visible in the confirmation instead of a week later.
       const { todayISO } = await clock.now();
       const dates = data ? summarizeTaskDates(data, todayISO).summary : null;
       return {
@@ -159,7 +159,7 @@ export function registerTools(
   server.tool(
     "update_task",
     `Update an existing task's fields. ${DATE_MODEL} ` +
-      "Rescheduling ('move it to tomorrow', 'do it Friday instead') means setting when_date. " +
+      "Rescheduling ('move it to tomorrow', 'do it Friday instead') means setting scheduled_date. " +
       "Pass null to clear a date.",
     {
       id: z.string().uuid(),
@@ -168,21 +168,21 @@ export function registerTools(
       status: TaskStatus.optional(),
       priority: TaskPriority.optional(),
       project_id: z.string().uuid().nullable().optional(),
-      when_date: isoDate
+      scheduled_date: isoDate
         .nullable()
         .optional()
         .describe(
           "The day the user plans to do this (YYYY-MM-DD), or null to unschedule."
         ),
-      when_time: isoTime
+      scheduled_time: isoTime
         .nullable()
         .optional()
-        .describe("Time of day for when_date, HH:MM, or null to clear."),
-      due_date: isoDate
+        .describe("Time of day for scheduled_date, HH:MM, or null to clear."),
+      deadline_date: isoDate
         .nullable()
         .optional()
         .describe("Hard deadline (YYYY-MM-DD), or null to clear."),
-      due_time: isoTime.nullable().optional(),
+      deadline_time: isoTime.nullable().optional(),
       duration_minutes: z.number().int().positive().nullable().optional(),
       tags: z.array(z.string()).optional(),
     },
@@ -258,9 +258,10 @@ export function registerTools(
   server.tool(
     "get_agenda",
     `What is on for a day or a range of days — the tool to answer "what do I have today?", ` +
-      `"what's due tomorrow?", "what's coming up this week?". ${DATE_MODEL} ` +
-      "Returns everything overdue, then one section per day listing the tasks scheduled (when_date) " +
-      "or due (due_date) on it, all resolved against the user's real calendar day in their own timezone. " +
+      `"what have I got on tomorrow?", "what's coming up this week?". ${DATE_MODEL} ` +
+      "Returns everything overdue, then one section per day listing the tasks scheduled (scheduled_date) " +
+      "on it or with a deadline (deadline_date) falling on it, all resolved against the user's real " +
+      "calendar day in their own timezone. " +
       "Tasks with no date at all are never listed here — use list_tasks for those.",
     {
       start_date: isoDate

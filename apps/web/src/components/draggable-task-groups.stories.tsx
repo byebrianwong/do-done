@@ -51,6 +51,6 @@ export const GroupWithCollapsedSection: Story = {
 };
 
 // Non-manual sort renders a flat, static (non-draggable) list.
-export const SortedByDueDate: Story = {
-  args: { ...base, config: cfg({ group: "none", sort: [{ field: "due_date", dir: "asc" }] }) },
+export const SortedByDeadlineDate: Story = {
+  args: { ...base, config: cfg({ group: "none", sort: [{ field: "deadline_date", dir: "asc" }] }) },
 };

@@ -23,8 +23,8 @@ export function generateWeeklySummary(
   const today = todayLocalISO();
   const overdue = tasks.filter(
     (t) =>
-      t.due_date &&
-      t.due_date < today &&
+      t.deadline_date &&
+      t.deadline_date < today &&
       t.status !== "done" &&
       t.status !== "cancelled"
   );

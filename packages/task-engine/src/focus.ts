@@ -5,7 +5,7 @@ import {
   QUICK_WIN_MAX_MINUTES,
   QUICK_WIN_PARTIAL_MAX_MINUTES,
 } from "@do-done/shared";
-import { isOverdue, isDueToday } from "@do-done/shared";
+import { isOverdue, isDeadlineToday } from "@do-done/shared";
 
 /**
  * Quick-win bonus: small tasks that can be completed quickly bubble up so the
@@ -24,9 +24,9 @@ function scoreTask(task: Task): number {
   let score = 0;
 
   if (isOverdue(task)) score += FOCUS_SCORES.OVERDUE;
-  if (isDueToday(task)) score += FOCUS_SCORES.DUE_TODAY;
+  if (isDeadlineToday(task)) score += FOCUS_SCORES.DEADLINE_TODAY;
   if (task.status === "in_progress") score += FOCUS_SCORES.IN_PROGRESS;
-  if (task.due_time) score += FOCUS_SCORES.HAS_TIME_BLOCK;
+  if (task.deadline_time) score += FOCUS_SCORES.HAS_TIME_BLOCK;
 
   score += PRIORITY_CONFIG[task.priority].score;
   score += quickWinBonus(task);
@@ -124,7 +124,7 @@ export function todayUniverse(
   );
   const scheduledOrFocus = nonOverdue.filter((t) => {
     if (focusIds.has(t.id)) return true;
-    const d = t.when_date ?? t.due_date ?? null;
+    const d = t.scheduled_date ?? t.deadline_date ?? null;
     return d !== null && d <= today;
   });
   return [...overdue, ...scheduledOrFocus];

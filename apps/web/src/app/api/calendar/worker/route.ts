@@ -103,7 +103,7 @@ function isSyncable(task: Task): boolean {
   // Only a date is required: no time → all-day event; time without an estimate
   // → a default 1h block (handled in taskToEvent).
   return (
-    !!task.when_date &&
+    !!task.scheduled_date &&
     task.status !== "done" &&
     task.status !== "cancelled"
   );

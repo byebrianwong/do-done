@@ -92,7 +92,7 @@ export function useBulkActions(): BulkActions {
     setProject: (projectId) => applyPatch({ project_id: projectId }),
     setPriority: (priority) => applyPatch({ priority }),
     schedule: (date) =>
-      applyPatch(date ? { when_date: date } : { when_date: null, when_time: null }),
+      applyPatch(date ? { scheduled_date: date } : { scheduled_date: null, scheduled_time: null }),
     complete: () => applyPatch({ status: "done" }),
     remove,
     clear: selection.clear,

@@ -273,8 +273,8 @@ describe("applyTaskDeltas (completion feeding)", () => {
   function task(overrides: Partial<TaskDeltaProps> = {}): TaskDeltaProps {
     return {
       priority: "p3",
-      due_date: null,
-      when_date: null,
+      deadline_date: null,
+      scheduled_date: null,
       duration_minutes: null,
       ...overrides,
     };
@@ -329,10 +329,10 @@ describe("applyTaskDeltas (completion feeding)", () => {
     expect(r.deltas.happiness).toBe(2 + 4);
   });
 
-  it("+5 happiness when completed on or before when_date", () => {
+  it("+5 happiness when completed on or before scheduled_date", () => {
     const r = applyTaskDeltas(
       stats,
-      task({ priority: "p3", when_date: "2026-05-05" }),
+      task({ priority: "p3", scheduled_date: "2026-05-05" }),
       "user",
       PREFS,
       now
@@ -340,10 +340,10 @@ describe("applyTaskDeltas (completion feeding)", () => {
     expect(r.deltas.happiness).toBe(2 + 2 + 5);
   });
 
-  it("+5 happiness when completed on or before due_date", () => {
+  it("+5 happiness when completed on or before deadline_date", () => {
     const r = applyTaskDeltas(
       stats,
-      task({ priority: "p3", due_date: "2026-05-10" }),
+      task({ priority: "p3", deadline_date: "2026-05-10" }),
       "user",
       PREFS,
       now
@@ -354,7 +354,7 @@ describe("applyTaskDeltas (completion feeding)", () => {
   it("overdue: no on-time bonus, no penalty (still net positive)", () => {
     const r = applyTaskDeltas(
       stats,
-      task({ priority: "p3", due_date: "2026-04-25" }),
+      task({ priority: "p3", deadline_date: "2026-04-25" }),
       "user",
       PREFS,
       now
@@ -511,8 +511,8 @@ describe("applyEditEnergy", () => {
 
   it("filling two unset fields in one edit: +2", () => {
     const r = applyEditEnergy(
-      { priority: "p4", duration_minutes: null, when_date: null },
-      { priority: "p4", duration_minutes: 60, when_date: "2026-05-05" }
+      { priority: "p4", duration_minutes: null, scheduled_date: null },
+      { priority: "p4", duration_minutes: 60, scheduled_date: "2026-05-05" }
     );
     expect(r.energy).toBe(2);
   });

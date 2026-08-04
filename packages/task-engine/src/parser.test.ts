@@ -4,11 +4,11 @@ import { parseTaskInput } from "./parser.js";
 const REF_DATE = new Date("2026-04-12T10:00:00");
 
 describe("parseTaskInput", () => {
-  it('extracts title, due_date, and due_time from "buy milk tomorrow at 3pm"', () => {
+  it('extracts title, deadline_date, and deadline_time from "buy milk tomorrow at 3pm"', () => {
     const result = parseTaskInput("buy milk tomorrow at 3pm", REF_DATE);
     expect(result.title).toBe("buy milk");
-    expect(result.due_date).toBe("2026-04-13");
-    expect(result.due_time).toBe("15:00");
+    expect(result.deadline_date).toBe("2026-04-13");
+    expect(result.deadline_time).toBe("15:00");
   });
 
   it('extracts priority, tag, and title from "deploy app p1 #work"', () => {
@@ -33,8 +33,8 @@ describe("parseTaskInput", () => {
   it('returns just a title for plain text "hello world"', () => {
     const result = parseTaskInput("hello world", REF_DATE);
     expect(result.title).toBe("hello world");
-    expect(result.due_date).toBeUndefined();
-    expect(result.due_time).toBeUndefined();
+    expect(result.deadline_date).toBeUndefined();
+    expect(result.deadline_time).toBeUndefined();
     expect(result.priority).toBeUndefined();
     expect(result.project).toBeUndefined();
     expect(result.tags).toBeUndefined();
@@ -54,84 +54,84 @@ describe("parseTaskInput", () => {
 
   describe("when-slash commands", () => {
     // REF_DATE (2026-04-12) is a Sunday.
-    it("/today → when_date of today (no due_date)", () => {
+    it("/today → scheduled_date of today (no deadline_date)", () => {
       const result = parseTaskInput("/today ship widget", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
-      expect(result.due_date).toBeUndefined();
+      expect(result.scheduled_date).toBe("2026-04-12");
+      expect(result.deadline_date).toBeUndefined();
       expect(result.title).toBe("ship widget");
     });
 
-    it("/tomorrow → when_date of tomorrow", () => {
+    it("/tomorrow → scheduled_date of tomorrow", () => {
       const result = parseTaskInput("/tomorrow review PR", REF_DATE);
-      expect(result.when_date).toBe("2026-04-13");
+      expect(result.scheduled_date).toBe("2026-04-13");
       expect(result.title).toBe("review PR");
     });
 
-    it("/week → when_date of this Friday", () => {
+    it("/week → scheduled_date of this Friday", () => {
       const result = parseTaskInput("/week clean inbox", REF_DATE);
-      expect(result.when_date).toBe("2026-04-17");
+      expect(result.scheduled_date).toBe("2026-04-17");
       expect(result.title).toBe("clean inbox");
     });
 
-    it("/this-week → when_date of this Friday", () => {
+    it("/this-week → scheduled_date of this Friday", () => {
       const result = parseTaskInput("/this-week clean inbox", REF_DATE);
-      expect(result.when_date).toBe("2026-04-17");
+      expect(result.scheduled_date).toBe("2026-04-17");
     });
 
-    it("/next-week → when_date exactly 7 days out", () => {
+    it("/next-week → scheduled_date exactly 7 days out", () => {
       const result = parseTaskInput("/next-week plan offsite", REF_DATE);
-      expect(result.when_date).toBe("2026-04-19");
+      expect(result.scheduled_date).toBe("2026-04-19");
       expect(result.title).toBe("plan offsite");
     });
 
-    it("/weekend → when_date of the upcoming Sunday", () => {
+    it("/weekend → scheduled_date of the upcoming Sunday", () => {
       const result = parseTaskInput("/weekend call mom", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
+      expect(result.scheduled_date).toBe("2026-04-12");
       expect(result.title).toBe("call mom");
     });
 
     it("/later and /someday are no longer scheduling commands", () => {
       const result = parseTaskInput("/later refactor parser", REF_DATE);
-      expect(result.when_date).toBeUndefined();
+      expect(result.scheduled_date).toBeUndefined();
       // Stays reserved so it isn't misparsed as a project named "later".
       expect(result.project).toBeUndefined();
     });
 
     it("the first matching /date command wins when several are present", () => {
       const result = parseTaskInput("/today /week ship widget", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
+      expect(result.scheduled_date).toBe("2026-04-12");
     });
 
     it("combines /today with p1 and #tag", () => {
       const result = parseTaskInput("/today p1 #urgent ship widget", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
+      expect(result.scheduled_date).toBe("2026-04-12");
       expect(result.priority).toBe("p1");
       expect(result.tags).toEqual(["urgent"]);
       expect(result.title).toBe("ship widget");
     });
 
-    it('plain "tomorrow" still goes to due_date via chrono (no slash)', () => {
+    it('plain "tomorrow" still goes to deadline_date via chrono (no slash)', () => {
       const result = parseTaskInput("review PR tomorrow", REF_DATE);
-      expect(result.due_date).toBe("2026-04-13");
-      expect(result.when_date).toBeUndefined();
+      expect(result.deadline_date).toBe("2026-04-13");
+      expect(result.scheduled_date).toBeUndefined();
     });
 
     it('plain "tomorrow" and "/today" can coexist on different fields', () => {
       const result = parseTaskInput("/today ship widget by tomorrow", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
-      expect(result.due_date).toBe("2026-04-13");
+      expect(result.scheduled_date).toBe("2026-04-12");
+      expect(result.deadline_date).toBe("2026-04-13");
     });
 
     it("reserved slash tokens do NOT get treated as project names", () => {
       const result = parseTaskInput("/tomorrow ship", REF_DATE);
       expect(result.project).toBeUndefined();
-      expect(result.when_date).toBe("2026-04-13");
+      expect(result.scheduled_date).toBe("2026-04-13");
       expect(result.title).toBe("ship");
     });
 
     it("a real project name still parses after when-slash extraction", () => {
       const result = parseTaskInput("/today review PR /engineering", REF_DATE);
-      expect(result.when_date).toBe("2026-04-12");
+      expect(result.scheduled_date).toBe("2026-04-12");
       expect(result.project).toBe("engineering");
       expect(result.title).toBe("review PR");
     });
@@ -279,7 +279,7 @@ describe("parseTaskInput", () => {
         REF_DATE
       );
       expect(result.priority).toBe("p1");
-      expect(result.due_date).toBe("2026-04-13");
+      expect(result.deadline_date).toBe("2026-04-13");
       expect(result.title).toBe("order https://shop.example.com/item");
     });
   });

@@ -50,7 +50,7 @@ export async function loadWidgetTasks(): Promise<WidgetTasks> {
 }
 
 function effectiveDate(t: Task): string | null {
-  return t.when_date ?? t.due_date ?? null;
+  return t.scheduled_date ?? t.deadline_date ?? null;
 }
 
 function dayLabel(iso: string): string {

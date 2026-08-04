@@ -6,8 +6,8 @@ export type RescheduleTarget =
   | { kind: "remove" };
 
 /**
- * Build an UpdateTaskInput that moves an overdue task to a target when_date,
- * sliding any past due_date forward to keep the deadline plausible. Shared by
+ * Build an UpdateTaskInput that moves an overdue task to a target scheduled_date,
+ * sliding any past deadline_date forward to keep the deadline plausible. Shared by
  * the Today Overdue section and the Upcoming Overdue group so both reschedule
  * with identical semantics.
  */
@@ -17,14 +17,14 @@ export function buildRescheduleInput(
 ): UpdateTaskInput {
   if (target.kind === "remove") {
     return {
-      when_date: null,
-      due_date: null,
-      due_time: null,
+      scheduled_date: null,
+      deadline_date: null,
+      deadline_time: null,
     };
   }
-  const input: UpdateTaskInput = { when_date: target.date };
-  if (task.due_date && task.due_date < target.date) {
-    input.due_date = target.date;
+  const input: UpdateTaskInput = { scheduled_date: target.date };
+  if (task.deadline_date && task.deadline_date < target.date) {
+    input.deadline_date = target.date;
   }
   return input;
 }

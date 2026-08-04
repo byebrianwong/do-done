@@ -54,11 +54,11 @@ export function ScheduleButton({
     const min = String(start.getMinutes()).padStart(2, "0");
 
     const tasks = await getClientTasksApi();
-    // Picking a slot sets the "do date" (when_date/when_time) — when the user
-    // plans to work on it — NOT a hard deadline (due_date/due_time).
+    // Picking a slot sets the "do date" (scheduled_date/scheduled_time) — when the user
+    // plans to work on it — NOT a hard deadline (deadline_date/deadline_time).
     await tasks.update(taskId, {
-      when_date: `${yyyy}-${mm}-${dd}`,
-      when_time: `${hh}:${min}`,
+      scheduled_date: `${yyyy}-${mm}-${dd}`,
+      scheduled_time: `${hh}:${min}`,
       duration_minutes: durationMinutes,
     });
     setOpen(false);

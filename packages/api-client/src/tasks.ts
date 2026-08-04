@@ -81,10 +81,10 @@ export class TasksApi {
     if (filters?.status) query = query.eq("status", filters.status);
     if (filters?.project_id) query = query.eq("project_id", filters.project_id);
     if (filters?.priority) query = query.eq("priority", filters.priority);
-    if (filters?.due_before) query = query.lte("due_date", filters.due_before);
-    if (filters?.due_after) query = query.gte("due_date", filters.due_after);
-    if (filters?.when_before) query = query.lte("when_date", filters.when_before);
-    if (filters?.when_after) query = query.gte("when_date", filters.when_after);
+    if (filters?.deadline_before) query = query.lte("deadline_date", filters.deadline_before);
+    if (filters?.deadline_after) query = query.gte("deadline_date", filters.deadline_after);
+    if (filters?.scheduled_before) query = query.lte("scheduled_date", filters.scheduled_before);
+    if (filters?.scheduled_after) query = query.gte("scheduled_date", filters.scheduled_after);
     if (filters?.tags?.length) query = query.overlaps("tags", filters.tags);
     if (filters?.search_query) {
       query = query.textSearch("fts", filters.search_query);
@@ -335,14 +335,14 @@ export class TasksApi {
   }
 
   async listUndated(): Promise<{ data: Task[]; error: Error | null }> {
-    // Tasks with no when_date AND no due_date that aren't in a terminal
+    // Tasks with no scheduled_date AND no deadline_date that aren't in a terminal
     // state — unscheduled work. Used as a drag source in the Upcoming view
     // so the user can pull undated work onto a real day.
     let query = this.supabase
       .from("tasks")
       .select("*")
-      .is("when_date", null)
-      .is("due_date", null)
+      .is("scheduled_date", null)
+      .is("deadline_date", null)
       .not("status", "in", "(done,cancelled,archived)")
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
@@ -355,14 +355,14 @@ export class TasksApi {
   }
 
   async listOverdue(): Promise<{ data: Task[]; error: Error | null }> {
-    // Tasks whose when_date OR due_date is strictly before today,
+    // Tasks whose scheduled_date OR deadline_date is strictly before today,
     // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.
     const today = todayLocalISO();
     let query = this.supabase
       .from("tasks")
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
-      .or(`when_date.lt.${today},due_date.lt.${today}`)
+      .or(`scheduled_date.lt.${today},deadline_date.lt.${today}`)
       .order("priority")
       .order("sort_order");
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -390,18 +390,18 @@ export class TasksApi {
   }
 
   async getToday(): Promise<{ data: Task[]; error: Error | null }> {
-    // Today = anything scheduled to be DONE on or before today (when_date),
-    // OR DUE on or before today (due_date).
+    // Today = anything scheduled to be DONE on or before today (scheduled_date),
+    // OR whose deadline_date is on or before today.
     //
     // Status filter is "anything not closed" (not done, not cancelled).
-    // Crucially, inbox tasks with a when_date set DO show up here —
+    // Crucially, inbox tasks with a scheduled_date set DO show up here —
     // scheduling a task no longer requires moving it out of inbox.
     const today = todayLocalISO();
     let query = this.supabase
       .from("tasks")
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
-      .or(`when_date.lte.${today},due_date.lte.${today}`)
+      .or(`scheduled_date.lte.${today},deadline_date.lte.${today}`)
       .order("priority")
       .order("sort_order");
 
@@ -415,7 +415,7 @@ export class TasksApi {
   }
 
   async getUpcoming(days: number = 30): Promise<{ data: Task[]; error: Error | null }> {
-    // Upcoming = scheduled (when_date) OR due (due_date) at some point
+    // Upcoming = scheduled (scheduled_date) OR deadlined (deadline_date) at some point
     // BETWEEN today and today+days. Past-dated tasks are not "upcoming"
     // — overdue tasks live in Today. Undated tasks have no place here.
     //
@@ -423,7 +423,7 @@ export class TasksApi {
     // server, so `todayLocalISO()` is the *server's* calendar day (UTC on a
     // deployed host). The Upcoming view buckets rows on the client using the
     // browser's local day. For a user behind UTC, the server rolls over to
-    // "tomorrow" late in their evening, so a strict `when_date >= server-today`
+    // "tomorrow" late in their evening, so a strict `scheduled_date >= server-today`
     // silently dropped every task they had scheduled for their local today.
     // The one-day buffer absorbs that ≤1-day skew (server is UTC; any client
     // is at most a calendar day off); the client — the authority on the user's
@@ -439,10 +439,10 @@ export class TasksApi {
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
       .or(
-        `and(when_date.gte.${start},when_date.lte.${endDate}),and(due_date.gte.${start},due_date.lte.${endDate})`
+        `and(scheduled_date.gte.${start},scheduled_date.lte.${endDate}),and(deadline_date.gte.${start},deadline_date.lte.${endDate})`
       )
-      .order("when_date", { nullsFirst: false })
-      .order("due_date", { nullsFirst: false })
+      .order("scheduled_date", { nullsFirst: false })
+      .order("deadline_date", { nullsFirst: false })
       .order("priority");
 
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -455,7 +455,7 @@ export class TasksApi {
   }
 
   /**
-   * Open tasks scheduled (when_date) OR due (due_date) inside an explicit,
+   * Open tasks scheduled (scheduled_date) OR deadlined (deadline_date) inside an explicit,
    * inclusive `[startISO, endISO]` window of calendar dates.
    *
    * The caller supplies both bounds, so — unlike `getUpcoming` — there is no
@@ -472,10 +472,10 @@ export class TasksApi {
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
       .or(
-        `and(when_date.gte.${startISO},when_date.lte.${endISO}),and(due_date.gte.${startISO},due_date.lte.${endISO})`
+        `and(scheduled_date.gte.${startISO},scheduled_date.lte.${endISO}),and(deadline_date.gte.${startISO},deadline_date.lte.${endISO})`
       )
-      .order("when_date", { nullsFirst: false })
-      .order("due_date", { nullsFirst: false })
+      .order("scheduled_date", { nullsFirst: false })
+      .order("deadline_date", { nullsFirst: false })
       .order("priority");
 
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -488,7 +488,7 @@ export class TasksApi {
   }
 
   /**
-   * Open tasks whose when_date or due_date is strictly before `todayISO`.
+   * Open tasks whose scheduled_date or deadline_date is strictly before `todayISO`.
    * `todayISO` is the caller's day — see `getDatedBetween` on why it's a
    * parameter and not `todayLocalISO()`.
    */
@@ -499,9 +499,9 @@ export class TasksApi {
       .from("tasks")
       .select("*")
       .not("status", "in", "(done,cancelled,archived)")
-      .or(`when_date.lt.${todayISO},due_date.lt.${todayISO}`)
-      .order("when_date", { nullsFirst: false })
-      .order("due_date", { nullsFirst: false })
+      .or(`scheduled_date.lt.${todayISO},deadline_date.lt.${todayISO}`)
+      .order("scheduled_date", { nullsFirst: false })
+      .order("deadline_date", { nullsFirst: false })
       .order("priority");
 
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -516,9 +516,9 @@ export class TasksApi {
 
 /**
  * Resolve the "effective date" of a task for list views.
- * Prefer when_date (the explicit user "I'm doing this on …") over due_date
+ * Prefer scheduled_date (the explicit user "I'm doing this on …") over deadline_date
  * (the hard deadline). Returns YYYY-MM-DD or null.
  */
 export function taskDate(task: Task): string | null {
-  return task.when_date ?? task.due_date ?? null;
+  return task.scheduled_date ?? task.deadline_date ?? null;
 }

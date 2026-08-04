@@ -15,7 +15,7 @@ import {
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
-  formatWhenTime,
+  formatTimeOfDay,
   type Project,
   type Task,
   type TaskPriority,
@@ -1120,18 +1120,18 @@ function MonthGrid({
 // Progressive disclosure for the date picker.
 type CalendarExpansion = "collapsed" | "two-weeks" | "months";
 
-function WhenCalendar({
-  whenDate,
-  dueDate,
+function ScheduleCalendar({
+  scheduledDate,
+  deadlineDate,
   busyness,
   onPickDate,
-  onChangeDueDate,
+  onChangeDeadlineDate,
 }: {
-  whenDate: string | null;
-  dueDate: string | null;
+  scheduledDate: string | null;
+  deadlineDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
-  onChangeDueDate: (v: string | null) => void;
+  onChangeDeadlineDate: (v: string | null) => void;
 }) {
   // Near the weekend (Thu–Sat), default to the two-week view so the next
   // week is visible at a glance; otherwise start collapsed to one week.
@@ -1152,7 +1152,7 @@ function WhenCalendar({
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
   // "Next week" is a concrete date — exactly 7 days from today — not a soft
-  // bucket, so it survives as a real when_date.
+  // bucket, so it survives as a real scheduled_date.
   const nextWeekStr = useMemo(() => {
     const d = new Date(today);
     d.setDate(d.getDate() + 7);
@@ -1231,9 +1231,9 @@ function WhenCalendar({
   // forward spans have one — a task dated today or overdue has no distance to
   // show, and its own cell already carries the marker.
   const spanList = useMemo(() => {
-    if (!whenDate || whenDate <= todayStr) return [];
-    return datesBetweenLocalISO(todayStr, whenDate);
-  }, [todayStr, whenDate]);
+    if (!scheduledDate || scheduledDate <= todayStr) return [];
+    return datesBetweenLocalISO(todayStr, scheduledDate);
+  }, [todayStr, scheduledDate]);
   const spanDates = useMemo(() => new Set(spanList), [spanList]);
 
   // The week strip's wave. It covers whatever part of the span is on this grid,
@@ -1241,7 +1241,7 @@ function WhenCalendar({
   // visible weeks just means the wave runs to the edge, and the header above
   // still spells it out ("Thursday, January 22nd · in 1 week").
   const weekGridRef = useRef<HTMLDivElement | null>(null);
-  const weekWave = useSpanWave(weekGridRef, todayStr, whenDate, spanList);
+  const weekWave = useSpanWave(weekGridRef, todayStr, scheduledDate, spanList);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1275,7 +1275,7 @@ function WhenCalendar({
           const isWeekend = c.weekday === 0 || c.weekday === 6;
           const isPast = c.date < todayStr;
           const isToday = c.date === todayStr;
-          const isActive = whenDate === c.date;
+          const isActive = scheduledDate === c.date;
           const inSpan = spanDates.has(c.date);
           const numLabel = parseInt(c.date.split("-")[2], 10);
           const day = busyByDate.get(c.date);
@@ -1355,7 +1355,7 @@ function WhenCalendar({
         })}
       </div>
 
-      {/* Action row: progressive expand + next week + due date */}
+      {/* Action row: progressive expand + next week + deadline */}
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {expanded !== "collapsed" ? (
           <button
@@ -1387,7 +1387,7 @@ function WhenCalendar({
           type="button"
           onClick={() => onPickDate(nextWeekStr)}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-            whenDate === nextWeekStr
+            scheduledDate === nextWeekStr
               ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
               : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
           }`}
@@ -1395,7 +1395,7 @@ function WhenCalendar({
           Next week
           <span
             className={
-              whenDate === nextWeekStr
+              scheduledDate === nextWeekStr
                 ? "text-indigo-500/80 dark:text-indigo-300/70"
                 : "text-neutral-400 dark:text-neutral-500"
             }
@@ -1403,10 +1403,10 @@ function WhenCalendar({
             {formatScheduleHint(nextWeekStr)}
           </span>
         </button>
-        <DueDateField
-          value={dueDate}
-          whenDate={whenDate}
-          onChange={onChangeDueDate}
+        <DeadlineDateField
+          value={deadlineDate}
+          scheduledDate={scheduledDate}
+          onChange={onChangeDeadlineDate}
         />
       </div>
 
@@ -1423,7 +1423,7 @@ function WhenCalendar({
               year={m.year}
               month={m.month}
               todayStr={todayStr}
-              selectedDate={whenDate}
+              selectedDate={scheduledDate}
               spanDates={spanDates}
               spanList={spanList}
               busyByDate={busyByDate}
@@ -1716,7 +1716,7 @@ function NotesField({
   );
 }
 
-// ─── Due date field ─────────────────────────────────────────
+// ─── Deadline field ─────────────────────────────────────────
 
 function CheckeredFlagIcon({ className }: { className?: string }) {
   // Minimal checkered flag: pole on left, 4×3 checkerboard panel.
@@ -1759,17 +1759,17 @@ function CheckeredFlagIcon({ className }: { className?: string }) {
   );
 }
 
-function formatDueShort(value: string): string {
+function formatDeadlineShort(value: string): string {
   const d = new Date(value + "T00:00:00");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-// Quick-pick deadlines for the due-date popover. `whenDate` (the task's "do
+// Quick-pick deadlines for the deadline popover. `scheduledDate` (the task's "do
 // date") is threaded in so "Same as task date" can mirror it. Pure given a
 // reference `today`, so the labels track the real calendar.
-function dueQuickOptions(
+function deadlineQuickOptions(
   today: Date,
-  whenDate: string | null
+  scheduledDate: string | null
 ): { key: string; label: string; date: string }[] {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1781,20 +1781,20 @@ function dueQuickOptions(
   nextWeek.setDate(nextWeek.getDate() + 7);
 
   const opts: { key: string; label: string; date: string }[] = [];
-  if (whenDate) opts.push({ key: "task", label: "Same as task date", date: whenDate });
+  if (scheduledDate) opts.push({ key: "task", label: "Same as task date", date: scheduledDate });
   opts.push({ key: "tomorrow", label: "Tomorrow", date: ymd(tomorrow) });
   opts.push({ key: "weekend", label: "This weekend", date: ymd(sunday) });
   opts.push({ key: "nextweek", label: "Next week", date: ymd(nextWeek) });
   return opts;
 }
 
-function DueDateField({
+function DeadlineDateField({
   value,
-  whenDate,
+  scheduledDate,
   onChange,
 }: {
   value: string | null;
-  whenDate: string | null;
+  scheduledDate: string | null;
   onChange: (v: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1803,7 +1803,7 @@ function DueDateField({
 
   // Computed each render so "Tomorrow"/"This weekend"/"Next week" stay anchored
   // to the real today (cheap — four Date objects).
-  const quickOptions = dueQuickOptions(new Date(), whenDate);
+  const quickOptions = deadlineQuickOptions(new Date(), scheduledDate);
 
   const active = !!value;
   return (
@@ -1813,7 +1813,7 @@ function DueDateField({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={value ? `Due ${formatDueShort(value)}` : "Set due date"}
+        title={value ? `Deadline ${formatDeadlineShort(value)}` : "Set deadline"}
         className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
           active
             ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-900"
@@ -1821,16 +1821,16 @@ function DueDateField({
         }`}
       >
         <CheckeredFlagIcon className="h-3.5 w-3.5" />
-        {active ? <span>Due {formatDueShort(value!)}</span> : null}
+        {active ? <span>Deadline {formatDeadlineShort(value!)}</span> : null}
       </button>
       {open ? (
         <div
           role="dialog"
-          aria-label="Due date"
+          aria-label="Deadline"
           className="absolute right-0 top-full z-20 mt-2 w-60 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
         >
           <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-            <CheckeredFlagIcon className="h-3 w-3" /> Due date
+            <CheckeredFlagIcon className="h-3 w-3" /> Deadline
           </div>
           {/* Common deadlines — one tap, no scrubbing through a date input. */}
           <div className="flex flex-col gap-0.5">
@@ -1858,7 +1858,7 @@ function DueDateField({
                         : "text-neutral-400"
                     }`}
                   >
-                    {formatDueShort(opt.date)}
+                    {formatDeadlineShort(opt.date)}
                   </span>
                 </button>
               );
@@ -1886,7 +1886,7 @@ function DueDateField({
                 onChange(null);
                 setOpen(false);
               }}
-              aria-label="Clear due date"
+              aria-label="Clear deadline"
               className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
             >
               × Clear
@@ -1935,14 +1935,14 @@ function nearestHourSlot(now: Date): string {
   return `${String(h).padStart(2, "0")}:00`;
 }
 
-// Optional time-of-day for the when_date "do date". Indigo (the "when" accent),
+// Optional time-of-day for the scheduled_date "do date". Indigo (the "when" accent),
 // distinct from the amber/checkered-flag deadline styling. Only meaningful when
-// a when_date is set, so the caller gates rendering on that. Picking is a quick
+// a scheduled_date is set, so the caller gates rendering on that. Picking is a quick
 // scroll through half-hour slots (auto-centered on the hour nearest now); the
 // precise native input is tucked behind "Specific time" for the rare case.
 // Exported so the task row's inline reschedule popover reuses the exact same
 // picker instead of a bare native time input.
-export function WhenTimeField({
+export function ScheduledTimeField({
   value,
   onChange,
 }: {
@@ -1987,7 +1987,7 @@ export function WhenTimeField({
         }}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={value ? `At ${formatWhenTime(value)}` : "Set a time"}
+        title={value ? `At ${formatTimeOfDay(value)}` : "Set a time"}
         className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
           active
             ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-900"
@@ -1995,7 +1995,7 @@ export function WhenTimeField({
         }`}
       >
         <ClockIcon className="h-3.5 w-3.5" />
-        <span>{active ? formatWhenTime(value!) : "Add time"}</span>
+        <span>{active ? formatTimeOfDay(value!) : "Add time"}</span>
       </button>
       {open ? (
         <div
@@ -2030,7 +2030,7 @@ export function WhenTimeField({
                         : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
                   }`}
                 >
-                  <span className="tabular-nums">{formatWhenTime(slot)}</span>
+                  <span className="tabular-nums">{formatTimeOfDay(slot)}</span>
                   {isAnchor && !selected ? (
                     <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400">
                       now
@@ -2497,7 +2497,7 @@ function TaskEditModalBody({
   if (!open) return null;
 
   const onPickDate = (date: string) => {
-    setField("when_date", date);
+    setField("scheduled_date", date);
   };
 
   const tokens: ParsedToken[] = [];
@@ -2676,38 +2676,38 @@ function TaskEditModalBody({
                 Date
               </span>
               <span className="text-sm font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-                {current.when_date
-                  ? formatFullDate(current.when_date)
+                {current.scheduled_date
+                  ? formatFullDate(current.scheduled_date)
                   : "Not scheduled"}
               </span>
-              {current.when_date ? (
+              {current.scheduled_date ? (
                 <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">
-                  · {formatRelativeDay(current.when_date)}
+                  · {formatRelativeDay(current.scheduled_date)}
                 </span>
               ) : null}
-              {current.when_date && current.when_time ? (
+              {current.scheduled_date && current.scheduled_time ? (
                 <span className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {formatWhenTime(current.when_time)}
+                  {formatTimeOfDay(current.scheduled_time)}
                 </span>
               ) : null}
             </div>
-            <WhenCalendar
-              whenDate={current.when_date}
-              dueDate={current.due_date}
+            <ScheduleCalendar
+              scheduledDate={current.scheduled_date}
+              deadlineDate={current.deadline_date}
               busyness={busyness}
               onPickDate={onPickDate}
-              onChangeDueDate={(v) => setField("due_date", v)}
+              onChangeDeadlineDate={(v) => setField("deadline_date", v)}
             />
             {/* Time-of-day for the chosen do date — only meaningful with a
-                when_date, so it appears once a day is picked. */}
-            {current.when_date ? (
+                scheduled_date, so it appears once a day is picked. */}
+            {current.scheduled_date ? (
               <div className="mt-2 flex items-center gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
                   Time
                 </span>
-                <WhenTimeField
-                  value={current.when_time}
-                  onChange={(v) => setField("when_time", v)}
+                <ScheduledTimeField
+                  value={current.scheduled_time}
+                  onChange={(v) => setField("scheduled_time", v)}
                 />
               </div>
             ) : null}

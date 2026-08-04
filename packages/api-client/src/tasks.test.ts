@@ -51,13 +51,13 @@ describe("TasksApi.getUpcoming", () => {
     // server-side (UTC on a deployed host) but the Upcoming view buckets on
     // the client in local time. A strict `>= today` dropped the user's
     // local-today tasks when the server had already rolled to tomorrow.
-    expect(filter).toContain(`when_date.gte.${addDaysLocalISO(-1)}`);
-    expect(filter).toContain(`due_date.gte.${addDaysLocalISO(-1)}`);
+    expect(filter).toContain(`scheduled_date.gte.${addDaysLocalISO(-1)}`);
+    expect(filter).toContain(`deadline_date.gte.${addDaysLocalISO(-1)}`);
     // Guard against a regression back to a strict same-day lower bound.
-    expect(filter).not.toContain(`when_date.gte.${todayLocalISO()}`);
+    expect(filter).not.toContain(`scheduled_date.gte.${todayLocalISO()}`);
 
     // Upper bound stays at today + days.
-    expect(filter).toContain(`when_date.lte.${addDaysLocalISO(30)}`);
+    expect(filter).toContain(`scheduled_date.lte.${addDaysLocalISO(30)}`);
   });
 });
 
@@ -72,10 +72,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: "not_started",
     priority: "p3",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -275,7 +275,7 @@ function makeBulkStub(
 }
 
 describe("TasksApi.bulkUpdate", () => {
-  const patch = { when_date: "2026-06-18" };
+  const patch = { scheduled_date: "2026-06-18" };
   const batch = (ids: string[]) => ids.map((id) => ({ id, input: patch }));
 
   it("names the rows that failed and keeps the ones that landed", async () => {

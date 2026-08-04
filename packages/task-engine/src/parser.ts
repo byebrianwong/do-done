@@ -29,7 +29,7 @@ const ESTIMATE_SHORTCUT_PATTERNS: [RegExp, number][] = [
 //   /today → today, /tomorrow → +1, /week (a.k.a. /this-week) → this Friday,
 //   /weekend (a.k.a. /this-weekend) → upcoming Sunday, /next-week → exactly +7.
 // Extracted BEFORE PROJECT_PATTERN so "/today" isn't read as a project name.
-const WHEN_DATE_PATTERNS: [RegExp, (ref: Date) => string][] = [
+const SCHEDULED_DATE_PATTERNS: [RegExp, (ref: Date) => string][] = [
   [/(?:^|\s)\/today\b/i, (ref) => todayLocalISO(ref)],
   [/(?:^|\s)\/tomorrow\b/i, (ref) => addDaysLocalISO(1, ref)],
   [/(?:^|\s)\/next[-_]week\b/i, (ref) => addDaysLocalISO(7, ref)],
@@ -122,11 +122,11 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     }
   }
 
-  // Extract /when slash commands — each resolves to a concrete when_date.
-  let whenDate: string | undefined;
-  for (const [pattern, toDate] of WHEN_DATE_PATTERNS) {
+  // Extract /when slash commands — each resolves to a concrete scheduled_date.
+  let scheduledDate: string | undefined;
+  for (const [pattern, toDate] of SCHEDULED_DATE_PATTERNS) {
     if (pattern.test(text)) {
-      whenDate = toDate(ref);
+      scheduledDate = toDate(ref);
       text = text.replace(pattern, " ").trim();
       break;
     }
@@ -195,24 +195,24 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     text = text.replace(recMatch.matched, "").trim();
   }
 
-  // Extract dates using chrono — produces due_date / due_time.
-  // The new /today, /tomorrow slash commands above produce when_date instead,
-  // so both can coexist (e.g. "/today review PR by friday" → when_date=today,
-  // due_date=friday).
-  let dueDate: string | undefined;
-  let dueTime: string | undefined;
+  // Extract dates using chrono — produces deadline_date / deadline_time.
+  // The new /today, /tomorrow slash commands above produce scheduled_date instead,
+  // so both can coexist (e.g. "/today review PR by friday" → scheduled_date=today,
+  // deadline_date=friday).
+  let deadlineDate: string | undefined;
+  let deadlineTime: string | undefined;
   const chronoResults = chrono.parse(text, ref, { forwardDate: true });
   if (chronoResults.length > 0) {
     const result = chronoResults[0];
     const start = result.start;
 
     const d = start.date();
-    dueDate = toISODate(d);
+    deadlineDate = toISODate(d);
 
     if (start.isCertain("hour")) {
       const hours = String(d.getHours()).padStart(2, "0");
       const minutes = String(d.getMinutes()).padStart(2, "0");
-      dueTime = `${hours}:${minutes}`;
+      deadlineTime = `${hours}:${minutes}`;
     }
 
     text = text.replace(result.text, "").trim();
@@ -231,9 +231,9 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
 
   return {
     title: title || raw.trim(),
-    ...(whenDate && { when_date: whenDate }),
-    ...(dueDate && { due_date: dueDate }),
-    ...(dueTime && { due_time: dueTime }),
+    ...(scheduledDate && { scheduled_date: scheduledDate }),
+    ...(deadlineDate && { deadline_date: deadlineDate }),
+    ...(deadlineTime && { deadline_time: deadlineTime }),
     ...(priority && { priority }),
     ...(project && { project }),
     ...(tags.length > 0 && { tags }),

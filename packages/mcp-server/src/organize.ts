@@ -84,9 +84,9 @@ function parseInstruction(text: string): ParsedInstruction | null {
 
 function matchesFilter(task: Task, filter: Filter): boolean {
   if (filter.status === "overdue") {
-    if (!task.due_date) return false;
+    if (!task.deadline_date) return false;
     const today = todayLocalISO();
-    if (task.due_date >= today) return false;
+    if (task.deadline_date >= today) return false;
     if (task.status === "done" || task.status === "cancelled") return false;
   } else if (filter.status && task.status !== filter.status) {
     return false;

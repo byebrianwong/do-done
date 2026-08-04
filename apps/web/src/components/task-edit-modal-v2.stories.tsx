@@ -37,7 +37,7 @@ export const Default: Story = {
     task: makeTask({
       title: "Ship widget v2",
       priority: "p2",
-      when_date: tomorrow,
+      scheduled_date: tomorrow,
       duration_minutes: 120,
       tags: ["web", "design"],
     }),
@@ -73,7 +73,7 @@ export const ScheduledNextWeek: Story = {
     task: makeTask({
       title: "Plan offsite",
       priority: "p3",
-      when_date: nextWeek,
+      scheduled_date: nextWeek,
       tags: ["planning"],
     }),
     open: true,
@@ -86,7 +86,7 @@ export const HighPriorityToday: Story = {
     task: makeTask({
       title: "Fix prod incident",
       priority: "p1",
-      when_date: today,
+      scheduled_date: today,
       duration_minutes: 60,
       tags: ["urgent", "ops"],
     }),
@@ -100,7 +100,7 @@ export const ManyTagsEditing: Story = {
     task: makeTask({
       title: "Refactor onboarding",
       priority: "p3",
-      when_date: today,
+      scheduled_date: today,
       tags: ["frontend", "growth", "experiment", "needs-review"],
     }),
     open: true,
@@ -146,7 +146,7 @@ export const SpanWaveInWeek: Story = {
     task: makeTask({
       title: "Draft the offsite agenda",
       priority: "p2",
-      when_date: twoDaysOut,
+      scheduled_date: twoDaysOut,
       tags: ["planning"],
     }),
     open: true,
@@ -165,7 +165,7 @@ export const SpanWrappedToNextRow: Story = {
     task: makeTask({
       title: "Renew the domain",
       priority: "p3",
-      when_date: nextWeek,
+      scheduled_date: nextWeek,
     }),
     open: true,
     onClose: () => {},
@@ -188,7 +188,7 @@ export const SpanInMonthGrid: Story = {
     task: makeTask({
       title: "Book the venue",
       priority: "p2",
-      when_date: twoDaysOut,
+      scheduled_date: twoDaysOut,
     }),
     open: true,
     onClose: () => {},
@@ -203,16 +203,16 @@ export const SpanInMonthGrid: Story = {
 };
 
 /**
- * The due-date popover, opened automatically. Common deadlines are one tap
+ * The deadline popover, opened automatically. Common deadlines are one tap
  * ("Same as task date" mirrors the do-date, plus Tomorrow / This weekend /
  * Next week); a native date input remains below for anything else.
  */
-export const PickingDueDate: Story = {
+export const PickingDeadlineDate: Story = {
   args: {
     task: makeTask({
       title: "Submit tax forms",
       priority: "p2",
-      when_date: today,
+      scheduled_date: today,
       tags: ["finance"],
     }),
     open: true,
@@ -220,7 +220,7 @@ export const PickingDueDate: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTitle("Set due date"));
+    await userEvent.click(await canvas.findByTitle("Set deadline"));
     await waitFor(() =>
       expect(canvas.getByText("This weekend")).toBeInTheDocument()
     );
@@ -237,8 +237,8 @@ export const PickingTime: Story = {
     task: makeTask({
       title: "Stand-up call",
       priority: "p3",
-      when_date: today,
-      when_time: "09:00",
+      scheduled_date: today,
+      scheduled_time: "09:00",
       tags: ["team"],
     }),
     open: true,
@@ -309,7 +309,7 @@ export const CompletedTask: Story = {
       title: "Send the invoice",
       priority: "p2",
       status: "done",
-      when_date: today,
+      scheduled_date: today,
       tags: ["finance"],
     }),
     open: true,

@@ -35,7 +35,7 @@ import {
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
-  formatWhenTime,
+  formatTimeOfDay,
   type Project,
   type Task,
   type TaskPriority,
@@ -461,7 +461,7 @@ function DayCell({
   date,
   weekday,
   outside = false,
-  whenDate,
+  scheduledDate,
   todayStr,
   inSpan = false,
   busyByDate,
@@ -471,7 +471,7 @@ function DayCell({
   date: string;
   weekday: number;
   outside?: boolean;
-  whenDate: string | null;
+  scheduledDate: string | null;
   todayStr: string;
   /** Between today and the task's date — the tinted runway. */
   inSpan?: boolean;
@@ -482,7 +482,7 @@ function DayCell({
   const isWeekend = weekday === 0 || weekday === 6;
   const isPast = date < todayStr;
   const isToday = date === todayStr;
-  const isActive = whenDate === date;
+  const isActive = scheduledDate === date;
   const numLabel = parseInt(date.split("-")[2], 10);
   const dots = (busyByDate.get(date)?.items ?? []).slice(0, dense ? 4 : 8);
 
@@ -675,13 +675,13 @@ function SpanWaveRun({
   );
 }
 
-export function WhenCalendar({
-  whenDate,
+export function ScheduleCalendar({
+  scheduledDate,
   busyness,
   onPickDate,
   onRangeChange,
 }: {
-  whenDate: string | null;
+  scheduledDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
   /**
@@ -712,7 +712,7 @@ export function WhenCalendar({
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
   // "Next week" is a concrete date — exactly 7 days from today — not a soft
-  // bucket, so it survives as a real when_date.
+  // bucket, so it survives as a real scheduled_date.
   const nextWeekStr = useMemo(() => {
     const d = new Date(today);
     d.setDate(d.getDate() + 7);
@@ -722,7 +722,7 @@ export function WhenCalendar({
   // The month shown in month mode. Seeded from the selected date (so opening
   // the picker lands on the month you already scheduled) or today.
   const [viewMonth, setViewMonth] = useState<Date>(() =>
-    startOfMonth(whenDate ? new Date(whenDate + "T00:00:00") : today)
+    startOfMonth(scheduledDate ? new Date(scheduledDate + "T00:00:00") : today)
   );
   const atCurrentMonth = sameMonth(viewMonth, today);
   const monthLabel = useMemo(
@@ -761,9 +761,9 @@ export function WhenCalendar({
   // forward spans have one — a task dated today or overdue has no distance to
   // show, and its own cell already carries the marker.
   const spanDates = useMemo(() => {
-    if (!whenDate || whenDate <= todayStr) return new Set<string>();
-    return new Set(datesBetweenLocalISO(todayStr, whenDate));
-  }, [todayStr, whenDate]);
+    if (!scheduledDate || scheduledDate <= todayStr) return new Set<string>();
+    return new Set(datesBetweenLocalISO(todayStr, scheduledDate));
+  }, [todayStr, scheduledDate]);
   // Today plus those days, in order — the path the wave travels.
   const spanSeq = useMemo(
     () => (spanDates.size > 0 ? [todayStr, ...spanDates] : []),
@@ -838,7 +838,7 @@ export function WhenCalendar({
 
   const openMonth = () => {
     setViewMonth(
-      startOfMonth(whenDate ? new Date(whenDate + "T00:00:00") : today)
+      startOfMonth(scheduledDate ? new Date(scheduledDate + "T00:00:00") : today)
     );
     setMode("month");
   };
@@ -910,7 +910,7 @@ export function WhenCalendar({
                   date={c.date}
                   weekday={c.weekday}
                   outside={c.outside}
-                  whenDate={whenDate}
+                  scheduledDate={scheduledDate}
                   todayStr={todayStr}
                   inSpan={spanDates.has(c.date)}
                   busyByDate={busyByDate}
@@ -978,7 +978,7 @@ export function WhenCalendar({
                   key={c.date}
                   date={c.date}
                   weekday={c.weekday}
-                  whenDate={whenDate}
+                  scheduledDate={scheduledDate}
                   todayStr={todayStr}
                   inSpan={spanDates.has(c.date)}
                   busyByDate={busyByDate}
@@ -1006,13 +1006,13 @@ export function WhenCalendar({
           onPress={() => onPickDate(nextWeekStr)}
           style={[
             styles.bucketChip,
-            whenDate === nextWeekStr && styles.bucketChipActive,
+            scheduledDate === nextWeekStr && styles.bucketChipActive,
           ]}
         >
           <Text
             style={[
               styles.bucketChipText,
-              whenDate === nextWeekStr && styles.bucketChipTextActive,
+              scheduledDate === nextWeekStr && styles.bucketChipTextActive,
             ]}
           >
             Next week
@@ -1020,7 +1020,7 @@ export function WhenCalendar({
           <Text
             style={[
               styles.bucketChipHint,
-              whenDate === nextWeekStr && styles.bucketChipTextActive,
+              scheduledDate === nextWeekStr && styles.bucketChipTextActive,
             ]}
           >
             {formatScheduleHint(nextWeekStr)}
@@ -1033,7 +1033,7 @@ export function WhenCalendar({
 
 // Every half hour across the day, as "HH:MM". Pure JS (no native datetime
 // picker — that would force a dev-client rebuild); mirrors the web
-// WhenTimeField's scrollable slot list.
+// ScheduledTimeField's scrollable slot list.
 const TIME_SLOTS: string[] = (() => {
   const out: string[] = [];
   for (let h = 0; h < 24; h++) {
@@ -1053,11 +1053,11 @@ function nearestHourSlot(now: Date): string {
 const TIME_SLOT_ROW_H = 42;
 const TIME_LIST_H = TIME_SLOT_ROW_H * 6;
 
-// Time-of-day for the when_date "do date". Only rendered once a day is picked
-// (the caller gates on whenDate). A tappable field that opens a bottom sheet
+// Time-of-day for the scheduled_date "do date". Only rendered once a day is picked
+// (the caller gates on scheduledDate). A tappable field that opens a bottom sheet
 // with a vertical scroll of half-hour slots, centered on the current value
 // (or the hour nearest now) — like a normal time picker, not a chip strip.
-export function WhenTimeField({
+export function ScheduledTimeField({
   value,
   onChange,
 }: {
@@ -1090,7 +1090,7 @@ export function WhenTimeField({
         <Text
           style={[styles.timeFieldText, !value && styles.timeFieldTextMuted]}
         >
-          {value ? formatWhenTime(value) : "Add time"}
+          {value ? formatTimeOfDay(value) : "Add time"}
         </Text>
         <Text style={styles.projectFieldChevron}>▾</Text>
       </Pressable>
@@ -1142,7 +1142,7 @@ export function WhenTimeField({
                           selected && styles.timeSlotTextSelected,
                         ]}
                       >
-                        {formatWhenTime(slot)}
+                        {formatTimeOfDay(slot)}
                       </Text>
                       {isAnchor && !selected ? (
                         <Text style={styles.timeSlotNow}>NOW</Text>
@@ -1765,7 +1765,7 @@ function Inner({
   }, [undoAll]);
 
   const onPickDate = (date: string) => {
-    setField("when_date", date);
+    setField("scheduled_date", date);
   };
 
   const handleTitleChange = (raw: string) => {
@@ -1964,31 +1964,31 @@ function Inner({
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Date</Text>
             <Text style={styles.sectionValue}>
-              {current.when_date
-                ? formatFullDate(current.when_date)
+              {current.scheduled_date
+                ? formatFullDate(current.scheduled_date)
                 : "Not scheduled"}
             </Text>
-            {current.when_date ? (
+            {current.scheduled_date ? (
               <Text style={styles.sectionValueHint}>
-                · {formatRelativeDay(current.when_date)}
+                · {formatRelativeDay(current.scheduled_date)}
               </Text>
             ) : null}
-            {current.when_date && current.when_time ? (
+            {current.scheduled_date && current.scheduled_time ? (
               <Text style={styles.sectionValueTime}>
-                {formatWhenTime(current.when_time)}
+                {formatTimeOfDay(current.scheduled_time)}
               </Text>
             ) : null}
           </View>
-          <WhenCalendar
-            whenDate={current.when_date}
+          <ScheduleCalendar
+            scheduledDate={current.scheduled_date}
             busyness={busyness}
             onPickDate={onPickDate}
             onRangeChange={fetchRange}
           />
-          {current.when_date ? (
-            <WhenTimeField
-              value={current.when_time}
-              onChange={(t) => setField("when_time", t)}
+          {current.scheduled_date ? (
+            <ScheduledTimeField
+              value={current.scheduled_time}
+              onChange={(t) => setField("scheduled_time", t)}
             />
           ) : null}
         </View>

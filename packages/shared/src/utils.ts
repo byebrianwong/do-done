@@ -3,7 +3,7 @@ import type { CalendarEvent, Task } from "./schemas.js";
 /**
  * Today's date as YYYY-MM-DD in the runtime's LOCAL timezone.
  *
- * `when_date` / `due_date` are local calendar dates (no timezone), so "today"
+ * `scheduled_date` / `deadline_date` are local calendar dates (no timezone), so "today"
  * must also be local. `new Date().toISOString()` is UTC and is off by a day in
  * the evening for negative-offset zones (and the morning for positive ones),
  * which made tasks scheduled for "today" read as overdue — or vice versa —
@@ -321,14 +321,14 @@ export function formatRelativeDay(date: string, from: Date = new Date()): string
 export function isOverdue(task: Task): boolean {
   if (task.status === "done" || task.status === "cancelled") return false;
   const today = todayLocalISO();
-  if (task.due_date && task.due_date < today) return true;
-  if (task.when_date && task.when_date < today) return true;
+  if (task.deadline_date && task.deadline_date < today) return true;
+  if (task.scheduled_date && task.scheduled_date < today) return true;
   return false;
 }
 
-export function isDueToday(task: Task): boolean {
-  if (!task.due_date) return false;
-  return task.due_date === todayLocalISO();
+export function isDeadlineToday(task: Task): boolean {
+  if (!task.deadline_date) return false;
+  return task.deadline_date === todayLocalISO();
 }
 
 export function sortByPriority(tasks: Task[]): Task[] {
@@ -348,11 +348,11 @@ export function formatDuration(minutes: number): string {
 }
 
 /**
- * Format an "HH:MM" 24-hour clock string (the shape of when_time / due_time)
+ * Format an "HH:MM" 24-hour clock string (the shape of scheduled_time / deadline_time)
  * as a 12-hour label: "15:00" → "3:00 PM", "09:30" → "9:30 AM", "00:05" →
  * "12:05 AM". Returns the input unchanged if it isn't a parseable HH:MM.
  */
-export function formatWhenTime(time: string): string {
+export function formatTimeOfDay(time: string): string {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
   if (!match) return time;
   let hour = parseInt(match[1], 10);
@@ -369,7 +369,7 @@ export function formatWhenTime(time: string): string {
  * day the task was finished: "Today", "Yesterday", a weekday name within the
  * past week, then "Mon D" (gaining a year once it's a prior year).
  *
- * The Completed view shows this in place of the do-/due-date chip: a finished
+ * The Completed view shows this in place of the scheduled-date / deadline chip: a finished
  * task's scheduled date is no longer actionable, and rendering it would label
  * most of the list "Overdue" — noise that says nothing about the completed work.
  * Returns "" for an unparseable input so callers can skip the chip.

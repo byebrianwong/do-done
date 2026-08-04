@@ -1,6 +1,6 @@
 // Date rendering for the MCP surface.
 //
-// A model reading `{"when_date": "2026-08-03"}` has no way to know whether that
+// A model reading `{"scheduled_date": "2026-08-03"}` has no way to know whether that
 // is today, and asking it to compare against its own idea of the date is how
 // "what do I have today?" ends up answered with "nothing seems to be dated".
 // So every date the tools emit is paired with a relative label resolved against
@@ -91,26 +91,26 @@ export function isActiveTask(task: Pick<Task, "status">): boolean {
  * process runs in UTC and the user does not.
  */
 export function isOverdueOn(
-  task: Pick<Task, "status" | "when_date" | "due_date">,
+  task: Pick<Task, "status" | "scheduled_date" | "deadline_date">,
   todayISO: string
 ): boolean {
   if (!isActiveTask(task)) return false;
-  if (task.due_date && task.due_date < todayISO) return true;
-  if (task.when_date && task.when_date < todayISO) return true;
+  if (task.deadline_date && task.deadline_date < todayISO) return true;
+  if (task.scheduled_date && task.scheduled_date < todayISO) return true;
   return false;
 }
 
 export interface TaskDates {
   /** The day the user planned to do this, `YYYY-MM-DD`, or null. */
-  when_date: string | null;
-  when_time: string | null;
+  scheduled_date: string | null;
+  scheduled_time: string | null;
   /** The hard deadline, `YYYY-MM-DD`, or null. */
-  due_date: string | null;
-  due_time: string | null;
-  /** when_date relative to today, e.g. "tomorrow". Null when undated. */
-  when_relative: string | null;
-  /** due_date relative to today. Null when there is no deadline. */
-  due_relative: string | null;
+  deadline_date: string | null;
+  deadline_time: string | null;
+  /** scheduled_date relative to today, e.g. "tomorrow". Null when undated. */
+  scheduled_relative: string | null;
+  /** deadline_date relative to today. Null when there is no deadline. */
+  deadline_relative: string | null;
   overdue: boolean;
   /** One-line prose rendering, safe to show a model verbatim. */
   summary: string;
@@ -120,41 +120,41 @@ export interface TaskDates {
  * Everything a caller needs to talk about a task's dates without doing date
  * arithmetic of its own.
  *
- * The prose reads "scheduled for …" for when_date and "due …" for due_date,
- * kept deliberately distinct: conflating the two is what makes a scheduled task
- * get reported as having no date at all.
+ * The prose reads "scheduled for …" for scheduled_date and "deadline …" for
+ * deadline_date, kept deliberately distinct: conflating the two is what makes a
+ * scheduled task get reported as having no date at all.
  */
 export function summarizeTaskDates(
   task: Pick<
     Task,
-    "status" | "when_date" | "when_time" | "due_date" | "due_time"
+    "status" | "scheduled_date" | "scheduled_time" | "deadline_date" | "deadline_time"
   >,
   todayISO: string
 ): TaskDates {
   const overdue = isOverdueOn(task, todayISO);
   const parts: string[] = [];
 
-  if (task.when_date) {
-    const at = task.when_time ? ` at ${task.when_time}` : "";
-    parts.push(`scheduled for ${formatDate(task.when_date, todayISO)}${at}`);
+  if (task.scheduled_date) {
+    const at = task.scheduled_time ? ` at ${task.scheduled_time}` : "";
+    parts.push(`scheduled for ${formatDate(task.scheduled_date, todayISO)}${at}`);
   }
-  if (task.due_date) {
-    const at = task.due_time ? ` at ${task.due_time}` : "";
-    parts.push(`due ${formatDate(task.due_date, todayISO)}${at}`);
+  if (task.deadline_date) {
+    const at = task.deadline_time ? ` at ${task.deadline_time}` : "";
+    parts.push(`deadline ${formatDate(task.deadline_date, todayISO)}${at}`);
   }
   if (parts.length === 0) parts.push("no date set");
   if (overdue) parts.push("OVERDUE");
 
   return {
-    when_date: task.when_date,
-    when_time: task.when_time,
-    due_date: task.due_date,
-    due_time: task.due_time,
-    when_relative: task.when_date
-      ? relativeDayLabel(task.when_date, todayISO)
+    scheduled_date: task.scheduled_date,
+    scheduled_time: task.scheduled_time,
+    deadline_date: task.deadline_date,
+    deadline_time: task.deadline_time,
+    scheduled_relative: task.scheduled_date
+      ? relativeDayLabel(task.scheduled_date, todayISO)
       : null,
-    due_relative: task.due_date
-      ? relativeDayLabel(task.due_date, todayISO)
+    deadline_relative: task.deadline_date
+      ? relativeDayLabel(task.deadline_date, todayISO)
       : null,
     overdue,
     summary: parts.join(" · "),
@@ -163,7 +163,7 @@ export function summarizeTaskDates(
 
 /**
  * A task with its dates resolved against today — the JSON shape the list and
- * search tools return. The raw `when_date`/`due_date` columns are already on
+ * search tools return. The raw `scheduled_date`/`deadline_date` columns are already on
  * the task, so only the derived reading is added.
  */
 export function withResolvedDates(
@@ -172,14 +172,14 @@ export function withResolvedDates(
 ): Task & {
   dates: Pick<
     TaskDates,
-    "when_relative" | "due_relative" | "overdue" | "summary"
+    "scheduled_relative" | "deadline_relative" | "overdue" | "summary"
   >;
 } {
-  const { when_relative, due_relative, overdue, summary } = summarizeTaskDates(
+  const { scheduled_relative, deadline_relative, overdue, summary } = summarizeTaskDates(
     task,
     todayISO
   );
-  return { ...task, dates: { when_relative, due_relative, overdue, summary } };
+  return { ...task, dates: { scheduled_relative, deadline_relative, overdue, summary } };
 }
 
 /**
@@ -192,7 +192,7 @@ export function describeTask(task: Task, todayISO: string): string {
 }
 
 /** Why a task landed on a given agenda day. */
-export type AgendaReason = "when" | "due" | "when+due";
+export type AgendaReason = "scheduled" | "deadline" | "scheduled+deadline";
 
 export interface AgendaEntry {
   task: Task;
@@ -275,15 +275,15 @@ export function buildAgenda(
 
   const buckets = dateRange(startISO, days).map<AgendaDay>((date) => {
     const entries = remaining
-      .filter((t) => t.when_date === date || t.due_date === date)
+      .filter((t) => t.scheduled_date === date || t.deadline_date === date)
       .map<AgendaEntry>((task) => ({
         task,
         reason:
-          task.when_date === date && task.due_date === date
-            ? "when+due"
-            : task.when_date === date
-              ? "when"
-              : "due",
+          task.scheduled_date === date && task.deadline_date === date
+            ? "scheduled+deadline"
+            : task.scheduled_date === date
+              ? "scheduled"
+              : "deadline",
       }));
     return {
       date,
@@ -316,17 +316,18 @@ export function renderAgenda(agenda: Agenda): string {
       .join(" · ");
     lines.push(`## ${heading}`, "");
     if (day.entries.length === 0) {
-      lines.push("Nothing scheduled or due.");
+      lines.push("Nothing scheduled, no deadline.");
     } else {
       for (const { task, reason } of day.entries) {
         const marker =
-          reason === "when+due"
-            ? "scheduled + due"
-            : reason === "when"
+          reason === "scheduled+deadline"
+            ? "scheduled + deadline"
+            : reason === "scheduled"
               ? "scheduled"
-              : "due";
+              : "deadline";
         const at =
-          (reason === "due" ? task.due_time : task.when_time) ?? null;
+          (reason === "deadline" ? task.deadline_time : task.scheduled_time) ??
+          null;
         lines.push(
           `- [${task.priority}] ${task.title} — ${marker}${at ? ` at ${at}` : ""} (id: ${task.id})`
         );

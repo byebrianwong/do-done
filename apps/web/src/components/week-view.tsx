@@ -129,15 +129,15 @@ export function WeekView({
     const targetDate = String(over.id);
     const task = localTasks.find((t) => t.id === taskId);
     if (!task) return;
-    // Move = update whichever date controls scheduling. when_date takes
-    // precedence (matches taskDate()); if the task uses due_date only,
+    // Move = update whichever date controls scheduling. scheduled_date takes
+    // precedence (matches taskDate()); if the task uses deadline_date only,
     // shift that instead.
-    const usesWhen = task.when_date !== null;
-    const current = usesWhen ? task.when_date : task.due_date;
+    const usesScheduled = task.scheduled_date !== null;
+    const current = usesScheduled ? task.scheduled_date : task.deadline_date;
     if (current === targetDate) return;
-    const patch = usesWhen
-      ? { when_date: targetDate }
-      : { due_date: targetDate };
+    const patch = usesScheduled
+      ? { scheduled_date: targetDate }
+      : { deadline_date: targetDate };
     const next = localTasks.map((t) =>
       t.id === taskId ? { ...t, ...patch } : t
     );
@@ -338,19 +338,19 @@ function DayColumn({
   /** Between today and the day a task is being dragged onto. */
   inDragSpan: boolean;
 }) {
-  const dayKey = todayLocalISO(day); // local YYYY-MM-DD, matches stored when_date
+  const dayKey = todayLocalISO(day); // local YYYY-MM-DD, matches stored scheduled_date
   const { setNodeRef, isOver } = useDroppable({ id: dayKey });
 
   // A task belongs to this day if its effective date (taskDate) lands here.
   const onThisDay = tasks.filter((t) => taskDate(t) === dayKey);
-  // Tasks with a specific due_time and duration render as positioned blocks.
+  // Tasks with a specific deadline_time and duration render as positioned blocks.
   const timed = onThisDay.filter(
     (t) =>
-      t.due_time &&
+      t.deadline_time &&
       t.duration_minutes &&
       t.duration_minutes > 0
   );
-  // Everything else (no due_time, or no duration) shows in the all-day strip.
+  // Everything else (no deadline_time, or no duration) shows in the all-day strip.
   const allDay = onThisDay.filter((t) => !timed.includes(t));
 
   const allDayEvents = events.filter((e) => e.all_day);
@@ -541,9 +541,9 @@ function TaskBlock({ task, color }: { task: Task; color: string }) {
     isDragging,
   } = useDraggable({ id: task.id });
 
-  if (!task.due_time || !task.duration_minutes) return null;
+  if (!task.deadline_time || !task.duration_minutes) return null;
 
-  const [hh, mm] = task.due_time.split(":").map(Number);
+  const [hh, mm] = task.deadline_time.split(":").map(Number);
   const startMin = (hh - HOUR_START) * 60 + mm;
   const top = startMin / MIN_PER_PX;
   const height = task.duration_minutes / MIN_PER_PX;
@@ -584,7 +584,7 @@ function TaskBlock({ task, color }: { task: Task; color: string }) {
       </div>
       {height > 30 && (
         <div className="mt-0.5 text-[10px] text-neutral-500">
-          {task.due_time} · {task.duration_minutes}m
+          {task.deadline_time} · {task.duration_minutes}m
         </div>
       )}
     </div>

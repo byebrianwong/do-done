@@ -13,7 +13,7 @@ import type {
  * etc. Mirrors the fields `GroupDropTarget` can address.
  */
 export type QuickAddSeed = Partial<
-  Pick<CreateTaskInput, "status" | "priority" | "project_id" | "when_date">
+  Pick<CreateTaskInput, "status" | "priority" | "project_id" | "scheduled_date">
 >;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -25,7 +25,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * Precedence (explicit typing wins, *except* the axis that defines the section —
  * you can't add to the "P1" column and not get P1):
  *  - title       ← parsed only
- *  - when_date   ← seed wins when set (the column IS the date), else parsed
+ *  - scheduled_date   ← seed wins when set (the column IS the date), else parsed
  *  - status      ← seed wins when set, else default
  *  - priority    ← parsed wins over seed (the one genuine collision)
  *  - project_id  ← seed wins (the parser yields a name, never a UUID)
@@ -44,10 +44,10 @@ export function buildCreateInput(
   const input: CreateTaskInput = {
     title: parsed.title,
     ...(parsed.priority && { priority: parsed.priority }),
-    ...(parsed.when_date && { when_date: parsed.when_date }),
-    ...(parsed.when_time && { when_time: parsed.when_time }),
-    ...(parsed.due_date && { due_date: parsed.due_date }),
-    ...(parsed.due_time && { due_time: parsed.due_time }),
+    ...(parsed.scheduled_date && { scheduled_date: parsed.scheduled_date }),
+    ...(parsed.scheduled_time && { scheduled_time: parsed.scheduled_time }),
+    ...(parsed.deadline_date && { deadline_date: parsed.deadline_date }),
+    ...(parsed.deadline_time && { deadline_time: parsed.deadline_time }),
     ...(parsed.duration_minutes && { duration_minutes: parsed.duration_minutes }),
     ...(parsed.tags && parsed.tags.length > 0 && { tags: parsed.tags }),
     ...(parsed.recurrence_rule && { recurrence_rule: parsed.recurrence_rule }),
@@ -62,8 +62,8 @@ export function buildCreateInput(
   // The parser can't produce a project_id, so the section's project applies.
   if (seed.project_id) input.project_id = seed.project_id;
 
-  // The column IS the date: a seeded when_date wins over a typed one.
-  if (seed.when_date) input.when_date = seed.when_date;
+  // The column IS the date: a seeded scheduled_date wins over a typed one.
+  if (seed.scheduled_date) input.scheduled_date = seed.scheduled_date;
 
   return input;
 }
@@ -95,15 +95,15 @@ export function seedFromDrop(drop: GroupDropTarget | null): QuickAddSeed {
       return { priority: drop.value as TaskPriority };
     case "project_id":
       return { project_id: drop.value };
-    case "when_date":
-      return { when_date: drop.value };
+    case "scheduled_date":
+      return { scheduled_date: drop.value };
   }
 }
 
 /**
- * Seed for an Upcoming date column. A real `YYYY-MM-DD` seeds `when_date`; the
+ * Seed for an Upcoming date column. A real `YYYY-MM-DD` seeds `scheduled_date`; the
  * "unscheduled" sentinel (or anything not date-shaped) seeds nothing.
  */
 export function seedFromUpcomingDate(date: string): QuickAddSeed {
-  return ISO_DATE.test(date) ? { when_date: date } : {};
+  return ISO_DATE.test(date) ? { scheduled_date: date } : {};
 }

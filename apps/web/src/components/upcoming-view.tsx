@@ -37,7 +37,7 @@ function formatDayHeading(dateStr: string): string {
 
 /** Per-day columns: an "Overdue" bucket (when present), a "No date" inbox, the
  *  next 14 days as drop targets, then any further-out days that have tasks.
- *  when_date wins over due_date. */
+ *  scheduled_date wins over deadline_date. */
 function buildDateGroups(
   tasks: Task[],
   events: CalendarEvent[]
@@ -45,7 +45,7 @@ function buildDateGroups(
   // The browser's local day is the authority on "today". Anything scheduled or
   // due strictly before it is overdue and gets its own section at the top —
   // mirroring the mobile Upcoming screen. (isOverdue is the canonical, shared
-  // definition: when_date OR due_date < today, excluding closed tasks.)
+  // definition: scheduled_date OR deadline_date < today, excluding closed tasks.)
   const overdue: Task[] = [];
   const undated: Task[] = [];
   const byDate = new Map<string, Task[]>();
@@ -79,7 +79,7 @@ function buildDateGroups(
   });
   for (let i = 0; i < 14; i++) {
     // Local YYYY-MM-DD so the column keys match the local-date basis the API
-    // (getUpcoming) and the chips (formatDueDate) use. toISOString() here was
+    // (getUpcoming) and the chips (formatTaskDate) use. toISOString() here was
     // UTC and shifted the columns by a day for positive-offset zones.
     const key = addDaysLocalISO(i);
     groups.push({

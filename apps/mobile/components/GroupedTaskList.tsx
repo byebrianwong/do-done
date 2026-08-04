@@ -51,8 +51,8 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
       return { priority: drop.value as TaskPriority };
     case 'project_id':
       return { project_id: drop.value };
-    case 'when_date':
-      return { when_date: drop.value };
+    case 'scheduled_date':
+      return { scheduled_date: drop.value };
   }
 }
 

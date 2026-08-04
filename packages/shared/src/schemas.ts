@@ -46,14 +46,14 @@ export const TaskSchema = z
     priority: TaskPriority.default("p4"),
     project_id: z.string().uuid().nullable(),
     // when = the day the user plans to do this (Things-3-style "do date").
-    // Distinct from due_date which is a hard deadline. Always a concrete
+    // Distinct from deadline_date which is a hard deadline. Always a concrete
     // calendar date — DoDone has no fuzzy "buckets".
-    when_date: z.string().date().nullable(),
-    // Optional time-of-day for when_date (HH:MM). Paired with when_date; has
-    // no meaning without it. Mirrors due_time's shape.
-    when_time: z.string().nullable(),
-    due_date: z.string().date().nullable(),
-    due_time: z.string().nullable(), // HH:MM format
+    scheduled_date: z.string().date().nullable(),
+    // Optional time-of-day for scheduled_date (HH:MM). Paired with scheduled_date; has
+    // no meaning without it. Mirrors deadline_time's shape.
+    scheduled_time: z.string().nullable(),
+    deadline_date: z.string().date().nullable(),
+    deadline_time: z.string().nullable(), // HH:MM format
     duration_minutes: z.number().int().positive().nullable(),
     recurrence_rule: z.string().nullable(), // RRULE format
     calendar_event_id: z.string().nullable(),
@@ -191,10 +191,10 @@ export const CreateTaskInput = z.object({
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().optional(),
-  when_date: z.string().date().optional(),
-  when_time: z.string().optional(),
-  due_date: z.string().date().optional(),
-  due_time: z.string().optional(),
+  scheduled_date: z.string().date().optional(),
+  scheduled_time: z.string().optional(),
+  deadline_date: z.string().date().optional(),
+  deadline_time: z.string().optional(),
   duration_minutes: z.number().int().positive().optional(),
   recurrence_rule: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -208,10 +208,10 @@ export const UpdateTaskInput = z.object({
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().nullable().optional(),
-  when_date: z.string().date().nullable().optional(),
-  when_time: z.string().nullable().optional(),
-  due_date: z.string().date().nullable().optional(),
-  due_time: z.string().nullable().optional(),
+  scheduled_date: z.string().date().nullable().optional(),
+  scheduled_time: z.string().nullable().optional(),
+  deadline_date: z.string().date().nullable().optional(),
+  deadline_time: z.string().nullable().optional(),
   duration_minutes: z.number().int().positive().nullable().optional(),
   recurrence_rule: z.string().nullable().optional(),
   calendar_event_id: z.string().nullable().optional(),
@@ -259,13 +259,13 @@ export const TaskFilterInput = z.object({
   status: TaskStatus.optional(),
   project_id: z.string().uuid().optional(),
   priority: TaskPriority.optional(),
-  // Deadline window (due_date). Rarely what a caller wants — most DoDone
-  // scheduling lives on when_date, so reach for when_before/when_after first.
-  due_before: z.string().date().optional(),
-  due_after: z.string().date().optional(),
-  // Do-date window (when_date), inclusive on both ends.
-  when_before: z.string().date().optional(),
-  when_after: z.string().date().optional(),
+  // Deadline window (deadline_date). Rarely what a caller wants — most DoDone
+  // scheduling lives on scheduled_date, so reach for scheduled_before/scheduled_after first.
+  deadline_before: z.string().date().optional(),
+  deadline_after: z.string().date().optional(),
+  // Do-date window (scheduled_date), inclusive on both ends.
+  scheduled_before: z.string().date().optional(),
+  scheduled_after: z.string().date().optional(),
   search_query: z.string().optional(),
   tags: z.array(z.string()).optional(),
   limit: z.number().int().positive().max(100).default(50),
@@ -277,10 +277,10 @@ export type TaskFilterInput = z.infer<typeof TaskFilterInput>;
 
 export const ParsedTaskSchema = z.object({
   title: z.string(),
-  when_date: z.string().date().optional(),
-  when_time: z.string().optional(),
-  due_date: z.string().date().optional(),
-  due_time: z.string().optional(),
+  scheduled_date: z.string().date().optional(),
+  scheduled_time: z.string().optional(),
+  deadline_date: z.string().date().optional(),
+  deadline_time: z.string().optional(),
   priority: TaskPriority.optional(),
   project: z.string().optional(),
   tags: z.array(z.string()).optional(),

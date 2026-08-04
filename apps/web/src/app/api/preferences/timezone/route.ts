@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
         .from("tasks")
         .select("id")
         .eq("user_id", user.id)
-        .not("when_date", "is", null)
-        .not("when_time", "is", null)
+        .not("scheduled_date", "is", null)
+        .not("scheduled_time", "is", null)
         .not("status", "in", "(done,cancelled)");
       if (scheduled && scheduled.length > 0) {
         await service.from("calendar_outbox").insert(

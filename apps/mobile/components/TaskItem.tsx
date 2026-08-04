@@ -18,7 +18,7 @@ import {
   addDaysLocalISO,
   formatCompletedDate,
   formatDuration,
-  formatWhenTime,
+  formatTimeOfDay,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
@@ -69,14 +69,14 @@ function buildReschedule(
 ): UpdateTaskInput {
   if (target.kind === 'remove') {
     return {
-      when_date: null,
-      due_date: null,
-      due_time: null,
+      scheduled_date: null,
+      deadline_date: null,
+      deadline_time: null,
     };
   }
-  const input: UpdateTaskInput = { when_date: target.date };
-  if (task.due_date && task.due_date < target.date) {
-    input.due_date = target.date;
+  const input: UpdateTaskInput = { scheduled_date: target.date };
+  if (task.deadline_date && task.deadline_date < target.date) {
+    input.deadline_date = target.date;
   }
   return input;
 }
@@ -289,8 +289,8 @@ function TaskItem({
       project ||
       showStatus ||
       completed ||
-      task.when_date ||
-      task.due_date
+      task.scheduled_date ||
+      task.deadline_date
   );
 
   return (
@@ -441,18 +441,18 @@ function TaskItem({
                 "Today" until the optimistic completion settles and stamps
                 completed_at. */}
             {completed ? (
-              <Text style={styles.dueDate}>
+              <Text style={styles.deadlineDate}>
                 {task.completed_at ? formatCompletedDate(task.completed_at) : 'Today'}
               </Text>
-            ) : task.when_date ? (
-              <Text style={styles.dueDate}>
-                {formatDueDate(task.when_date)}
-                {task.when_time ? ` ${formatWhenTime(task.when_time)}` : ''}
+            ) : task.scheduled_date ? (
+              <Text style={styles.deadlineDate}>
+                {formatTaskDate(task.scheduled_date)}
+                {task.scheduled_time ? ` ${formatTimeOfDay(task.scheduled_time)}` : ''}
               </Text>
-            ) : task.due_date ? (
-              <Text style={styles.dueDate}>
-                {formatDueDate(task.due_date)}
-                {task.due_time ? ` ${task.due_time}` : ''}
+            ) : task.deadline_date ? (
+              <Text style={styles.deadlineDate}>
+                {formatTaskDate(task.deadline_date)}
+                {task.deadline_time ? ` ${task.deadline_time}` : ''}
               </Text>
             ) : null}
           </View>
@@ -487,7 +487,7 @@ function TaskItem({
 
 export default React.memo(TaskItem);
 
-function formatDueDate(dateStr: string): string {
+function formatTaskDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -601,7 +601,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, lineHeight: 22, color: '#111827', flex: 1 },
   titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
-  dueDate: { fontSize: 13, color: '#6b7280' },
+  deadlineDate: { fontSize: 13, color: '#6b7280' },
   dragHandle: {
     paddingHorizontal: 6,
     paddingVertical: 8,
