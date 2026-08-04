@@ -1768,7 +1768,10 @@ function Inner({
     setField("when_date", date);
   };
 
-  const handleTitleChange = (v: string) => {
+  const handleTitleChange = (raw: string) => {
+    // The field wraps but is still one logical line — a pasted newline would
+    // otherwise ride into the title and break every single-line rendering of it.
+    const v = raw.replace(/\s*\r?\n\s*/g, " ");
     const { stripped, tags: extracted } = extractCompletedTags(v);
     if (extracted.length > 0) {
       const existing = new Set(current.tags);
@@ -1871,6 +1874,12 @@ function Inner({
             onChangeText={handleTitleChange}
             placeholder="Task title…"
             placeholderTextColor="#9ca3af"
+            // A long title has to be readable in full, so the box grows with
+            // the text instead of scrolling it sideways past the edge. Return
+            // still closes the keyboard — the wrap is visual, not a newline.
+            multiline
+            submitBehavior="blurAndSubmit"
+            returnKeyType="done"
             style={styles.titleInput}
           />
           <TagRow
@@ -2266,6 +2275,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
     backgroundColor: "#fff",
+    // Multiline, so height follows the text: one line looks exactly as it did
+    // (minHeight), and it grows to roughly five lines before the box itself
+    // starts scrolling rather than eating the rest of the sheet.
+    minHeight: 44,
+    maxHeight: 130,
+    textAlignVertical: "top",
   },
 
   tagRow: {
