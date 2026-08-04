@@ -25,6 +25,7 @@ import {
   useAutoSaveTask,
   TasksApi,
   type DayBusyness,
+  type SaveStatus,
 } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
 import { ProjectPickerPopover } from "./project-picker";
@@ -63,36 +64,42 @@ function startOfWeek(d: Date): Date {
 
 // ─── Sub-components ────────────────────────────────────────
 
+/**
+ * Copy and tone per save phase. `pending` and `saving` deliberately read the
+ * same: the user doesn't care whether the request has left yet, only that the
+ * edit is in hand and not on the server. Rendering them identically also means
+ * the debounce elapsing doesn't cause a second, meaningless flicker.
+ */
+const SAVE_STATUS_COPY: Record<
+  SaveStatus,
+  { label: string; dot: string; text: string }
+> = {
+  idle: { label: "Auto-saves", dot: "bg-neutral-300", text: "text-neutral-500" },
+  pending: { label: "Saving…", dot: "bg-amber-500", text: "text-amber-600" },
+  saving: { label: "Saving…", dot: "bg-amber-500", text: "text-amber-600" },
+  saved: { label: "Saved", dot: "bg-green-500", text: "text-green-600" },
+  error: { label: "Save failed", dot: "bg-red-500", text: "text-red-600" },
+};
+
 function SaveStatusDot({
-  saving,
-  lastSavedAt,
+  status,
   error,
 }: {
-  saving: boolean;
-  lastSavedAt: Date | null;
+  status: SaveStatus;
   error: Error | null;
 }) {
-  const tone = error
-    ? "bg-red-500"
-    : saving
-      ? "bg-amber-500"
-      : "bg-green-500";
-  const label = error
-    ? "save failed"
-    : saving
-      ? "saving…"
-      : lastSavedAt
-        ? "auto-save"
-        : "auto-save";
+  const { label, dot, text } = SAVE_STATUS_COPY[status];
+  // Pulse only while there's unsaved work — movement is what gets noticed at
+  // the edge of vision, and it stops the moment the edit is safe.
+  const inFlight = status === "pending" || status === "saving";
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-neutral-500"
-      title={error ? error.message : "Changes auto-save"}
+      className={`inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors ${text}`}
+      title={status === "error" && error ? error.message : "Changes auto-save"}
+      aria-live="polite"
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${tone} ${
-          saving || lastSavedAt ? "animate-pulse" : ""
-        }`}
+        className={`h-1.5 w-1.5 rounded-full ${dot} ${inFlight ? "animate-pulse" : ""}`}
       />
       {label}
     </span>
@@ -681,6 +688,11 @@ export function useClickOutside(
 // nothing to commit here, and this used to be a primary button wearing a green
 // ✓ labelled "Done" — which read as "complete the task" rather than "close the
 // editor". The ✓ now belongs to `CompleteToggle` alone.
+//
+// It carries no save-state caption either. That caption was a second claim
+// about the user's data in a bigger font than the top-bar indicator, so it had
+// to be kept honest in two places; with it gone, `SaveStatusDot` is the single
+// place that speaks for save state.
 function CloseButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -2351,8 +2363,7 @@ function TaskEditModalBody({
     setField,
     undoAll,
     hasChanges,
-    lastSavedAt,
-    isSaving,
+    status: saveStatus,
     lastError,
   } = useAutoSaveTask(task, tasksApi, {
     // Re-run the server components so the list views pick up the row that was
@@ -2601,11 +2612,7 @@ function TaskEditModalBody({
                 </span>
               </button>
             ) : null}
-            <SaveStatusDot
-              saving={isSaving}
-              lastSavedAt={lastSavedAt}
-              error={lastError}
-            />
+            <SaveStatusDot status={saveStatus} error={lastError} />
           </div>
           <div className="flex shrink-0 items-center gap-3.5">
             {/* Always rendered so the top bar height is stable; toggled via

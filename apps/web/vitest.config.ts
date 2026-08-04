@@ -9,6 +9,11 @@ import { resolve } from "node:path";
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // Workspace packages carry their own `react` devDependency, so a hook
+    // imported from `@do-done/api-client` source resolves a *second* React
+    // copy and renders with a null dispatcher ("Cannot read properties of
+    // null (reading 'useRef')"). Pin every import to this app's copy.
+    dedupe: ["react", "react-dom"],
     alias: [
       // Swap the real Supabase browser client (reads NEXT_PUBLIC_* at call
       // time) for the same deep-Proxy stub Storybook uses, so components that

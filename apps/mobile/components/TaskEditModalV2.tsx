@@ -45,6 +45,7 @@ import {
   useAutoSaveTask,
   BusynessApi,
   type DayBusyness,
+  type SaveStatus,
   type TasksApi,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
@@ -393,20 +394,61 @@ export function PickerSheet({
   );
 }
 
-function SaveStatusDot({
-  saving,
-  hasError,
-}: {
-  saving: boolean;
-  hasError: boolean;
-}) {
-  const color = hasError ? "#ef4444" : saving ? "#f59e0b" : "#16a34a";
+/**
+ * Copy and colour per save phase. `pending` and `saving` deliberately read the
+ * same: the user doesn't care whether the request has left yet, only that the
+ * edit is in hand and not on the server. Rendering them identically also means
+ * the debounce elapsing doesn't cause a second, meaningless flicker.
+ */
+const SAVE_STATUS_COPY: Record<SaveStatus, { label: string; color: string }> = {
+  idle: { label: "Auto-saves", color: "#9ca3af" },
+  pending: { label: "Saving…", color: "#f59e0b" },
+  saving: { label: "Saving…", color: "#f59e0b" },
+  saved: { label: "Saved", color: "#16a34a" },
+  error: { label: "Save failed", color: "#ef4444" },
+};
+
+function SaveStatusDot({ status }: { status: SaveStatus }) {
+  const { label, color } = SAVE_STATUS_COPY[status];
+  const inFlight = status === "pending" || status === "saving";
+
+  // Pulse while there's unsaved work. The colour change alone is a single
+  // frame's worth of signal at the edge of the user's vision; movement is what
+  // actually gets noticed, and it stops the moment the edit is safe.
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!inFlight) {
+      pulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.3,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [inFlight, pulse]);
+
   return (
-    <View style={styles.statusRow}>
-      <View style={[styles.statusDot, { backgroundColor: color }]} />
-      <Text style={styles.statusText}>
-        {hasError ? "save failed" : saving ? "saving…" : "Saved"}
-      </Text>
+    <View
+      style={styles.statusRow}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={label}
+    >
+      <Animated.View
+        style={[styles.statusDot, { backgroundColor: color, opacity: pulse }]}
+      />
+      <Text style={[styles.statusText, { color }]}>{label}</Text>
     </View>
   );
 }
@@ -1668,8 +1710,7 @@ function Inner({
     setField,
     undoAll,
     hasChanges,
-    isSaving,
-    lastError,
+    status: saveStatus,
   } = useAutoSaveTask(task, tasksApiMemo, {
     // Reconcile the TanStack Query lists after each commit. Doing it here (not
     // on modal close) means the refetch reads the row *after* the PATCH lands,
@@ -1727,7 +1768,10 @@ function Inner({
     setField("when_date", date);
   };
 
-  const handleTitleChange = (v: string) => {
+  const handleTitleChange = (raw: string) => {
+    // The field wraps but is still one logical line — a pasted newline would
+    // otherwise ride into the title and break every single-line rendering of it.
+    const v = raw.replace(/\s*\r?\n\s*/g, " ");
     const { stripped, tags: extracted } = extractCompletedTags(v);
     if (extracted.length > 0) {
       const existing = new Set(current.tags);
@@ -1828,7 +1872,7 @@ function Inner({
         ) : (
           <View style={{ width: 80 }} />
         )}
-        <SaveStatusDot saving={isSaving} hasError={!!lastError} />
+        <SaveStatusDot status={saveStatus} />
         <Pressable
           onPress={() => setMenuOpen(true)}
           hitSlop={8}
@@ -1897,6 +1941,14 @@ function Inner({
               onChangeText={handleTitleChange}
               placeholder="Task title…"
               placeholderTextColor="#9ca3af"
+              // A long title has to be readable in full, so the box grows with
+              // the text instead of scrolling it sideways past the edge. Return
+              // still closes the keyboard — the wrap is visual, not a newline.
+              // The circle is top-aligned in the row, so it stays on the first
+              // line as the box grows.
+              multiline
+              submitBehavior="blurAndSubmit"
+              returnKeyType="done"
               style={[styles.titleInput, styles.titleInputFlex]}
             />
           </View>
@@ -2291,7 +2343,8 @@ const styles = StyleSheet.create({
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 7, height: 7, borderRadius: 3.5 },
-  statusText: { fontSize: 12, color: "#16a34a", fontWeight: "600" },
+  // Colour is set per save phase at the call site.
+  statusText: { fontSize: 12, fontWeight: "600" },
 
   body: { flex: 1 },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 24 },
@@ -2322,6 +2375,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
     backgroundColor: "#fff",
+    // Multiline, so height follows the text: one line looks exactly as it did
+    // (minHeight), and it grows to roughly five lines before the box itself
+    // starts scrolling rather than eating the rest of the sheet.
+    minHeight: 44,
+    maxHeight: 130,
+    textAlignVertical: "top",
   },
 
   tagRow: {
