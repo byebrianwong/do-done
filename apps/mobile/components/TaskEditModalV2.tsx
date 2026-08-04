@@ -1756,6 +1756,38 @@ function Inner({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [locationSheetOpen, setLocationSheetOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Delete lives in the top-bar overflow menu now, not loose in the bottom bar
+  // next to the dismiss control.
+  const confirmDelete = useCallback(() => {
+    Alert.alert(
+      "Delete task?",
+      `“${current.title}” will be permanently deleted.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const { error } = await tasksApiMemo.delete(task.id);
+            if (error) {
+              console.error("Delete failed:", error);
+              return;
+            }
+            onClose();
+          },
+        },
+      ]
+    );
+  }, [current.title, tasksApiMemo, task.id, onClose]);
+
+  // Drives the completion circle beside the title. STATUS_CONFIG[status] can be
+  // undefined for an unmigrated DB still serving legacy values — guard before
+  // reading .color, as the row does.
+  const titleCompleted =
+    current.status === "done" || current.status === "cancelled";
+  const titleStatusColor = STATUS_CONFIG[current.status]?.color ?? "#94a3b8";
   // Recurrence is a rare setting — keep it folded behind a one-line toggle.
   const [repeatOpen, setRepeatOpen] = useState(false);
 
@@ -1797,8 +1829,16 @@ function Inner({
           <View style={{ width: 80 }} />
         )}
         <SaveStatusDot saving={isSaving} hasError={!!lastError} />
-        <Pressable onPress={onClose} style={styles.closeBtn}>
-          <Text style={styles.closeBtnText}>×</Text>
+        <Pressable
+          onPress={() => setMenuOpen(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Task menu"
+          style={styles.menuBtn}
+        >
+          <View style={styles.menuLine} />
+          <View style={styles.menuLine} />
+          <View style={styles.menuLine} />
         </Pressable>
       </View>
 
@@ -1825,13 +1865,41 @@ function Inner({
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {/* Title input */}
         <View style={styles.inputWrap}>
-          <TextInput
-            value={current.title}
-            onChangeText={handleTitleChange}
-            placeholder="Task title…"
-            placeholderTextColor="#9ca3af"
-            style={styles.titleInput}
-          />
+          {/* The completion circle from a task row, brought into the editor so
+              completing the open task is one tap here too — it was previously
+              reachable only as one of seven rows in the Status picker. Writes
+              through setField, so the Status field stays in sync. */}
+          <View style={styles.titleRow}>
+            <Pressable
+              onPress={() =>
+                setField("status", titleCompleted ? "not_started" : "done")
+              }
+              hitSlop={10}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: titleCompleted }}
+              accessibilityLabel={
+                titleCompleted ? "Mark incomplete" : "Mark complete"
+              }
+              style={[
+                styles.titleCheckbox,
+                {
+                  borderColor: titleCompleted ? "#d4d4d4" : titleStatusColor,
+                  backgroundColor: titleCompleted ? "#d4d4d4" : "transparent",
+                },
+              ]}
+            >
+              {titleCompleted ? (
+                <Text style={styles.titleCheckMark}>✓</Text>
+              ) : null}
+            </Pressable>
+            <TextInput
+              value={current.title}
+              onChangeText={handleTitleChange}
+              placeholder="Task title…"
+              placeholderTextColor="#9ca3af"
+              style={[styles.titleInput, styles.titleInputFlex]}
+            />
+          </View>
           <TagRow
             tags={current.tags}
             onAdd={handleAddTag}
@@ -2097,45 +2165,67 @@ function Inner({
         </View>
       </ScrollView>
 
+      {/* Dismisses the editor. Deliberately quiet: everything auto-saves, so
+          there is nothing to commit here, and this used to be a primary button
+          wearing a green ✓ labelled "Done" — which read as "complete the task"
+          rather than "close the editor". The ✓ now belongs to the title circle
+          alone. */}
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={() => {
-            Alert.alert(
-              "Delete task?",
-              `“${current.title}” will be permanently deleted.`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Delete",
-                  style: "destructive",
-                  onPress: async () => {
-                    const { error } = await tasksApiMemo.delete(task.id);
-                    if (error) {
-                      console.error("Delete failed:", error);
-                      return;
-                    }
-                    onClose();
-                  },
-                },
-              ]
-            );
-          }}
-          hitSlop={8}
-          style={styles.deleteBtn}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close editor"
+          style={styles.closeBarBtn}
         >
-          <Text style={styles.deleteBtnLabel}>Delete</Text>
-        </Pressable>
-        <Pressable onPress={onClose} style={styles.doneBtn}>
-          <View style={styles.doneBtnCheck}>
-            <Text style={styles.doneBtnCheckMark}>✓</Text>
-          </View>
-          <View>
-            <Text style={styles.doneBtnPrimary}>Done</Text>
-            <Text style={styles.doneBtnSub}>all saved</Text>
-          </View>
+          <Text style={styles.closeBarBtnLabel}>Close</Text>
         </Pressable>
       </View>
+
+      <TaskMenuSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onDelete={confirmDelete}
+      />
     </View>
+  );
+}
+
+// Top-bar overflow menu. Holds the actions that shouldn't sit in the chrome
+// competing with the task's own controls — Delete was previously loose in the
+// bottom bar, a red button one slip away from the dismiss control.
+function TaskMenuSheet({
+  visible,
+  onClose,
+  onDelete,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
+        <Pressable onPress={() => {}} style={styles.pickerSheet}>
+          <Text style={styles.pickerTitle}>Task actions</Text>
+          <Pressable
+            onPress={() => {
+              // Dismiss first: the confirmation is an Alert, which would
+              // otherwise stack on top of this sheet.
+              onClose();
+              onDelete();
+            }}
+            style={styles.menuRow}
+          >
+            <Text style={styles.menuRowDestructive}>Delete task</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -2182,14 +2272,22 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   cancelBtnText: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  closeBtn: {
+  menuBtn: {
     width: 30,
     height: 30,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    gap: 3,
   },
-  closeBtnText: { fontSize: 22, color: "#6b7280", lineHeight: 24 },
+  menuLine: {
+    width: 15,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#6b7280",
+  },
+  menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
+  menuRowDestructive: { fontSize: 15, fontWeight: "600", color: "#dc2626" },
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 7, height: 7, borderRadius: 3.5 },
@@ -2199,6 +2297,22 @@ const styles = StyleSheet.create({
   bodyContent: { paddingHorizontal: 16, paddingBottom: 24 },
 
   inputWrap: { marginTop: 12 },
+  // Top-aligned so the circle sits on the title's first line rather than
+  // drifting to the middle when the title wraps.
+  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  titleCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    // Centres the circle against the title input's own first line
+    // (1.5px border + 10px padding + half the 15px line).
+    marginTop: 10,
+  },
+  titleCheckMark: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  titleInputFlex: { flex: 1 },
   titleInput: {
     borderWidth: 1.5,
     borderColor: "#6366f1",
@@ -2752,44 +2866,15 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#f3f4f6",
   },
-  deleteBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-  },
-  deleteBtnLabel: { color: "#dc2626", fontSize: 14, fontWeight: "700" },
-  doneBtn: {
+  closeBarBtn: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
     paddingVertical: 14,
-    backgroundColor: "#6366f1",
     borderRadius: 16,
-    shadowColor: "#6366f1",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#fff",
   },
-  doneBtnCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#16a34a",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  doneBtnCheckMark: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  doneBtnPrimary: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#fff",
-    lineHeight: 17,
-  },
-  doneBtnSub: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.78)",
-    lineHeight: 13,
-  },
+  closeBarBtnLabel: { fontSize: 15, fontWeight: "700", color: "#4b5563" },
 });
