@@ -4,7 +4,8 @@ Transport-agnostic MCP server for do-done. Owns every tool and resource; the
 transports live elsewhere (`apps/mcp` for stdio, `apps/web` for HTTP).
 
 ## Key Files
-- `src/index.ts` — `createDoDoneServer({ supabase, userId })`, the shared factory
+- `src/index.ts` — `createDoDoneServer({ supabase, userId, baseUrl? })`, the shared factory
+- `src/icon.ts` — the DoDone mark advertised as the server's `icons`
 - `src/tools/index.ts` — 8 task tools (list_tasks, create_task, update_task,
   complete_task, search_tasks, get_focus_tasks, get_weekly_summary,
   organize_tasks) + 2 project tools (list_projects, reorder_projects)
@@ -26,8 +27,25 @@ callers therefore build a **new server per authenticated request** rather than
 sharing a process-wide instance — cheap, and the only safe thing to do once the
 endpoint is multi-user.
 
+## Branding
+
+The `Implementation` block is what a client draws in its connector list, so it
+carries more than `name`/`version`:
+
+- `name` stays `do-done` — it is the protocol id clients key their config on.
+- `title` is `DoDone`, the brand as humans read it.
+- `icons` comes from `src/icon.ts`. Declaring nothing here is why the connector
+  used to render a stock star: the client had no artwork and fell back to a
+  placeholder. Two entries are offered — the hosted `<baseUrl>/icon.png` (the
+  same app icon the site serves; reachable anonymously because the auth proxy's
+  matcher excludes `.png`) and a self-contained `data:` SVG, which is all the
+  stdio server can offer since it has no public URL.
+
+`baseUrl` is branding-only; the HTTP route passes `getBaseUrl(request)`, stdio
+omits it.
+
 ## MCP SDK Patterns
-- `new McpServer({ name, version })` for server creation
+- `new McpServer({ name, title, version, icons })` for server creation
 - `server.tool(name, description, zodSchema, handler)` for tool registration
 - `server.resource(name, uri, handler)` for resource registration
 - Use `console.error()` for logging — never `console.log`, since under stdio
