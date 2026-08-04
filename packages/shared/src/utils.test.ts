@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   addDaysLocalISO,
   calendarEventsOnDay,
+  datesBetweenLocalISO,
+  daysUntilLocalISO,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -36,6 +38,62 @@ describe("formatFullDate", () => {
 
   it("returns the input unchanged when unparseable", () => {
     expect(formatFullDate("not a date", now)).toBe("not a date");
+  });
+});
+
+describe("daysUntilLocalISO", () => {
+  const now = new Date("2026-07-03T22:30:00");
+
+  it("counts calendar days, not elapsed 24h periods", () => {
+    // 22:30 today → tomorrow is 1 day away even though it's 90 minutes off.
+    expect(daysUntilLocalISO("2026-07-04", now)).toBe(1);
+    expect(daysUntilLocalISO("2026-07-03", now)).toBe(0);
+  });
+
+  it("goes negative for past dates", () => {
+    expect(daysUntilLocalISO("2026-06-30", now)).toBe(-3);
+  });
+
+  it("returns null for an unparseable date", () => {
+    expect(daysUntilLocalISO("not-a-date", now)).toBeNull();
+  });
+});
+
+describe("datesBetweenLocalISO", () => {
+  it("returns the interior dates, excluding both endpoints", () => {
+    expect(datesBetweenLocalISO("2026-07-03", "2026-07-07")).toEqual([
+      "2026-07-04",
+      "2026-07-05",
+      "2026-07-06",
+    ]);
+  });
+
+  it("is empty for equal, adjacent, or reversed dates", () => {
+    expect(datesBetweenLocalISO("2026-07-03", "2026-07-03")).toEqual([]);
+    expect(datesBetweenLocalISO("2026-07-03", "2026-07-04")).toEqual([]);
+    expect(datesBetweenLocalISO("2026-07-07", "2026-07-03")).toEqual([]);
+  });
+
+  it("crosses month and year boundaries", () => {
+    expect(datesBetweenLocalISO("2026-12-30", "2027-01-02")).toEqual([
+      "2026-12-31",
+      "2027-01-01",
+    ]);
+  });
+
+  it("returns exactly one day per calendar day across a DST spring-forward", () => {
+    // US DST starts 2026-03-08; a millisecond-based loop double-counts here.
+    const span = datesBetweenLocalISO("2026-03-06", "2026-03-11");
+    expect(span).toEqual([
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+    ]);
+  });
+
+  it("returns [] for an unparseable endpoint", () => {
+    expect(datesBetweenLocalISO("nope", "2026-07-07")).toEqual([]);
   });
 });
 

@@ -21,6 +21,11 @@ const tomorrow = (() => {
   d.setDate(d.getDate() + 1);
   return d.toISOString().split("T")[0];
 })();
+const twoDaysOut = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + 2);
+  return d.toISOString().split("T")[0];
+})();
 const nextWeek = (() => {
   const d = new Date();
   d.setDate(d.getDate() + 7);
@@ -112,6 +117,70 @@ export const NoTagsAffordance: Story = {
     }),
     open: true,
     onClose: () => {},
+  },
+};
+
+/**
+ * The today → task-date span drawn as an arc. Both cells sit on the visible
+ * week row with room between them, so the stroke is drawn and the days it
+ * crosses are tinted as a runway. (The clock is frozen to Thu 2026-01-15, so
+ * "two days out" lands on Saturday — same row, one cell of gap.)
+ */
+export const SpanArcInWeek: Story = {
+  args: {
+    task: makeTask({
+      title: "Draft the offsite agenda",
+      priority: "p2",
+      when_date: twoDaysOut,
+      tags: ["planning"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+};
+
+/**
+ * A span that wraps onto the second week row. There's no single stroke to draw
+ * across two rows, so the arc stays out of it and the runway tint carries the
+ * distance on its own — with the header above naming the date and the gap.
+ */
+export const SpanWrappedToNextRow: Story = {
+  args: {
+    task: makeTask({
+      title: "Renew the domain",
+      priority: "p3",
+      when_date: nextWeek,
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvas.getByText("today")).toBeInTheDocument());
+    await expect(canvas.getByText(/in 1 week/)).toBeInTheDocument();
+  },
+};
+
+/**
+ * The month scroll view, where the runway and the arc carry across a full
+ * month grid rather than a single week strip.
+ */
+export const SpanInMonthGrid: Story = {
+  args: {
+    task: makeTask({
+      title: "Book the venue",
+      priority: "p2",
+      when_date: twoDaysOut,
+    }),
+    open: true,
+    onClose: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText(/See more dates/));
+    await waitFor(() =>
+      expect(canvas.getByText("scroll for more")).toBeInTheDocument()
+    );
   },
 };
 

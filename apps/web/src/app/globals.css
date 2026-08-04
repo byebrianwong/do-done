@@ -24,3 +24,51 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/*
+ * Date-span arc — the stroke that connects "today" to the task's date on the
+ * calendar grids. The path sets --dd-arc-len to its own measured length so one
+ * keyframe works for any span width. Remounting the <path> (React key on the
+ * from→to pair) is what replays the draw.
+ */
+@keyframes dd-draw-arc {
+  from {
+    stroke-dashoffset: var(--dd-arc-len, 200);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dd-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.dd-arc-draw {
+  stroke-dasharray: var(--dd-arc-len, 200);
+  stroke-dashoffset: var(--dd-arc-len, 200);
+  animation: dd-draw-arc 620ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.dd-arc-tip {
+  opacity: 0;
+  animation: dd-fade-in 200ms ease-out 520ms forwards;
+}
+
+/*
+ * Motion here is confirmation of a choice the user just made, so it must never
+ * be load-bearing: with reduced motion the arc is simply present from frame one.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .dd-arc-draw,
+  .dd-arc-tip {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
