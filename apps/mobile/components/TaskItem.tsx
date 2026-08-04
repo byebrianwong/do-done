@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -13,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
+  TASK_COMPLETE_EXIT_MS,
   addDaysLocalISO,
   formatCompletedDate,
   formatDuration,
@@ -30,6 +32,11 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
+import {
+  prefersReducedMotion,
+  useCompletionExit,
+  useOptimisticCompleted,
+} from '@/lib/use-completion-exit';
 import { LinkifiedText } from './LinkifiedText';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
 import { useUndoToast } from './UndoToast';
@@ -43,6 +50,17 @@ interface TaskItemProps {
   onDragHandle?: () => void;
   /** Marks the row with a ⭐ — used by Today to flag focus-picked tasks. */
   focused?: boolean;
+  /**
+   * Set when this list keeps a task after it's completed (search results, or a
+   * view with "show completed" on). Such a row must not play the
+   * collapse-and-vanish exit — it would animate itself to nothing and then just
+   * sit there invisible, since nothing ever unmounts it.
+   *
+   * Web expresses the same thing through a context (`lib/task-row-behavior`)
+   * because its rows sit several components deep inside the sortable wrappers;
+   * here every call site holds the row directly, so a prop is the whole story.
+   */
+  keepsCompleted?: boolean;
 }
 
 function buildReschedule(
@@ -63,12 +81,24 @@ function buildReschedule(
   return input;
 }
 
-function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
+function TaskItem({
+  task,
+  onPress,
+  onDragHandle,
+  focused,
+  keepsCompleted = false,
+}: TaskItemProps) {
   const statusCfg = STATUS_CONFIG[task.status];
   const statusColor = statusCfg?.color ?? '#94a3b8';
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
-  const completed = task.status === 'done';
+  // Optimistic, because the list deliberately holds the row for the length of
+  // the completion animation — the cache still says "not done" while the row is
+  // busy showing that it is.
+  const [completed, setCompleted] = useOptimisticCompleted(
+    task.status === 'done'
+  );
+  const exit = useCompletionExit(task.status === 'done');
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
@@ -144,7 +174,28 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
     const nextCompleted = !completed;
     if (nextCompleted) hapticSuccess();
     else hapticLight();
-    void toggleComplete(task.id, nextCompleted).catch(() => {});
+
+    // Paint first, on this frame: the check springs in and the row takes on its
+    // completed styling before anything touches the network or the cache.
+    setCompleted(nextCompleted);
+    exit.setChecked(nextCompleted);
+
+    // In a list that keeps completed tasks there is nothing to leave: the row
+    // stays put wearing its completed styling, and the cache can drop it (from
+    // whatever list it *is* leaving) immediately.
+    const leaving = !keepsCompleted && !prefersReducedMotion();
+    if (leaving) exit.start();
+
+    // The write goes out now regardless; only the row's disappearance waits for
+    // the animation.
+    const holdMs = leaving ? TASK_COMPLETE_EXIT_MS : 0;
+    void toggleComplete(task.id, nextCompleted, { holdMs }).catch(() => {
+      // Write failed and the row is staying — put it back where it was.
+      setCompleted(!nextCompleted);
+      exit.setChecked(!nextCompleted);
+      exit.cancel();
+    });
+
     if (nextCompleted) {
       toast.show({
         message: `Completed “${task.title}”`,
@@ -243,6 +294,14 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
   );
 
   return (
+    // Collapse shell for the completion exit. The row shrinks its own height to
+    // zero, so the rows below travel up on their own — DraggableFlatList never
+    // has to know anything happened. `overflow: hidden` is what makes the
+    // clamped height actually crop rather than just overlap.
+    <Animated.View
+      style={[exit.collapsing && styles.exitShell, exit.style]}
+      onLayout={exit.onLayout}
+    >
     <ReanimatedSwipeable
       ref={swipeRef}
       friction={2}
@@ -290,9 +349,15 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
               },
         ]}
       >
-        {(selectionActive ? selected : completed) ? (
-          <Text style={styles.check}>✓</Text>
-        ) : null}
+        {/* The check is always mounted and scaled to nothing when the task is
+            open, so ticking it off animates a transform instead of a mount — a
+            view that appears has no "before" to spring from. Selection mode
+            drives it directly; it's a state, not an event worth animating. */}
+        {selectionActive ? (
+          selected ? <Text style={styles.check}>✓</Text> : null
+        ) : (
+          <Animated.Text style={[styles.check, exit.checkStyle]}>✓</Animated.Text>
+        )}
       </Pressable>
       <View style={styles.priorityBars}>
         {[0, 1, 2, 3].map((i) => {
@@ -416,6 +481,7 @@ function TaskItem({ task, onPress, onDragHandle, focused }: TaskItemProps) {
       />
     </Pressable>
     </ReanimatedSwipeable>
+    </Animated.View>
   );
 }
 
@@ -434,6 +500,10 @@ function formatDueDate(dateStr: string): string {
 }
 
 const styles = StyleSheet.create({
+  // Crops the row as the completion collapse clamps its height; without this
+  // the content just overlaps the row below instead of appearing to leave.
+  // Applied only while collapsing — see `CompletionExit.collapsing`.
+  exitShell: { overflow: 'hidden' as const },
   container: {
     flexDirection: 'row',
     // Top-align so the checkbox + priority bars sit on the title's first

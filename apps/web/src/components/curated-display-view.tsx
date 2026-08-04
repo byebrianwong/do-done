@@ -8,6 +8,7 @@ import {
   type Task,
 } from "@do-done/shared";
 import { useDisplayConfig } from "@/lib/use-display-config";
+import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
 import { DisplayMenu } from "./display-menu";
 import { DraggableTaskGroups } from "./draggable-task-groups-client";
 
@@ -80,16 +81,20 @@ export function CuratedDisplayView({
 
       {beforeContent}
 
-      {curatedWhen(config) ? (
-        renderCurated(filtered, config, setConfig)
-      ) : (
-        <DraggableTaskGroups
-          tasks={allTasks}
-          projects={projects}
-          config={config}
-          onConfigChange={setConfig}
-        />
-      )}
+      {/* With "show completed" on, a ticked-off task stays in the list — so its
+          row must not play the collapse-and-vanish exit it would elsewhere. */}
+      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
+        {curatedWhen(config) ? (
+          renderCurated(filtered, config, setConfig)
+        ) : (
+          <DraggableTaskGroups
+            tasks={allTasks}
+            projects={projects}
+            config={config}
+            onConfigChange={setConfig}
+          />
+        )}
+      </TaskRowBehaviorProvider>
     </div>
   );
 }

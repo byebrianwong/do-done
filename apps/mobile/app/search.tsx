@@ -70,7 +70,11 @@ export default function SearchScreen() {
         data={results}
         keyExtractor={(t) => t.id}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <TaskItem task={item} onPress={handlePress} />}
+        // A completed task still matches the query, so the row stays put here
+        // rather than leaving — no collapse.
+        renderItem={({ item }) => (
+          <TaskItem task={item} onPress={handlePress} keepsCompleted />
+        )}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
