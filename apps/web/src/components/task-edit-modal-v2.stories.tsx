@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 import { makeTask } from "./__stories__/mocks";
@@ -121,12 +121,27 @@ export const NoTagsAffordance: Story = {
 };
 
 /**
- * The today → task-date span drawn as an arc. Both cells sit on the visible
- * week row with room between them, so the stroke is drawn and the days it
- * crosses are tinted as a runway. (The clock is frozen to Thu 2026-01-15, so
- * "two days out" lands on Saturday — same row, one cell of gap.)
+ * Freezes the travelling band partway along the span.
+ *
+ * Chromatic pauses CSS animations at their first frame, and at t=0 the band is
+ * still parked off the left edge — so without this the wave would never appear
+ * in a snapshot. A negative delay plus `paused` pins it to a fixed, repeatable
+ * moment mid-sweep instead.
  */
-export const SpanArcInWeek: Story = {
+const frozenMidSweep: Decorator = (Story) => (
+  <>
+    <style>{`.dd-wave-band { animation-delay: -1150ms !important; animation-play-state: paused !important; }`}</style>
+    <Story />
+  </>
+);
+
+/**
+ * The today → task-date span as a wave: a soft band of light travelling from
+ * today to the selected day, over the runway tint. (The clock is frozen to Thu
+ * 2026-01-15, so "two days out" lands on Saturday.)
+ */
+export const SpanWaveInWeek: Story = {
+  decorators: [frozenMidSweep],
   args: {
     task: makeTask({
       title: "Draft the offsite agenda",
@@ -140,11 +155,12 @@ export const SpanArcInWeek: Story = {
 };
 
 /**
- * A span that wraps onto the second week row. There's no single stroke to draw
- * across two rows, so the arc stays out of it and the runway tint carries the
- * distance on its own — with the header above naming the date and the gap.
+ * A span that wraps onto the second week row. Each row clips its own window
+ * onto one shared coordinate space, so the band crosses the whole span exactly
+ * once and reads as a single sweep rather than restarting on row two.
  */
 export const SpanWrappedToNextRow: Story = {
+  decorators: [frozenMidSweep],
   args: {
     task: makeTask({
       title: "Renew the domain",
@@ -162,10 +178,12 @@ export const SpanWrappedToNextRow: Story = {
 };
 
 /**
- * The month scroll view, where the runway and the arc carry across a full
- * month grid rather than a single week strip.
+ * The month scroll view. The wave sits behind these 28px cells and glows
+ * through them, which is why it works here where a drawn stroke would have cut
+ * across the day numbers.
  */
 export const SpanInMonthGrid: Story = {
+  decorators: [frozenMidSweep],
   args: {
     task: makeTask({
       title: "Book the venue",
