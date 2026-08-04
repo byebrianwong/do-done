@@ -69,6 +69,13 @@ The HTTP endpoint is stateless: a fresh `createDoDoneServer()` per request, boun
 to the authenticated user. That per-request construction is required, not an
 optimisation — the tool registrars capture their user id at construction time.
 
+Anything on this surface that touches dates has to say **which** date it means:
+DoDone schedules on `when_date` and almost never sets `due_date`, so a client
+that equates "dated" with "has a deadline" reports a full week as empty. Tools
+answer date questions via `get_agenda`, emit every date with its relative
+reading, and resolve "today" through the user's timezone rather than the
+process clock (UTC when hosted). See `packages/mcp-server/CLAUDE.md` → Dates.
+
 ### OAuth
 
 Claude's custom-connector UI speaks **OAuth only** — its form takes a URL and an

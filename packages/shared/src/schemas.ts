@@ -259,8 +259,13 @@ export const TaskFilterInput = z.object({
   status: TaskStatus.optional(),
   project_id: z.string().uuid().optional(),
   priority: TaskPriority.optional(),
+  // Deadline window (due_date). Rarely what a caller wants — most DoDone
+  // scheduling lives on when_date, so reach for when_before/when_after first.
   due_before: z.string().date().optional(),
   due_after: z.string().date().optional(),
+  // Do-date window (when_date), inclusive on both ends.
+  when_before: z.string().date().optional(),
+  when_after: z.string().date().optional(),
   search_query: z.string().optional(),
   tags: z.array(z.string()).optional(),
   limit: z.number().int().positive().max(100).default(50),
