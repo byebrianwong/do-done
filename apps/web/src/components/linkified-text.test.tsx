@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { LinkifiedText } from "./linkified-text";
 
 describe("LinkifiedText", () => {
@@ -46,5 +46,25 @@ describe("LinkifiedText", () => {
     link.addEventListener("click", (e) => e.preventDefault());
     link.click();
     expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("lets mousedown reach a draggable ancestor so the row still drags", () => {
+    // dnd-kit activates on the row's onMouseDown. Swallowing it here would
+    // make a task whose title is mostly a URL impossible to drag.
+    const onRowMouseDown = vi.fn();
+    render(
+      <div onMouseDown={onRowMouseDown}>
+        <LinkifiedText text="open https://example.com/" />
+      </div>
+    );
+    fireEvent.mouseDown(screen.getByRole("link"));
+    expect(onRowMouseDown).toHaveBeenCalled();
+  });
+
+  it("opts out of the browser's native link drag", () => {
+    // Without this the browser drags the URL itself, beating dnd-kit to the
+    // gesture before its 4px activation threshold.
+    render(<LinkifiedText text="open https://example.com/" />);
+    expect(screen.getByRole("link")).toHaveAttribute("draggable", "false");
   });
 });

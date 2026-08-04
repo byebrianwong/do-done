@@ -53,6 +53,7 @@ import {
 } from "@/lib/location-queries";
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
 import { LocationReminderSheet } from "./LocationReminderSheet";
+import { LinkifiedText } from "./LinkifiedText";
 import {
   Gesture,
   GestureDetector,
@@ -974,6 +975,48 @@ export function locationReminderLabel(links: TaskLocationLink[]): string {
     : `${places} places`;
 }
 
+/**
+ * Notes, with URLs rendered as tappable links.
+ *
+ * A `TextInput` can only ever hold dead text, so notes — the field a URL is
+ * most likely to be pasted into — swap between a linkified read view and the
+ * editor: tap the notes to edit, blur to go back to links. Empty notes go
+ * straight to the input so the "add notes" affordance still takes one tap.
+ */
+function NotesField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (next: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const text = value ?? "";
+
+  if (editing || text.length === 0) {
+    return (
+      <TextInput
+        value={text}
+        autoFocus={editing}
+        onChangeText={(v) => onChange(v.length === 0 ? null : v)}
+        onBlur={() => setEditing(false)}
+        placeholder="Tap to add notes…"
+        placeholderTextColor="#9ca3af"
+        multiline
+        style={styles.notesInput}
+      />
+    );
+  }
+
+  return (
+    // A tap that lands on a link opens it (the link's own onPress takes the
+    // tap); anywhere else in the box switches to the editor.
+    <Pressable onPress={() => setEditing(true)} style={styles.notesBox}>
+      <LinkifiedText text={text} style={styles.notesText} />
+    </Pressable>
+  );
+}
+
 function RepeatRow({
   value,
   onChange,
@@ -1046,12 +1089,11 @@ function SubtaskRow({
         style={styles.subtaskTitleBtn}
         accessibilityLabel={`Open ${task.title}`}
       >
-        <Text
+        <LinkifiedText
+          text={task.title}
           numberOfLines={1}
           style={[styles.subtaskTitle, done && styles.subtaskTitleDone]}
-        >
-          {task.title}
-        </Text>
+        />
       </Pressable>
       <Pressable
         onPress={onOpen}
@@ -1764,15 +1806,9 @@ function Inner({
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Notes</Text>
           </View>
-          <TextInput
-            value={current.description ?? ""}
-            onChangeText={(v) =>
-              setField("description", v.length === 0 ? null : v)
-            }
-            placeholder="Tap to add notes…"
-            placeholderTextColor="#9ca3af"
-            multiline
-            style={styles.notesInput}
+          <NotesField
+            value={current.description}
+            onChange={(v) => setField("description", v)}
           />
         </View>
 
@@ -2420,6 +2456,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#374151",
     minHeight: 60,
+  },
+  // Same box as notesInput for the read view — the font lives on the Text
+  // inside it, since a View can't carry text styles.
+  notesBox: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 60,
+  },
+  notesText: {
+    fontSize: 14,
+    color: "#374151",
   },
 
   bottomBar: {

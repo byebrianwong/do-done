@@ -48,6 +48,19 @@ export const Single: Story = {
   },
 };
 
+export const UrlInTitle: Story = {
+  args: {
+    tasks: [
+      makeTask({
+        title: "Renew the domain https://example.com/billing",
+        priority: "p1",
+        when_date: yesterday,
+      }),
+    ],
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
 export const Multiple: Story = {
   args: {
     tasks: [

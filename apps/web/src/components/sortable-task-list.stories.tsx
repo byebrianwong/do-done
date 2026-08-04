@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SortableTaskList } from "./sortable-task-list";
-import { SAMPLE_TASKS, SAMPLE_PROJECTS } from "./__stories__/mocks";
+import { SAMPLE_TASKS, SAMPLE_PROJECTS, makeTask } from "./__stories__/mocks";
 
 const meta: Meta<typeof SortableTaskList> = {
   title: "Components/SortableTaskList",
@@ -29,4 +29,16 @@ export const FiveTasks: Story = {
 
 export const Empty: Story = {
   args: { tasks: [], projects: SAMPLE_PROJECTS },
+};
+
+// A row whose title is mostly a link still reorders by dragging that link —
+// the anchor lets mousedown through, and only a click (no drag) follows it.
+export const UrlInTitle: Story = {
+  args: {
+    tasks: [
+      makeTask({ id: "url-1", title: "https://example.com/billing", priority: "p1" }),
+      ...SAMPLE_TASKS.filter((t) => t.status !== "done").slice(0, 3),
+    ],
+    projects: SAMPLE_PROJECTS,
+  },
 };

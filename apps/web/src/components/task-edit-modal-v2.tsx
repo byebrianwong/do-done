@@ -27,6 +27,7 @@ import {
 } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
 import { ProjectPickerPopover } from "./project-picker";
+import { LinkifiedText } from "./linkified-text";
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -1130,27 +1131,31 @@ function SubtaskRow({
       >
         {done ? <span className="text-[10px] leading-none">✓</span> : null}
       </button>
-      {/* The title opens the subtask in its own modal view. A button (not the
-          row) so it doesn't swallow clicks meant for the toggle / delete. */}
-      <button
-        type="button"
+      {/* The title opens the subtask in its own modal view. Clickable but not
+          a <button>: it linkifies its URLs, and an <a> inside a <button> is
+          invalid. Keyboard access to "open" is the chevron below, which is a
+          real button — so this stays out of the tab order rather than nesting
+          a link inside something focusable. It's still its own element (not
+          the row) so it doesn't swallow clicks meant for the toggle/delete. */}
+      <div
         onClick={onOpen}
         title={`Open “${task.title}”`}
-        className={`min-w-0 flex-1 truncate text-left text-[13px] transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
+        className={`min-w-0 flex-1 cursor-pointer truncate text-left text-[13px] transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
           done
             ? "text-neutral-400 line-through dark:text-neutral-600"
             : "text-neutral-800 dark:text-neutral-200"
         }`}
       >
-        {task.title}
-      </button>
+        <LinkifiedText text={task.title} />
+      </div>
       {/* Open affordance — a subtle chevron that appears on hover, echoing the
-          "row is navigable" cue. */}
+          "row is navigable" cue. It also carries this row's keyboard access to
+          "open", so focus has to reveal it too, not just hover. */}
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Open ${task.title}`}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-neutral-300 opacity-0 transition-all hover:bg-neutral-100 hover:text-neutral-600 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-neutral-300 opacity-0 transition-all hover:bg-neutral-100 hover:text-neutral-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800"
       >
         <svg
           className="h-3.5 w-3.5"
@@ -1307,6 +1312,68 @@ function SubtasksSection({
           )
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// ─── Notes field ────────────────────────────────────────────
+
+/**
+ * Notes, with URLs rendered as clickable links.
+ *
+ * A `<textarea>` can only ever hold dead text, so notes — the field a URL is
+ * most likely to be pasted into — swap between a linkified read view and the
+ * editor: click the notes to edit, blur to go back to links. Empty notes go
+ * straight to the textarea so the "add notes" affordance still takes one click.
+ */
+function NotesField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (next: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const text = value ?? "";
+
+  // One box shared by both states — same padding, border and min-height — so
+  // swapping between them doesn't nudge the layout. The min-height carries the
+  // sizing rather than `rows`, which measures differently from a block element.
+  const box =
+    "w-full min-h-[5.25rem] rounded-lg border px-3.5 py-2.5 text-[13px] text-neutral-700 border-neutral-100 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-900 dark:text-neutral-300";
+
+  if (editing || text.length === 0) {
+    return (
+      <textarea
+        value={text}
+        autoFocus={editing}
+        onChange={(e) => onChange(e.target.value || null)}
+        onBlur={() => setEditing(false)}
+        placeholder="Tap to add notes…"
+        className={`${box} block outline-none transition-colors focus:border-indigo-300 focus:bg-white dark:focus:border-indigo-700 dark:focus:bg-neutral-950`}
+      />
+    );
+  }
+
+  return (
+    <div
+      // Not a <button>: the read view contains anchors, and an <a> inside a
+      // <button> is invalid. A click that lands on a link follows it (the
+      // anchor stops propagation) — anywhere else opens the editor.
+      role="textbox"
+      tabIndex={0}
+      aria-label="Notes"
+      onClick={() => setEditing(true)}
+      // Only a focus on the box itself (tabbing in) opens the editor. React's
+      // onFocus is focusin, which bubbles — without this guard, clicking a
+      // link focuses the anchor, unmounts the read view mid-click and the
+      // navigation never happens.
+      onFocus={(e) => {
+        if (e.target === e.currentTarget) setEditing(true);
+      }}
+      className={`${box} cursor-text whitespace-pre-wrap break-words outline-none`}
+    >
+      <LinkifiedText text={text} />
     </div>
   );
 }
@@ -2334,12 +2401,9 @@ function TaskEditModalBody({
             <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-neutral-400">
               Notes
             </div>
-            <textarea
-              value={current.description ?? ""}
-              onChange={(e) => setField("description", e.target.value || null)}
-              placeholder="Tap to add notes…"
-              rows={3}
-              className="w-full rounded-lg border border-neutral-100 bg-neutral-50 px-3.5 py-2.5 text-[13px] text-neutral-700 outline-none transition-colors focus:border-indigo-300 focus:bg-white dark:border-neutral-900 dark:bg-neutral-900 dark:text-neutral-300 dark:focus:border-indigo-700 dark:focus:bg-neutral-950"
+            <NotesField
+              value={current.description}
+              onChange={(v) => setField("description", v)}
             />
           </div>
         </div>

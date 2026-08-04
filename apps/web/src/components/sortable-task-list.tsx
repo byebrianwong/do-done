@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { TaskItem } from "./task-item";
+import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 
 export interface SortableTaskListProps {
@@ -65,7 +66,9 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group/row flex touch-manipulation items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800"
+      className={`group/row flex touch-manipulation items-stretch border-b border-neutral-100 last:border-b-0 dark:border-neutral-800 ${
+        isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""
+      }`}
     >
       <DragHandleIndicator />
       <div className="min-w-0 flex-1">

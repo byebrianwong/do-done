@@ -8,7 +8,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Captured so individual tests can assert which field the pickers wrote.
-const { setFieldSpy } = vi.hoisted(() => ({ setFieldSpy: vi.fn() }));
+// `subtasks` is mutable so a test can stock the subtask list the modal loads.
+const { setFieldSpy, subtasks } = vi.hoisted(() => ({
+  setFieldSpy: vi.fn(),
+  subtasks: { current: [] as unknown[] },
+}));
 
 // The modal autosaves and loads calendar busyness; stub the data layer so we
 // can assert its responsive container without a backend.
@@ -24,7 +28,7 @@ vi.mock("@do-done/api-client", () => ({
   }),
   TasksApi: class {
     async listSubtasks() {
-      return { data: [] };
+      return { data: subtasks.current };
     }
     async update() {
       return { data: null, error: null };
@@ -40,6 +44,7 @@ vi.mock("@do-done/api-client", () => ({
 
 beforeEach(() => {
   setFieldSpy.mockClear();
+  subtasks.current = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -188,5 +193,101 @@ describe("Do-time quick scroll", () => {
     fireEvent.click(dialog.getByText(/Specific time/));
     const input = dialog.getByDisplayValue("") as HTMLInputElement;
     expect(input.type).toBe("time");
+  });
+});
+
+describe("Notes", () => {
+  it("renders URLs in saved notes as links", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "Spec: https://example.com/spec" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    const link = screen.getByRole("link", { name: "https://example.com/spec" });
+    expect(link).toHaveAttribute("href", "https://example.com/spec");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("swaps to the textarea when the notes are clicked", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "Spec: https://example.com/spec" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole("textbox", { name: "Notes" }));
+    expect(
+      screen.getByDisplayValue("Spec: https://example.com/spec")
+    ).toBeInTheDocument();
+  });
+
+  it("stays in the read view when a link inside it takes focus", () => {
+    // focusin bubbles, so an unguarded onFocus on the box would unmount the
+    // read view as the anchor focuses — killing the click that follows it.
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "Spec: https://example.com/spec" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.focusIn(screen.getByRole("link"));
+    expect(screen.queryByDisplayValue(/example\.com/)).toBeNull();
+    expect(screen.getByRole("link")).toBeInTheDocument();
+  });
+
+  it("shows the textarea straight away when there are no notes", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: null })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByPlaceholderText("Tap to add notes…")).toBeInTheDocument();
+  });
+
+  it("keeps line breaks in the read view", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "one\ntwo" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("textbox", { name: "Notes" }).className).toContain(
+      "whitespace-pre-wrap"
+    );
+  });
+});
+
+describe("Subtask rows", () => {
+  it("renders URLs in a subtask title as links", async () => {
+    subtasks.current = [
+      makeTask({ id: "sub-1", title: "Read https://example.com/rfc/42" }),
+    ];
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+    const link = await screen.findByRole("link", {
+      name: "https://example.com/rfc/42",
+    });
+    expect(link).toHaveAttribute("href", "https://example.com/rfc/42");
+    // An <a> inside a <button> is invalid HTML and browsers handle it
+    // inconsistently — the title must not be a button any more.
+    expect(link.closest("button")).toBeNull();
+  });
+
+  it("keeps a keyboard route to 'open' now that the title isn't a button", async () => {
+    subtasks.current = [
+      makeTask({ id: "sub-1", title: "Read https://example.com/rfc/42" }),
+    ];
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+    const open = await screen.findByRole("button", {
+      name: "Open Read https://example.com/rfc/42",
+    });
+    // Hover-only reveal would strand keyboard users on an invisible control.
+    expect(open.className).toContain("focus-visible:opacity-100");
   });
 });
