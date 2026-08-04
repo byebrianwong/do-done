@@ -138,6 +138,21 @@ To check: `ls node_modules/.pnpm | grep '^vitest@'` should print exactly one
 line after `pnpm install --frozen-lockfile` (a dirty `node_modules` keeps stale
 directories around and will show more).
 
+**`react` is pinned the same way, for the same reason.** A package that ships a
+hook (`packages/api-client`, whose `useAutoSaveTask` the task editors share)
+needs `react` only as a devDependency, but pnpm resolves that copy separately —
+and then anything with a `react` peer that the package pulls in (`use-debounce`)
+resolves against *it*, not the app's. Render such a hook in a jsdom test and it
+runs against a second React whose dispatcher is null:
+`Cannot read properties of null (reading 'useRef')`. `packages/api-client` is
+therefore pinned to the exact version `apps/web` uses (`19.2.4`, no caret), and
+`apps/web/vitest.config.ts` sets `resolve.dedupe: ["react", "react-dom"]` as a
+backstop. `apps/mobile` stays on Expo's `19.1.0` — no vitest, nothing to split.
+
+The pre-existing workaround for the old breakage is the `vi.mock` of
+`./task-edit-modal-v2` in `task-item.test.tsx` and `draggable-upcoming.test.tsx`;
+those isolate the modal for speed too, so they were left alone.
+
 Note `pnpm test -- --force` passes `--force` to vitest, not turbo. To bypass the
 turbo cache, call it directly: `./node_modules/.bin/turbo run test --force`.
 

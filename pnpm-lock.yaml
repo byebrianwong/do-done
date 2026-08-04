@@ -307,7 +307,7 @@ importers:
         version: 2.103.0
       use-debounce:
         specifier: ^10.1.1
-        version: 10.1.1(react@19.2.6)
+        version: 10.1.1(react@19.2.4)
     devDependencies:
       '@types/node':
         specifier: ^20.19.39
@@ -316,8 +316,8 @@ importers:
         specifier: ^19.2.14
         version: 19.2.14
       react:
-        specifier: ^19.2.6
-        version: 19.2.6
+        specifier: 19.2.4
+        version: 19.2.4
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -5787,10 +5787,6 @@ packages:
 
   react@19.2.4:
     resolution: {integrity: sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ==}
-    engines: {node: '>=0.10.0'}
-
-  react@19.2.6:
-    resolution: {integrity: sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==}
     engines: {node: '>=0.10.0'}
 
   recast@0.23.11:
@@ -13105,8 +13101,6 @@ snapshots:
 
   react@19.2.4: {}
 
-  react@19.2.6: {}
-
   recast@0.23.11:
     dependencies:
       ast-types: 0.16.1
@@ -13990,9 +13984,9 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.1.17
 
-  use-debounce@10.1.1(react@19.2.6):
+  use-debounce@10.1.1(react@19.2.4):
     dependencies:
-      react: 19.2.6
+      react: 19.2.4
 
   use-latest-callback@0.2.6(react@19.1.0):
     dependencies:

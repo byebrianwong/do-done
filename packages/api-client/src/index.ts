@@ -11,8 +11,14 @@ export { BusynessApi, groupTasksByDate, buildDaysInRange } from "./busyness.js";
 export type { BusyItem, DayBusyness } from "./busyness.js";
 export { UserPrefsApi } from "./user-prefs.js";
 export type { PetSettingsPatch } from "./user-prefs.js";
-export { useAutoSaveTask } from "./use-autosave-task.js";
+export {
+  useAutoSaveTask,
+  nextSaveStatus,
+  SAVED_FLASH_MS,
+} from "./use-autosave-task.js";
 export type {
   UseAutoSaveTaskResult,
   UseAutoSaveTaskOptions,
+  SaveStatus,
+  SaveEvent,
 } from "./use-autosave-task.js";
