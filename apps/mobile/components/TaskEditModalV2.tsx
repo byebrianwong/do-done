@@ -45,6 +45,7 @@ import {
   useAutoSaveTask,
   BusynessApi,
   type DayBusyness,
+  type SaveStatus,
   type TasksApi,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
@@ -393,20 +394,61 @@ export function PickerSheet({
   );
 }
 
-function SaveStatusDot({
-  saving,
-  hasError,
-}: {
-  saving: boolean;
-  hasError: boolean;
-}) {
-  const color = hasError ? "#ef4444" : saving ? "#f59e0b" : "#16a34a";
+/**
+ * Copy and colour per save phase. `pending` and `saving` deliberately read the
+ * same: the user doesn't care whether the request has left yet, only that the
+ * edit is in hand and not on the server. Rendering them identically also means
+ * the debounce elapsing doesn't cause a second, meaningless flicker.
+ */
+const SAVE_STATUS_COPY: Record<SaveStatus, { label: string; color: string }> = {
+  idle: { label: "Auto-saves", color: "#9ca3af" },
+  pending: { label: "Saving…", color: "#f59e0b" },
+  saving: { label: "Saving…", color: "#f59e0b" },
+  saved: { label: "Saved", color: "#16a34a" },
+  error: { label: "Save failed", color: "#ef4444" },
+};
+
+function SaveStatusDot({ status }: { status: SaveStatus }) {
+  const { label, color } = SAVE_STATUS_COPY[status];
+  const inFlight = status === "pending" || status === "saving";
+
+  // Pulse while there's unsaved work. The colour change alone is a single
+  // frame's worth of signal at the edge of the user's vision; movement is what
+  // actually gets noticed, and it stops the moment the edit is safe.
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!inFlight) {
+      pulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.3,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [inFlight, pulse]);
+
   return (
-    <View style={styles.statusRow}>
-      <View style={[styles.statusDot, { backgroundColor: color }]} />
-      <Text style={styles.statusText}>
-        {hasError ? "save failed" : saving ? "saving…" : "Saved"}
-      </Text>
+    <View
+      style={styles.statusRow}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={label}
+    >
+      <Animated.View
+        style={[styles.statusDot, { backgroundColor: color, opacity: pulse }]}
+      />
+      <Text style={[styles.statusText, { color }]}>{label}</Text>
     </View>
   );
 }
@@ -1668,8 +1710,7 @@ function Inner({
     setField,
     undoAll,
     hasChanges,
-    isSaving,
-    lastError,
+    status: saveStatus,
   } = useAutoSaveTask(task, tasksApiMemo, {
     // Reconcile the TanStack Query lists after each commit. Doing it here (not
     // on modal close) means the refetch reads the row *after* the PATCH lands,
@@ -1799,7 +1840,7 @@ function Inner({
         ) : (
           <View style={{ width: 80 }} />
         )}
-        <SaveStatusDot saving={isSaving} hasError={!!lastError} />
+        <SaveStatusDot status={saveStatus} />
         <Pressable onPress={onClose} style={styles.closeBtn}>
           <Text style={styles.closeBtnText}>×</Text>
         </Pressable>
@@ -2135,12 +2176,28 @@ function Inner({
           <Text style={styles.deleteBtnLabel}>Delete</Text>
         </Pressable>
         <Pressable onPress={onClose} style={styles.doneBtn}>
-          <View style={styles.doneBtnCheck}>
-            <Text style={styles.doneBtnCheckMark}>✓</Text>
+          {/* The check and its caption are a claim about the user's data, so
+              they track the same status the top-bar indicator does — "all
+              saved" under an unsent keystroke is the same lie, bigger font. */}
+          <View
+            style={[
+              styles.doneBtnCheck,
+              { backgroundColor: SAVE_STATUS_COPY[saveStatus].color },
+            ]}
+          >
+            <Text style={styles.doneBtnCheckMark}>
+              {saveStatus === "error" ? "!" : "✓"}
+            </Text>
           </View>
           <View>
             <Text style={styles.doneBtnPrimary}>Done</Text>
-            <Text style={styles.doneBtnSub}>all saved</Text>
+            <Text style={styles.doneBtnSub}>
+              {saveStatus === "error"
+                ? "save failed"
+                : saveStatus === "pending" || saveStatus === "saving"
+                  ? "saving…"
+                  : "all saved"}
+            </Text>
           </View>
         </Pressable>
       </View>
@@ -2202,7 +2259,8 @@ const styles = StyleSheet.create({
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 7, height: 7, borderRadius: 3.5 },
-  statusText: { fontSize: 12, color: "#16a34a", fontWeight: "600" },
+  // Colour is set per save phase at the call site.
+  statusText: { fontSize: 12, fontWeight: "600" },
 
   body: { flex: 1 },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 24 },
@@ -2791,7 +2849,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "#16a34a",
+    // Colour is set per save phase at the call site.
     alignItems: "center",
     justifyContent: "center",
   },

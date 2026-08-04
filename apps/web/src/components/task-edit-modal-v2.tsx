@@ -25,6 +25,7 @@ import {
   useAutoSaveTask,
   TasksApi,
   type DayBusyness,
+  type SaveStatus,
 } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
 import { ProjectPickerPopover } from "./project-picker";
@@ -63,36 +64,42 @@ function startOfWeek(d: Date): Date {
 
 // ─── Sub-components ────────────────────────────────────────
 
+/**
+ * Copy and tone per save phase. `pending` and `saving` deliberately read the
+ * same: the user doesn't care whether the request has left yet, only that the
+ * edit is in hand and not on the server. Rendering them identically also means
+ * the debounce elapsing doesn't cause a second, meaningless flicker.
+ */
+const SAVE_STATUS_COPY: Record<
+  SaveStatus,
+  { label: string; dot: string; text: string }
+> = {
+  idle: { label: "Auto-saves", dot: "bg-neutral-300", text: "text-neutral-500" },
+  pending: { label: "Saving…", dot: "bg-amber-500", text: "text-amber-600" },
+  saving: { label: "Saving…", dot: "bg-amber-500", text: "text-amber-600" },
+  saved: { label: "Saved", dot: "bg-green-500", text: "text-green-600" },
+  error: { label: "Save failed", dot: "bg-red-500", text: "text-red-600" },
+};
+
 function SaveStatusDot({
-  saving,
-  lastSavedAt,
+  status,
   error,
 }: {
-  saving: boolean;
-  lastSavedAt: Date | null;
+  status: SaveStatus;
   error: Error | null;
 }) {
-  const tone = error
-    ? "bg-red-500"
-    : saving
-      ? "bg-amber-500"
-      : "bg-green-500";
-  const label = error
-    ? "save failed"
-    : saving
-      ? "saving…"
-      : lastSavedAt
-        ? "auto-save"
-        : "auto-save";
+  const { label, dot, text } = SAVE_STATUS_COPY[status];
+  // Pulse only while there's unsaved work — movement is what gets noticed at
+  // the edge of vision, and it stops the moment the edit is safe.
+  const inFlight = status === "pending" || status === "saving";
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-neutral-500"
-      title={error ? error.message : "Changes auto-save"}
+      className={`inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors ${text}`}
+      title={status === "error" && error ? error.message : "Changes auto-save"}
+      aria-live="polite"
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${tone} ${
-          saving || lastSavedAt ? "animate-pulse" : ""
-        }`}
+        className={`h-1.5 w-1.5 rounded-full ${dot} ${inFlight ? "animate-pulse" : ""}`}
       />
       {label}
     </span>
@@ -677,7 +684,19 @@ export function useClickOutside(
   }, [ref, onOutside]);
 }
 
-function DoneButton({ onClick }: { onClick: () => void }) {
+function DoneButton({
+  onClick,
+  status,
+}: {
+  onClick: () => void;
+  status: SaveStatus;
+}) {
+  // The subtitle is a claim about the user's data, so it has to track the same
+  // status the indicator does — "all saved" sitting under a keystroke that
+  // hasn't left the device is the same lie, just in a bigger font.
+  const pending = status === "pending" || status === "saving";
+  const subtitle =
+    status === "error" ? "save failed" : pending ? "saving…" : "all saved";
   return (
     <button
       type="button"
@@ -685,12 +704,20 @@ function DoneButton({ onClick }: { onClick: () => void }) {
       title="Close (all changes auto-saved)"
       className="group inline-flex items-center gap-2.5 rounded-lg bg-indigo-500 px-3.5 py-2 text-white shadow-lg shadow-indigo-500/30 transition-colors hover:bg-indigo-600"
     >
-      <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-green-500 text-[12px] font-bold">
+      <span
+        className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-[12px] font-bold transition-colors ${
+          status === "error"
+            ? "bg-red-500"
+            : pending
+              ? "animate-pulse bg-amber-500"
+              : "bg-green-500"
+        }`}
+      >
         ✓
       </span>
       <span className="flex flex-col items-start leading-tight">
         <span className="text-[13px] font-bold">Done</span>
-        <span className="text-[10px] font-medium text-white/75">all saved</span>
+        <span className="text-[10px] font-medium text-white/75">{subtitle}</span>
       </span>
       <span className="ml-0.5 rounded bg-white/20 px-1.5 text-[10px] font-mono">
         Esc
@@ -2237,8 +2264,7 @@ function TaskEditModalBody({
     setField,
     undoAll,
     hasChanges,
-    lastSavedAt,
-    isSaving,
+    status: saveStatus,
     lastError,
   } = useAutoSaveTask(task, tasksApi, {
     // Re-run the server components so the list views pick up the row that was
@@ -2479,11 +2505,7 @@ function TaskEditModalBody({
                 </span>
               </button>
             ) : null}
-            <SaveStatusDot
-              saving={isSaving}
-              lastSavedAt={lastSavedAt}
-              error={lastError}
-            />
+            <SaveStatusDot status={saveStatus} error={lastError} />
           </div>
           <div className="flex shrink-0 items-center gap-3.5">
             {/* Always rendered so the top bar height is stable; toggled via
@@ -2638,7 +2660,7 @@ function TaskEditModalBody({
               <span className="mx-1">close</span>
             </div>
           </div>
-          <DoneButton onClick={handleClose} />
+          <DoneButton onClick={handleClose} status={saveStatus} />
         </div>
       </div>
     </div>

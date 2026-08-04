@@ -27,6 +27,7 @@ vi.mock("@do-done/api-client", () => ({
     hasChanges: false,
     lastSavedAt: null,
     isSaving: false,
+    status: "idle",
     lastError: null,
   }),
   TasksApi: class {
