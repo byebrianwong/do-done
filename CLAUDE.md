@@ -130,13 +130,25 @@ is a direct dependent of no package here, so its `/vitest` entry resolves
 whatever copy it lands on. When `apps/web` was on 4.x and `packages/*` on 3.x it
 extended the copy no test ran against, and all 26 `toBeInTheDocument()`
 assertions failed with `Invalid Chai property`. Same-version-but-two-physical-
-copies does it too, so `@types/node` is pinned to `^20.19.39` across the
-packages to stop pnpm peer-splitting the install. `apps/mobile` is deliberately
-on `^25` — it has no vitest, so it can't split anything.
+copies does it too, so `@types/node` is pinned to `^20.19.39` across **every**
+workspace package, `apps/mobile` included, to stop pnpm peer-splitting the
+install.
 
 To check: `ls node_modules/.pnpm | grep '^vitest@'` should print exactly one
 line after `pnpm install --frozen-lockfile` (a dirty `node_modules` keeps stale
-directories around and will show more).
+directories around and will show more). `grep '^@types+node@'` should print one
+line too.
+
+**`apps/mobile` tests logic only — there is no renderer.** `vitest.config.ts`
+there runs `lib/**/*.test.ts` in a node environment and nothing else. Anything
+that draws needs a device or a simulator, and neither exists in CI; a jsdom shim
+would only prove things about a React Native that isn't the one that ships. What
+the suite is for is the sequencing the eye can't check on a device anyway —
+`toggleComplete`'s completion hold, for instance, where the write must go out
+before the row leaves and the invalidate must not land during the animation.
+Modules that reach for native code (`./supabase`, `./widgets`,
+`./query-client`, `./location-queries`) are `vi.mock`ed per test file, so each
+test names the seam it stands in for rather than relying on a global setup.
 
 **`react` is pinned the same way, for the same reason.** A package that ships a
 hook (`packages/api-client`, whose `useAutoSaveTask` the task editors share)
