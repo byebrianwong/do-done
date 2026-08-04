@@ -11,6 +11,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  datesBetweenLocalISO,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -720,6 +721,135 @@ function busyDotWidthClass(minutes: number): string {
   return "w-[28px]";
 }
 
+// ─── Today → task-date span ────────────────────────────────
+
+type ArcGeometry = { x1: number; x2: number; y: number };
+
+/**
+ * How the today → task-date span can be drawn on a given grid:
+ *   arc      — both cells on one row with room between them; draw the stroke
+ *   adjacent — both visible but touching; the two cell markers say it already
+ *   none     — the target isn't on this grid, or wrapped to another row
+ */
+type SpanArcState =
+  | { kind: "arc"; geom: ArcGeometry }
+  | { kind: "adjacent" }
+  | { kind: "none" };
+
+const NO_ARC: SpanArcState = { kind: "none" };
+
+/**
+ * Screen geometry for the arc connecting the "today" cell to the selected task
+ * date, measured from the DOM inside `gridRef`. The cells are fluid-width
+ * (`grid-cols-7` in a modal that resizes with the viewport), so their rendered
+ * rects are the only reliable source — grid maths would drift.
+ *
+ * A span that wraps to the next week has no sensible single arc, so it reports
+ * "none" and the caller falls back to the text summary.
+ */
+function useSpanArc(
+  gridRef: React.RefObject<HTMLDivElement | null>,
+  fromDate: string,
+  toDate: string | null
+): SpanArcState {
+  const [state, setState] = useState<SpanArcState>(NO_ARC);
+
+  useEffect(() => {
+    const el = gridRef.current;
+    // Only forward spans get an arc — a task dated today or in the past has
+    // no distance to draw.
+    if (!el || !toDate || toDate <= fromDate) {
+      setState(NO_ARC);
+      return;
+    }
+    const measure = () => {
+      const a = el.querySelector<HTMLElement>(`[data-date="${fromDate}"]`);
+      const b = el.querySelector<HTMLElement>(`[data-date="${toDate}"]`);
+      if (!a || !b) {
+        setState(NO_ARC);
+        return;
+      }
+      const base = el.getBoundingClientRect();
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      if (Math.abs(ra.top - rb.top) > 2) {
+        setState(NO_ARC); // wrapped onto a different week row
+        return;
+      }
+      const gap = rb.left - ra.right;
+      if (gap < 12) {
+        setState({ kind: "adjacent" });
+        return;
+      }
+      setState({
+        kind: "arc",
+        geom: {
+          x1: ra.right - base.left,
+          x2: rb.left - base.left,
+          // Two thirds down, not the middle: a cell holds its day number and
+          // its "tomorrow"/"weekend" caption in the top half, and a mid-height
+          // stroke crosses that caption like a strikethrough. This band sits
+          // under the captions and above the busy-dot row.
+          y: ra.top - base.top + ra.height * 0.68,
+        },
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [gridRef, fromDate, toDate]);
+
+  return state;
+}
+
+/**
+ * The arc itself. Keyed by the from→to pair at the call site so picking a new
+ * date remounts the path and replays the draw — the motion is confirmation of
+ * the choice the user just made, not decoration that loops.
+ */
+function SpanArc({ geom }: { geom: ArcGeometry }) {
+  const { x1, x2, y } = geom;
+  const width = x2 - x1;
+  // Shallow rise, capped: a long span shouldn't arc up out of the row.
+  const rise = Math.min(13, Math.max(5, width * 0.14));
+  const d = `M ${x1 + 3} ${y} C ${x1 + width * 0.3} ${y - rise}, ${
+    x2 - width * 0.3
+  } ${y - rise}, ${x2 - 6} ${y}`;
+
+  // Publish the path's own length so one keyframe animates any span width.
+  const setLength = useCallback((node: SVGPathElement | null) => {
+    if (node) {
+      node.style.setProperty(
+        "--dd-arc-len",
+        String(Math.ceil(node.getTotalLength()))
+      );
+    }
+  }, []);
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible"
+      aria-hidden="true"
+    >
+      <path
+        ref={setLength}
+        d={d}
+        className="dd-arc-draw fill-none stroke-indigo-400 dark:stroke-indigo-400/80"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <path
+        d={`M ${x2 - 12} ${y - 4.5} L ${x2 - 5} ${y} L ${x2 - 12} ${y + 4.5}`}
+        className="dd-arc-tip fill-none stroke-indigo-400 dark:stroke-indigo-400/80"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ── Month grid for the "See more dates" scroll view ──
 
 function MonthGrid({
@@ -727,6 +857,7 @@ function MonthGrid({
   month,
   todayStr,
   selectedDate,
+  spanDates,
   busyByDate,
   onPick,
 }: {
@@ -734,6 +865,8 @@ function MonthGrid({
   month: number; // 0-indexed
   todayStr: string;
   selectedDate: string | null;
+  /** Dates strictly between today and the selected date — the tinted runway. */
+  spanDates: Set<string>;
   busyByDate: Map<string, DayBusyness>;
   onPick: (date: string) => void;
 }) {
@@ -762,6 +895,11 @@ function MonthGrid({
       <div className="sticky top-0 z-10 -mx-2 mb-1 bg-neutral-50/95 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-500 backdrop-blur dark:bg-neutral-900/95 dark:text-neutral-400">
         {monthLabel}
       </div>
+      {/*
+        No arc here. These cells are 28px tall with the number centred, so a
+        stroke crossing the days in between would cut straight through their
+        digits — the runway tint carries the span on this grid instead.
+      */}
       <div className="grid grid-cols-7 gap-0.5">
         {cells.map((c, i) => {
           if (!c.date) {
@@ -771,6 +909,7 @@ function MonthGrid({
           const isPast = date < todayStr;
           const isToday = date === todayStr;
           const isActive = selectedDate === date;
+          const inSpan = spanDates.has(date);
           const day = busyByDate.get(date);
           const hasBusy = (day?.items?.length ?? 0) > 0;
           return (
@@ -787,8 +926,10 @@ function MonthGrid({
                   : isActive
                     ? "bg-indigo-500 text-white shadow-sm shadow-indigo-500/40"
                     : isToday
-                      ? "ring-1 ring-inset ring-indigo-400 text-indigo-700 dark:text-indigo-300"
-                      : "text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:ring-neutral-700"
+                      ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-400 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
+                      : inSpan
+                        ? "bg-indigo-500/[0.13] text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-indigo-500/20 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                        : "text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:ring-neutral-700"
               }`}
             >
               {c.day}
@@ -917,6 +1058,23 @@ function WhenCalendar({
     return m;
   }, [busyness]);
 
+  // The "runway": the days between now and when the task is scheduled. Only
+  // forward spans have one — a task dated today or overdue has no distance to
+  // show, and its own cell already carries the marker.
+  const spanDates = useMemo(() => {
+    if (!whenDate || whenDate <= todayStr) return new Set<string>();
+    return new Set(datesBetweenLocalISO(todayStr, whenDate));
+  }, [todayStr, whenDate]);
+
+  // The week strip's arc. Null when the task's date isn't on this row (further
+  // out than the visible week, or wrapped into week two) — the caller then
+  // shows the text summary instead, so the relationship is never lost.
+  // The week strip's arc. When the task's date isn't on this row the runway
+  // tint still runs to the edge of the grid, and the header above already
+  // spells the date and distance out ("Thursday, January 22nd · in 1 week").
+  const weekGridRef = useRef<HTMLDivElement | null>(null);
+  const weekArc = useSpanArc(weekGridRef, todayStr, whenDate);
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -943,12 +1101,16 @@ function WhenCalendar({
         ))}
       </div>
       {/* Current-week cells */}
-      <div className="grid grid-cols-7 gap-1">
+      <div ref={weekGridRef} className="relative grid grid-cols-7 gap-1">
+        {weekArc.kind === "arc" ? (
+          <SpanArc key={`${todayStr}->${whenDate}`} geom={weekArc.geom} />
+        ) : null}
         {cells.map((c) => {
           const isWeekend = c.weekday === 0 || c.weekday === 6;
           const isPast = c.date < todayStr;
           const isToday = c.date === todayStr;
           const isActive = whenDate === c.date;
+          const inSpan = spanDates.has(c.date);
           const numLabel = parseInt(c.date.split("-")[2], 10);
           const day = busyByDate.get(c.date);
           const dots = (day?.items ?? []).slice(0, 8);
@@ -965,6 +1127,7 @@ function WhenCalendar({
             <button
               type="button"
               key={c.date}
+              data-date={c.date}
               disabled={isPast}
               onClick={() => {
                 if (!isPast) onPickDate(c.date);
@@ -975,10 +1138,18 @@ function WhenCalendar({
                   : isActive
                     ? "border-indigo-500 bg-indigo-500 shadow-lg shadow-indigo-500/40 ring-2 ring-indigo-500/20 dark:bg-indigo-500"
                     : isToday
-                      ? "border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-900"
-                      : isWeekend
-                        ? "border-transparent bg-indigo-500/[0.035] hover:border-neutral-200 hover:bg-white dark:hover:bg-neutral-900"
-                        : "border-transparent bg-neutral-50 hover:border-neutral-200 hover:bg-white dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
+                      ? // Today used to read as a plain white cell, quieter than
+                        // every neighbour. It anchors the span now, so it gets
+                        // its own outline — one step below the selected fill.
+                        "border-indigo-400 bg-indigo-500/[0.10] dark:border-indigo-500/70 dark:bg-indigo-500/20"
+                      : inSpan
+                        ? // Weekends already carry a 0.035 indigo wash, so the
+                          // runway needs real separation from it to read as a
+                          // span rather than as another weekend.
+                          "border-transparent bg-indigo-500/[0.13] hover:border-neutral-200 hover:bg-white dark:bg-indigo-500/20 dark:hover:bg-neutral-900"
+                        : isWeekend
+                          ? "border-transparent bg-indigo-500/[0.035] hover:border-neutral-200 hover:bg-white dark:hover:bg-neutral-900"
+                          : "border-transparent bg-neutral-50 hover:border-neutral-200 hover:bg-white dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
               }`}
             >
               {isToday && !isActive && (
@@ -1087,6 +1258,7 @@ function WhenCalendar({
               month={m.month}
               todayStr={todayStr}
               selectedDate={whenDate}
+              spanDates={spanDates}
               busyByDate={busyByDate}
               onPick={onPickDate}
             />

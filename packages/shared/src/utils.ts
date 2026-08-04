@@ -24,6 +24,52 @@ export function addDaysLocalISO(days: number, from: Date = new Date()): string {
 }
 
 /**
+ * Signed whole-day distance from `from` to a local YYYY-MM-DD date: 0 = today,
+ * positive = future, negative = past. Returns null if `date` isn't parseable.
+ *
+ * Both ends are normalised to local midnight before subtracting, so a DST
+ * boundary inside the span can't round the result off by one.
+ */
+export function daysUntilLocalISO(
+  date: string,
+  from: Date = new Date()
+): number | null {
+  const target = new Date(date + "T00:00:00");
+  if (Number.isNaN(target.getTime())) return null;
+  const start = new Date(from);
+  start.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - start.getTime()) / 86_400_000);
+}
+
+/**
+ * The local YYYY-MM-DD dates strictly between `startISO` and `endISO` — the
+ * interior of a date span, with both endpoints excluded. Empty when the dates
+ * are equal, adjacent, out of order, or unparseable.
+ *
+ * This is the "runway" the calendar grids tint between today and the task's
+ * date; the endpoints are excluded because each already carries its own marker.
+ */
+export function datesBetweenLocalISO(
+  startISO: string,
+  endISO: string
+): string[] {
+  const start = new Date(startISO + "T00:00:00");
+  const end = new Date(endISO + "T00:00:00");
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+  const out: string[] = [];
+  const cursor = new Date(start);
+  cursor.setDate(cursor.getDate() + 1);
+  // Guard the loop on the ISO string rather than the timestamp: a DST shift
+  // moves local midnight by an hour, which a millisecond comparison would
+  // read as "still before the end" for one extra iteration.
+  while (todayLocalISO(cursor) < endISO) {
+    out.push(todayLocalISO(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return out;
+}
+
+/**
  * The Google Calendar events that belong on local day `dayISO` (YYYY-MM-DD).
  * All-day events span [start_date, end_date) — end exclusive, per Google —
  * so multi-day events appear on every covered day. Timed events belong to

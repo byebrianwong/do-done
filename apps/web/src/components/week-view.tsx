@@ -10,6 +10,7 @@ import {
   useDraggable,
   useDroppable,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   ModalAwareMouseSensor,
@@ -18,6 +19,8 @@ import {
 import type { CalendarEvent, Task, Project } from "@do-done/shared";
 import {
   PRIORITY_CONFIG,
+  datesBetweenLocalISO,
+  formatRelativeDay,
   groupCalendarEventsByDay,
   todayLocalISO,
 } from "@do-done/shared";
@@ -86,6 +89,16 @@ export function WeekView({
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayKey = todayLocalISO(today);
+
+  // The day currently under a dragged task. While it's set, the columns from
+  // today up to it are tinted as a runway — the same "how far out am I putting
+  // this" reading the task editor's calendar gives, applied to the drop.
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const dragSpan = useMemo(() => {
+    if (!dragOverDate || dragOverDate <= todayKey) return new Set<string>();
+    return new Set(datesBetweenLocalISO(todayKey, dragOverDate));
+  }, [dragOverDate, todayKey]);
 
   const prevWeekHref = (() => {
     const d = new Date(start);
@@ -103,8 +116,13 @@ export function WeekView({
     year: "numeric",
   });
 
+  function handleDragOver(e: DragOverEvent) {
+    setDragOverDate(e.over ? String(e.over.id) : null);
+  }
+
   async function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
+    setDragOverDate(null);
     if (!over) return;
     const taskId = String(active.id);
     const targetDate = String(over.id);
@@ -134,7 +152,13 @@ export function WeekView({
   }
 
   return (
-    <DndContext id="week-view-dnd" sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      id="week-view-dnd"
+      sensors={sensors}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setDragOverDate(null)}
+    >
       <div>
         <div className="mb-4 flex items-center gap-3">
           <Link
@@ -167,20 +191,44 @@ export function WeekView({
         <div className="grid grid-cols-[60px_repeat(7,minmax(0,1fr))] border-b border-neutral-200 dark:border-neutral-800">
           <div />
           {days.map((d) => {
+            const key = todayLocalISO(d);
             const isToday = d.getTime() === today.getTime();
+            const isDropTarget = dragOverDate === key;
+            const inSpan = dragSpan.has(key);
             return (
-              <div key={d.toISOString()} className="px-2 pb-2 text-center">
-                <div className="text-xs uppercase text-neutral-400">
+              <div
+                key={d.toISOString()}
+                className={`px-2 pb-2 text-center transition-colors ${
+                  isToday
+                    ? "bg-indigo-500/[0.06] dark:bg-indigo-500/10"
+                    : inSpan
+                      ? "bg-indigo-500/[0.09] dark:bg-indigo-500/15"
+                      : ""
+                }`}
+              >
+                <div
+                  className={`text-xs uppercase ${
+                    isToday
+                      ? "font-semibold text-indigo-500 dark:text-indigo-400"
+                      : "text-neutral-400"
+                  }`}
+                >
                   {d.toLocaleDateString("en-US", { weekday: "short" })}
                 </div>
                 <div
                   className={`mt-1 inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-sm font-semibold ${
                     isToday
                       ? "bg-indigo-500 text-white"
-                      : "text-neutral-900 dark:text-neutral-100"
+                      : isDropTarget
+                        ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                        : "text-neutral-900 dark:text-neutral-100"
                   }`}
                 >
                   {d.getDate()}
+                </div>
+                {/* Only while dragging: how far out this drop would schedule it. */}
+                <div className="h-3 text-[10px] font-medium leading-3 text-indigo-500 dark:text-indigo-400">
+                  {isDropTarget ? formatRelativeDay(key) : ""}
                 </div>
               </div>
             );
@@ -218,6 +266,8 @@ export function WeekView({
               tasks={localTasks}
               events={eventsByDay.get(todayLocalISO(d)) ?? []}
               projectColors={projectColors}
+              isToday={d.getTime() === today.getTime()}
+              inDragSpan={dragSpan.has(todayLocalISO(d))}
             />
           ))}
         </div>
@@ -228,16 +278,64 @@ export function WeekView({
   );
 }
 
+/**
+ * The current-time line across today's column — the fastest way to read both
+ * "which column is today" and "where am I in it".
+ *
+ * Mounted-only: the position comes from `new Date()`, so rendering it on the
+ * server would hydrate against a different minute. Null until the effect runs,
+ * then re-positioned every minute.
+ */
+function NowLine() {
+  const [minutes, setMinutes] = useState<number | null>(null);
+
+  useEffect(() => {
+    const read = () => {
+      const now = new Date();
+      setMinutes(now.getHours() * 60 + now.getMinutes());
+    };
+    read();
+    const id = setInterval(read, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Outside the rendered 6am–10pm window there's no row to pin it to.
+  if (
+    minutes === null ||
+    minutes < HOUR_START * 60 ||
+    minutes >= HOUR_END * 60
+  ) {
+    return null;
+  }
+
+  const top = (minutes - HOUR_START * 60) / MIN_PER_PX;
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 z-20 flex items-center"
+      style={{ top }}
+    >
+      <span className="-ml-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+      <span className="h-px flex-1 bg-indigo-500" />
+    </div>
+  );
+}
+
 function DayColumn({
   day,
   tasks,
   events,
   projectColors,
+  isToday,
+  inDragSpan,
 }: {
   day: Date;
   tasks: Task[];
   events: CalendarEvent[];
   projectColors: Map<string, string>;
+  isToday: boolean;
+  /** Between today and the day a task is being dragged onto. */
+  inDragSpan: boolean;
 }) {
   const dayKey = todayLocalISO(day); // local YYYY-MM-DD, matches stored when_date
   const { setNodeRef, isOver } = useDroppable({ id: dayKey });
@@ -261,7 +359,15 @@ function DayColumn({
     <div
       ref={setNodeRef}
       className={`relative border-r border-neutral-200 transition-colors dark:border-neutral-800 ${
-        isOver ? "bg-indigo-50/40 dark:bg-indigo-950/30" : ""
+        isOver
+          ? "bg-indigo-50/40 dark:bg-indigo-950/30"
+          : isToday
+            ? // Today needs to read as today all the way down the grid, not
+              // just in the header pill — this is the column you scan for.
+              "bg-indigo-500/[0.05] dark:bg-indigo-500/[0.08]"
+            : inDragSpan
+              ? "bg-indigo-500/[0.07] dark:bg-indigo-500/10"
+              : ""
       }`}
     >
       <div className="min-h-[28px] space-y-0.5 border-b border-neutral-200 bg-neutral-50/60 px-1 py-1 dark:border-neutral-800 dark:bg-neutral-900/40">
@@ -288,6 +394,8 @@ function DayColumn({
             style={{ height: HOUR_HEIGHT }}
           />
         ))}
+
+        {isToday ? <NowLine /> : null}
 
         {timedEvents.map((event) => (
           <EventBlock key={event.id} event={event} />

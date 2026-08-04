@@ -14,6 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   Animated,
   Dimensions,
@@ -30,6 +31,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  datesBetweenLocalISO,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -418,6 +420,7 @@ function DayCell({
   outside = false,
   whenDate,
   todayStr,
+  inSpan = false,
   busyByDate,
   onPickDate,
   dense = false,
@@ -427,6 +430,8 @@ function DayCell({
   outside?: boolean;
   whenDate: string | null;
   todayStr: string;
+  /** Between today and the task's date — the tinted runway. */
+  inSpan?: boolean;
   busyByDate: Map<string, DayBusyness>;
   onPickDate: (date: string) => void;
   dense?: boolean;
@@ -441,9 +446,14 @@ function DayCell({
   let bg = "#f9fafb";
   let borderColor: string = "transparent";
   if (isWeekend) bg = "rgba(99,102,241,0.035)";
+  // Weekends already carry a 0.035 indigo wash, so the runway needs real
+  // separation from it to read as a span rather than as another weekend.
+  if (inSpan) bg = "rgba(99,102,241,0.13)";
   if (isToday) {
-    bg = "#fff";
-    borderColor = "#d1d5db";
+    // Today used to be a plain white cell — quieter than every neighbour.
+    // It anchors the span now, so it gets its own outline.
+    bg = "rgba(99,102,241,0.10)";
+    borderColor = "#818cf8";
   }
   if (isActive) {
     bg = "#eef2ff";
@@ -490,6 +500,97 @@ function DayCell({
         })}
       </View>
     </Pressable>
+  );
+}
+
+/** Column gap inside a week row — must match `styles.calWeekRow.gap`. */
+const CAL_ROW_GAP = 3;
+
+/**
+ * The today → task-date connector on the week strip: a line that draws itself
+ * from today's cell to the selected day when you pick a date, confirming how
+ * far out you just scheduled it.
+ *
+ * It's a plain animated View rather than an SVG arc on purpose — `react-native-svg`
+ * is a native module, and adding one would cost a full EAS rebuild and break
+ * the OTA update path for a decoration. A straight stroke with an arrowhead
+ * reads the same at this size.
+ *
+ * Geometry comes from the row's measured box: the cells are `flex: 1` with a
+ * fixed gap, so column edges are arithmetic once the row width is known.
+ */
+function SpanConnector({
+  fromCol,
+  toCol,
+  rowWidth,
+  rowHeight,
+}: {
+  fromCol: number;
+  toCol: number;
+  rowWidth: number;
+  rowHeight: number;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
+      if (alive) setReduceMotion(on);
+    });
+    const sub = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+
+  const cellW = (rowWidth - CAL_ROW_GAP * 6) / 7;
+  const x1 = (cellW + CAL_ROW_GAP) * fromCol + cellW;
+  const x2 = (cellW + CAL_ROW_GAP) * toCol;
+  const span = x2 - x1;
+
+  useEffect(() => {
+    // Motion is confirmation of the choice just made, so with reduced motion
+    // the line is simply present rather than absent.
+    if (reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    progress.setValue(0);
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: 420,
+      useNativeDriver: false, // width can't be driven natively
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [progress, fromCol, toCol, reduceMotion]);
+
+  if (span <= 10) return null;
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.spanLine,
+        {
+          left: x1 + 2,
+          // Two thirds down: below the day number and its "today"/"selected"
+          // caption, above the busy-dot row.
+          top: rowHeight * 0.68,
+          width: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, span - 4],
+          }),
+        },
+      ]}
+    >
+      <View style={styles.spanArrow} />
+    </Animated.View>
   );
 }
 
@@ -575,6 +676,18 @@ export function WhenCalendar({
     return m;
   }, [busyness]);
 
+  // The "runway": the days between now and when the task is scheduled. Only
+  // forward spans have one — a task dated today or overdue has no distance to
+  // show, and its own cell already carries the marker.
+  const spanDates = useMemo(() => {
+    if (!whenDate || whenDate <= todayStr) return new Set<string>();
+    return new Set(datesBetweenLocalISO(todayStr, whenDate));
+  }, [todayStr, whenDate]);
+
+  // Week rows are uniform, so one measurement positions the connector on any
+  // of them. Cells are `flex: 1`, so their edges follow from the row width.
+  const [rowBox, setRowBox] = useState<{ w: number; h: number } | null>(null);
+
   // When the month view is active, ask the parent to load busyness for the
   // visible grid (which spills a few days into the neighbouring months).
   useEffect(() => {
@@ -639,6 +752,7 @@ export function WhenCalendar({
                   outside={c.outside}
                   whenDate={whenDate}
                   todayStr={todayStr}
+                  inSpan={spanDates.has(c.date)}
                   busyByDate={busyByDate}
                   onPickDate={onPickDate}
                   dense
@@ -673,21 +787,52 @@ export function WhenCalendar({
         ))}
       </View>
       <View style={styles.calGrid}>
-        {weekRows.map((week, wi) => (
-          <View key={wi} style={styles.calWeekRow}>
-            {week.map((c) => (
-              <DayCell
-                key={c.date}
-                date={c.date}
-                weekday={c.weekday}
-                whenDate={whenDate}
-                todayStr={todayStr}
-                busyByDate={busyByDate}
-                onPickDate={onPickDate}
-              />
-            ))}
-          </View>
-        ))}
+        {weekRows.map((week, wi) => {
+          // The connector only makes sense within one row — a span that wraps
+          // to the next week has no single stroke, and the runway tint carries
+          // it there instead.
+          const fromCol = week.findIndex((c) => c.date === todayStr);
+          const toCol = whenDate
+            ? week.findIndex((c) => c.date === whenDate)
+            : -1;
+          const showConnector = fromCol >= 0 && toCol > fromCol && rowBox;
+          return (
+            <View
+              key={wi}
+              style={styles.calWeekRow}
+              onLayout={(e) => {
+                const { width, height } = e.nativeEvent.layout;
+                setRowBox((prev) =>
+                  prev && prev.w === width && prev.h === height
+                    ? prev
+                    : { w: width, h: height }
+                );
+              }}
+            >
+              {week.map((c) => (
+                <DayCell
+                  key={c.date}
+                  date={c.date}
+                  weekday={c.weekday}
+                  whenDate={whenDate}
+                  todayStr={todayStr}
+                  inSpan={spanDates.has(c.date)}
+                  busyByDate={busyByDate}
+                  onPickDate={onPickDate}
+                />
+              ))}
+              {showConnector ? (
+                <SpanConnector
+                  key={`${todayStr}->${whenDate}`}
+                  fromCol={fromCol}
+                  toCol={toCol}
+                  rowWidth={rowBox.w}
+                  rowHeight={rowBox.h}
+                />
+              ) : null}
+            </View>
+          );
+        })}
       </View>
 
       <View style={styles.altRow}>
@@ -2155,6 +2300,27 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 1.5,
     backgroundColor: "#6366f1",
+  },
+  spanLine: {
+    position: "absolute",
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#a5b4fc",
+    justifyContent: "center",
+  },
+  // Solid arrowhead via the border trick — it rides the line's right edge, so
+  // it leads the stroke as it draws.
+  spanArrow: {
+    position: "absolute",
+    right: -4,
+    width: 0,
+    height: 0,
+    borderTopWidth: 3.5,
+    borderBottomWidth: 3.5,
+    borderLeftWidth: 5,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: "#a5b4fc",
   },
   cellNum: { fontSize: 13, fontWeight: "600", color: "#111827", lineHeight: 14 },
   cellSub: { fontSize: 8, color: "#9ca3af", marginTop: 1, lineHeight: 9 },
