@@ -507,91 +507,129 @@ function DayCell({
 /** Column gap inside a week row — must match `styles.calWeekRow.gap`. */
 const CAL_ROW_GAP = 3;
 
+/** One week row's window onto the span, in that row's coordinate space. */
+type WaveRun = {
+  rowIndex: number;
+  left: number;
+  width: number;
+  /** Distance from the span's start to this run's start, along the span. */
+  offset: number;
+};
+
+type SpanWave = {
+  runs: WaveRun[];
+  totalWidth: number;
+  bandWidth: number;
+  durationMs: number;
+};
+
 /**
- * The today → task-date connector on the week strip: a line that draws itself
- * from today's cell to the selected day when you pick a date, confirming how
- * far out you just scheduled it.
+ * Lay the span out across the visible week rows.
  *
- * It's a plain animated View rather than an SVG arc on purpose — `react-native-svg`
- * is a native module, and adding one would cost a full EAS rebuild and break
- * the OTA update path for a decoration. A straight stroke with an arrowhead
- * reads the same at this size.
- *
- * Geometry comes from the row's measured box: the cells are `flex: 1` with a
- * fixed gap, so column edges are arithmetic once the row width is known.
+ * `spanSeq` is today plus the days between, in order; the selected day is left
+ * out because its solid indigo fill would swallow the band anyway. Rows are in
+ * date order, so each row contributes one contiguous run, and the runs laid end
+ * to end form a single continuous space for the band to cross exactly once.
  */
-function SpanConnector({
-  fromCol,
-  toCol,
-  rowWidth,
-  rowHeight,
-}: {
-  fromCol: number;
-  toCol: number;
-  rowWidth: number;
-  rowHeight: number;
-}) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
-      if (alive) setReduceMotion(on);
-    });
-    const sub = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion
-    );
-    return () => {
-      alive = false;
-      sub.remove();
-    };
-  }, []);
-
+function computeSpanWave(
+  rows: { date: string }[][],
+  spanSeq: string[],
+  rowWidth: number
+): SpanWave | null {
+  if (spanSeq.length === 0 || rowWidth <= 0) return null;
+  const inSpan = new Set(spanSeq);
   const cellW = (rowWidth - CAL_ROW_GAP * 6) / 7;
-  const x1 = (cellW + CAL_ROW_GAP) * fromCol + cellW;
-  const x2 = (cellW + CAL_ROW_GAP) * toCol;
-  const span = x2 - x1;
+  const step = cellW + CAL_ROW_GAP;
 
-  useEffect(() => {
-    // Motion is confirmation of the choice just made, so with reduced motion
-    // the line is simply present rather than absent.
-    if (reduceMotion) {
-      progress.setValue(1);
-      return;
-    }
-    progress.setValue(0);
-    const anim = Animated.timing(progress, {
-      toValue: 1,
-      duration: 420,
-      useNativeDriver: false, // width can't be driven natively
-    });
-    anim.start();
-    return () => anim.stop();
-  }, [progress, fromCol, toCol, reduceMotion]);
+  const runs: WaveRun[] = [];
+  let offset = 0;
+  rows.forEach((row, rowIndex) => {
+    const cols = row
+      .map((c, i) => (inSpan.has(c.date) ? i : -1))
+      .filter((i) => i >= 0);
+    if (cols.length === 0) return;
+    const c0 = cols[0];
+    const c1 = cols[cols.length - 1];
+    const width = (c1 - c0) * step + cellW;
+    runs.push({ rowIndex, left: c0 * step, width, offset });
+    offset += width;
+  });
 
-  if (span <= 10) return null;
+  if (runs.length === 0 || offset < 24) return null;
+  // A band roughly a day and a half wide reads as a soft swell rather than a
+  // lit-up cell; clamped so very long spans don't wash the whole grid.
+  const bandWidth = Math.min(Math.max(cellW * 1.6, 40), 170);
+  // Constant travel speed, so a longer span takes proportionally longer
+  // instead of the band accelerating across it.
+  const durationMs = Math.min(
+    Math.max((offset + bandWidth) * 7.5, 2200),
+    7000
+  );
+  return { runs, totalWidth: offset, bandWidth, durationMs };
+}
 
+// Alpha profile across the band: 0 at both edges, peak in the middle. React
+// Native has no gradient without `expo-linear-gradient`, which is a native
+// module — adding one would cost an EAS rebuild and break the OTA path for a
+// decoration. At this width the stepped strips are indistinguishable from a
+// real gradient, especially in motion.
+const WAVE_STRIPS = Array.from({ length: 16 }, (_, i) => {
+  const t = i / 15;
+  return Math.sin(Math.PI * t) * 0.2;
+});
+
+/**
+ * One row's window onto the travelling band. Every row shares the caller's
+ * single `progress` value, so the runs are in exact lockstep and the band
+ * appears to pass through row one, then row two, as one unbroken sweep.
+ */
+function SpanWaveRun({
+  run,
+  wave,
+  rowHeight,
+  progress,
+}: {
+  run: WaveRun;
+  wave: SpanWave;
+  rowHeight: number;
+  progress: Animated.Value;
+}) {
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, wave.totalWidth + wave.bandWidth],
+  });
   return (
-    <Animated.View
+    <View
       pointerEvents="none"
       style={[
-        styles.spanLine,
-        {
-          left: x1 + 2,
-          // Two thirds down: below the day number and its "today"/"selected"
-          // caption, above the busy-dot row.
-          top: rowHeight * 0.68,
-          width: progress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, span - 4],
-          }),
-        },
+        styles.waveClip,
+        { left: run.left, width: run.width, height: rowHeight },
       ]}
     >
-      <View style={styles.spanArrow} />
-    </Animated.View>
+      {/* Shifts this row's window into the span's shared coordinate space. */}
+      <View style={{ position: "absolute", left: -run.offset, top: 0, bottom: 0, width: wave.totalWidth }}>
+        <Animated.View
+          style={[
+            styles.waveBand,
+            {
+              left: -wave.bandWidth,
+              width: wave.bandWidth,
+              transform: [{ translateX }],
+            },
+          ]}
+        >
+          {WAVE_STRIPS.map((alpha, i) => (
+            <View
+              key={i}
+              style={{
+                flex: 1,
+                backgroundColor: `rgba(99,102,241,${alpha.toFixed(3)})`,
+              }}
+            />
+          ))}
+        </Animated.View>
+      </View>
+    </View>
   );
 }
 
@@ -684,10 +722,68 @@ export function WhenCalendar({
     if (!whenDate || whenDate <= todayStr) return new Set<string>();
     return new Set(datesBetweenLocalISO(todayStr, whenDate));
   }, [todayStr, whenDate]);
+  // Today plus those days, in order — the path the wave travels.
+  const spanSeq = useMemo(
+    () => (spanDates.size > 0 ? [todayStr, ...spanDates] : []),
+    [todayStr, spanDates]
+  );
 
-  // Week rows are uniform, so one measurement positions the connector on any
-  // of them. Cells are `flex: 1`, so their edges follow from the row width.
+  // Rows are uniform, so one measurement places the wave on any of them. Cells
+  // are `flex: 1`, so their edges follow from the row width.
   const [rowBox, setRowBox] = useState<{ w: number; h: number } | null>(null);
+  const [monthRowBox, setMonthRowBox] = useState<{
+    w: number;
+    h: number;
+  } | null>(null);
+
+  const weekWave = useMemo(
+    () => computeSpanWave(weekRows, spanSeq, rowBox?.w ?? 0),
+    [weekRows, spanSeq, rowBox]
+  );
+  const monthWave = useMemo(
+    () => computeSpanWave(monthRows, spanSeq, monthRowBox?.w ?? 0),
+    [monthRows, spanSeq, monthRowBox]
+  );
+
+  // One shared driver for every run on screen, so rows never drift apart.
+  const waveProgress = useRef(new Animated.Value(0)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
+      if (alive) setReduceMotion(on);
+    });
+    const sub = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+
+  const activeWave = mode === "month" ? monthWave : weekWave;
+  const waveDuration = activeWave?.durationMs ?? 0;
+  useEffect(() => {
+    // The wave is ambient, never load-bearing: the static runway tint already
+    // shows the span, so reduced motion simply drops the moving band.
+    if (!waveDuration || reduceMotion) {
+      waveProgress.setValue(0);
+      return;
+    }
+    waveProgress.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(waveProgress, {
+        toValue: 1,
+        duration: waveDuration,
+        easing: (t) => t, // linear: constant travel speed
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [waveProgress, waveDuration, reduceMotion]);
 
   // When the month view is active, ask the parent to load busyness for the
   // visible grid (which spills a few days into the neighbouring months).
@@ -743,8 +839,29 @@ export function WhenCalendar({
           ))}
         </View>
         <View style={styles.calGrid}>
-          {monthRows.map((week, wi) => (
-            <View key={wi} style={styles.calWeekRow}>
+          {monthRows.map((week, wi) => {
+            const run = monthWave?.runs.find((r) => r.rowIndex === wi);
+            return (
+            <View
+              key={wi}
+              style={styles.calWeekRow}
+              onLayout={(e) => {
+                const { width, height } = e.nativeEvent.layout;
+                setMonthRowBox((prev) =>
+                  prev && prev.w === width && prev.h === height
+                    ? prev
+                    : { w: width, h: height }
+                );
+              }}
+            >
+              {run && monthWave && monthRowBox && !reduceMotion ? (
+                <SpanWaveRun
+                  run={run}
+                  wave={monthWave}
+                  rowHeight={monthRowBox.h}
+                  progress={waveProgress}
+                />
+              ) : null}
               {week.map((c) => (
                 <DayCell
                   key={c.date}
@@ -760,7 +877,8 @@ export function WhenCalendar({
                 />
               ))}
             </View>
-          ))}
+            );
+          })}
         </View>
 
         <View style={styles.altRow}>
@@ -789,14 +907,7 @@ export function WhenCalendar({
       </View>
       <View style={styles.calGrid}>
         {weekRows.map((week, wi) => {
-          // The connector only makes sense within one row — a span that wraps
-          // to the next week has no single stroke, and the runway tint carries
-          // it there instead.
-          const fromCol = week.findIndex((c) => c.date === todayStr);
-          const toCol = whenDate
-            ? week.findIndex((c) => c.date === whenDate)
-            : -1;
-          const showConnector = fromCol >= 0 && toCol > fromCol && rowBox;
+          const run = weekWave?.runs.find((r) => r.rowIndex === wi);
           return (
             <View
               key={wi}
@@ -810,6 +921,16 @@ export function WhenCalendar({
                 );
               }}
             >
+              {/* First child: the day cells paint over it, so the band glows
+                  through their translucent fills instead of over the numbers. */}
+              {run && weekWave && rowBox && !reduceMotion ? (
+                <SpanWaveRun
+                  run={run}
+                  wave={weekWave}
+                  rowHeight={rowBox.h}
+                  progress={waveProgress}
+                />
+              ) : null}
               {week.map((c) => (
                 <DayCell
                   key={c.date}
@@ -822,15 +943,6 @@ export function WhenCalendar({
                   onPickDate={onPickDate}
                 />
               ))}
-              {showConnector ? (
-                <SpanConnector
-                  key={`${todayStr}->${whenDate}`}
-                  fromCol={fromCol}
-                  toCol={toCol}
-                  rowWidth={rowBox.w}
-                  rowHeight={rowBox.h}
-                />
-              ) : null}
             </View>
           );
         })}
@@ -2337,26 +2449,19 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
     backgroundColor: "#6366f1",
   },
-  spanLine: {
+  // Clips one row's window onto the span the band travels along.
+  waveClip: {
     position: "absolute",
-    height: 1.5,
-    borderRadius: 1,
-    backgroundColor: "#a5b4fc",
-    justifyContent: "center",
+    top: 0,
+    left: 0,
+    borderRadius: 7,
+    overflow: "hidden",
   },
-  // Solid arrowhead via the border trick — it rides the line's right edge, so
-  // it leads the stroke as it draws.
-  spanArrow: {
+  waveBand: {
     position: "absolute",
-    right: -4,
-    width: 0,
-    height: 0,
-    borderTopWidth: 3.5,
-    borderBottomWidth: 3.5,
-    borderLeftWidth: 5,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: "#a5b4fc",
+    top: 0,
+    bottom: 0,
+    flexDirection: "row",
   },
   cellNum: { fontSize: 13, fontWeight: "600", color: "#111827", lineHeight: 14 },
   cellSub: { fontSize: 8, color: "#9ca3af", marginTop: 1, lineHeight: 9 },

@@ -724,130 +724,165 @@ function busyDotWidthClass(minutes: number): string {
 
 // ─── Today → task-date span ────────────────────────────────
 
-type ArcGeometry = { x1: number; x2: number; y: number };
+/** One week row's window onto the span, in the grid's coordinate space. */
+type WaveRun = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** Distance from the span's start to this run's start, along the span. */
+  offset: number;
+};
+
+type SpanWave = {
+  runs: WaveRun[];
+  /** Total length of the span across every row, end to end. */
+  totalWidth: number;
+  bandWidth: number;
+  durationMs: number;
+};
 
 /**
- * How the today → task-date span can be drawn on a given grid:
- *   arc      — both cells on one row with room between them; draw the stroke
- *   adjacent — both visible but touching; the two cell markers say it already
- *   none     — the target isn't on this grid, or wrapped to another row
- */
-type SpanArcState =
-  | { kind: "arc"; geom: ArcGeometry }
-  | { kind: "adjacent" }
-  | { kind: "none" };
-
-const NO_ARC: SpanArcState = { kind: "none" };
-
-/**
- * Screen geometry for the arc connecting the "today" cell to the selected task
+ * Screen geometry for the wave that travels from "today" to the selected task
  * date, measured from the DOM inside `gridRef`. The cells are fluid-width
  * (`grid-cols-7` in a modal that resizes with the viewport), so their rendered
  * rects are the only reliable source — grid maths would drift.
  *
- * A span that wraps to the next week has no sensible single arc, so it reports
- * "none" and the caller falls back to the text summary.
+ * A span that wraps to the next week row is returned as several runs. Laid end
+ * to end they form one continuous space the band crosses exactly once, so the
+ * wave reads as a single sweep rather than restarting on each row.
+ *
+ * The region stops at the target cell's left edge: the selected day is a solid
+ * indigo fill that the band could not show through anyway, so the wave arrives
+ * at it rather than under it.
  */
-function useSpanArc(
+function useSpanWave(
   gridRef: React.RefObject<HTMLDivElement | null>,
   fromDate: string,
-  toDate: string | null
-): SpanArcState {
-  const [state, setState] = useState<SpanArcState>(NO_ARC);
+  toDate: string | null,
+  /** Dates strictly between the two — recomputed by the caller anyway. */
+  between: string[]
+): SpanWave | null {
+  const [wave, setWave] = useState<SpanWave | null>(null);
+  // Identity of the span, so the effect doesn't re-run on every array rebuild.
+  const betweenKey = between.join(",");
 
   useEffect(() => {
     const el = gridRef.current;
-    // Only forward spans get an arc — a task dated today or in the past has
-    // no distance to draw.
-    if (!el || !toDate || toDate <= fromDate) {
-      setState(NO_ARC);
+    // Adjacent days (nothing in between) have no room for a wave, and the two
+    // cell markers already sit side by side.
+    if (!el || !toDate || toDate <= fromDate || betweenKey === "") {
+      setWave(null);
       return;
     }
     const measure = () => {
-      const a = el.querySelector<HTMLElement>(`[data-date="${fromDate}"]`);
-      const b = el.querySelector<HTMLElement>(`[data-date="${toDate}"]`);
-      if (!a || !b) {
-        setState(NO_ARC);
-        return;
-      }
       const base = el.getBoundingClientRect();
-      const ra = a.getBoundingClientRect();
-      const rb = b.getBoundingClientRect();
-      if (Math.abs(ra.top - rb.top) > 2) {
-        setState(NO_ARC); // wrapped onto a different week row
+      const dates = [fromDate, ...betweenKey.split(",")];
+      const rects: DOMRect[] = [];
+      for (const d of dates) {
+        const cell = el.querySelector<HTMLElement>(`[data-date="${d}"]`);
+        // A span running off the end of this grid still waves over the part
+        // that is visible, so a missing cell just ends the run.
+        if (!cell) break;
+        rects.push(cell.getBoundingClientRect());
+      }
+      if (rects.length === 0) {
+        setWave(null);
         return;
       }
-      const gap = rb.left - ra.right;
-      if (gap < 12) {
-        setState({ kind: "adjacent" });
+
+      // Group consecutive cells into per-row runs.
+      const runs: WaveRun[] = [];
+      let offset = 0;
+      let i = 0;
+      while (i < rects.length) {
+        const first = rects[i];
+        let j = i;
+        while (
+          j + 1 < rects.length &&
+          Math.abs(rects[j + 1].top - first.top) <= 2
+        ) {
+          j++;
+        }
+        const last = rects[j];
+        const width = last.right - first.left;
+        runs.push({
+          left: first.left - base.left,
+          top: first.top - base.top,
+          width,
+          height: first.height,
+          offset,
+        });
+        offset += width;
+        i = j + 1;
+      }
+
+      const totalWidth = offset;
+      if (totalWidth < 24) {
+        setWave(null);
         return;
       }
-      setState({
-        kind: "arc",
-        geom: {
-          x1: ra.right - base.left,
-          x2: rb.left - base.left,
-          // Two thirds down, not the middle: a cell holds its day number and
-          // its "tomorrow"/"weekend" caption in the top half, and a mid-height
-          // stroke crosses that caption like a strikethrough. This band sits
-          // under the captions and above the busy-dot row.
-          y: ra.top - base.top + ra.height * 0.68,
-        },
-      });
+      // A band roughly a day and a half wide reads as a soft swell rather than
+      // a lit-up cell; clamped so very long spans don't wash the whole grid.
+      const dayWidth = totalWidth / rects.length;
+      const bandWidth = Math.min(Math.max(dayWidth * 1.6, 48), 190);
+      // Constant travel speed, so a longer span takes proportionally longer
+      // instead of the band accelerating across it.
+      const durationMs = Math.min(
+        Math.max((totalWidth + bandWidth) * 7.5, 2200),
+        7000
+      );
+      setWave({ runs, totalWidth, bandWidth, durationMs });
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [gridRef, fromDate, toDate]);
+  }, [gridRef, fromDate, toDate, betweenKey]);
 
-  return state;
+  return wave;
 }
 
 /**
- * The arc itself. Keyed by the from→to pair at the call site so picking a new
- * date remounts the path and replays the draw — the motion is confirmation of
- * the choice the user just made, not decoration that loops.
+ * The wave overlay. Rendered as the grid's first child so the day cells, which
+ * come later in DOM order and are all positioned, paint on top of it — the band
+ * glows through their translucent backgrounds instead of washing over the day
+ * numbers.
  */
-function SpanArc({ geom }: { geom: ArcGeometry }) {
-  const { x1, x2, y } = geom;
-  const width = x2 - x1;
-  // Shallow rise, capped: a long span shouldn't arc up out of the row.
-  const rise = Math.min(13, Math.max(5, width * 0.14));
-  const d = `M ${x1 + 3} ${y} C ${x1 + width * 0.3} ${y - rise}, ${
-    x2 - width * 0.3
-  } ${y - rise}, ${x2 - 6} ${y}`;
-
-  // Publish the path's own length so one keyframe animates any span width.
-  const setLength = useCallback((node: SVGPathElement | null) => {
-    if (node) {
-      node.style.setProperty(
-        "--dd-arc-len",
-        String(Math.ceil(node.getTotalLength()))
-      );
-    }
-  }, []);
-
+function SpanWaveOverlay({ wave }: { wave: SpanWave }) {
+  const { runs, totalWidth, bandWidth, durationMs } = wave;
   return (
-    <svg
-      className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible"
-      aria-hidden="true"
-    >
-      <path
-        ref={setLength}
-        d={d}
-        className="dd-arc-draw fill-none stroke-indigo-400 dark:stroke-indigo-400/80"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-      />
-      <path
-        d={`M ${x2 - 12} ${y - 4.5} L ${x2 - 5} ${y} L ${x2 - 12} ${y + 4.5}`}
-        className="dd-arc-tip fill-none stroke-indigo-400 dark:stroke-indigo-400/80"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {runs.map((run) => (
+        <div
+          key={`${run.top}-${run.left}`}
+          className="absolute overflow-hidden rounded-lg"
+          style={{
+            left: run.left,
+            top: run.top,
+            width: run.width,
+            height: run.height,
+          }}
+        >
+          {/* Shifts this row's window into the span's shared coordinate space. */}
+          <div
+            className="absolute inset-y-0"
+            style={{ left: -run.offset, width: totalWidth }}
+          >
+            <div
+              className="dd-wave-band"
+              style={
+                {
+                  "--dd-wave-width": `${bandWidth}px`,
+                  "--dd-wave-travel": `${totalWidth + bandWidth}px`,
+                  "--dd-wave-duration": `${durationMs}ms`,
+                } as React.CSSProperties
+              }
+            />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -859,6 +894,7 @@ function MonthGrid({
   todayStr,
   selectedDate,
   spanDates,
+  spanList,
   busyByDate,
   onPick,
 }: {
@@ -868,9 +904,13 @@ function MonthGrid({
   selectedDate: string | null;
   /** Dates strictly between today and the selected date — the tinted runway. */
   spanDates: Set<string>;
+  /** The same dates in order, for the wave to travel along. */
+  spanList: string[];
   busyByDate: Map<string, DayBusyness>;
   onPick: (date: string) => void;
 }) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const wave = useSpanWave(gridRef, todayStr, selectedDate, spanList);
   const first = new Date(year, month, 1);
   const firstDow = first.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -897,11 +937,12 @@ function MonthGrid({
         {monthLabel}
       </div>
       {/*
-        No arc here. These cells are 28px tall with the number centred, so a
-        stroke crossing the days in between would cut straight through their
-        digits — the runway tint carries the span on this grid instead.
+        The wave works here where the old arc couldn't: it sits behind these
+        28px cells and glows through them, rather than crossing their centred
+        digits like a strikethrough.
       */}
-      <div className="grid grid-cols-7 gap-0.5">
+      <div ref={gridRef} className="relative grid grid-cols-7 gap-0.5">
+        {wave ? <SpanWaveOverlay wave={wave} /> : null}
         {cells.map((c, i) => {
           if (!c.date) {
             return <div key={`pad-${i}`} className="h-7" />;
@@ -917,6 +958,7 @@ function MonthGrid({
             <button
               type="button"
               key={date}
+              data-date={date}
               disabled={isPast}
               onClick={() => {
                 if (!isPast) onPick(date);
@@ -1062,19 +1104,18 @@ function WhenCalendar({
   // The "runway": the days between now and when the task is scheduled. Only
   // forward spans have one — a task dated today or overdue has no distance to
   // show, and its own cell already carries the marker.
-  const spanDates = useMemo(() => {
-    if (!whenDate || whenDate <= todayStr) return new Set<string>();
-    return new Set(datesBetweenLocalISO(todayStr, whenDate));
+  const spanList = useMemo(() => {
+    if (!whenDate || whenDate <= todayStr) return [];
+    return datesBetweenLocalISO(todayStr, whenDate);
   }, [todayStr, whenDate]);
+  const spanDates = useMemo(() => new Set(spanList), [spanList]);
 
-  // The week strip's arc. Null when the task's date isn't on this row (further
-  // out than the visible week, or wrapped into week two) — the caller then
-  // shows the text summary instead, so the relationship is never lost.
-  // The week strip's arc. When the task's date isn't on this row the runway
-  // tint still runs to the edge of the grid, and the header above already
-  // spells the date and distance out ("Thursday, January 22nd · in 1 week").
+  // The week strip's wave. It covers whatever part of the span is on this grid,
+  // wrapping onto the second row as one continuous sweep. A target beyond the
+  // visible weeks just means the wave runs to the edge, and the header above
+  // still spells it out ("Thursday, January 22nd · in 1 week").
   const weekGridRef = useRef<HTMLDivElement | null>(null);
-  const weekArc = useSpanArc(weekGridRef, todayStr, whenDate);
+  const weekWave = useSpanWave(weekGridRef, todayStr, whenDate, spanList);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1103,9 +1144,7 @@ function WhenCalendar({
       </div>
       {/* Current-week cells */}
       <div ref={weekGridRef} className="relative grid grid-cols-7 gap-1">
-        {weekArc.kind === "arc" ? (
-          <SpanArc key={`${todayStr}->${whenDate}`} geom={weekArc.geom} />
-        ) : null}
+        {weekWave ? <SpanWaveOverlay wave={weekWave} /> : null}
         {cells.map((c) => {
           const isWeekend = c.weekday === 0 || c.weekday === 6;
           const isPast = c.date < todayStr;
@@ -1260,6 +1299,7 @@ function WhenCalendar({
               todayStr={todayStr}
               selectedDate={whenDate}
               spanDates={spanDates}
+              spanList={spanList}
               busyByDate={busyByDate}
               onPick={onPickDate}
             />
