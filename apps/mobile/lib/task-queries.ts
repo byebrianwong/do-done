@@ -246,31 +246,71 @@ export function invalidateTasks() {
   scheduleGeofenceSync();
 }
 
+export interface ToggleCompleteOptions {
+  /**
+   * Keep the task in its list for this long before dropping it, so the row can
+   * play its completion animation while it is still mounted.
+   *
+   * Only the *disappearance* is held. The write goes out immediately either
+   * way, so nothing is lost if the app is backgrounded or killed mid-animation
+   * — the hold is a rendering concern that never reaches the network.
+   */
+  holdMs?: number;
+}
+
 /** Complete or reopen a task, optimistically removing it from the relevant cache. */
-export async function toggleComplete(id: string, complete: boolean) {
+export async function toggleComplete(
+  id: string,
+  complete: boolean,
+  options: ToggleCompleteOptions = {}
+) {
+  const holdMs = options.holdMs ?? 0;
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
-  if (complete) {
-    // Drop from active lists (today / inbox / project).
-    queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (old) =>
-      old?.filter((t) => t.id !== id)
-    );
-  } else {
-    // Reopening removes the row from the completed list.
-    queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.completed() }, (old) =>
-      old?.filter((t) => t.id !== id)
-    );
-  }
+
+  const dropFromLists = () => {
+    if (complete) {
+      // Drop from active lists (today / inbox / project).
+      queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (old) =>
+        old?.filter((t) => t.id !== id)
+      );
+    } else {
+      // Reopening removes the row from the completed list.
+      queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.completed() }, (old) =>
+        old?.filter((t) => t.id !== id)
+      );
+    }
+  };
+
+  // Without a hold this is the usual optimistic patch: the row goes on the same
+  // frame as the tap. With one, the row stays put and the caller's animation
+  // owns the exit.
+  if (holdMs === 0) dropFromLists();
+
+  const startedAt = Date.now();
   try {
     const api = await getTasksApi();
     const { error } = complete ? await api.complete(id) : await api.reopen(id);
     if (error) throw error;
   } catch (e) {
+    // A no-op when we never dropped anything, which is exactly right — the
+    // caller un-collapses the row and it was never missing from the list.
     restoreTaskLists(prev);
-    throw e;
-  } finally {
     invalidateTasks();
+    throw e;
   }
+
+  if (holdMs > 0) {
+    // Measured from the tap, not from here: a slow write has already spent part
+    // of the animation's runtime, and waiting the full hold on top of it would
+    // leave a finished row sitting there.
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    dropFromLists();
+  }
+  // Held until now on purpose: a refetch landing mid-animation would report the
+  // task as done and pull the row out from under it.
+  invalidateTasks();
 }
 
 /** Patch a task in place across every cached list (reschedule, field edits). */

@@ -105,3 +105,39 @@ export const GEOFENCE_COOLDOWN_MINUTES = 30;
 // anything past 20, so we register the most recently used locations and tell
 // the user which ones are dormant rather than letting them fail quietly.
 export const GEOFENCE_MAX_REGIONS = { ios: 20, android: 100 } as const;
+
+// ─── Task completion feedback ───────────────────────────────────────────────
+//
+// Ticking a task off used to be the least satisfying thing in the app: the row
+// vanished on the same frame as the tap, so there was no acknowledgement of the
+// tap, no moment where the task read as *done*, and the rows below jumped up
+// into the gap. These three phases give the action a shape — and both apps read
+// them from here so web and mobile stay the same gesture.
+//
+// The row is what animates, not the list. It plays the check, holds, then
+// collapses its own height to zero; the rows below slide up simply because the
+// row above them is shrinking. That needs no cooperation from dnd-kit or
+// DraggableFlatList, which is exactly why it's done this way.
+
+/** Check mark springs in. Overlaps the hold — this is the tap's receipt. */
+export const TASK_COMPLETE_CHECK_MS = 220;
+
+/**
+ * How long the row sits there visibly completed — filled checkbox, struck-out
+ * title — before it starts to leave. Short enough not to feel like a stall,
+ * long enough to read as a state the task passed through rather than a flicker
+ * on its way out.
+ */
+export const TASK_COMPLETE_HOLD_MS = 420;
+
+/** Height → 0 and fade. The rows below travel for exactly this long. */
+export const TASK_COMPLETE_COLLAPSE_MS = 260;
+
+/**
+ * When the row is finally gone and the data layer may drop it. Anything that
+ * removes the task from a list (mobile's optimistic cache patch, web's
+ * `router.refresh()`) waits this long, so removal lands on an already-invisible
+ * row instead of cutting the animation short.
+ */
+export const TASK_COMPLETE_EXIT_MS =
+  TASK_COMPLETE_HOLD_MS + TASK_COMPLETE_COLLAPSE_MS;

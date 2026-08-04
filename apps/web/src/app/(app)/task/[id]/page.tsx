@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TaskItem } from "@/components/task-item";
+import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi, TasksApi } from "@do-done/api-client";
 
@@ -31,6 +32,9 @@ export default async function TaskDetailPage({
   }
 
   return (
+    // This page IS the task, so ticking it off must not collapse the row out
+    // from under the reader — it stays, wearing its completed styling.
+    <TaskRowBehaviorProvider keepsCompleted>
     <div className="mx-auto max-w-3xl">
       <div className="mb-2 text-xs">
         <Link
@@ -71,5 +75,6 @@ export default async function TaskDetailPage({
         </div>
       ) : null}
     </div>
+    </TaskRowBehaviorProvider>
   );
 }

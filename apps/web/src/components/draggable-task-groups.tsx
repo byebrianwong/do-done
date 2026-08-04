@@ -38,6 +38,7 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { seedFromDrop } from "@/lib/quick-add";
+import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -140,6 +141,7 @@ export function DraggableTaskGroups({
   if (sortedView && !canConvert) {
     // Sorted view with no convert handler: static groups, no drag affordances.
     return (
+      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
       <div>
         {groups.map((g) => (
           <GroupSection
@@ -161,6 +163,7 @@ export function DraggableTaskGroups({
           />
         ))}
       </div>
+      </TaskRowBehaviorProvider>
     );
   }
 
@@ -377,6 +380,11 @@ export function DraggableTaskGroups({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
+      {/* With "show completed" on, a ticked-off task stays in this list, so its
+          row must not play the collapse-and-vanish completion exit. Declared
+          here as well as in CuratedDisplayView because this component is also
+          mounted directly, with a config of its own. */}
+      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
       <div>
         {groups.map((g) => {
           const collapsed = isCollapsed(config, g.key);
@@ -407,6 +415,7 @@ export function DraggableTaskGroups({
         projects={projects}
         hideStatusBadge={groupedByStatus}
       />
+      </TaskRowBehaviorProvider>
     </DndContext>
   );
 }

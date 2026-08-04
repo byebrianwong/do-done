@@ -15,6 +15,8 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   QUICK_SCHEDULE,
+  TASK_COMPLETE_CHECK_MS,
+  TASK_COMPLETE_COLLAPSE_MS,
   formatCompletedDate,
   formatDuration,
   formatScheduleHint,
@@ -24,6 +26,8 @@ import {
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { useCompletionExit } from "@/lib/use-completion-exit";
+import { useKeepsCompleted } from "@/lib/task-row-behavior";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
@@ -548,6 +552,10 @@ export function TaskItem({
 }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
+  // Completion is the one edit that removes the row from most lists, so it gets
+  // an exit rather than a disappearance. See `useCompletionExit`.
+  const exit = useCompletionExit();
+  const keepsCompleted = useKeepsCompleted();
   // Parent title for the "↳ parent" subtask reference. Prefer the prop the
   // caller supplied; otherwise fall back to a lazily-resolved title so any list
   // view flags a subtask without every caller having to thread the parent
@@ -648,15 +656,52 @@ export function TaskItem({
   async function handleToggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
     const next = !completed;
+    // Paint first: the check springs in and the title strikes through on this
+    // frame, before anything touches the network.
     setCompleted(next);
 
-    const tasks = await getClientTasksApi();
-    const { error } = next
-      ? await tasks.complete(task.id)
-      : await tasks.reopen(task.id);
+    // In a list that keeps completed tasks there is nothing to leave — the row
+    // stays put wearing its completed styling. Everywhere else it holds for a
+    // beat and then collapses, so the rows below slide up into the gap.
+    //
+    // The exit starts now rather than after the write, or a slow connection
+    // would leave the row sitting there mid-gesture. It's a promise we can
+    // retract: a failed write cancels it and the row comes back.
+    const leaving = !keepsCompleted;
+    let collapsed = false;
+    let written = false;
+    // The refresh replaces this row with the server's answer, so it has to wait
+    // for both — before the write it re-reads the old status, and before the
+    // collapse it yanks the row out from under its own animation.
+    const refreshWhenSettled = () => {
+      if (collapsed && written) startTransition(() => router.refresh());
+    };
+    if (leaving) {
+      exit.start(() => {
+        collapsed = true;
+        refreshWhenSettled();
+      });
+    } else {
+      collapsed = true;
+    }
+
+    const revert = () => {
+      setCompleted(!next);
+      exit.cancel();
+    };
+
+    let error: Error | null = null;
+    try {
+      const tasks = await getClientTasksApi();
+      ({ error } = next
+        ? await tasks.complete(task.id)
+        : await tasks.reopen(task.id));
+    } catch (err) {
+      error = err as Error;
+    }
 
     if (error) {
-      setCompleted(!next);
+      revert();
       console.error("Failed to update task:", error);
       return;
     }
@@ -668,12 +713,14 @@ export function TaskItem({
           const api = await getClientTasksApi();
           await api.reopen(task.id);
           setCompleted(false);
+          exit.cancel();
           startTransition(() => router.refresh());
         },
       });
     }
 
-    startTransition(() => router.refresh());
+    written = true;
+    refreshWhenSettled();
   }
 
   async function handlePriorityChange(next: TaskPriority) {
@@ -732,6 +779,25 @@ export function TaskItem({
 
   return (
     <>
+      {/* Collapse shell for the completion exit. `grid-template-rows: 1fr → 0fr`
+          animates a height the row never had to measure, and because the row
+          shrinks in place the ones below it slide up on their own — no list-level
+          layout animation, nothing for dnd-kit to fight. Inert (`1fr`, no
+          transition running) until a completion actually starts. */}
+      <div
+        className="grid transition-[grid-template-rows,opacity] ease-out motion-reduce:transition-none"
+        style={{
+          gridTemplateRows: exit.collapsing ? "0fr" : "1fr",
+          opacity: exit.collapsing ? 0 : 1,
+          transitionDuration: `${TASK_COMPLETE_COLLAPSE_MS}ms`,
+        }}
+        aria-hidden={exit.collapsing || undefined}
+      >
+      {/* Clipping is what turns the `0fr` track into a visibly shrinking row,
+          but it must not be on while the row is idle: the inline priority,
+          project and schedule popovers are absolutely positioned *inside* the
+          row, and a standing `overflow: hidden` would cut them off. */}
+      <div className={exit.collapsing ? "overflow-hidden" : undefined}>
       {/* `@container` makes the row stack on its OWN available width rather
           than the viewport, so it goes two-row in any narrow column (a phone,
           a split pane, a narrow sidebar) — not just on small screens. Below
@@ -795,28 +861,39 @@ export function TaskItem({
             className="flex h-5 shrink-0 items-center justify-center"
             aria-label={completed ? "Mark incomplete" : "Mark complete"}
           >
+            {/* The check is always mounted and scaled to nothing when the task
+                is open, so ticking it off animates a transform instead of a
+                mount — a freshly mounted element has no "before" to move from.
+                The overshoot easing gives it the little bounce that reads as a
+                stamp rather than a fade. */}
             <span
-              className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+              className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] ease-out motion-reduce:transition-none"
               style={{
                 borderColor: completed ? "#d4d4d4" : statusColor,
                 backgroundColor: completed ? "#d4d4d4" : "transparent",
+                transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
               }}
             >
-              {completed && (
-                <svg
-                  className="h-3 w-3 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              )}
+              <svg
+                className="h-3 w-3 text-white transition-transform motion-reduce:transition-none"
+                style={{
+                  transform: completed ? "scale(1)" : "scale(0)",
+                  transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
+                  transitionTimingFunction:
+                    "cubic-bezier(0.34, 1.56, 0.64, 1)",
+                }}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
             </span>
           </button>
         </div>
@@ -850,11 +927,12 @@ export function TaskItem({
               </Link>
             ) : null}
             <span
-              className={`line-clamp-2 break-words text-sm leading-snug @lg:line-clamp-none ${
+              className={`line-clamp-2 break-words text-sm leading-snug transition-colors ease-out motion-reduce:transition-none @lg:line-clamp-none ${
                 completed
                   ? "text-neutral-400 line-through dark:text-neutral-600"
                   : "text-neutral-900 dark:text-neutral-100"
               }`}
+              style={{ transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms` }}
             >
               <LinkifiedText text={task.title} />
             </span>
@@ -1001,6 +1079,8 @@ export function TaskItem({
             </svg>
           </button>
         </div>
+      </div>
+      </div>
       </div>
       </div>
 

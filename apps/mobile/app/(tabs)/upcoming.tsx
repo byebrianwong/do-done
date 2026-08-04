@@ -227,13 +227,21 @@ export default function UpcomingScreen() {
     [config, setConfig, countByKey, eventsByDay]
   );
 
+  // With "show completed" on, a ticked-off task stays in this list, so its row
+  // must not play the collapse-and-vanish completion exit.
+  const keepsCompleted = config.showCompleted;
   const renderTask = useCallback(
     (task: Task, drag: () => void, isActive: boolean) => (
       <View style={isActive ? styles.activeRow : undefined}>
-        <TaskItem task={task} onPress={handlePress} onDragHandle={drag} />
+        <TaskItem
+          task={task}
+          onPress={handlePress}
+          onDragHandle={drag}
+          keepsCompleted={keepsCompleted}
+        />
       </View>
     ),
-    [handlePress]
+    [handlePress, keepsCompleted]
   );
 
   const refreshControl = (
