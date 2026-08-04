@@ -1131,27 +1131,31 @@ function SubtaskRow({
       >
         {done ? <span className="text-[10px] leading-none">✓</span> : null}
       </button>
-      {/* The title opens the subtask in its own modal view. A button (not the
-          row) so it doesn't swallow clicks meant for the toggle / delete. */}
-      <button
-        type="button"
+      {/* The title opens the subtask in its own modal view. Clickable but not
+          a <button>: it linkifies its URLs, and an <a> inside a <button> is
+          invalid. Keyboard access to "open" is the chevron below, which is a
+          real button — so this stays out of the tab order rather than nesting
+          a link inside something focusable. It's still its own element (not
+          the row) so it doesn't swallow clicks meant for the toggle/delete. */}
+      <div
         onClick={onOpen}
         title={`Open “${task.title}”`}
-        className={`min-w-0 flex-1 truncate text-left text-[13px] transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
+        className={`min-w-0 flex-1 cursor-pointer truncate text-left text-[13px] transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
           done
             ? "text-neutral-400 line-through dark:text-neutral-600"
             : "text-neutral-800 dark:text-neutral-200"
         }`}
       >
-        {task.title}
-      </button>
+        <LinkifiedText text={task.title} />
+      </div>
       {/* Open affordance — a subtle chevron that appears on hover, echoing the
-          "row is navigable" cue. */}
+          "row is navigable" cue. It also carries this row's keyboard access to
+          "open", so focus has to reveal it too, not just hover. */}
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Open ${task.title}`}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-neutral-300 opacity-0 transition-all hover:bg-neutral-100 hover:text-neutral-600 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-neutral-300 opacity-0 transition-all hover:bg-neutral-100 hover:text-neutral-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800"
       >
         <svg
           className="h-3.5 w-3.5"

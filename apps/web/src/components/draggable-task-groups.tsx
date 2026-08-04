@@ -39,6 +39,7 @@ import {
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { seedFromDrop } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
+import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
 
@@ -567,7 +568,9 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group/row flex touch-manipulation items-stretch"
+      className={`group/row flex touch-manipulation items-stretch ${
+        isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""
+      }`}
     >
       <div
         aria-hidden

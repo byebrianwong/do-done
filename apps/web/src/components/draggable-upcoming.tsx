@@ -33,6 +33,7 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { TaskItem } from "./task-item";
+import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
 import { CalendarEventList } from "./calendar-event-item";
@@ -102,7 +103,9 @@ function SortableRow({
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group/row flex touch-manipulation items-stretch"
+      className={`group/row flex touch-manipulation items-stretch ${
+        isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""
+      }`}
     >
       <DragHandleIndicator />
       <div className="min-w-0 flex-1">

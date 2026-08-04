@@ -1089,12 +1089,11 @@ function SubtaskRow({
         style={styles.subtaskTitleBtn}
         accessibilityLabel={`Open ${task.title}`}
       >
-        <Text
+        <LinkifiedText
+          text={task.title}
           numberOfLines={1}
           style={[styles.subtaskTitle, done && styles.subtaskTitleDone]}
-        >
-          {task.title}
-        </Text>
+        />
       </Pressable>
       <Pressable
         onPress={onOpen}

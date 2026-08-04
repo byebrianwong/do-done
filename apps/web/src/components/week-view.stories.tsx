@@ -160,6 +160,30 @@ export const AllDayHeavy: Story = {
   },
 };
 
+// Both chip kinds — the all-day chip and the timed block — carry links, and
+// both stay draggable: the link only follows on a click, never on a drop.
+export const UrlInTitle: Story = {
+  args: {
+    weekStart: todayLocalISO(monday),
+    tasks: [
+      makeTask({
+        title: "https://example.com/billing",
+        priority: "p1",
+        when_date: dayOffset(1),
+      }),
+      makeTask({
+        title: "Read https://example.com/rfc/42",
+        priority: "p2",
+        due_date: dayOffset(2),
+        due_time: "10:00",
+        duration_minutes: 90,
+        project_id: "proj-1",
+      }),
+    ],
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
 export const SparseTasks: Story = {
   args: {
     weekStart: todayLocalISO(monday),

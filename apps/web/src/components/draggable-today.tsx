@@ -28,6 +28,7 @@ import { partitionToday } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { OverdueSection } from "./overdue-section";
 import { TaskItem } from "./task-item";
+import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 
 /** Number of auto picks the Focus section fills to before user pins. */
@@ -505,7 +506,9 @@ function SortableRow({ task, projects }: { task: Task; projects?: Project[] }) {
       suppressHydrationWarning
       {...attributes}
       {...listeners}
-      className="group/row flex touch-manipulation items-stretch"
+      className={`group/row flex touch-manipulation items-stretch ${
+        isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""
+      }`}
     >
       <div
         aria-hidden

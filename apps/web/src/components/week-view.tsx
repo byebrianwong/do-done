@@ -28,6 +28,7 @@ import {
   eventClockMinutes,
   formatEventTime,
 } from "./calendar-event-item";
+import { LinkifiedText, NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 
 interface WeekViewProps {
   weekStart: string; // local YYYY-MM-DD (Monday)
@@ -415,9 +416,9 @@ function AllDayChip({ task, color }: { task: Task; color: string }) {
       {...listeners}
       className={`cursor-grab break-words rounded-sm border-l-2 px-1.5 py-0.5 text-[11px] font-medium leading-tight text-neutral-800 active:cursor-grabbing dark:text-neutral-100 ${
         isDone ? "line-through" : ""
-      }`}
+      } ${isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""}`}
     >
-      {task.title}
+      <LinkifiedText text={task.title} />
     </div>
   );
 }
@@ -462,14 +463,16 @@ function TaskBlock({ task, color }: { task: Task; color: string }) {
       {...attributes}
       {...listeners}
       onClick={() => setExpanded(!expanded)}
-      className="absolute left-1 right-1 cursor-grab overflow-hidden rounded-md border-l-2 px-2 py-1 text-left text-xs shadow-sm transition-all hover:z-10 hover:shadow-md active:cursor-grabbing"
+      className={`absolute left-1 right-1 cursor-grab overflow-hidden rounded-md border-l-2 px-2 py-1 text-left text-xs shadow-sm transition-all hover:z-10 hover:shadow-md active:cursor-grabbing ${
+        isDragging ? NO_LINK_NAV_WHILE_DRAGGING : ""
+      }`}
     >
       <div
         className={`break-words font-medium leading-tight ${
           isDone ? "line-through" : ""
         } text-neutral-900 dark:text-neutral-100`}
       >
-        {task.title}
+        <LinkifiedText text={task.title} />
       </div>
       {height > 30 && (
         <div className="mt-0.5 text-[10px] text-neutral-500">
