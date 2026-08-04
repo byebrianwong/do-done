@@ -29,7 +29,7 @@ export const GroupKey = z.enum([
   "status",
   "priority",
   "project",
-  "date", // relative buckets off the effective do-date (when_date ?? due_date)
+  "date", // relative buckets off the effective do-date (scheduled_date ?? deadline_date)
   "tag",
 ]);
 export type GroupKey = z.infer<typeof GroupKey>;
@@ -37,8 +37,8 @@ export type GroupKey = z.infer<typeof GroupKey>;
 export const SortField = z.enum([
   "manual", // sort_order — the only field that permits drag-to-reorder
   "priority",
-  "due_date",
-  "when_date",
+  "deadline_date",
+  "scheduled_date",
   "created_at",
   "completed_at",
   "title",
@@ -62,7 +62,7 @@ export const FilterField = z.enum([
   "priority",
   "project",
   "tag",
-  "due",
+  "deadline",
   "overdue",
 ]);
 export type FilterField = z.infer<typeof FilterField>;
@@ -153,6 +153,38 @@ export function isDisplayDefault(
 }
 
 /**
+ * Field names as they were persisted before the scheduled/deadline rename.
+ * Configs saved under the old names live in three places at once — the DB
+ * column, localStorage and AsyncStorage — and only one of those is reachable
+ * from a SQL migration, so the mapping is applied on read instead. Without it
+ * a user who had sorted a view by date would silently get the default order
+ * back, since an unknown enum member fails the parse for the whole config.
+ */
+const LEGACY_FIELD_NAMES: Record<string, string> = {
+  when_date: "scheduled_date",
+  due_date: "deadline_date",
+  due: "deadline",
+};
+
+/** Rewrite legacy `sort[].field` / `filters[].field` values in place. */
+function migrateLegacyFields(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const config = raw as Record<string, unknown>;
+  const rename = (rules: unknown) =>
+    Array.isArray(rules)
+      ? rules.map((rule) => {
+          if (typeof rule !== "object" || rule === null) return rule;
+          const { field } = rule as { field?: unknown };
+          if (typeof field !== "string") return rule;
+          const renamed = LEGACY_FIELD_NAMES[field];
+          return renamed ? { ...rule, field: renamed } : rule;
+        })
+      : rules;
+
+  return { ...config, sort: rename(config.sort), filters: rename(config.filters) };
+}
+
+/**
  * Validate an untrusted config (e.g. from localStorage / a DB column) and fall
  * back to a known-good config rather than throwing. Stale persisted shapes are
  * expected as the feature evolves, so corrupt input must never break a view.
@@ -161,7 +193,7 @@ export function parseDisplayConfig(
   raw: unknown,
   fallback: DisplayConfig = DEFAULT_DISPLAY
 ): DisplayConfig {
-  const r = DisplayConfigSchema.safeParse(raw);
+  const r = DisplayConfigSchema.safeParse(migrateLegacyFields(raw));
   return r.success ? r.data : fallback;
 }
 
@@ -179,8 +211,8 @@ export const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
 export const SORT_OPTIONS: { field: SortField; label: string }[] = [
   { field: "manual", label: "Manual (drag)" },
   { field: "priority", label: "Priority" },
-  { field: "due_date", label: "Due date" },
-  { field: "when_date", label: "When date" },
+  { field: "deadline_date", label: "Deadline" },
+  { field: "scheduled_date", label: "Scheduled" },
   { field: "created_at", label: "Date added" },
   { field: "completed_at", label: "Date completed" },
   { field: "title", label: "Alphabetical" },
@@ -294,7 +326,7 @@ export function activeFilterCount(config: DisplayConfig): number {
  * disable cross-group drop for that group.
  */
 export interface GroupDropTarget {
-  field: "status" | "priority" | "project_id" | "when_date";
+  field: "status" | "priority" | "project_id" | "scheduled_date";
   value: string | null;
 }
 
@@ -332,9 +364,9 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
 };
 const PRIORITY_ORDER: readonly TaskPriority[] = ["p1", "p2", "p3", "p4"];
 
-/** Effective do-date: when_date wins over due_date (mirrors api-client taskDate). */
+/** Effective do-date: scheduled_date wins over deadline_date (mirrors api-client taskDate). */
 function effectiveDate(t: Task): string | null {
-  return t.when_date ?? t.due_date ?? null;
+  return t.scheduled_date ?? t.deadline_date ?? null;
 }
 
 export function isManualSort(config: DisplayConfig): boolean {
@@ -362,12 +394,12 @@ function matchesFilter(task: Task, f: FilterRule, today: string): boolean {
       if (f.op === "is_set") return task.tags.length > 0;
       if (f.op === "is_not") return !task.tags.some((t) => f.values.includes(t));
       return task.tags.some((t) => f.values.includes(t));
-    case "due":
-      if (f.op === "is_empty") return task.due_date === null;
-      if (f.op === "is_set") return task.due_date !== null;
-      if (task.due_date === null) return false;
-      if (f.op === "before") return task.due_date < (f.values[0] ?? today);
-      if (f.op === "after") return task.due_date > (f.values[0] ?? today);
+    case "deadline":
+      if (f.op === "is_empty") return task.deadline_date === null;
+      if (f.op === "is_set") return task.deadline_date !== null;
+      if (task.deadline_date === null) return false;
+      if (f.op === "before") return task.deadline_date < (f.values[0] ?? today);
+      if (f.op === "after") return task.deadline_date > (f.values[0] ?? today);
       return true;
     case "overdue":
       return f.op === "is_not" ? !isOverdue(task) : isOverdue(task);
@@ -422,10 +454,10 @@ function cmpByRule(a: Task, b: Task, rule: SortRule): number {
       const base = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       return dir === "desc" ? -base : base;
     }
-    case "due_date":
-      return cmpNullableStr(a.due_date, b.due_date, dir);
-    case "when_date":
-      return cmpNullableStr(a.when_date, b.when_date, dir);
+    case "deadline_date":
+      return cmpNullableStr(a.deadline_date, b.deadline_date, dir);
+    case "scheduled_date":
+      return cmpNullableStr(a.scheduled_date, b.scheduled_date, dir);
     case "created_at":
       return cmpNullableStr(a.created_at, b.created_at, dir);
     case "completed_at":
@@ -597,7 +629,7 @@ function groupTasks(
           const g = blank(
             b.key,
             b.label,
-            b.dropDate ? { field: "when_date", value: b.dropDate } : null
+            b.dropDate ? { field: "scheduled_date", value: b.dropDate } : null
           );
           if (b.key === "date:none") g.catchAll = true;
           groups.set(b.key, g);

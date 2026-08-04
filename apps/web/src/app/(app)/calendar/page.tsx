@@ -35,7 +35,7 @@ export default async function CalendarPage({
   const tasksApi = await getServerTasksApi();
   const projectsApi = await getServerProjectsApi();
 
-  // Local YYYY-MM-DD so the range matches the local when_date the user set
+  // Local YYYY-MM-DD so the range matches the local scheduled_date the user set
   // (toISOString() would be UTC and shift the boundaries by a day).
   const startStr = todayLocalISO(weekStart);
   const endStr = todayLocalISO(weekEnd);
@@ -44,8 +44,8 @@ export default async function CalendarPage({
   let projects: Project[] = [];
   let events: CalendarEvent[] = [];
   if (tasksApi && projectsApi) {
-    // The list() helper filters by due_date only — that's too narrow for the
-    // calendar because most tasks use when_date (the Things-style "do date").
+    // The list() helper filters by deadline_date only — that's too narrow for the
+    // calendar because most tasks use scheduled_date (the Things-style "do date").
     // Fetch the full active set and filter by effective date client-side.
     const [allRes, projectsRes, weekEvents] = await Promise.all([
       tasksApi.list({ limit: 200, offset: 0 }),

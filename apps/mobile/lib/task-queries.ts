@@ -411,8 +411,8 @@ export async function bulkUpdateTasks(
  * with it exactly as the single-row swipe reschedule does (see
  * TaskItem.buildReschedule).
  *
- * Without the due_date bump, pushing an overdue task to a later day leaves
- * `due_date` in the past, so `isOverdue()` stays true and the task never leaves
+ * Without the deadline_date bump, pushing an overdue task to a later day leaves
+ * `deadline_date` in the past, so `isOverdue()` stays true and the task never leaves
  * Today's Overdue section — the reschedule reads as though it reverted.
  */
 export async function bulkRescheduleTasks(
@@ -423,8 +423,8 @@ export async function bulkRescheduleTasks(
   return bulkPatchTasks(
     ids.map((id) => {
       const task = byId.get(id);
-      const input: UpdateTaskInput = { when_date: date };
-      if (task?.due_date && task.due_date < date) input.due_date = date;
+      const input: UpdateTaskInput = { scheduled_date: date };
+      if (task?.deadline_date && task.deadline_date < date) input.deadline_date = date;
       return { id, input };
     })
   );

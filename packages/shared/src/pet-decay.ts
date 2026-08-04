@@ -13,7 +13,7 @@
 //     (default 3, user-configurable).
 //   - Happiness: completing a task also lifts happiness. Base +2, plus +1 for
 //     each "level" of priority (p4=+1, p3=+2, p2=+3, p1=+4). Finishing on or
-//     before the When/Due date adds +5. Once a week (at the end of the user's
+//     before the scheduled date or deadline adds +5. Once a week (at the end of the user's
 //     chosen week-end day, default Sunday), happiness decays by
 //     `happiness_weekly_decay` (default 10, user-configurable).
 //   - Energy: any action — creating, editing, anything — feeds Pip energy.
@@ -318,8 +318,8 @@ export function deriveMood(
 export interface TaskDeltaProps {
   priority: TaskPriority;
   duration_minutes: number | null;
-  when_date: string | null;
-  due_date: string | null;
+  scheduled_date: string | null;
+  deadline_date: string | null;
   completed_at?: string | Date | null;
 }
 
@@ -370,7 +370,7 @@ export function priorityHappinessBonus(p: TaskPriority): number {
  *
  *   - Hunger += hungerFromEstimate(duration_minutes)
  *   - Happiness += 2 (base) + priorityHappinessBonus(priority)
- *                  + 5 if completed on or before when_date OR due_date
+ *                  + 5 if completed on or before scheduled_date OR deadline_date
  *   - Energy: 0  (energy is fed by creates/edits, not completions)
  *   - XP +5 (small completion reward; p1 still gets a larger XP bump)
  */
@@ -387,8 +387,8 @@ export function applyTaskDeltas(
 
   const todayLocal = todayLocalDateString(now, prefs.timezone);
   const onTime =
-    (task.when_date !== null && task.when_date >= todayLocal) ||
-    (task.due_date !== null && task.due_date >= todayLocal);
+    (task.scheduled_date !== null && task.scheduled_date >= todayLocal) ||
+    (task.deadline_date !== null && task.deadline_date >= todayLocal);
   if (onTime) happiness += 5;
 
   const xp = task.priority === "p1" ? 50 : 5;
@@ -449,16 +449,16 @@ export function isFieldFilled(
 export type TrackedField =
   | "priority"
   | "duration_minutes"
-  | "when_date"
-  | "due_date"
+  | "scheduled_date"
+  | "deadline_date"
   | "description"
   | "tags";
 
 export const TRACKED_FIELDS: TrackedField[] = [
   "priority",
   "duration_minutes",
-  "when_date",
-  "due_date",
+  "scheduled_date",
+  "deadline_date",
   "description",
   "tags",
 ];
@@ -528,8 +528,8 @@ export function taskToDeltaProps(task: Task): TaskDeltaProps {
   return {
     priority: task.priority,
     duration_minutes: task.duration_minutes,
-    when_date: task.when_date,
-    due_date: task.due_date,
+    scheduled_date: task.scheduled_date,
+    deadline_date: task.deadline_date,
     completed_at: task.completed_at,
   };
 }

@@ -104,23 +104,23 @@ describe("TaskEditModalV2 — fits and scrolls on small screens", () => {
   });
 });
 
-describe("Due-date quick picks", () => {
-  function openDuePopover(): HTMLElement {
+describe("Deadline quick picks", () => {
+  function openDeadlinePopover(): HTMLElement {
     render(
       <TaskEditModalV2
-        task={makeTask({ when_date: isoFromToday(0), due_date: null })}
+        task={makeTask({ scheduled_date: isoFromToday(0), deadline_date: null })}
         open
         onClose={vi.fn()}
       />
     );
-    fireEvent.click(screen.getByTitle("Set due date"));
-    return screen.getByRole("dialog", { name: "Due date" });
+    fireEvent.click(screen.getByTitle("Set deadline"));
+    return screen.getByRole("dialog", { name: "Deadline" });
   }
 
   it("offers the common deadlines plus a specific-date input", () => {
-    const el = openDuePopover();
+    const el = openDeadlinePopover();
     const dialog = within(el);
-    // "Same as task date" only appears because the task has a when_date.
+    // "Same as task date" only appears because the task has a scheduled_date.
     expect(dialog.getByText("Same as task date")).toBeInTheDocument();
     expect(dialog.getByText("Tomorrow")).toBeInTheDocument();
     expect(dialog.getByText("This weekend")).toBeInTheDocument();
@@ -131,30 +131,30 @@ describe("Due-date quick picks", () => {
   });
 
   it("writes the resolved date when a quick pick is tapped", () => {
-    const dialog = within(openDuePopover());
+    const dialog = within(openDeadlinePopover());
     fireEvent.click(dialog.getByText("Tomorrow"));
-    expect(setFieldSpy).toHaveBeenCalledWith("due_date", isoFromToday(1));
+    expect(setFieldSpy).toHaveBeenCalledWith("deadline_date", isoFromToday(1));
   });
 
-  it("'Same as task date' mirrors the task's when_date", () => {
-    const dialog = within(openDuePopover());
+  it("'Same as task date' mirrors the task's scheduled_date", () => {
+    const dialog = within(openDeadlinePopover());
     fireEvent.click(dialog.getByText("Same as task date"));
-    expect(setFieldSpy).toHaveBeenCalledWith("due_date", isoFromToday(0));
+    expect(setFieldSpy).toHaveBeenCalledWith("deadline_date", isoFromToday(0));
   });
 
-  it("omits 'Same as task date' when the task has no when_date", () => {
+  it("omits 'Same as task date' when the task has no scheduled_date", () => {
     render(
       <TaskEditModalV2
-        task={makeTask({ when_date: null })}
+        task={makeTask({ scheduled_date: null })}
         open
         onClose={vi.fn()}
       />
     );
-    // No when_date → no Time field and no "Same as task date" affordance, but
-    // the due button still opens; the due field lives in the action row
+    // No scheduled_date → no Time field and no "Same as task date" affordance, but
+    // the deadline button still opens; the deadline field lives in the action row
     // regardless.
-    fireEvent.click(screen.getByTitle("Set due date"));
-    const dialog = within(screen.getByRole("dialog", { name: "Due date" }));
+    fireEvent.click(screen.getByTitle("Set deadline"));
+    const dialog = within(screen.getByRole("dialog", { name: "Deadline" }));
     expect(dialog.queryByText("Same as task date")).not.toBeInTheDocument();
     expect(dialog.getByText("Tomorrow")).toBeInTheDocument();
   });
@@ -164,7 +164,7 @@ describe("Do-time quick scroll", () => {
   function openTimePopover() {
     render(
       <TaskEditModalV2
-        task={makeTask({ when_date: isoFromToday(0), when_time: null })}
+        task={makeTask({ scheduled_date: isoFromToday(0), scheduled_time: null })}
         open
         onClose={vi.fn()}
       />
@@ -183,10 +183,10 @@ describe("Do-time quick scroll", () => {
     expect(dialog.queryByDisplayValue("")).toBeNull();
   });
 
-  it("writes when_time when a slot is tapped", () => {
+  it("writes scheduled_time when a slot is tapped", () => {
     const dialog = openTimePopover();
     fireEvent.click(dialog.getByText("12:00 PM"));
-    expect(setFieldSpy).toHaveBeenCalledWith("when_time", "12:00");
+    expect(setFieldSpy).toHaveBeenCalledWith("scheduled_time", "12:00");
   });
 
   it("reveals a native time input when 'Specific time' is expanded", () => {

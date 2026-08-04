@@ -70,22 +70,22 @@ const OVERDUE_BACKLOG = [
   makeTask({
     title: "Pay credit card bill",
     priority: "p1",
-    when_date: addDaysLocalISO(-1),
+    scheduled_date: addDaysLocalISO(-1),
   }),
   makeTask({
     title: "Submit quarterly report",
     priority: "p2",
-    due_date: addDaysLocalISO(-3),
+    deadline_date: addDaysLocalISO(-3),
   }),
   makeTask({
     title: "Reply to landlord",
     priority: "p3",
-    when_date: addDaysLocalISO(-5),
+    scheduled_date: addDaysLocalISO(-5),
   }),
   makeTask({
     title: "Renew car registration",
     priority: "p2",
-    due_date: addDaysLocalISO(-8),
+    deadline_date: addDaysLocalISO(-8),
   }),
   ...SAMPLE_TASKS,
 ];

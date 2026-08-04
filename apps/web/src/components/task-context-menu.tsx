@@ -211,8 +211,8 @@ export function TaskContextMenu({
   // Optimistic copies so highlights update instantly before the refresh lands.
   const [priority, setPriority] = useState(task.priority);
   const [duration, setDuration] = useState(task.duration_minutes);
-  const [whenDate, setWhenDate] = useState(task.when_date);
-  const [dueDate, setDueDate] = useState(task.due_date);
+  const [scheduledDate, setScheduledDate] = useState(task.scheduled_date);
+  const [deadlineDate, setDeadlineDate] = useState(task.deadline_date);
   const [projectId, setProjectId] = useState(task.project_id);
   const [focus, setFocus] = useState(task.focus_override);
 
@@ -250,15 +250,15 @@ export function TaskContextMenu({
     onClose();
   }
 
-  function pickWhen(date: string) {
-    setWhenDate(date);
-    void mutate({ when_date: date });
+  function pickScheduledDate(date: string) {
+    setScheduledDate(date);
+    void mutate({ scheduled_date: date });
     onClose();
   }
 
-  function setWhenDateLoose(date: string | null) {
-    setWhenDate(date);
-    void mutate({ when_date: date, ...(date ? {} : { when_time: null }) });
+  function setScheduledDateLoose(date: string | null) {
+    setScheduledDate(date);
+    void mutate({ scheduled_date: date, ...(date ? {} : { scheduled_time: null }) });
   }
 
   function pickEstimate(minutes: number) {
@@ -273,8 +273,8 @@ export function TaskContextMenu({
   }
 
   function setDeadline(date: string | null) {
-    setDueDate(date);
-    void mutate({ due_date: date, ...(date ? {} : { due_time: null }) });
+    setDeadlineDate(date);
+    void mutate({ deadline_date: date, ...(date ? {} : { deadline_time: null }) });
   }
 
   function pickProject(id: string | null) {
@@ -365,8 +365,8 @@ export function TaskContextMenu({
               key={q.key}
               type="button"
               role="menuitem"
-              onClick={() => pickWhen(date)}
-              className={pillClass(whenDate === date)}
+              onClick={() => pickScheduledDate(date)}
+              className={pillClass(scheduledDate === date)}
             >
               {q.label}
             </button>
@@ -377,16 +377,16 @@ export function TaskContextMenu({
         <input
           type="date"
           aria-label="Pick a do-date"
-          value={whenDate ?? ""}
-          onChange={(e) => setWhenDateLoose(e.target.value || null)}
+          value={scheduledDate ?? ""}
+          onChange={(e) => setScheduledDateLoose(e.target.value || null)}
           className={DATE_INPUT_CLASS}
         />
       </div>
-      {whenDate ? (
+      {scheduledDate ? (
         <div className="px-1.5">
           <button
             type="button"
-            onClick={() => setWhenDateLoose(null)}
+            onClick={() => setScheduledDateLoose(null)}
             className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
           >
             × Clear schedule
@@ -470,11 +470,11 @@ export function TaskContextMenu({
           <input
             type="date"
             aria-label="Pick a deadline"
-            value={dueDate ?? ""}
+            value={deadlineDate ?? ""}
             onChange={(e) => setDeadline(e.target.value || null)}
             className={DATE_INPUT_CLASS}
           />
-          {dueDate ? (
+          {deadlineDate ? (
             <button
               type="button"
               onClick={() => setDeadline(null)}

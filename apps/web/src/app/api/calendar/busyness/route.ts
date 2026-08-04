@@ -14,7 +14,7 @@ import type { calendar_v3 } from "googleapis";
  * GET /api/calendar/busyness?start=YYYY-MM-DD&end=YYYY-MM-DD
  *
  * Returns DayBusyness[] merging:
- *   - in-app tasks scheduled (when_date) in [start, end]
+ *   - in-app tasks scheduled (scheduled_date) in [start, end]
  *   - Google Calendar events from the user's primary calendar in [start, end]
  *
  * Calendar events use type='event' (hollow dots in UI). Tasks use type='task'

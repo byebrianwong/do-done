@@ -171,8 +171,8 @@ export function QuickAddModal({
                 setPriority={composer.setPriority}
                 duration={composer.duration}
                 setDuration={composer.setDuration}
-                whenDate={composer.whenDate}
-                setWhenDate={composer.setWhenDate}
+                scheduledDate={composer.scheduledDate}
+                setScheduledDate={composer.setScheduledDate}
                 projectId={composer.projectId}
                 setProjectId={composer.setProjectId}
                 projects={allProjects}

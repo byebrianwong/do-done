@@ -6,7 +6,7 @@ import {
   seedFromUpcomingDate,
 } from "./quick-add";
 
-// Fixed reference so chrono-derived due dates are deterministic.
+// Fixed reference so chrono-derived deadlines are deterministic.
 const REF = new Date("2026-06-16T12:00:00");
 
 describe("buildCreateInput — merge precedence", () => {
@@ -31,15 +31,15 @@ describe("buildCreateInput — merge precedence", () => {
     expect(out.project_id).toBe("proj-uuid");
   });
 
-  it("lets a seeded when_date win over a typed date (the column is the date)", () => {
-    const out = buildCreateInput("ship it /today", { when_date: "2026-06-20" }, REF);
-    expect(out.when_date).toBe("2026-06-20");
+  it("lets a seeded scheduled_date win over a typed date (the column is the date)", () => {
+    const out = buildCreateInput("ship it /today", { scheduled_date: "2026-06-20" }, REF);
+    expect(out.scheduled_date).toBe("2026-06-20");
   });
 
-  it("lets a seeded when_date coexist with a parsed due_date", () => {
-    const out = buildCreateInput("submit report friday", { when_date: "2026-06-20" }, REF);
-    expect(out.when_date).toBe("2026-06-20");
-    expect(typeof out.due_date).toBe("string"); // "friday" → a deadline
+  it("lets a seeded scheduled_date coexist with a parsed deadline_date", () => {
+    const out = buildCreateInput("submit report friday", { scheduled_date: "2026-06-20" }, REF);
+    expect(out.scheduled_date).toBe("2026-06-20");
+    expect(typeof out.deadline_date).toBe("string"); // "friday" → a deadline
   });
 
   it("passes parsed tags and estimate through untouched", () => {
@@ -57,20 +57,20 @@ describe("seedFromDrop", () => {
   it("seeds nothing for null or value:null groups", () => {
     expect(seedFromDrop(null)).toEqual({});
     expect(seedFromDrop({ field: "project_id", value: null })).toEqual({});
-    expect(seedFromDrop({ field: "when_date", value: null })).toEqual({});
+    expect(seedFromDrop({ field: "scheduled_date", value: null })).toEqual({});
   });
 
   it("maps each axis to its field", () => {
     expect(seedFromDrop({ field: "status", value: "next" })).toEqual({ status: "next" });
     expect(seedFromDrop({ field: "priority", value: "p1" })).toEqual({ priority: "p1" });
     expect(seedFromDrop({ field: "project_id", value: "proj-uuid" })).toEqual({ project_id: "proj-uuid" });
-    expect(seedFromDrop({ field: "when_date", value: "2026-06-20" })).toEqual({ when_date: "2026-06-20" });
+    expect(seedFromDrop({ field: "scheduled_date", value: "2026-06-20" })).toEqual({ scheduled_date: "2026-06-20" });
   });
 });
 
 describe("seedFromUpcomingDate", () => {
-  it("seeds when_date for a real date and nothing for the sentinel", () => {
-    expect(seedFromUpcomingDate("2026-06-20")).toEqual({ when_date: "2026-06-20" });
+  it("seeds scheduled_date for a real date and nothing for the sentinel", () => {
+    expect(seedFromUpcomingDate("2026-06-20")).toEqual({ scheduled_date: "2026-06-20" });
     expect(seedFromUpcomingDate("unscheduled")).toEqual({});
   });
 });
@@ -84,9 +84,9 @@ describe("applyOverride", () => {
     expect(out.title).toBe("call mom");
   });
 
-  it("overrides when_date with the explicit chip value", () => {
+  it("overrides scheduled_date with the explicit chip value", () => {
     const built = buildCreateInput("ship it /today", {}, REF);
-    const out = applyOverride(built, { when_date: "2026-06-20" });
-    expect(out.when_date).toBe("2026-06-20");
+    const out = applyOverride(built, { scheduled_date: "2026-06-20" });
+    expect(out.scheduled_date).toBe("2026-06-20");
   });
 });

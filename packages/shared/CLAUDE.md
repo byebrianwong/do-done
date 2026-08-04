@@ -5,7 +5,7 @@ Leaf package — never imports from other workspace packages.
 ## Key Files
 - `src/schemas.ts` — Zod schemas for all entities (Task, Project, Location, etc.) and input types
 - `src/constants.ts` — Priority config, status config, focus scores, project colors
-- `src/utils.ts` — Pure functions: isOverdue, isDueToday, sortByPriority, formatDuration
+- `src/utils.ts` — Pure functions: isOverdue, isDeadlineToday, sortByPriority, formatDuration
 
 ## Rules
 - Every entity schema change here affects ALL consumers (api-client, task-engine, mcp, web, mobile)

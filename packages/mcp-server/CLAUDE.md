@@ -24,10 +24,14 @@ schema.
 
 ## Dates
 
-The failure this surface is built to prevent: a client asks "what do I have due
-today?", sees no `due_date` anywhere, and answers "nothing is dated" — while the
-user is looking at a full Today screen. DoDone schedules on **`when_date`**;
-`due_date` is a rarely-set hard deadline. Three things enforce that:
+The failure this surface is built to prevent: a client asked "what have I got on
+today?", looks for a deadline, finds none, and answers "nothing is dated" — while
+the user is looking at a full Today screen. DoDone schedules on
+**`scheduled_date`**; `deadline_date` is a rarely-set hard deadline. The columns
+used to be named `when_date` / `due_date`, which is what made the mistake so easy
+to make; they were renamed in `20260804000001_rename_task_date_fields.sql`, and
+the word "due" is deliberately absent from everything this server emits. Four
+things enforce the model:
 
 - **`SERVER_INSTRUCTIONS`** states the two-field model at initialization, and
   the `DATE_MODEL` blurb repeats it in every date-touching tool description. A
@@ -40,6 +44,9 @@ user is looking at a full Today screen. DoDone schedules on **`when_date`**;
   both fields. `get_focus_tasks` is an urgency *ranking* and answers a different
   question — its description says so, because it was previously the tool clients
   reached for when asked about today.
+- **The field names carry the meaning on their own.** `scheduled_date` and
+  `deadline_date` need no gloss, which is the point of the rename: a caller that
+  ignores every paragraph above still can't read one as the other.
 
 `src/clock.ts` resolves "today" through `user_preferences.timezone`, never the
 process clock: the hosted transport runs in UTC, so for a user behind UTC every

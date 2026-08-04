@@ -179,8 +179,8 @@ function RescheduleAllButtons({
 }
 
 // Sentinel "date" for the No-date group. Treated specially in the drag
-// handler: dropping a task here clears when_date; dragging FROM here onto a
-// real date sets when_date on the target.
+// handler: dropping a task here clears scheduled_date; dragging FROM here onto a
+// real date sets scheduled_date on the target.
 export const NO_DATE_KEY = "unscheduled";
 
 // Sentinel "date" for the Overdue group. Overdue tasks can be dragged OUT onto
@@ -516,7 +516,7 @@ export function DraggableUpcoming({
     } else {
       // Overdue has no single past date to assign, so it's never a valid drop
       // target. handleDragOver already blocks previews into it; guard the
-      // commit too so a stray drop can't write when_date: "overdue".
+      // commit too so a stray drop can't write scheduled_date: "overdue".
       if (toDate === OVERDUE_KEY) {
         if (snap) {
           setByDate(snap.byDate);
@@ -525,18 +525,18 @@ export function DraggableUpcoming({
         return;
       }
 
-      // Cross-section: update when_date on the moved task. Both ends can be the
-      // No-date sentinel — moving INTO no-date clears when_date; moving OUT of
-      // no-date sets when_date to the target day.
+      // Cross-section: update scheduled_date on the moved task. Both ends can be the
+      // No-date sentinel — moving INTO no-date clears scheduled_date; moving OUT of
+      // no-date sets scheduled_date to the target day.
       const toNoDate = toDate === NO_DATE_KEY;
-      const nextWhenDate = toNoDate ? null : toDate;
+      const nextScheduledDate = toNoDate ? null : toDate;
 
       const moved = tasks.get(activeId);
       if (moved) {
         const nextTasks = new Map(tasks);
         nextTasks.set(activeId, {
           ...moved,
-          when_date: nextWhenDate,
+          scheduled_date: nextScheduledDate,
         });
         setTasks(nextTasks);
       }
@@ -545,14 +545,14 @@ export function DraggableUpcoming({
         id: string;
         input: {
           sort_order?: number;
-          when_date?: string | null;
+          scheduled_date?: string | null;
         };
       }> = [
         {
           id: activeId,
           input: toNoDate
-            ? { when_date: null }
-            : { when_date: nextWhenDate as string },
+            ? { scheduled_date: null }
+            : { scheduled_date: nextScheduledDate as string },
         },
       ];
       toIds.forEach((id, i) =>
@@ -572,7 +572,7 @@ export function DraggableUpcoming({
   }
 
   // Move every overdue task to a chosen day in one write, then let the refresh
-  // re-file them into their new columns. Slides past due dates forward via the
+  // re-file them into their new columns. Slides stale deadlines forward via the
   // same helper the per-row and Today reschedules use.
   async function rescheduleAll(date: string) {
     const overdueIds = byDate.get(OVERDUE_KEY) ?? [];

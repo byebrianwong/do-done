@@ -11,10 +11,10 @@ function makeTask(overrides: Partial<Task>): Task {
     status: "not_started",
     priority: "p3",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -31,21 +31,21 @@ function makeTask(overrides: Partial<Task>): Task {
 }
 
 describe("groupTasksByDate", () => {
-  it("groups tasks by when_date", () => {
+  it("groups tasks by scheduled_date", () => {
     const tasks = [
-      makeTask({ id: "a", when_date: "2026-05-12" }),
-      makeTask({ id: "b", when_date: "2026-05-12" }),
-      makeTask({ id: "c", when_date: "2026-05-13" }),
+      makeTask({ id: "a", scheduled_date: "2026-05-12" }),
+      makeTask({ id: "b", scheduled_date: "2026-05-12" }),
+      makeTask({ id: "c", scheduled_date: "2026-05-13" }),
     ];
     const grouped = groupTasksByDate(tasks);
     expect(grouped.get("2026-05-12")?.map((t) => t.id)).toEqual(["a", "b"]);
     expect(grouped.get("2026-05-13")?.map((t) => t.id)).toEqual(["c"]);
   });
 
-  it("skips tasks with no when_date", () => {
+  it("skips tasks with no scheduled_date", () => {
     const tasks = [
-      makeTask({ id: "a", when_date: "2026-05-12" }),
-      makeTask({ id: "b", when_date: null }),
+      makeTask({ id: "a", scheduled_date: "2026-05-12" }),
+      makeTask({ id: "b", scheduled_date: null }),
     ];
     const grouped = groupTasksByDate(tasks);
     expect(grouped.size).toBe(1);
@@ -53,13 +53,13 @@ describe("groupTasksByDate", () => {
   });
 
   it("defaults missing duration to 30 minutes", () => {
-    const tasks = [makeTask({ when_date: "2026-05-12", duration_minutes: null })];
+    const tasks = [makeTask({ scheduled_date: "2026-05-12", duration_minutes: null })];
     const grouped = groupTasksByDate(tasks);
     expect(grouped.get("2026-05-12")?.[0].duration_minutes).toBe(30);
   });
 
   it("preserves priority on the item", () => {
-    const tasks = [makeTask({ when_date: "2026-05-12", priority: "p1" })];
+    const tasks = [makeTask({ scheduled_date: "2026-05-12", priority: "p1" })];
     const grouped = groupTasksByDate(tasks);
     expect(grouped.get("2026-05-12")?.[0].priority).toBe("p1");
   });

@@ -55,17 +55,17 @@ function dayLabel(iso: string): string {
 }
 
 function effectiveDate(t: Task): string | null {
-  return t.when_date ?? t.due_date ?? null;
+  return t.scheduled_date ?? t.deadline_date ?? null;
 }
 
 // What dropping into a date section should do to a task's schedule. Every
 // section maps to a concrete date (or clears it) — no soft buckets.
 function sectionTarget(key: string): UpdateTaskInput {
-  if (key === 'overdue') return { when_date: todayLocalISO() };
-  if (key === 'anytime') return { when_date: null };
+  if (key === 'overdue') return { scheduled_date: todayLocalISO() };
+  if (key === 'anytime') return { scheduled_date: null };
   // "Later" = beyond the horizon; drop lands on the first day past it.
-  if (key === 'later') return { when_date: addDaysLocalISO(HORIZON_DAYS + 1) };
-  return { when_date: key }; // a YYYY-MM-DD day
+  if (key === 'later') return { scheduled_date: addDaysLocalISO(HORIZON_DAYS + 1) };
+  return { scheduled_date: key }; // a YYYY-MM-DD day
 }
 
 // Build ordered date sections: Overdue → Today → Tomorrow → each dated day in

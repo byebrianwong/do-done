@@ -48,14 +48,14 @@ export const Open: Story = {
   play: openMenu,
 };
 
-// Open with a non-default config: grouped by priority, sorted by due date,
+// Open with a non-default config: grouped by priority, sorted by deadline,
 // P1+P2 filters active — shows the "customized" state (active pills + dir toggle).
 export const Customized: Story = {
   args: {
     initial: {
       ...defaultDisplayFor("all"),
       group: "priority",
-      sort: [{ field: "due_date", dir: "asc" }],
+      sort: [{ field: "deadline_date", dir: "asc" }],
       filters: [{ field: "priority", op: "is", values: ["p1", "p2"] }],
     },
   },

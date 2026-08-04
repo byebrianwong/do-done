@@ -78,18 +78,18 @@ export const Overdue: Story = {
     task: makeTask({
       title: "Submit quarterly report",
       priority: "p2",
-      due_date: yesterday,
+      deadline_date: yesterday,
     }),
   },
 };
 
-export const DueToday: Story = {
+export const DeadlineToday: Story = {
   args: {
     task: makeTask({
       title: "Team standup",
       priority: "p2",
-      due_date: today,
-      due_time: "09:30",
+      deadline_date: today,
+      deadline_time: "09:30",
       duration_minutes: 30,
     }),
   },
@@ -100,8 +100,8 @@ export const Recurring: Story = {
     task: makeTask({
       title: "Weekly retro",
       priority: "p3",
-      due_date: today,
-      due_time: "16:00",
+      deadline_date: today,
+      deadline_time: "16:00",
       duration_minutes: 60,
       recurrence_rule: "FREQ=WEEKLY;BYDAY=FR",
     }),
@@ -120,14 +120,14 @@ export const Weekdays: Story = {
 
 export const Completed: Story = {
   // A finished task shows WHEN it was completed (a neutral chip), not its
-  // original do-/due-date. This task was due yesterday — pre-fix the row read
+  // original scheduled-/deadline-date. Its deadline was yesterday — pre-fix the row read
   // "Overdue" (unhelpful for done work); now it reads "Yesterday".
   args: {
     task: makeTask({
       title: "Deploy v2 release",
       priority: "p1",
       status: "done",
-      due_date: yesterday,
+      deadline_date: yesterday,
       completed_at: yesterdayAt,
     }),
   },
@@ -145,13 +145,13 @@ export const ScheduleableTask: Story = {
 };
 
 export const ScheduledWithTime: Story = {
-  name: "When date + time (do date with time of day)",
+  name: "Scheduled date + time (with time of day)",
   args: {
     task: makeTask({
       title: "Deep work session",
       priority: "p2",
-      when_date: tomorrow,
-      when_time: "15:00",
+      scheduled_date: tomorrow,
+      scheduled_time: "15:00",
       duration_minutes: 90,
     }),
   },
@@ -162,7 +162,7 @@ export const Future: Story = {
     task: makeTask({
       title: "Plan weekend trip",
       priority: "p4",
-      due_date: nextWeek,
+      deadline_date: nextWeek,
       tags: ["personal"],
     }),
   },
@@ -230,7 +230,7 @@ export const SubtaskInList: Story = {
           parent_task_id: "parent-1",
           depth: 1,
           project_id: "proj-1",
-          when_date: tomorrow,
+          scheduled_date: tomorrow,
         })}
         parentTask={{ id: "parent-1", title: "Launch the new signup flow" }}
         projects={SAMPLE_PROJECTS}
@@ -296,8 +296,8 @@ export const DoDateWithDeadline: Story = {
     task: makeTask({
       title: "Finish the grant application",
       priority: "p1",
-      when_date: tomorrow,
-      due_date: nextWeek,
+      scheduled_date: tomorrow,
+      deadline_date: nextWeek,
       duration_minutes: 120,
     }),
   },
@@ -311,7 +311,7 @@ export const LongTitle: Story = {
       title:
         "Investigate why the nightly sync job intermittently drops a handful of recurring tasks when the timezone offset changes during daylight-saving transitions",
       priority: "p2",
-      due_date: today,
+      deadline_date: today,
     }),
   },
 };
@@ -350,8 +350,8 @@ export const MobileTwoRow: Story = {
           title:
             "Investigate why the nightly sync job intermittently drops recurring tasks",
           priority: "p1",
-          due_date: today,
-          due_time: "09:30",
+          deadline_date: today,
+          deadline_time: "09:30",
           duration_minutes: 60,
           tags: ["urgent", "backend"],
           project_id: "proj-1",
@@ -363,8 +363,8 @@ export const MobileTwoRow: Story = {
           title: "Review pull request",
           priority: "p2",
           status: "in_progress",
-          when_date: tomorrow,
-          when_time: "15:00",
+          scheduled_date: tomorrow,
+          scheduled_time: "15:00",
           project_id: "proj-2",
           duration_minutes: 30,
         })}
@@ -377,8 +377,8 @@ export const MobileTwoRow: Story = {
         task={makeTask({
           title: "Finish the grant application",
           priority: "p1",
-          when_date: tomorrow,
-          due_date: nextWeek,
+          scheduled_date: tomorrow,
+          deadline_date: nextWeek,
           duration_minutes: 120,
         })}
       />
@@ -389,10 +389,10 @@ export const MobileTwoRow: Story = {
 // ── Multi-select: rows inside the selection provider + the floating bar ────
 
 const SELECTABLE = [
-  makeTask({ id: "s1", title: "Fix critical login bug", priority: "p1", due_date: yesterday }),
+  makeTask({ id: "s1", title: "Fix critical login bug", priority: "p1", deadline_date: yesterday }),
   makeTask({ id: "s2", title: "Review pull request", priority: "p2", project_id: "proj-1", duration_minutes: 60 }),
-  makeTask({ id: "s3", title: "Team standup", priority: "p2", due_date: today, due_time: "09:30" }),
-  makeTask({ id: "s4", title: "Buy groceries", priority: "p3", when_date: tomorrow }),
+  makeTask({ id: "s3", title: "Team standup", priority: "p2", deadline_date: today, deadline_time: "09:30" }),
+  makeTask({ id: "s4", title: "Buy groceries", priority: "p3", scheduled_date: tomorrow }),
   makeTask({ id: "s5", title: "Plan the launch", priority: "p2", tags: ["q3"], project_id: "proj-3" }),
 ];
 
@@ -444,19 +444,19 @@ export const MultiSelectRange: Story = {
 
 export const Gallery: Story = {
   name: "Gallery (mixed rows)",
-  args: { task: makeTask({ title: "Fix critical login bug", priority: "p1", due_date: yesterday }) },
+  args: { task: makeTask({ title: "Fix critical login bug", priority: "p1", deadline_date: yesterday }) },
   render: () => (
     <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       <TaskItem
-        task={makeTask({ title: "Fix critical login bug", priority: "p1", due_date: yesterday, tags: ["urgent"] })}
+        task={makeTask({ title: "Fix critical login bug", priority: "p1", deadline_date: yesterday, tags: ["urgent"] })}
       />
       <TaskItem
         task={makeTask({
           title: "Review pull request",
           priority: "p2",
           status: "in_progress",
-          due_date: today,
-          due_time: "14:00",
+          deadline_date: today,
+          deadline_time: "14:00",
           duration_minutes: 60,
           project_id: "proj-1",
         })}
@@ -466,14 +466,14 @@ export const Gallery: Story = {
         task={makeTask({
           title: "Team standup",
           priority: "p2",
-          due_date: today,
-          due_time: "09:30",
+          deadline_date: today,
+          deadline_time: "09:30",
           duration_minutes: 30,
           recurrence_rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
         })}
       />
       <TaskItem
-        task={makeTask({ title: "Buy groceries", priority: "p3", when_date: tomorrow, when_time: "15:00", project_id: "proj-2" })}
+        task={makeTask({ title: "Buy groceries", priority: "p3", scheduled_date: tomorrow, scheduled_time: "15:00", project_id: "proj-2" })}
         projects={SAMPLE_PROJECTS}
       />
       <TaskItem task={makeTask({ title: "Schedule dentist appointment", priority: "p4", status: "inbox" })} />

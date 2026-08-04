@@ -142,8 +142,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Also treat existing scheduled tasks as busy. A task reserves space at its
-  // "do" time (when_date/when_time) if it has one, else at its hard deadline
-  // (due_date/due_time). Both are wall-clock in the user's timezone.
+  // "do" time (scheduled_date/scheduled_time) if it has one, else at its hard deadline
+  // (deadline_date/deadline_time). Both are wall-clock in the user's timezone.
   const { data: scheduledTasks = [] } = await tasks.list({
     limit: 100,
     offset: 0,
@@ -157,8 +157,8 @@ export async function POST(request: NextRequest) {
     ) {
       continue;
     }
-    const date = t.when_date && t.when_time ? t.when_date : t.due_date;
-    const time = t.when_date && t.when_time ? t.when_time : t.due_time;
+    const date = t.scheduled_date && t.scheduled_time ? t.scheduled_date : t.deadline_date;
+    const time = t.scheduled_date && t.scheduled_time ? t.scheduled_time : t.deadline_time;
     if (!date || !time) continue;
     const [yy, mm, dd] = date.split("-").map(Number);
     const [hh, min] = time.split(":").map(Number);

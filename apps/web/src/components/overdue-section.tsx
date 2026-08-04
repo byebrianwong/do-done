@@ -27,10 +27,10 @@ function OverdueRow({
 }) {
   const priorityColor = PRIORITY_CONFIG[task.priority].color;
   const lateBy =
-    task.when_date && task.when_date < todayLocalISO()
-      ? task.when_date
-      : task.due_date && task.due_date < todayLocalISO()
-      ? task.due_date
+    task.scheduled_date && task.scheduled_date < todayLocalISO()
+      ? task.scheduled_date
+      : task.deadline_date && task.deadline_date < todayLocalISO()
+      ? task.deadline_date
       : null;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-900">
@@ -71,7 +71,7 @@ function OverdueRow({
           This week
         </button>
         <DatePickerChip
-          value={task.when_date ?? task.due_date ?? todayLocalISO()}
+          value={task.scheduled_date ?? task.deadline_date ?? todayLocalISO()}
           onPick={(date) => onSelect({ kind: "date", date })}
         />
         <button

@@ -39,18 +39,18 @@ import { DraggableUpcoming, NO_DATE_KEY, OVERDUE_KEY } from "./draggable-upcomin
 import { makeTask } from "./__stories__/mocks";
 
 function renderWithOverdue() {
-  const overdueWhen = makeTask({
-    id: "od-when",
-    title: "Overdue by when_date",
-    when_date: addDaysLocalISO(-2),
+  const overdueScheduled = makeTask({
+    id: "od-scheduled",
+    title: "Overdue by scheduled_date",
+    scheduled_date: addDaysLocalISO(-2),
   });
-  const overdueDue = makeTask({
-    id: "od-due",
-    title: "Overdue by due_date",
-    due_date: addDaysLocalISO(-3),
+  const overdueDeadline = makeTask({
+    id: "od-deadline",
+    title: "Overdue by deadline_date",
+    deadline_date: addDaysLocalISO(-3),
   });
   const groups = [
-    { date: OVERDUE_KEY, label: "Overdue", tasks: [overdueWhen, overdueDue] },
+    { date: OVERDUE_KEY, label: "Overdue", tasks: [overdueScheduled, overdueDeadline] },
     { date: NO_DATE_KEY, label: "No date", tasks: [] },
     { date: addDaysLocalISO(0), label: "Today", tasks: [] },
     { date: addDaysLocalISO(1), label: "Tomorrow", tasks: [] },
@@ -83,14 +83,14 @@ describe("DraggableUpcoming — Overdue reschedule all", () => {
       input: Record<string, unknown>;
     }>;
     expect(updates).toHaveLength(2);
-    // when_date-only overdue task: just moves its when_date.
-    expect(updates.find((u) => u.id === "od-when")!.input).toEqual({
-      when_date: tomorrow,
+    // scheduled_date-only overdue task: just moves its scheduled_date.
+    expect(updates.find((u) => u.id === "od-scheduled")!.input).toEqual({
+      scheduled_date: tomorrow,
     });
-    // due_date-driven overdue task: when_date set AND the past deadline slides up.
-    expect(updates.find((u) => u.id === "od-due")!.input).toEqual({
-      when_date: tomorrow,
-      due_date: tomorrow,
+    // deadline_date-driven overdue task: scheduled_date set AND the past deadline slides up.
+    expect(updates.find((u) => u.id === "od-deadline")!.input).toEqual({
+      scheduled_date: tomorrow,
+      deadline_date: tomorrow,
     });
   });
 

@@ -47,7 +47,7 @@ export const Default: Story = {
     task: makeTask({
       title: "Draft Q3 launch email",
       priority: "p2",
-      when_date: TODAY,
+      scheduled_date: TODAY,
       duration_minutes: 60,
       project_id: "proj-1",
     }),
@@ -73,7 +73,7 @@ export const OverdueUrgent: Story = {
     task: makeTask({
       title: "Pay credit card bill",
       priority: "p1",
-      due_date: YESTERDAY,
+      deadline_date: YESTERDAY,
       duration_minutes: 30,
       tags: ["finance"],
     }),
@@ -86,7 +86,7 @@ export const PinnedToFocus: Story = {
     task: makeTask({
       title: "Finish the quarterly report",
       priority: "p1",
-      when_date: TODAY,
+      scheduled_date: TODAY,
       duration_minutes: 120,
       focus_override: "include",
       project_id: "proj-1",

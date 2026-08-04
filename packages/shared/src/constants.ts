@@ -42,7 +42,7 @@ export const TERMINAL_STATUSES: readonly TaskStatus[] = [
 
 export const FOCUS_SCORES = {
   OVERDUE: 100,
-  DUE_TODAY: 50,
+  DEADLINE_TODAY: 50,
   IN_PROGRESS: 20,
   HAS_TIME_BLOCK: 30,
   // Quick wins: small tasks that can be knocked out fast get a boost so they

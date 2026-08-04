@@ -20,7 +20,7 @@ export function registerResources(
    * Wrap a task list in the same envelope the tools use: the day it was
    * resolved against, the timezone that day came from, and per-task relative
    * dates. A bare array of rows leaves the reader to work out whether
-   * `when_date: "2026-08-03"` is today, which is the whole problem.
+   * `scheduled_date: "2026-08-03"` is today, which is the whole problem.
    */
   const envelope = async (
     load: (todayISO: string) => Promise<{ data: Task[]; error: Error | null }>

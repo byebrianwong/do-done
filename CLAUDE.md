@@ -6,6 +6,31 @@ AI-native task management app. Turborepo monorepo with Next.js web, React Native
 
 The user-facing brand name is **DoDone** (closed compound, medial capital) — use it in all UI copy, titles, marketing, and user-facing docs. Never `do-done`, `Do Done`, or `dodone`. The lowercase hyphenated `do-done` is reserved for internal identifiers only: the repo, npm package scope (`@do-done/*`), Expo `slug`, and similar. Deep-link scheme (`dodone`), bundle IDs, event names, and storage keys stay as-is.
 
+## Dates: "Scheduled" and "Deadline", never "due"
+
+A task carries two independent date pairs, named the same way from the Postgres
+column up through the MCP tool parameters:
+
+| Column | Label | Meaning |
+| --- | --- | --- |
+| `scheduled_date` / `scheduled_time` | **Scheduled** | The day (and optional time) the user plans to *do* the task. This is what the app schedules by — nearly every dated task has one. |
+| `deadline_date` / `deadline_time` | **Deadline** | A hard external cutoff. Rarely set; its absence never means a task is undated. |
+
+**The bare word "due" is banned** from UI copy, tool descriptions, tool output,
+labels, comments and identifiers. It is the word an English speaker reaches for
+when they mean the *scheduled* day, so every consumer that saw `due_date` — MCP
+clients most of all — read the rarely-set deadline as the schedule and reported a
+fully planned week as empty. The names now carry the meaning unaided, so nothing
+has to be disambiguated in prose. `overdue` is a different word and stays.
+
+These were `when_date` / `when_time` / `due_date` / `due_time` until
+`supabase/migrations/20260804000001_rename_task_date_fields.sql`. That migration
+also recreates both calendar functions, since a plpgsql body is stored as text
+and does *not* follow a column rename. Display configs persisted under the old
+`sort`/`filter` field names are remapped on read by `parseDisplayConfig` in
+`packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
+well as the DB, so SQL alone could not have reached them.
+
 ## Architecture
 
 ```
@@ -70,7 +95,7 @@ to the authenticated user. That per-request construction is required, not an
 optimisation — the tool registrars capture their user id at construction time.
 
 Anything on this surface that touches dates has to say **which** date it means:
-DoDone schedules on `when_date` and almost never sets `due_date`, so a client
+DoDone schedules on `scheduled_date` and almost never sets `deadline_date`, so a client
 that equates "dated" with "has a deadline" reports a full week as empty. Tools
 answer date questions via `get_agenda`, emit every date with its relative
 reading, and resolve "today" through the user's timezone rather than the

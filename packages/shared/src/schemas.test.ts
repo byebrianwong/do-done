@@ -18,10 +18,10 @@ function baseTask(overrides: Record<string, unknown> = {}): Record<string, unkno
     status: "inbox",
     priority: "p4",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -36,28 +36,28 @@ function baseTask(overrides: Record<string, unknown> = {}): Record<string, unkno
   };
 }
 
-describe("TaskSchema · when_date", () => {
-  it("accepts a concrete when_date", () => {
-    const r = TaskSchema.safeParse(baseTask({ when_date: "2026-05-12" }));
+describe("TaskSchema · scheduled_date", () => {
+  it("accepts a concrete scheduled_date", () => {
+    const r = TaskSchema.safeParse(baseTask({ scheduled_date: "2026-05-12" }));
     expect(r.success).toBe(true);
   });
 
-  it("accepts an unscheduled task (when_date null)", () => {
+  it("accepts an unscheduled task (scheduled_date null)", () => {
     const r = TaskSchema.safeParse(baseTask());
     expect(r.success).toBe(true);
   });
 
-  it("rejects a non-date when_date string", () => {
-    const r = TaskSchema.safeParse(baseTask({ when_date: "someday" }));
+  it("rejects a non-date scheduled_date string", () => {
+    const r = TaskSchema.safeParse(baseTask({ scheduled_date: "someday" }));
     expect(r.success).toBe(false);
   });
 });
 
 describe("CreateTaskInput", () => {
-  it("accepts when_date", () => {
+  it("accepts scheduled_date", () => {
     const r = CreateTaskInput.safeParse({
       title: "x",
-      when_date: "2026-05-12",
+      scheduled_date: "2026-05-12",
     });
     expect(r.success).toBe(true);
   });
@@ -72,13 +72,13 @@ describe("CreateTaskInput", () => {
 });
 
 describe("UpdateTaskInput", () => {
-  it("allows clearing when_date (set to null)", () => {
-    const r = UpdateTaskInput.safeParse({ when_date: null });
+  it("allows clearing scheduled_date (set to null)", () => {
+    const r = UpdateTaskInput.safeParse({ scheduled_date: null });
     expect(r.success).toBe(true);
   });
 
-  it("accepts a new when_date", () => {
-    const r = UpdateTaskInput.safeParse({ when_date: "2026-05-12" });
+  it("accepts a new scheduled_date", () => {
+    const r = UpdateTaskInput.safeParse({ scheduled_date: "2026-05-12" });
     expect(r.success).toBe(true);
   });
 });

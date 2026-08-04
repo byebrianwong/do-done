@@ -25,7 +25,7 @@ describe("WeekView — mobile calendar", () => {
     render(
       <WeekView
         weekStart={MONDAY}
-        tasks={[makeTask({ title: "Standup", when_date: MONDAY })]}
+        tasks={[makeTask({ title: "Standup", scheduled_date: MONDAY })]}
         projects={SAMPLE_PROJECTS}
       />
     );

@@ -36,9 +36,9 @@ function task(overrides: Partial<Task> = {}): Task {
     status: "inbox",
     priority: "p4",
     project_id: null,
-    when_date: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -86,6 +86,35 @@ describe("parseDisplayConfig", () => {
   it("uses the supplied fallback", () => {
     const fb = defaultDisplayFor("all");
     expect(parseDisplayConfig(undefined, fb)).toEqual(fb);
+  });
+
+  // Configs persisted before the scheduled/deadline rename carry the old field
+  // names. Without the remap the unknown enum member fails the parse for the
+  // *whole* config, so a user who had sorted a view by date would silently get
+  // the default order back — see LEGACY_FIELD_NAMES in display.ts.
+  it("remaps sort and filter fields persisted under the pre-rename names", () => {
+    const cfg = parseDisplayConfig({
+      group: "status",
+      sort: [{ field: "when_date", dir: "desc" }],
+      filters: [{ field: "due", op: "is_set", values: [] }],
+    });
+    expect(cfg.sort[0]).toEqual({ field: "scheduled_date", dir: "desc" });
+    expect(cfg.filters[0]!.field).toBe("deadline");
+    expect(cfg.group).toBe("status");
+  });
+
+  it("remaps a legacy due_date sort without disturbing its direction", () => {
+    const cfg = parseDisplayConfig({ sort: [{ field: "due_date", dir: "desc" }] });
+    expect(cfg.sort[0]).toEqual({ field: "deadline_date", dir: "desc" });
+  });
+
+  it("leaves current field names untouched", () => {
+    const cfg = parseDisplayConfig({
+      sort: [{ field: "deadline_date", dir: "asc" }],
+      filters: [{ field: "deadline", op: "is_set", values: [] }],
+    });
+    expect(cfg.sort[0]!.field).toBe("deadline_date");
+    expect(cfg.filters[0]!.field).toBe("deadline");
   });
 
   it("backfills sort-rule defaults", () => {
@@ -166,15 +195,15 @@ describe("filtering", () => {
 
   it("filters by overdue", () => {
     const tasks = [
-      task({ status: "next", due_date: addDaysLocalISO(-2) }),
-      task({ status: "next", due_date: addDaysLocalISO(5) }),
+      task({ status: "next", deadline_date: addDaysLocalISO(-2) }),
+      task({ status: "next", deadline_date: addDaysLocalISO(5) }),
     ];
     const overdue = applyDisplay(tasks, {
       ...DEFAULT_DISPLAY,
       filters: [{ field: "overdue", op: "is", values: [] }],
     }, ctx());
     expect(flat(overdue)).toHaveLength(1);
-    expect(flat(overdue)[0].due_date).toBe(addDaysLocalISO(-2));
+    expect(flat(overdue)[0].deadline_date).toBe(addDaysLocalISO(-2));
   });
 
   it("AND-combines multiple filters", () => {
@@ -211,14 +240,14 @@ describe("sorting", () => {
 
   it("pushes nulls last regardless of direction", () => {
     const tasks = [
-      task({ due_date: null }),
-      task({ due_date: "2026-03-01" }),
-      task({ due_date: "2026-01-01" }),
+      task({ deadline_date: null }),
+      task({ deadline_date: "2026-03-01" }),
+      task({ deadline_date: "2026-01-01" }),
     ];
-    const asc = sortTasks(tasks, [{ field: "due_date", dir: "asc" }]);
-    expect(asc.map((t) => t.due_date)).toEqual(["2026-01-01", "2026-03-01", null]);
-    const desc = sortTasks(tasks, [{ field: "due_date", dir: "desc" }]);
-    expect(desc.map((t) => t.due_date)).toEqual(["2026-03-01", "2026-01-01", null]);
+    const asc = sortTasks(tasks, [{ field: "deadline_date", dir: "asc" }]);
+    expect(asc.map((t) => t.deadline_date)).toEqual(["2026-01-01", "2026-03-01", null]);
+    const desc = sortTasks(tasks, [{ field: "deadline_date", dir: "desc" }]);
+    expect(desc.map((t) => t.deadline_date)).toEqual(["2026-03-01", "2026-01-01", null]);
   });
 
   it("sorts alphabetically case-insensitively", () => {
@@ -296,10 +325,10 @@ describe("grouping", () => {
 
   it("group:date buckets into relative windows with correct drop targets", () => {
     const tasks = [
-      task({ status: "next", when_date: addDaysLocalISO(-1) }), // overdue
-      task({ when_date: TODAY }), // today
-      task({ when_date: addDaysLocalISO(1) }), // tomorrow
-      task({ when_date: addDaysLocalISO(3) }), // this week
+      task({ status: "next", scheduled_date: addDaysLocalISO(-1) }), // overdue
+      task({ scheduled_date: TODAY }), // today
+      task({ scheduled_date: addDaysLocalISO(1) }), // tomorrow
+      task({ scheduled_date: addDaysLocalISO(3) }), // this week
       task({}), // no date
     ];
     const g = applyDisplay(tasks, { ...DEFAULT_DISPLAY, group: "date" }, ctx());
@@ -310,7 +339,7 @@ describe("grouping", () => {
       "date:this_week",
       "date:none",
     ]);
-    expect(g.find((x) => x.key === "date:today")!.drop).toEqual({ field: "when_date", value: TODAY });
+    expect(g.find((x) => x.key === "date:today")!.drop).toEqual({ field: "scheduled_date", value: TODAY });
     // Overdue / this_week / no-date are read-only (ambiguous reschedule).
     expect(g.find((x) => x.key === "date:overdue")!.drop).toBeNull();
     expect(g.find((x) => x.key === "date:this_week")!.drop).toBeNull();
@@ -365,9 +394,9 @@ describe("group direction (groupDir)", () => {
 
   it("reverses date buckets but keeps No date pinned last", () => {
     const tasks = [
-      task({ status: "next", when_date: addDaysLocalISO(-1) }), // overdue
-      task({ when_date: TODAY }), // today
-      task({ when_date: addDaysLocalISO(1) }), // tomorrow
+      task({ status: "next", scheduled_date: addDaysLocalISO(-1) }), // overdue
+      task({ scheduled_date: TODAY }), // today
+      task({ scheduled_date: addDaysLocalISO(1) }), // tomorrow
       task({}), // no date
     ];
     const g = applyDisplay(tasks, desc("date"), ctx());
@@ -477,12 +506,12 @@ describe("config mutation helpers", () => {
     expect(a.group).toBe("priority");
     expect(DEFAULT_DISPLAY.group).toBe("none");
 
-    const b = withSort(a, "due_date");
-    expect(b.sort).toEqual([{ field: "due_date", dir: "asc" }]);
+    const b = withSort(a, "deadline_date");
+    expect(b.sort).toEqual([{ field: "deadline_date", dir: "asc" }]);
     const c = toggleSortDir(b);
-    expect(c.sort).toEqual([{ field: "due_date", dir: "desc" }]);
+    expect(c.sort).toEqual([{ field: "deadline_date", dir: "desc" }]);
     // Re-selecting the same field keeps direction; a new field resets to asc.
-    expect(withSort(c, "due_date").sort[0].dir).toBe("desc");
+    expect(withSort(c, "deadline_date").sort[0].dir).toBe("desc");
     expect(withSort(c, "title").sort[0].dir).toBe("asc");
   });
 

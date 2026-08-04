@@ -23,7 +23,7 @@ export function useQuickAddComposer(
   // Chip overrides — explicit selections that win over parsed text + seed.
   const [priority, setPriority] = useState<TaskPriority | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
-  const [whenDate, setWhenDate] = useState<string | null>(null);
+  const [scheduledDate, setScheduledDate] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
 
   // The task created by "expand", handed off to the full editor. `isDraft` marks
@@ -35,7 +35,7 @@ export function useQuickAddComposer(
   const anyChipSet =
     priority != null ||
     duration != null ||
-    whenDate != null ||
+    scheduledDate != null ||
     projectId != null;
 
   const buildOverride = useCallback(
@@ -43,15 +43,15 @@ export function useQuickAddComposer(
       ...(priority && { priority }),
       ...(duration && { duration_minutes: duration }),
       ...(projectId && { project_id: projectId }),
-      ...(whenDate && { when_date: whenDate }),
+      ...(scheduledDate && { scheduled_date: scheduledDate }),
     }),
-    [priority, duration, projectId, whenDate]
+    [priority, duration, projectId, scheduledDate]
   );
 
   const resetChips = useCallback(() => {
     setPriority(null);
     setDuration(null);
-    setWhenDate(null);
+    setScheduledDate(null);
     setProjectId(null);
   }, []);
 
@@ -102,8 +102,8 @@ export function useQuickAddComposer(
     setPriority,
     duration,
     setDuration,
-    whenDate,
-    setWhenDate,
+    scheduledDate,
+    setScheduledDate,
     projectId,
     setProjectId,
     anyChipSet,

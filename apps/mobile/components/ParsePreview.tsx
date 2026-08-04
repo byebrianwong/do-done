@@ -46,19 +46,19 @@ export default function ParsePreview({
     const parsed = parseTaskInput(trimmed);
     const out: ChipSpec[] = [];
 
-    if (!omitChipFields && parsed.when_date) {
+    if (!omitChipFields && parsed.scheduled_date) {
       out.push({
-        key: 'when',
+        key: 'scheduled',
         icon: 'calendar-outline',
-        label: dateLabel(parsed.when_date),
+        label: dateLabel(parsed.scheduled_date),
         color: '#4338ca',
       });
     }
-    if (parsed.due_date) {
+    if (parsed.deadline_date) {
       out.push({
-        key: 'due',
+        key: 'deadline',
         icon: 'flag-outline',
-        label: `by ${dateLabel(parsed.due_date)}${parsed.due_time ? ` ${parsed.due_time}` : ''}`,
+        label: `by ${dateLabel(parsed.deadline_date)}${parsed.deadline_time ? ` ${parsed.deadline_time}` : ''}`,
         color: '#b45309',
       });
     }

@@ -17,10 +17,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: "not_started",
     priority: "p3",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -50,26 +50,26 @@ describe("shallowDiff", () => {
   });
 
   it("captures null transitions", () => {
-    const a = makeTask({ when_date: null });
-    const b = makeTask({ when_date: "2026-05-12" });
-    expect(shallowDiff(a, b)).toEqual({ when_date: "2026-05-12" });
+    const a = makeTask({ scheduled_date: null });
+    const b = makeTask({ scheduled_date: "2026-05-12" });
+    expect(shallowDiff(a, b)).toEqual({ scheduled_date: "2026-05-12" });
 
-    const a2 = makeTask({ when_date: "2026-05-12" });
-    const b2 = makeTask({ when_date: null });
-    expect(shallowDiff(a2, b2)).toEqual({ when_date: null });
+    const a2 = makeTask({ scheduled_date: "2026-05-12" });
+    const b2 = makeTask({ scheduled_date: null });
+    expect(shallowDiff(a2, b2)).toEqual({ scheduled_date: null });
   });
 
   it("captures multiple field changes in one patch", () => {
-    const a = makeTask({ title: "Old", priority: "p4", when_date: null });
+    const a = makeTask({ title: "Old", priority: "p4", scheduled_date: null });
     const b = makeTask({
       title: "New",
       priority: "p1",
-      when_date: "2026-05-12",
+      scheduled_date: "2026-05-12",
     });
     expect(shallowDiff(a, b)).toEqual({
       title: "New",
       priority: "p1",
-      when_date: "2026-05-12",
+      scheduled_date: "2026-05-12",
     });
   });
 
@@ -85,12 +85,12 @@ describe("shallowDiff", () => {
     expect(shallowDiff(a, b)).toEqual({ tags: ["web", "urgent"] });
   });
 
-  it("when_date and when_time change together produce both fields", () => {
-    const a = makeTask({ when_date: "2026-05-12", when_time: null });
-    const b = makeTask({ when_date: "2026-05-19", when_time: "09:00" });
+  it("scheduled_date and scheduled_time change together produce both fields", () => {
+    const a = makeTask({ scheduled_date: "2026-05-12", scheduled_time: null });
+    const b = makeTask({ scheduled_date: "2026-05-19", scheduled_time: "09:00" });
     expect(shallowDiff(a, b)).toEqual({
-      when_date: "2026-05-19",
-      when_time: "09:00",
+      scheduled_date: "2026-05-19",
+      scheduled_time: "09:00",
     });
   });
 });
@@ -113,7 +113,7 @@ describe("toUpdateInput", () => {
     const patch: Partial<Task> = {
       title: "T",
       priority: "p1",
-      when_date: "2026-05-12",
+      scheduled_date: "2026-05-12",
       tags: ["a", "b"],
     };
     expect(toUpdateInput(patch)).toEqual(patch);

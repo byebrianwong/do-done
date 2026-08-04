@@ -79,17 +79,17 @@ function nextDay(date: string): string {
 }
 
 /**
- * Convert a Task into a Google Calendar event. Requires only `when_date`:
- *  - no `when_time`            → an all-day event
- *  - `when_time`, no estimate  → a 1-hour timed block
- *  - `when_time` + estimate    → a timed block of that length
+ * Convert a Task into a Google Calendar event. Requires only `scheduled_date`:
+ *  - no `scheduled_time`            → an all-day event
+ *  - `scheduled_time`, no estimate  → a 1-hour timed block
+ *  - `scheduled_time` + estimate    → a timed block of that length
  * Tagged via `extendedProperties.private` so we recognize our own events on pull.
  */
 export function taskToEvent(
   task: Task,
   timeZone: string
 ): calendar_v3.Schema$Event | null {
-  if (!task.when_date) return null;
+  if (!task.scheduled_date) return null;
 
   // Deep-link back to the task in DoDone (the /task/[id] route). Surfaced both
   // as the event `source` and appended to the description, since clients vary
@@ -118,20 +118,20 @@ export function taskToEvent(
 
   // No time-of-day → all-day event. Google all-day events use `date` (not
   // `dateTime`) with an EXCLUSIVE end, so a single day ends on the next date.
-  if (!task.when_time) {
+  if (!task.scheduled_time) {
     return {
       ...base,
-      start: { date: task.when_date },
-      end: { date: nextDay(task.when_date) },
+      start: { date: task.scheduled_date },
+      end: { date: nextDay(task.scheduled_date) },
     };
   }
 
-  // Timed block. when_date + when_time are wall-clock values in the USER's
-  // timezone (the scheduled "do" time, NOT due_date). Resolve to an absolute
+  // Timed block. scheduled_date + scheduled_time are wall-clock values in the USER's
+  // timezone (the scheduled "do" time, NOT deadline_date). Resolve to an absolute
   // instant in that zone — `new Date("…T09:00:00")` would interpret them in the
   // server's zone (UTC on a deployed host).
-  const [y, m, d] = task.when_date.split("-").map(Number);
-  const [hh, mm] = task.when_time.split(":").map(Number);
+  const [y, m, d] = task.scheduled_date.split("-").map(Number);
+  const [hh, mm] = task.scheduled_time.split(":").map(Number);
   const start = zonedClockToUtc(y, m, d, hh, mm, timeZone);
   const minutes = task.duration_minutes ?? DEFAULT_DURATION_MINUTES;
   const end = new Date(start.getTime() + minutes * 60 * 1000);

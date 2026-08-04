@@ -20,7 +20,7 @@ import {
   formatCompletedDate,
   formatDuration,
   formatScheduleHint,
-  formatWhenTime,
+  formatTimeOfDay,
   resolveQuickSchedule,
 } from "@do-done/shared";
 import type { Task, Project, TaskPriority } from "@do-done/shared";
@@ -35,7 +35,7 @@ import {
   PickerPopover,
   useClickOutside,
   estimateBarIndex,
-  WhenTimeField,
+  ScheduledTimeField,
   PRIORITY_OPTIONS,
   ESTIMATE_OPTIONS,
 } from "./task-edit-modal-v2";
@@ -283,7 +283,7 @@ function InlineProjectEditor({
   );
 }
 
-function formatDueDate(dateStr: string): string {
+function formatTaskDate(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -303,7 +303,7 @@ function formatDueDate(dateStr: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function dueDateColor(dateStr: string): string {
+function taskDateColor(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -313,9 +313,9 @@ function dueDateColor(dateStr: string): string {
   return "text-neutral-500 bg-neutral-100 dark:bg-neutral-800";
 }
 
-export interface WhenPatch {
-  when_date?: string | null;
-  when_time?: string | null;
+export interface SchedulePatch {
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
 }
 
 /**
@@ -324,18 +324,18 @@ export interface WhenPatch {
  * editors. Renders nothing when the task has no schedule at all (the row's
  * "Find a time" affordance covers that case).
  */
-function InlineWhenEditor({
-  whenDate,
-  whenTime,
-  dueDate,
-  dueTime,
+function InlineScheduleEditor({
+  scheduledDate,
+  scheduledTime,
+  deadlineDate,
+  deadlineTime,
   onChange,
 }: {
-  whenDate: string | null;
-  whenTime: string | null;
-  dueDate: string | null;
-  dueTime: string | null;
-  onChange: (patch: WhenPatch) => void;
+  scheduledDate: string | null;
+  scheduledTime: string | null;
+  deadlineDate: string | null;
+  deadlineTime: string | null;
+  onChange: (patch: SchedulePatch) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -358,14 +358,14 @@ function InlineWhenEditor({
   let label: string | null = null;
   let chipClass = "";
   let title = "";
-  if (whenDate) {
-    label = formatDueDate(whenDate) + (whenTime ? ` ${formatWhenTime(whenTime)}` : "");
-    chipClass = dueDateColor(whenDate);
-    title = whenTime ? `Scheduled for ${whenDate} at ${whenTime}` : `Scheduled for ${whenDate}`;
-  } else if (dueDate) {
-    label = formatDueDate(dueDate) + (dueTime ? ` ${formatWhenTime(dueTime)}` : "");
-    chipClass = dueDateColor(dueDate);
-    title = dueTime ? `Due ${dueDate} at ${dueTime}` : `Due ${dueDate}`;
+  if (scheduledDate) {
+    label = formatTaskDate(scheduledDate) + (scheduledTime ? ` ${formatTimeOfDay(scheduledTime)}` : "");
+    chipClass = taskDateColor(scheduledDate);
+    title = scheduledTime ? `Scheduled for ${scheduledDate} at ${scheduledTime}` : `Scheduled for ${scheduledDate}`;
+  } else if (deadlineDate) {
+    label = formatTaskDate(deadlineDate) + (deadlineTime ? ` ${formatTimeOfDay(deadlineTime)}` : "");
+    chipClass = taskDateColor(deadlineDate);
+    title = deadlineTime ? `Deadline ${deadlineDate} at ${deadlineTime}` : `Deadline ${deadlineDate}`;
   }
   if (!label) return null;
 
@@ -402,12 +402,12 @@ function InlineWhenEditor({
           </div>
           <div className="grid grid-cols-3 gap-1">
             {quick.map((q) => {
-              const selected = whenDate === q.date;
+              const selected = scheduledDate === q.date;
               return (
                 <button
                   key={q.label}
                   type="button"
-                  onClick={() => onChange({ when_date: q.date })}
+                  onClick={() => onChange({ scheduled_date: q.date })}
                   className={`flex flex-col items-center gap-0.5 rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors ${
                     selected
                       ? "bg-indigo-500 text-white"
@@ -434,8 +434,8 @@ function InlineWhenEditor({
             </span>
             <input
               type="date"
-              value={whenDate ?? ""}
-              onChange={(e) => onChange({ when_date: e.target.value || null })}
+              value={scheduledDate ?? ""}
+              onChange={(e) => onChange({ scheduled_date: e.target.value || null })}
               className="flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             />
           </div>
@@ -443,22 +443,22 @@ function InlineWhenEditor({
               on "now", with a "Specific time" escape hatch) so inline editing
               matches the full editor exactly. Only meaningful once a do-date is
               set, mirroring the modal's gating. */}
-          {whenDate ? (
+          {scheduledDate ? (
             <div className="mt-1.5 flex items-center gap-2">
               <span className="w-8 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
                 At
               </span>
-              <WhenTimeField
-                value={whenTime}
-                onChange={(v) => onChange({ when_time: v })}
+              <ScheduledTimeField
+                value={scheduledTime}
+                onChange={(v) => onChange({ scheduled_time: v })}
               />
             </div>
           ) : null}
-          {whenDate || whenTime ? (
+          {scheduledDate || scheduledTime ? (
             <button
               type="button"
               onClick={() => {
-                onChange({ when_date: null, when_time: null });
+                onChange({ scheduled_date: null, scheduled_time: null });
                 setOpen(false);
               }}
               aria-label="Clear schedule"
@@ -610,18 +610,18 @@ export function TaskItem({
   useEffect(() => setPriority(task.priority), [task.priority]);
   useEffect(() => setDuration(task.duration_minutes), [task.duration_minutes]);
   // Schedule fields are optimistic too (for the inline When editor) but also
-  // sync back from props — the Upcoming view mutates when_date on drag, and
+  // sync back from props — the Upcoming view mutates scheduled_date on drag, and
   // router.refresh re-feeds the server value after any edit.
-  const [whenDate, setWhenDate] = useState(task.when_date);
-  const [whenTime, setWhenTime] = useState(task.when_time);
-  useEffect(() => setWhenDate(task.when_date), [task.when_date]);
-  useEffect(() => setWhenTime(task.when_time), [task.when_time]);
+  const [scheduledDate, setScheduledDate] = useState(task.scheduled_date);
+  const [scheduledTime, setScheduledTime] = useState(task.scheduled_time);
+  useEffect(() => setScheduledDate(task.scheduled_date), [task.scheduled_date]);
+  useEffect(() => setScheduledTime(task.scheduled_time), [task.scheduled_time]);
   const [, startTransition] = useTransition();
   const toast = useUndoToast();
   // "Find a time" suggests a calendar slot — only useful when the task has no
   // schedule at all. Once any date/deadline exists, the date chip itself is the
   // (clickable) reschedule affordance, so the clock would be redundant.
-  const hasSchedule = !!whenDate || !!task.due_date;
+  const hasSchedule = !!scheduledDate || !!task.deadline_date;
   const canSchedule = !!duration && !hasSchedule;
   // Optimistic project state mirrors the priority/estimate inline editors.
   // `createdProjects` holds projects made via the inline picker so the chip can
@@ -762,15 +762,15 @@ export function TaskItem({
     startTransition(() => router.refresh());
   }
 
-  async function handleWhenChange(patch: WhenPatch) {
-    const prev = { when_date: whenDate, when_time: whenTime };
-    if ("when_date" in patch) setWhenDate(patch.when_date ?? null);
-    if ("when_time" in patch) setWhenTime(patch.when_time ?? null);
+  async function handleScheduleChange(patch: SchedulePatch) {
+    const prev = { scheduled_date: scheduledDate, scheduled_time: scheduledTime };
+    if ("scheduled_date" in patch) setScheduledDate(patch.scheduled_date ?? null);
+    if ("scheduled_time" in patch) setScheduledTime(patch.scheduled_time ?? null);
     const tasks = await getClientTasksApi();
     const { error } = await tasks.update(task.id, patch);
     if (error) {
-      setWhenDate(prev.when_date);
-      setWhenTime(prev.when_time);
+      setScheduledDate(prev.scheduled_date);
+      setScheduledTime(prev.scheduled_time);
       console.error("Failed to update schedule:", error);
       return;
     }
@@ -1022,21 +1022,21 @@ export function TaskItem({
                  deadline both exist, show the deadline as a static second chip.
                  `@lg:ml-auto` pushes the pair to the row's right edge on wide
                  containers, preserving the desktop layout. */
-              (whenDate || task.due_date) && (
+              (scheduledDate || task.deadline_date) && (
                 <div className="flex items-center gap-2 @lg:ml-auto">
-                  <InlineWhenEditor
-                    whenDate={whenDate}
-                    whenTime={whenTime}
-                    dueDate={task.due_date}
-                    dueTime={task.due_time}
-                    onChange={handleWhenChange}
+                  <InlineScheduleEditor
+                    scheduledDate={scheduledDate}
+                    scheduledTime={scheduledTime}
+                    deadlineDate={task.deadline_date}
+                    deadlineTime={task.deadline_time}
+                    onChange={handleScheduleChange}
                   />
-                  {whenDate && task.due_date && whenDate !== task.due_date && (
+                  {scheduledDate && task.deadline_date && scheduledDate !== task.deadline_date && (
                     <span
                       className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950 dark:text-red-400"
-                      title={`Hard deadline ${task.due_date}`}
+                      title={`Hard deadline ${task.deadline_date}`}
                     >
-                      due {formatDueDate(task.due_date)}
+                      by {formatTaskDate(task.deadline_date)}
                     </span>
                   )}
                 </div>

@@ -18,16 +18,16 @@ const FOCUS_PINS_TASKS = [
     title: "Finish the quarterly deck",
     priority: "p1",
     status: "in_progress",
-    due_date: TODAY,
+    deadline_date: TODAY,
   }),
-  makeTask({ title: "Reply to investor email", priority: "p2", due_date: TODAY }),
+  makeTask({ title: "Reply to investor email", priority: "p2", deadline_date: TODAY }),
   makeTask({
     title: "Skim the newsletter (pushed out of Focus)",
     priority: "p1",
-    when_date: TODAY,
+    scheduled_date: TODAY,
     focus_override: "exclude",
   }),
-  makeTask({ title: "Pick up dry cleaning", priority: "p3", when_date: TODAY }),
+  makeTask({ title: "Pick up dry cleaning", priority: "p3", scheduled_date: TODAY }),
 ];
 
 const meta: Meta<typeof TodayView> = {

@@ -51,7 +51,7 @@ import {
 } from '@do-done/shared';
 import {
   PickerSheet,
-  WhenCalendar,
+  ScheduleCalendar,
   PRIORITY_PICKER_OPTIONS,
   ESTIMATE_PICKER_OPTIONS,
   PRIORITY_COLORS,
@@ -60,7 +60,7 @@ import {
 } from './TaskEditModalV2';
 
 /** Which chip's popover is open, if any. */
-export type QuickAddMenu = 'when' | 'priority' | 'project' | 'estimate' | null;
+export type QuickAddMenu = 'scheduled' | 'priority' | 'project' | 'estimate' | null;
 
 type ChipKey = Exclude<QuickAddMenu, null>;
 
@@ -94,11 +94,11 @@ function clamp(value: number, min: number, max: number): number {
 export interface QuickAddFields {
   tags: string[];
   priority: TaskPriority | null;
-  whenDate: string | null;
+  scheduledDate: string | null;
   duration: number | null;
   projectId: string | null;
   setPriority: (p: TaskPriority | null) => void;
-  setWhenDate: (d: string | null) => void;
+  setScheduledDate: (d: string | null) => void;
   setDuration: (m: number | null) => void;
   setProjectId: (id: string | null) => void;
   addTag: (tag: string) => void;
@@ -139,13 +139,13 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
 
   const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
-  const [whenDate, setWhenDate] = useState<string | null>(null);
+  const [scheduledDate, setScheduledDate] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [projectId, setProjectId] = useState<string | null>(seedProjectId);
 
   const [menu, setMenu] = useState<QuickAddMenu>(null);
   const [anchors, setAnchors] = useState<Record<ChipKey, number>>({
-    when: 0,
+    scheduled: 0,
     priority: 0,
     project: 0,
     estimate: 0,
@@ -192,7 +192,7 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
   const reset = () => {
     setTags([]);
     setPriority(null);
-    setWhenDate(null);
+    setScheduledDate(null);
     setDuration(null);
     setProjectId(seedProjectId);
     setMenu(null);
@@ -204,19 +204,19 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
     const mergedTags = Array.from(new Set([...tags, ...(parsed.tags ?? [])]));
     const finalPriority = priority ?? parsed.priority ?? undefined;
     const finalDuration = duration ?? parsed.duration_minutes ?? undefined;
-    const finalWhenDate = whenDate ?? parsed.when_date ?? undefined;
+    const finalScheduledDate = scheduledDate ?? parsed.scheduled_date ?? undefined;
 
     return {
       title: parsed.title || trimmed,
       ...(opts.status && { status: opts.status }),
       ...(projectId && { project_id: projectId }),
       ...(finalPriority && { priority: finalPriority }),
-      ...(finalWhenDate && { when_date: finalWhenDate }),
-      // Only meaningful alongside a date, which `finalWhenDate` guarantees
+      ...(finalScheduledDate && { scheduled_date: finalScheduledDate }),
+      // Only meaningful alongside a date, which `finalScheduledDate` guarantees
       // whenever the parser produced a time.
-      ...(parsed.when_time && { when_time: parsed.when_time }),
-      ...(parsed.due_date && { due_date: parsed.due_date }),
-      ...(parsed.due_time && { due_time: parsed.due_time }),
+      ...(parsed.scheduled_time && { scheduled_time: parsed.scheduled_time }),
+      ...(parsed.deadline_date && { deadline_date: parsed.deadline_date }),
+      ...(parsed.deadline_time && { deadline_time: parsed.deadline_time }),
       ...(finalDuration && { duration_minutes: finalDuration }),
       ...(mergedTags.length > 0 && { tags: mergedTags }),
       ...(parsed.recurrence_rule && {
@@ -227,7 +227,7 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
 
   const anySet =
     priority !== null ||
-    whenDate !== null ||
+    scheduledDate !== null ||
     duration !== null ||
     tags.length > 0 ||
     projectId !== seedProjectId;
@@ -235,11 +235,11 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
   return {
     tags,
     priority,
-    whenDate,
+    scheduledDate,
     duration,
     projectId,
     setPriority,
-    setWhenDate,
+    setScheduledDate,
     setDuration,
     setProjectId,
     addTag,
@@ -365,7 +365,7 @@ export function QuickAddChipRow({
   projects?: Project[];
   style?: StyleProp<ViewStyle>;
 }) {
-  const { priority, whenDate, duration, projectId, menu, setRowOffset } = fields;
+  const { priority, scheduledDate, duration, projectId, menu, setRowOffset } = fields;
   const project = projects?.find((p) => p.id === projectId) ?? null;
 
   return (
@@ -375,11 +375,11 @@ export function QuickAddChipRow({
     >
       <Chip
         icon="calendar-outline"
-        label={whenDate ? shortDateLabel(whenDate) : 'Date'}
-        active={!!whenDate}
-        open={menu === 'when'}
-        onPress={() => fields.toggleMenu('when')}
-        onLayout={fields.anchorFor('when')}
+        label={scheduledDate ? shortDateLabel(scheduledDate) : 'Date'}
+        active={!!scheduledDate}
+        open={menu === 'scheduled'}
+        onPress={() => fields.toggleMenu('scheduled')}
+        onLayout={fields.anchorFor('scheduled')}
       />
       <Chip
         icon="flag"
@@ -432,7 +432,7 @@ export function QuickAddPickers({
   projects?: Project[];
   onCalendarClosed?: () => void;
 }) {
-  const { menu, whenDate, priority, duration, projectId } = fields;
+  const { menu, scheduledDate, priority, duration, projectId } = fields;
   const [width, setWidth] = useState(0);
 
   // Resolve the shortcuts once per render so the label, the hint and the
@@ -445,14 +445,14 @@ export function QuickAddPickers({
   // Keys are the shortcut names, not the dates they resolve to: on a Friday
   // "Today" and "This week" land on the same date, and duplicate keys would
   // collide.
-  const whenItems: MenuItem[] = [
+  const scheduledItems: MenuItem[] = [
     ...quickDates.map((q) => ({
       key: q.key,
       label: q.label,
       hint: formatScheduleHint(q.date),
       icon: 'calendar-outline' as const,
       color: '#6366f1',
-      selected: whenDate === q.date,
+      selected: scheduledDate === q.date,
     })),
     {
       key: 'custom',
@@ -460,9 +460,9 @@ export function QuickAddPickers({
       icon: 'calendar-number-outline' as const,
       color: '#6b7280',
       // A date nothing in the shortcut list covers still shows as chosen here.
-      selected: !!whenDate && !quickDates.some((q) => q.date === whenDate),
+      selected: !!scheduledDate && !quickDates.some((q) => q.date === scheduledDate),
     },
-    ...(whenDate
+    ...(scheduledDate
       ? [
           {
             key: 'none',
@@ -536,17 +536,17 @@ export function QuickAddPickers({
       : []),
   ];
 
-  const selectWhen = (key: string) => {
+  const selectScheduled = (key: string) => {
     fields.setMenu(null);
     if (key === 'custom') {
       fields.setCalendarOpen(true);
       return;
     }
     if (key === 'none') {
-      fields.setWhenDate(null);
+      fields.setScheduledDate(null);
       return;
     }
-    fields.setWhenDate(quickDates.find((q) => q.key === key)?.date ?? null);
+    fields.setScheduledDate(quickDates.find((q) => q.key === key)?.date ?? null);
   };
 
   const selectPriority = (key: string) => {
@@ -586,11 +586,11 @@ export function QuickAddPickers({
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       pointerEvents="box-none"
     >
-      {menu === 'when' && (
+      {menu === 'scheduled' && (
         <Popover
-          left={anchorLeft('when')}
-          items={whenItems}
-          onSelect={selectWhen}
+          left={anchorLeft('scheduled')}
+          items={scheduledItems}
+          onSelect={selectScheduled}
         />
       )}
       {menu === 'priority' && (
@@ -624,11 +624,11 @@ export function QuickAddPickers({
         onSelect={() => {}}
         onClose={closeCalendar}
         header={
-          <WhenCalendar
-            whenDate={fields.whenDate}
+          <ScheduleCalendar
+            scheduledDate={fields.scheduledDate}
             busyness={[]}
             onPickDate={(date) => {
-              fields.setWhenDate(date);
+              fields.setScheduledDate(date);
               closeCalendar();
             }}
           />

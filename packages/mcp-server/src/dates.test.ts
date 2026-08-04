@@ -24,10 +24,10 @@ function task(overrides: Partial<Task> = {}): Task {
     status: "not_started",
     priority: "p2",
     project_id: null,
-    when_date: null,
-    when_time: null,
-    due_date: null,
-    due_time: null,
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
     duration_minutes: null,
     recurrence_rule: null,
     calendar_event_id: null,
@@ -98,19 +98,19 @@ describe("addDaysISO", () => {
 });
 
 describe("isOverdueOn", () => {
-  it("counts a past when_date, not just a past deadline", () => {
-    expect(isOverdueOn(task({ when_date: "2026-08-01" }), TODAY)).toBe(true);
-    expect(isOverdueOn(task({ due_date: "2026-08-01" }), TODAY)).toBe(true);
+  it("counts a past scheduled_date, not just a past deadline", () => {
+    expect(isOverdueOn(task({ scheduled_date: "2026-08-01" }), TODAY)).toBe(true);
+    expect(isOverdueOn(task({ deadline_date: "2026-08-01" }), TODAY)).toBe(true);
   });
 
   it("does not count today or the future", () => {
-    expect(isOverdueOn(task({ when_date: TODAY }), TODAY)).toBe(false);
-    expect(isOverdueOn(task({ when_date: "2026-08-04" }), TODAY)).toBe(false);
+    expect(isOverdueOn(task({ scheduled_date: TODAY }), TODAY)).toBe(false);
+    expect(isOverdueOn(task({ scheduled_date: "2026-08-04" }), TODAY)).toBe(false);
     expect(isOverdueOn(task(), TODAY)).toBe(false);
   });
 
   it("ignores closed tasks", () => {
-    const past = { when_date: "2026-07-01" };
+    const past = { scheduled_date: "2026-07-01" };
     expect(isOverdueOn(task({ ...past, status: "done" }), TODAY)).toBe(false);
     expect(isOverdueOn(task({ ...past, status: "cancelled" }), TODAY)).toBe(
       false
@@ -119,26 +119,26 @@ describe("isOverdueOn", () => {
 });
 
 describe("summarizeTaskDates", () => {
-  it("reports a when_date as scheduled, never as undated", () => {
-    const dates = summarizeTaskDates(task({ when_date: TODAY }), TODAY);
-    expect(dates.when_relative).toBe("today");
-    expect(dates.due_relative).toBeNull();
+  it("reports a scheduled_date as scheduled, never as undated", () => {
+    const dates = summarizeTaskDates(task({ scheduled_date: TODAY }), TODAY);
+    expect(dates.scheduled_relative).toBe("today");
+    expect(dates.deadline_relative).toBeNull();
     expect(dates.overdue).toBe(false);
     expect(dates.summary).toBe("scheduled for 2026-08-03 (Monday, today)");
   });
 
   it("keeps the two fields distinct when both are set", () => {
     const dates = summarizeTaskDates(
-      task({ when_date: TODAY, when_time: "09:30", due_date: "2026-08-07" }),
+      task({ scheduled_date: TODAY, scheduled_time: "09:30", deadline_date: "2026-08-07" }),
       TODAY
     );
     expect(dates.summary).toBe(
-      "scheduled for 2026-08-03 (Monday, today) at 09:30 · due 2026-08-07 (Friday, in 4 days)"
+      "scheduled for 2026-08-03 (Monday, today) at 09:30 · deadline 2026-08-07 (Friday, in 4 days)"
     );
   });
 
   it("flags overdue explicitly", () => {
-    const dates = summarizeTaskDates(task({ when_date: "2026-07-30" }), TODAY);
+    const dates = summarizeTaskDates(task({ scheduled_date: "2026-07-30" }), TODAY);
     expect(dates.overdue).toBe(true);
     expect(dates.summary).toContain("OVERDUE");
   });
@@ -150,13 +150,13 @@ describe("summarizeTaskDates", () => {
 
 describe("withResolvedDates", () => {
   it("adds a derived block without disturbing the row", () => {
-    const row = task({ when_date: "2026-08-04" });
+    const row = task({ scheduled_date: "2026-08-04" });
     const resolved = withResolvedDates(row, TODAY);
     expect(resolved.id).toBe(row.id);
-    expect(resolved.when_date).toBe("2026-08-04");
+    expect(resolved.scheduled_date).toBe("2026-08-04");
     expect(resolved.dates).toEqual({
-      when_relative: "tomorrow",
-      due_relative: null,
+      scheduled_relative: "tomorrow",
+      deadline_relative: null,
       overdue: false,
       summary: "scheduled for 2026-08-04 (Tuesday, tomorrow)",
     });
@@ -166,8 +166,8 @@ describe("withResolvedDates", () => {
 describe("buildAgenda", () => {
   const base = { todayISO: TODAY, timezone: "America/Los_Angeles" };
 
-  it("buckets a task on the day its when_date falls", () => {
-    const agenda = buildAgenda([task({ when_date: "2026-08-04" })], {
+  it("buckets a task on the day its scheduled_date falls", () => {
+    const agenda = buildAgenda([task({ scheduled_date: "2026-08-04" })], {
       ...base,
       startISO: TODAY,
       days: 3,
@@ -178,30 +178,30 @@ describe("buildAgenda", () => {
       "2026-08-05",
     ]);
     expect(agenda.days[0]!.entries).toHaveLength(0);
-    expect(agenda.days[1]!.entries[0]!.reason).toBe("when");
+    expect(agenda.days[1]!.entries[0]!.reason).toBe("scheduled");
   });
 
   it("lists a task on both its scheduled day and its deadline", () => {
     const agenda = buildAgenda(
-      [task({ when_date: "2026-08-03", due_date: "2026-08-05" })],
+      [task({ scheduled_date: "2026-08-03", deadline_date: "2026-08-05" })],
       { ...base, startISO: TODAY, days: 3 }
     );
-    expect(agenda.days[0]!.entries[0]!.reason).toBe("when");
-    expect(agenda.days[2]!.entries[0]!.reason).toBe("due");
+    expect(agenda.days[0]!.entries[0]!.reason).toBe("scheduled");
+    expect(agenda.days[2]!.entries[0]!.reason).toBe("deadline");
     expect(agenda.days[1]!.entries).toHaveLength(0);
   });
 
-  it("marks a same-day schedule and deadline as when+due", () => {
+  it("marks a same-day schedule and deadline as scheduled+deadline", () => {
     const agenda = buildAgenda(
-      [task({ when_date: TODAY, due_date: TODAY })],
+      [task({ scheduled_date: TODAY, deadline_date: TODAY })],
       { ...base, startISO: TODAY, days: 1 }
     );
-    expect(agenda.days[0]!.entries[0]!.reason).toBe("when+due");
+    expect(agenda.days[0]!.entries[0]!.reason).toBe("scheduled+deadline");
   });
 
   it("pulls overdue tasks out instead of dropping them off the window", () => {
     const agenda = buildAgenda(
-      [task({ id: "late", when_date: "2026-07-20" }), task({ when_date: TODAY })],
+      [task({ id: "late", scheduled_date: "2026-07-20" }), task({ scheduled_date: TODAY })],
       { ...base, startISO: TODAY, days: 1 }
     );
     expect(agenda.overdue.map((t) => t.id)).toEqual(["late"]);
@@ -210,7 +210,7 @@ describe("buildAgenda", () => {
 
   it("never double-counts an overdue task into a day bucket", () => {
     // Window reaching into the past: the overdue task's date IS in range.
-    const agenda = buildAgenda([task({ id: "late", when_date: "2026-08-01" })], {
+    const agenda = buildAgenda([task({ id: "late", scheduled_date: "2026-08-01" })], {
       ...base,
       startISO: "2026-08-01",
       days: 5,
@@ -220,7 +220,7 @@ describe("buildAgenda", () => {
   });
 
   it("leaves overdue tasks in their day bucket when overdue is suppressed", () => {
-    const agenda = buildAgenda([task({ when_date: "2026-08-01" })], {
+    const agenda = buildAgenda([task({ scheduled_date: "2026-08-01" })], {
       ...base,
       startISO: "2026-08-01",
       days: 5,
@@ -233,7 +233,7 @@ describe("buildAgenda", () => {
   it("omits closed and undated tasks", () => {
     const agenda = buildAgenda(
       [
-        task({ id: "done", when_date: TODAY, status: "done" }),
+        task({ id: "done", scheduled_date: TODAY, status: "done" }),
         task({ id: "undated" }),
       ],
       { ...base, startISO: TODAY, days: 1 }
@@ -267,7 +267,7 @@ describe("renderAgenda", () => {
         days: 1,
       })
     );
-    expect(text).toContain("Nothing scheduled or due.");
+    expect(text).toContain("Nothing scheduled, no deadline.");
     expect(text).toContain("list_tasks");
   });
 
@@ -275,8 +275,8 @@ describe("renderAgenda", () => {
     const text = renderAgenda(
       buildAgenda(
         [
-          task({ id: "late", title: "Renew insurance", when_date: "2026-07-28" }),
-          task({ title: "Clean up desk", when_date: TODAY }),
+          task({ id: "late", title: "Renew insurance", scheduled_date: "2026-07-28" }),
+          task({ title: "Clean up desk", scheduled_date: TODAY }),
         ],
         {
           todayISO: TODAY,
@@ -296,7 +296,7 @@ describe("renderAgenda", () => {
 
 describe("describeTask", () => {
   it("puts priority, dates and id on one line", () => {
-    expect(describeTask(task({ id: "abc", when_date: TODAY }), TODAY)).toBe(
+    expect(describeTask(task({ id: "abc", scheduled_date: TODAY }), TODAY)).toBe(
       "[p2] Clean up room — scheduled for 2026-08-03 (Monday, today) (id: abc)"
     );
   });
