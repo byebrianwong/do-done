@@ -4,20 +4,51 @@ Transport-agnostic MCP server for do-done. Owns every tool and resource; the
 transports live elsewhere (`apps/mcp` for stdio, `apps/web` for HTTP).
 
 ## Key Files
-- `src/index.ts` — `createDoDoneServer({ supabase, userId, baseUrl? })`, the shared factory
+- `src/index.ts` — `createDoDoneServer({ supabase, userId, baseUrl? })`, the
+  shared factory, plus `SERVER_INSTRUCTIONS` (sent at initialization)
 - `src/icon.ts` — the DoDone mark advertised as the server's `icons`
-- `src/tools/index.ts` — 8 task tools (list_tasks, create_task, update_task,
-  complete_task, search_tasks, get_focus_tasks, get_weekly_summary,
+- `src/tools/index.ts` — 9 task tools (list_tasks, create_task, update_task,
+  complete_task, search_tasks, get_agenda, get_focus_tasks, get_weekly_summary,
   organize_tasks) + 2 project tools (list_projects, reorder_projects)
 - `src/tools/pets.ts` — 5 pet tools: get_pet_state, propose_pet_goal,
   accept_pet_goal, narrate_task_completion, get_pet_history
 - `src/resources/index.ts` — 4 resources: tasks://inbox, tasks://today,
   tasks://upcoming, tasks://projects
+- `src/dates.ts` — pure date rendering + agenda bucketing (tested)
+- `src/clock.ts` — resolves the user's calendar day from their timezone pref
 - `src/organize.ts` — the `organize_tasks` implementation
 
 Task status/priority enums in the tool schemas reuse `TaskStatus` /
 `TaskPriority` from `@do-done/shared` so they can't drift from the canonical
 schema.
+
+## Dates
+
+The failure this surface is built to prevent: a client asks "what do I have due
+today?", sees no `due_date` anywhere, and answers "nothing is dated" — while the
+user is looking at a full Today screen. DoDone schedules on **`when_date`**;
+`due_date` is a rarely-set hard deadline. Three things enforce that:
+
+- **`SERVER_INSTRUCTIONS`** states the two-field model at initialization, and
+  the `DATE_MODEL` blurb repeats it in every date-touching tool description. A
+  client that has already picked a tool has stopped reading descriptions, and
+  one that reads only descriptions never sees the instructions — hence both.
+- **Every date is emitted with its relative reading** (`"today"`,
+  `"in 4 days"`, `overdue`) alongside the user's real `today`, so no caller has
+  to compare a bare `2026-08-03` against its own guess at the date.
+- **`get_agenda`** is the date query: overdue + one section per day, covering
+  both fields. `get_focus_tasks` is an urgency *ranking* and answers a different
+  question — its description says so, because it was previously the tool clients
+  reached for when asked about today.
+
+`src/clock.ts` resolves "today" through `user_preferences.timezone`, never the
+process clock: the hosted transport runs in UTC, so for a user behind UTC every
+"today" answer shifted a day for the last few hours of their evening. The
+timezone is cached per server instance; the *day* is recomputed per call, since
+the stdio process sits through midnight.
+
+Date arithmetic in `src/dates.ts` parses `YYYY-MM-DD` at UTC midnight, so a DST
+boundary inside a span can't round a day count off by one.
 
 ## Scoping
 
@@ -45,7 +76,8 @@ carries more than `name`/`version`:
 omits it.
 
 ## MCP SDK Patterns
-- `new McpServer({ name, title, version, icons })` for server creation
+- `new McpServer({ name, title, version, icons }, { instructions })` for server
+  creation
 - `server.tool(name, description, zodSchema, handler)` for tool registration
 - `server.resource(name, uri, handler)` for resource registration
 - Use `console.error()` for logging — never `console.log`, since under stdio

@@ -4,11 +4,14 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming
+- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
 
 ## Rules
+- `getToday`/`getUpcoming` derive "today" from the **process** clock, which is
+  UTC on a deployed host. Server-side callers should use `getDatedBetween` /
+  `getOverdue` and pass the day they resolved from the user's timezone instead.
 - Always check `.error` from Supabase responses
 - Return `{ data, error }` tuples from all methods
 - Use types from `@do-done/shared` for all return types

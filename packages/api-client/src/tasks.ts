@@ -83,6 +83,8 @@ export class TasksApi {
     if (filters?.priority) query = query.eq("priority", filters.priority);
     if (filters?.due_before) query = query.lte("due_date", filters.due_before);
     if (filters?.due_after) query = query.gte("due_date", filters.due_after);
+    if (filters?.when_before) query = query.lte("when_date", filters.when_before);
+    if (filters?.when_after) query = query.gte("when_date", filters.when_after);
     if (filters?.tags?.length) query = query.overlaps("tags", filters.tags);
     if (filters?.search_query) {
       query = query.textSearch("fts", filters.search_query);
@@ -439,6 +441,65 @@ export class TasksApi {
       .or(
         `and(when_date.gte.${start},when_date.lte.${endDate}),and(due_date.gte.${start},due_date.lte.${endDate})`
       )
+      .order("when_date", { nullsFirst: false })
+      .order("due_date", { nullsFirst: false })
+      .order("priority");
+
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
+  /**
+   * Open tasks scheduled (when_date) OR due (due_date) inside an explicit,
+   * inclusive `[startISO, endISO]` window of calendar dates.
+   *
+   * The caller supplies both bounds, so — unlike `getUpcoming` — there is no
+   * skew buffer and no dependence on the server's own clock. That's what makes
+   * it usable from a UTC host on behalf of a user in another timezone: resolve
+   * the user's day first, then ask for exactly those dates.
+   */
+  async getDatedBetween(
+    startISO: string,
+    endISO: string
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .not("status", "in", "(done,cancelled,archived)")
+      .or(
+        `and(when_date.gte.${startISO},when_date.lte.${endISO}),and(due_date.gte.${startISO},due_date.lte.${endISO})`
+      )
+      .order("when_date", { nullsFirst: false })
+      .order("due_date", { nullsFirst: false })
+      .order("priority");
+
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
+  /**
+   * Open tasks whose when_date or due_date is strictly before `todayISO`.
+   * `todayISO` is the caller's day — see `getDatedBetween` on why it's a
+   * parameter and not `todayLocalISO()`.
+   */
+  async getOverdue(
+    todayISO: string
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    let query = this.supabase
+      .from("tasks")
+      .select("*")
+      .not("status", "in", "(done,cancelled,archived)")
+      .or(`when_date.lt.${todayISO},due_date.lt.${todayISO}`)
       .order("when_date", { nullsFirst: false })
       .order("due_date", { nullsFirst: false })
       .order("priority");

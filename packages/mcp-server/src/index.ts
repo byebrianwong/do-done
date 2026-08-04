@@ -10,6 +10,34 @@ export const SERVER_NAME = "do-done";
 export const SERVER_TITLE = "DoDone";
 export const SERVER_VERSION = "0.0.1";
 
+/**
+ * Sent to the client at initialization, ahead of any tool call.
+ *
+ * It exists to state the date model once, up front: DoDone schedules on
+ * `when_date`, not `due_date`, and a client that assumes otherwise will look at
+ * a fully planned week and report that nothing is dated. The per-tool
+ * descriptions repeat it, but a client that has already decided which tool to
+ * call has stopped reading them.
+ */
+export const SERVER_INSTRUCTIONS = `DoDone task management.
+
+Dates: a task has TWO independent date fields.
+- when_date — the day the user plans to DO the task. This is what DoDone
+  schedules by and what the user means by "today", "tomorrow", "this week", and
+  in casual speech usually by "due". Nearly every dated task has one.
+- due_date — a hard external deadline. Rarely set. Its absence does NOT mean a
+  task is undated.
+
+Answer "what do I have today / this week / on Friday" with get_agenda, which
+covers both fields plus overdue work and resolves the day in the user's own
+timezone. get_focus_tasks is an urgency ranking, not a date query — it may
+include undated tasks and omit dated ones. Schedule and reschedule tasks by
+setting when_date; set due_date only for a genuine deadline.
+
+Never state a date relative to your own idea of the current date: every tool
+returns the user's real today alongside its results, and relative labels
+("today", "in 3 days") are already resolved against it.`;
+
 export interface CreateDoDoneServerOptions {
   supabase: SupabaseClient;
   /** Whose tasks this server instance reads and writes. */
@@ -35,13 +63,16 @@ export function createDoDoneServer({
   userId,
   baseUrl,
 }: CreateDoDoneServerOptions): McpServer {
-  const server = new McpServer({
-    name: SERVER_NAME,
-    title: SERVER_TITLE,
-    version: SERVER_VERSION,
-    websiteUrl: baseUrl,
-    icons: dodoneIcons(baseUrl),
-  });
+  const server = new McpServer(
+    {
+      name: SERVER_NAME,
+      title: SERVER_TITLE,
+      version: SERVER_VERSION,
+      websiteUrl: baseUrl,
+      icons: dodoneIcons(baseUrl),
+    },
+    { instructions: SERVER_INSTRUCTIONS }
+  );
 
   registerTools(server, supabase, userId);
   registerResources(server, supabase, userId);
@@ -52,5 +83,20 @@ export function createDoDoneServer({
 export { dodoneIcons, DODONE_ICON_DATA_URI } from "./icon.js";
 export { registerTools } from "./tools/index.js";
 export { registerResources } from "./resources/index.js";
+export { createClock } from "./clock.js";
+export type { Clock, Today } from "./clock.js";
+export {
+  addDaysISO,
+  buildAgenda,
+  daysBetweenISO,
+  describeTask,
+  isOverdueOn,
+  relativeDayLabel,
+  renderAgenda,
+  summarizeTaskDates,
+  weekdayName,
+  withResolvedDates,
+} from "./dates.js";
+export type { Agenda, AgendaDay, AgendaEntry, TaskDates } from "./dates.js";
 export { executeOrganize } from "./organize.js";
 export type { OrganizeResult } from "./organize.js";
