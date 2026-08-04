@@ -62,15 +62,49 @@ One server implementation (`packages/mcp-server`), two transports:
 
 - **stdio** — `apps/mcp/dist/index.js`, registered in `~/.claude.json` for Claude Code.
 - **Streamable HTTP** — `apps/web/src/app/api/mcp/route.ts`, deployed with the web
-  app. Add it in Claude as a **custom connector** pointing at
-  `https://<your-app>/api/mcp` with the `MCP_BEARER_TOKEN` as a Bearer token.
+  app. Added in Claude as a **custom connector** pointing at
+  `https://<your-app>/api/mcp`.
 
-The HTTP endpoint is stateless (a fresh server per request, no session store) and
-single-user: it authenticates a shared secret and scopes everything to
-`DO_DONE_USER_ID`. Making it multi-user means replacing that guard with OAuth 2.1
-and deriving `userId` from the validated token — the route is structured for it.
-`/api/mcp` is in `PUBLIC_PATHS` in `proxy-helper.ts` so the auth proxy doesn't
-307 it to `/login`.
+The HTTP endpoint is stateless: a fresh `createDoDoneServer()` per request, bound
+to the authenticated user. That per-request construction is required, not an
+optimisation — the tool registrars capture their user id at construction time.
+
+### OAuth
+
+Claude's custom-connector UI speaks **OAuth only** — its form takes a URL and an
+optional OAuth client id/secret, with nowhere to put a static token. So the web
+app is also an OAuth 2.1 authorization server:
+
+```
+/.well-known/oauth-protected-resource[/api/mcp]  RFC 9728 — discovery entry point
+/.well-known/oauth-authorization-server          RFC 8414 — endpoint directory
+/api/oauth/register                              RFC 7591 — dynamic client registration
+/oauth/authorize                                 consent screen (needs a session)
+/api/oauth/authorize                             records the consent decision
+/api/oauth/token                                 code + refresh grants
+/api/oauth/revoke                                RFC 7009
+```
+
+Implementation lives in `apps/web/src/lib/oauth/` (`crypto.ts`, `store.ts`,
+`config.ts`); state is in the `oauth_*` tables, which are RLS-locked with no
+policies (service role only). Load-bearing rules:
+
+- **PKCE S256 is mandatory** — clients are public, so this is what secures the
+  code grant. "plain" is rejected.
+- **Codes and tokens are stored only as SHA-256 hashes**, and are single-use:
+  redemption and refresh rotation are atomic conditional UPDATEs, not
+  read-then-write.
+- **Redirect URIs match exactly**, with the RFC 8252 loopback-port exception for
+  native clients. No prefix matching, ever.
+- **A bad `client_id`/`redirect_uri` renders an error, never a redirect** —
+  redirecting on an unvalidated URI is how an AS becomes an open redirector.
+- `MCP_BEARER_TOKEN` remains an **optional** static fallback (scoped to
+  `DO_DONE_USER_ID`) for Claude Code's `--header` flag. Unset it to require OAuth.
+
+`APP_URL` pins the OAuth issuer; it must be the URL clients actually reach. The
+OAuth paths and `/api/mcp` are in `PUBLIC_PATHS` in `proxy-helper.ts` so the auth
+proxy doesn't 307 them to `/login` (`/oauth/authorize` handles its own session
+check so it can round-trip through `/login?next=…`).
 
 > Hand-editing `claude_desktop_config.json` does **not** work on Claude Desktop
 > v1.22209.3 — the app rewrites that file and strips `mcpServers`. Its Chat tab

@@ -1,11 +1,48 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClientSupabase } from "@/lib/supabase/client";
 
+/**
+ * Where to land after signing in. Defaults to /inbox, but the OAuth consent
+ * flow sends users here mid-authorization and needs them back on the exact
+ * /oauth/authorize URL they came from. Only same-origin relative paths are
+ * honoured — an absolute URL here would make this an open redirector.
+ */
+function safeNext(raw: string | null): string {
+  if (!raw) return "/inbox";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/inbox";
+  return raw;
+}
+
+/**
+ * `useSearchParams()` opts a component out of static prerendering, so the form
+ * lives in its own component behind a Suspense boundary — otherwise the whole
+ * /login route fails to build. Only this inner piece needs the query string.
+ */
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 px-4">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-indigo-500 mb-2">DoDone</h1>
+      </div>
+    </main>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
   const supabase = createClientSupabase();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +74,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/inbox");
+    router.push(next);
     router.refresh();
   }
 
@@ -46,7 +83,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) {

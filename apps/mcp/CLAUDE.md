@@ -10,10 +10,10 @@ share it — see `packages/mcp-server/CLAUDE.md`.
 
 ## Two transports, one server
 
-| Transport | Entry point | Used by |
-| --- | --- | --- |
-| stdio | `apps/mcp/dist/index.js` | Claude Code (local, `~/.claude.json`) |
-| Streamable HTTP | `apps/web/src/app/api/mcp/route.ts` | Claude custom connector (remote) |
+| Transport | Entry point | Used by | Auth |
+| --- | --- | --- | --- |
+| stdio | `apps/mcp/dist/index.js` | Claude Code (local, `~/.claude.json`) | env vars |
+| Streamable HTTP | `apps/web/src/app/api/mcp/route.ts` | Claude custom connector (Chat, web, mobile) | OAuth 2.1 |
 
 Both call `createDoDoneServer({ supabase, userId })`. Add tools in
 `packages/mcp-server` and both transports pick them up.
@@ -48,8 +48,9 @@ Both call `createDoDoneServer({ supabase, userId })`. Add tools in
 > entire `mcpServers` key — a hand-added server silently disappears on the next
 > restart. In the unified desktop app the **Chat** tab reads remote
 > *connectors* only and cannot see a local stdio server; the **Claude Code** tab
-> is the surface where this stdio server works. To reach Chat, use the hosted
-> HTTP endpoint as a custom connector instead.
+> is the surface where this stdio server works. To reach Chat, add the hosted
+> HTTP endpoint as a custom connector — it implements OAuth, which is the only
+> authentication that dialog accepts. See the root `CLAUDE.md`.
 
 **Gotcha:** clients load the compiled `dist/`, not the source. After changing
 MCP source you must rebuild (`pnpm --filter "@do-done/mcp..." build`) and
