@@ -63,11 +63,18 @@ export async function getDisplayEventsFor(
   try {
     const timeMin = zonedClockToUtc(sy, sm, sd, 0, 0, timeZone).toISOString();
     const timeMax = zonedClockToUtc(ey, em, ed, 0, 0, timeZone).toISOString();
+    // `undefined` (column missing on an older deploy, or no prefs row) has to
+    // land as null — "never configured", i.e. defer to Google's own visible
+    // flags — and not as an empty array, which would mean "hide nothing".
+    const hidden = Array.isArray(prefs?.hidden_calendar_ids)
+      ? (prefs.hidden_calendar_ids as string[])
+      : null;
     return await listDisplayEvents(
       syncRes.data.google_refresh_token,
       timeMin,
       timeMax,
-      timeZone
+      timeZone,
+      hidden
     );
   } catch {
     // Calendar fetch failed (revoked token, network) — tasks-only view.

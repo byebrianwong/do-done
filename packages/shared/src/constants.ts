@@ -141,3 +141,16 @@ export const TASK_COMPLETE_COLLAPSE_MS = 260;
  */
 export const TASK_COMPLETE_EXIT_MS =
   TASK_COMPLETE_HOLD_MS + TASK_COMPLETE_COLLAPSE_MS;
+
+/**
+ * How many Google calendars DoDone will read events from per page load. Each
+ * one is a separate `events.list` round-trip, so a user subscribed to holidays,
+ * weather, four sports teams and a handful of shared calendars would otherwise
+ * fan a single Today render out into 20+ sequential API calls.
+ *
+ * The cap used to be 10 and applied to whatever order Google returned, which
+ * silently dropped calendars off the end with nothing on screen to say so. It
+ * is now a limit on what the user has explicitly *chosen* in Settings, and the
+ * picker refuses to let them tick past it.
+ */
+export const MAX_DISPLAY_CALENDARS = 20;
