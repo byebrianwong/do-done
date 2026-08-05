@@ -30,7 +30,15 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
-    include: ["lib/**/*.test.ts", "widgets/**/*.test.ts"],
+    // `plugins/` is here for the same reason as `widgets/`: a config plugin is
+    // plain Node that emits XML, and every way it can be wrong (a dropped
+    // shortcut, a dead deep link) fails silently on the device rather than at
+    // build time.
+    include: [
+      "lib/**/*.test.ts",
+      "widgets/**/*.test.ts",
+      "plugins/**/*.test.ts",
+    ],
     exclude: ["**/node_modules/**"],
   },
 });

@@ -199,7 +199,9 @@ directories around and will show more). `grep '^@types+node@'` should print one
 line too.
 
 **`apps/mobile` tests logic only — there is no renderer.** `vitest.config.ts`
-there runs `lib/**/*.test.ts` in a node environment and nothing else. Anything
+there runs `lib/`, `widgets/` and `plugins/` tests in a node environment and
+nothing else — query-cache logic, the widget task handler's decisions, and the
+XML a config plugin emits, none of which need pixels. Anything
 that draws needs a device or a simulator, and neither exists in CI; a jsdom shim
 would only prove things about a React Native that isn't the one that ships. What
 the suite is for is the sequencing the eye can't check on a device anyway —
@@ -358,6 +360,32 @@ quick-add sheet over the live home screen without launching the main app.
   the checklist it still needs, the `ImageWidget` fallback if `SvgWidget` turns out
   not to render, and the build gotchas (stale checkouts, APK signing, launcher
   caching) that have already burned three install cycles.
+
+### Launcher quick actions (app shortcuts)
+Long-pressing the DoDone icon offers **Add task / Search / Today / Upcoming**,
+each pinnable to the home screen with the "+" beside it. These are *not* widgets:
+the launcher draws them itself, so a pinned one takes exactly one cell and sits
+flush with the app icons around it — which is the point of having them alongside
+the 1×1 quick-add widget rather than instead of it.
+
+- `plugins/withAndroidShortcuts.js` writes `res/xml/shortcuts.xml`, the icon
+  drawables and the labels, then hangs a `meta-data` tag off MainActivity.
+  Static shortcuts, so they exist from install with no native code at runtime.
+- **Labels must be `@string/` references.** Android drops a `<shortcut>` whose
+  label is a literal, silently — no build error, the row just isn't there.
+- **Intents must be explicit** (`targetPackage` + `targetClass`); an implicit
+  one never launches. The deep link rides along as the intent's `data`, which is
+  what `expo-linking`'s `getInitialURL` reads. Add task targets
+  `QuickAddActivity` directly, so it floats the composer over the home screen
+  exactly as the widget does; the rest target MainActivity.
+- Each icon ships twice: an `<adaptive-icon>` in `drawable-anydpi-v26` so the
+  launcher masks it to the same shape as the app icons, and a plain circle
+  vector in `drawable/` for API 24-25, which has no mask. The glyph is scaled
+  into 24..84 of the 108 viewport — inside the safe zone no mask can clip.
+- `plugins/withAndroidShortcuts.test.ts` asserts the generated XML, including
+  that every `dodone://` target has a route file. Every failure mode on this
+  surface is silent on the device, so the test is the only place they surface.
+  It is why `vitest.config.ts` includes `plugins/**` as well as `lib/**`.
 
 ### Location reminders (geofencing)
 A task can carry reminders at saved places — "buy milk when I get to Tesco",
