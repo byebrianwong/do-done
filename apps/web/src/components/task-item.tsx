@@ -1021,9 +1021,24 @@ export function TaskItem({
                  (do-date if set, else deadline). When a do-date and a distinct
                  deadline both exist, show the deadline as a static second chip.
                  `@lg:ml-auto` pushes the pair to the row's right edge on wide
-                 containers, preserving the desktop layout. */
+                 containers, preserving the desktop layout. `shrink-0` is what
+                 keeps that edge in the same place from row to row: the chips
+                 inside refuse to shrink, so a shrinkable wrapper gets squeezed
+                 narrower than its own contents on a long-title row and the
+                 pill spills out past where `ml-auto` placed it — a date column
+                 that wanders by a dozen-odd pixels.
+
+                 Only this wrapper is pinned. The other chips have the same
+                 shrinkable-box-around-unshrinkable-content shape, but they sit
+                 inline after the title where nothing is claiming to be a
+                 column, so their overflow costs nothing — and pinning them is
+                 not free: on a row that is genuinely over capacity something
+                 has to absorb the squeeze, and taking chips out of the pool
+                 just moves the damage onto whatever is still flexible (the
+                 project chip collapsing to a single letter, the title breaking
+                 one character per line). */
               (scheduledDate || task.deadline_date) && (
-                <div className="flex items-center gap-2 @lg:ml-auto">
+                <div className="flex shrink-0 items-center gap-2 @lg:ml-auto">
                   <InlineScheduleEditor
                     scheduledDate={scheduledDate}
                     scheduledTime={scheduledTime}
