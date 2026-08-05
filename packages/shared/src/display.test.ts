@@ -238,6 +238,46 @@ describe("sorting", () => {
     ]);
   });
 
+  it("sorts by status along the lifecycle, not alphabetically", () => {
+    const tasks = [
+      task({ status: "done" }),
+      task({ status: "next" }),
+      task({ status: "inbox" }),
+      task({ status: "in_progress" }),
+      task({ status: "later" }),
+    ];
+    const asc = sortTasks(tasks, [{ field: "status", dir: "asc" }]);
+    expect(asc.map((t) => t.status)).toEqual([
+      "inbox",
+      "later",
+      "next",
+      "in_progress",
+      "done",
+    ]);
+    const desc = sortTasks(tasks, [{ field: "status", dir: "desc" }]);
+    expect(desc.map((t) => t.status)).toEqual([
+      "done",
+      "in_progress",
+      "next",
+      "later",
+      "inbox",
+    ]);
+  });
+
+  it("falls back to sort_order for tasks sharing a status", () => {
+    const tasks = [
+      task({ status: "next", sort_order: 2 }),
+      task({ status: "inbox", sort_order: 9 }),
+      task({ status: "next", sort_order: 1 }),
+    ];
+    const sorted = sortTasks(tasks, [{ field: "status", dir: "asc" }]);
+    expect(sorted.map((t) => [t.status, t.sort_order])).toEqual([
+      ["inbox", 9],
+      ["next", 1],
+      ["next", 2],
+    ]);
+  });
+
   it("pushes nulls last regardless of direction", () => {
     const tasks = [
       task({ deadline_date: null }),

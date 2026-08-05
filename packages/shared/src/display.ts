@@ -36,6 +36,7 @@ export type GroupKey = z.infer<typeof GroupKey>;
 
 export const SortField = z.enum([
   "manual", // sort_order — the only field that permits drag-to-reorder
+  "status", // lifecycle order (STATUS_ORDER), the same axis group:status lays out
   "priority",
   "deadline_date",
   "scheduled_date",
@@ -210,6 +211,7 @@ export const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
 
 export const SORT_OPTIONS: { field: SortField; label: string }[] = [
   { field: "manual", label: "Manual (drag)" },
+  { field: "status", label: "Status" },
   { field: "priority", label: "Priority" },
   { field: "deadline_date", label: "Deadline" },
   { field: "scheduled_date", label: "Scheduled" },
@@ -364,6 +366,12 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
 };
 const PRIORITY_ORDER: readonly TaskPriority[] = ["p1", "p2", "p3", "p4"];
 
+/** Lifecycle rank, so sorting by status matches the order group:status lays the
+ *  columns out in (inbox → later → … → cancelled) rather than alphabetical. */
+const STATUS_RANK = Object.fromEntries(
+  STATUS_ORDER.map((s, i) => [s, i])
+) as Record<TaskStatus, number>;
+
 /** Effective do-date: scheduled_date wins over deadline_date (mirrors api-client taskDate). */
 function effectiveDate(t: Task): string | null {
   return t.scheduled_date ?? t.deadline_date ?? null;
@@ -448,6 +456,10 @@ function cmpByRule(a: Task, b: Task, rule: SortRule): number {
   switch (field) {
     case "manual": {
       const base = a.sort_order - b.sort_order;
+      return dir === "desc" ? -base : base;
+    }
+    case "status": {
+      const base = STATUS_RANK[a.status] - STATUS_RANK[b.status];
       return dir === "desc" ? -base : base;
     }
     case "priority": {

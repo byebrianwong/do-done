@@ -11,9 +11,29 @@
 // or null per method, so stories render with empty content — exactly what
 // we want for visual regression snapshots.
 
+// `auth` is the one branch that can't be a bare chainable: callers destructure
+// the result (`const { data: { user } } = await supabase.auth.getUser()`), and
+// the generic `data: null` blows up on the inner destructure. Hand back a
+// signed-in-looking user so components that key writes off the current user id
+// take their normal path instead of an error path.
+const STUB_USER = { id: "00000000-0000-0000-0000-000000000000" };
+
+const stubAuth = {
+  getUser: async () => ({ data: { user: STUB_USER }, error: null }),
+  getSession: async () => ({
+    data: { session: { user: STUB_USER } },
+    error: null,
+  }),
+  onAuthStateChange: () => ({
+    data: { subscription: { unsubscribe() {} } },
+  }),
+  signOut: async () => ({ error: null }),
+};
+
 function makeChainable(): unknown {
   const handler: ProxyHandler<() => unknown> = {
     get(_t, prop) {
+      if (prop === "auth") return stubAuth;
       if (prop === "then") {
         return (resolve: (v: { data: null; error: null }) => unknown) =>
           resolve({ data: null, error: null });

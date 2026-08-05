@@ -1,7 +1,8 @@
 import "server-only";
 import { google, type calendar_v3 } from "googleapis";
-import type { CalendarEvent, Task } from "@do-done/shared";
-import { zonedClockToUtc } from "@do-done/shared";
+import type { CalendarEvent, CalendarOption, Task } from "@do-done/shared";
+import { zonedClockToUtc, pickDisplayCalendars } from "@do-done/shared";
+
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
@@ -187,23 +188,32 @@ export async function deleteCalendarEvent(
   }
 }
 
-export interface CalendarOption {
-  id: string;
-  summary: string;
-  primary: boolean;
-}
+export type { CalendarOption };
 
-/** List the calendars the user can write to (for the calendar picker). */
+/**
+ * List every calendar in the user's list — including read-only subscriptions.
+ *
+ * Both Settings controls are fed from this one call: the "Sync to calendar"
+ * dropdown filters to `canWrite`, while the display picker shows all of them
+ * (you very much want to *see* the holidays calendar you can't write to).
+ * Returned in Google's own list order, which is the order the picker renders
+ * and the order the display cap applies in.
+ */
 export async function listCalendars(
   refreshToken: string
 ): Promise<CalendarOption[]> {
   const calendar = calendarClientFor(refreshToken);
-  const { data } = await calendar.calendarList.list({ minAccessRole: "writer" });
-  return (data.items ?? []).map((c) => ({
-    id: c.id ?? "",
-    summary: c.summaryOverride ?? c.summary ?? c.id ?? "",
-    primary: !!c.primary,
-  }));
+  const { data } = await calendar.calendarList.list({ maxResults: 250 });
+  return (data.items ?? [])
+    .filter((c) => c.id)
+    .map((c) => ({
+      id: c.id!,
+      summary: c.summaryOverride ?? c.summary ?? c.id!,
+      primary: !!c.primary,
+      selected: !!c.selected,
+      canWrite: c.accessRole === "writer" || c.accessRole === "owner",
+      color: c.backgroundColor ?? null,
+    }));
 }
 
 /**
@@ -254,10 +264,6 @@ export async function stopChannel(
   }
 }
 
-// A user with many subscribed calendars (holidays, sports, …) could fan out
-// into a lot of API calls — cap how many we read events from per page load.
-const MAX_DISPLAY_CALENDARS = 10;
-
 // Per-page API max is 250; follow nextPageToken a few pages per calendar so a
 // dense month isn't silently truncated, but don't chase pathological tails.
 const MAX_EVENT_PAGES = 4;
@@ -269,11 +275,12 @@ const EVENT_FIELDS =
 
 /**
  * List the user's Google Calendar events for read-only display inside DoDone.
- * Reads every calendar the user has visible in Google Calendar (their
- * `selected` calendars), not just the sync target, so the in-app day mirrors
- * what they'd see in Google. All dateTimes are returned in `timeZone` (the
- * user's preferred zone), so the RFC3339 date/clock portions are directly
- * usable as the user's wall time. Excludes:
+ * Reads every calendar the user has chosen in Settings (`hiddenIds` is the
+ * exclusion set; `null` falls back to the ones Google has ticked visible), not
+ * just the sync target, so the in-app day mirrors what they'd see in Google.
+ * All dateTimes are returned in `timeZone` (the user's preferred zone), so the
+ * RFC3339 date/clock portions are directly usable as the user's wall time.
+ * Excludes:
  *  - events DoDone itself created for tasks (tagged with SYNC_TAG) — the task
  *    is already on screen, showing its mirror event would duplicate it
  *  - events the user declined
@@ -283,14 +290,15 @@ export async function listDisplayEvents(
   refreshToken: string,
   timeMin: string,
   timeMax: string,
-  timeZone: string
+  timeZone: string,
+  hiddenIds: string[] | null = null
 ): Promise<CalendarEvent[]> {
   const calendar = calendarClientFor(refreshToken);
 
-  const { data: calList } = await calendar.calendarList.list();
-  const visible = (calList.items ?? [])
-    .filter((c) => c.id && (c.selected || c.primary))
-    .slice(0, MAX_DISPLAY_CALENDARS);
+  const { data: calList } = await calendar.calendarList.list({
+    maxResults: 250,
+  });
+  const { visible } = pickDisplayCalendars(calList.items ?? [], hiddenIds);
 
   const perCalendar = await Promise.allSettled(
     visible.map(async (cal) => {
