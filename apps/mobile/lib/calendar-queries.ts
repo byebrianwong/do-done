@@ -13,7 +13,11 @@ import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
-import { todayLocalISO, type CalendarEvent } from '@do-done/shared';
+import {
+  todayLocalISO,
+  type CalendarEvent,
+  type CalendarOption,
+} from '@do-done/shared';
 import { supabase } from './supabase';
 
 // Where the DoDone web app is deployed. Env var wins; app.config.ts
@@ -26,7 +30,11 @@ export const calendarKeys = {
   all: ['calendar'] as const,
   events: (start: string, end: string) =>
     [...calendarKeys.all, 'events', start, end] as const,
+  list: () => [...calendarKeys.all, 'list'] as const,
 };
+
+/** True when this build knows where the web app lives — see WEB_APP_URL. */
+export const hasWebAppUrl = !!WEB_APP_URL;
 
 /** The device's IANA timezone, or null when Intl can't say (older Hermes). */
 function deviceTimeZone(): string | null {
@@ -100,5 +108,65 @@ export function useCalendarEvents(startDay: string, endDayExclusive: string) {
     // Meetings don't move second-to-second; spare the round trip on tab hops.
     staleTime: 60_000,
     queryFn: () => fetchCalendarEvents(startDay, endDayExclusive),
+  });
+}
+
+/** What `/api/calendar/list` answers, for the calendar picker. */
+export interface CalendarListResponse {
+  calendars: CalendarOption[];
+  /** Ids switched off for display; null = never configured. */
+  hidden: string[] | null;
+}
+
+/** Raised when the user hasn't connected Google Calendar (web-only flow). */
+export class CalendarNotConnectedError extends Error {
+  constructor() {
+    super('not_connected');
+    this.name = 'CalendarNotConnectedError';
+  }
+}
+
+/**
+ * One fetch of the calendar list. `useCalendarList` is the normal entry
+ * point; this is exported so the response contract (the not-connected mapping
+ * and the null-vs-empty meaning of `hidden`) can be tested without a renderer.
+ */
+export async function fetchCalendarList(): Promise<CalendarListResponse> {
+  if (!WEB_APP_URL) throw new Error('no web app URL configured');
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('not signed in');
+
+  const base = WEB_APP_URL.replace(/\/$/, '');
+  const res = await fetch(`${base}/api/calendar/list`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  // 400 here means exactly one thing (no calendar_sync row) and the screen
+  // renders a "connect on web" explanation for it rather than a raw error.
+  if (res.status === 400) throw new CalendarNotConnectedError();
+  if (!res.ok) throw new Error(`calendar list fetch failed: ${res.status}`);
+  const body = (await res.json()) as Partial<CalendarListResponse>;
+  return {
+    calendars: body.calendars ?? [],
+    hidden: Array.isArray(body.hidden) ? body.hidden : null,
+  };
+}
+
+/**
+ * The user's Google calendars plus their stored display selection. Google
+ * needs the refresh token and client secret, which never leave the server, so
+ * this goes through the web app the same way events do.
+ */
+export function useCalendarList() {
+  return useQuery({
+    queryKey: calendarKeys.list(),
+    enabled: !!WEB_APP_URL,
+    // The list changes when the user adds a calendar in Google — rare, but a
+    // stale list is exactly what sends someone to this screen. Keep it short.
+    staleTime: 30_000,
+    // A missing connection is a state to render, not a failure to retry.
+    retry: (count, error) =>
+      !(error instanceof CalendarNotConnectedError) && count < 2,
+    queryFn: fetchCalendarList,
   });
 }

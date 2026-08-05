@@ -117,6 +117,20 @@ export class UserPrefsApi {
   }
 
   /**
+   * Replace the set of Google calendar ids hidden from DoDone views. Stores
+   * the exclusion set, so any calendar not named here — including one created
+   * after this write — shows by default. Seeds a defaults row if none exists.
+   */
+  async updateHiddenCalendars(
+    hiddenIds: string[]
+  ): Promise<{ data: UserPreferences | null; error: Error | null }> {
+    return this.patchPrefs(
+      { hidden_calendar_ids: hiddenIds },
+      "updateHiddenCalendars"
+    );
+  }
+
+  /**
    * Read the per-view Display preferences map (viewKey -> DisplayConfig).
    * Read-only (no insert) — returns {} when there's no prefs row yet. Callers
    * validate each entry with `parseDisplayConfig` from @do-done/shared.

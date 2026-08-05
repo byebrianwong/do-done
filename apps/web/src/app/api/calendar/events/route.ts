@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { authenticateRequest } from "@/lib/api-auth";
 import { getDisplayEventsFor } from "@/lib/calendar-events";
 
 export const runtime = "nodejs";
@@ -24,7 +23,7 @@ export const dynamic = "force-dynamic";
  * like a browser session.
  */
 export async function GET(request: NextRequest) {
-  const { supabase, userId } = await authenticate(request);
+  const { supabase, userId } = await authenticateRequest(request);
   if (!supabase || !userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -66,32 +65,4 @@ function isValidTimeZone(tz: string): boolean {
   } catch {
     return false;
   }
-}
-
-async function authenticate(
-  request: NextRequest
-): Promise<{ supabase: SupabaseClient | null; userId: string | null }> {
-  const bearer = request.headers
-    .get("authorization")
-    ?.replace(/^Bearer\s+/i, "");
-
-  if (bearer) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !anonKey) return { supabase: null, userId: null };
-    const supabase = createClient(url, anonKey, {
-      global: { headers: { Authorization: `Bearer ${bearer}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const {
-      data: { user },
-    } = await supabase.auth.getUser(bearer);
-    return { supabase, userId: user?.id ?? null };
-  }
-
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return { supabase, userId: user?.id ?? null };
 }

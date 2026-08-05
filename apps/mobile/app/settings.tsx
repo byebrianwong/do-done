@@ -230,6 +230,15 @@ export default function SettingsScreen() {
             />
           )}
         </View>
+        {/* Only meaningful while events are being shown — hidden otherwise,
+            matching the web settings page. */}
+        {showEvents === true && (
+          <SettingsRow
+            icon="list-outline"
+            label="Calendars to show"
+            onPress={() => router.push('/calendars')}
+          />
+        )}
       </View>
 
       <Text style={styles.sectionHeader}>App version</Text>

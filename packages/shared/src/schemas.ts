@@ -162,6 +162,13 @@ export const UserPreferencesSchema = z.object({
   // Show Google Calendar events inside DoDone views (Today, Upcoming,
   // Calendar). Only takes effect once the calendar is connected.
   show_calendar_events: z.boolean().default(true),
+  // Google calendar ids the user has switched OFF in Settings. Stored as the
+  // exclusion set, not the selection, so a calendar created after the last
+  // save defaults to visible — which is what a user who just made a calendar
+  // expects. `null` means "never configured": the reader falls back to the
+  // calendars Google itself has marked visible, preserving the behaviour from
+  // before the picker existed.
+  hidden_calendar_ids: z.array(z.string()).nullable().default(null),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
