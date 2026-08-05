@@ -1888,9 +1888,9 @@ function Inner({
           accessibilityLabel="Task menu"
           style={styles.menuBtn}
         >
-          <View style={styles.menuLine} />
-          <View style={styles.menuLine} />
-          <View style={styles.menuLine} />
+          <View style={styles.menuDot} />
+          <View style={styles.menuDot} />
+          <View style={styles.menuDot} />
         </Pressable>
       </View>
 
@@ -2344,10 +2344,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 3,
   },
-  menuLine: {
-    width: 15,
-    height: 1.5,
-    borderRadius: 1,
+  menuDot: {
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 2,
     backgroundColor: "#6b7280",
   },
   menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
