@@ -32,6 +32,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   datesBetweenLocalISO,
+  extractTitleShortcuts,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -146,22 +147,11 @@ function dotWidth(minutes: number): number {
   return 17;
 }
 
-// Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
-// `#word` is left alone so the user can keep typing.
-export function extractCompletedTags(text: string): {
-  stripped: string;
-  tags: string[];
-} {
-  const tags: string[] = [];
-  const re = /#(\w+)(\s+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    tags.push(m[1]);
-  }
-  if (tags.length === 0) return { stripped: text, tags };
-  const stripped = text.replace(/#(\w+)\s+/g, " ").replace(/\s{2,}/g, " ");
-  return { stripped, tags };
-}
+// `#token` absorption lives in `@do-done/shared` as `extractTitleShortcuts`,
+// shared with the web title field. The local copy that used to sit here only
+// ever produced tags, so `#p1` became a tag literally named "p1" and `#xs` a
+// tag named "xs" — and since it runs on every keystroke it stripped the token
+// before `parseTaskInput` could classify it at submit.
 
 export function shortDateLabel(date: string | null): string {
   if (date) {
@@ -1776,19 +1766,52 @@ function Inner({
     setField("scheduled_date", date);
   };
 
-  const handleTitleChange = (raw: string) => {
+  /**
+   * Absorb `#token` shortcuts out of the title into their real fields.
+   *
+   * `flushTrailing` is for blur / close, where end-of-input terminates the last
+   * token — without it the trailing space is the only terminator, so a title
+   * finished as "buy toothpaste #xs" saved the token verbatim.
+   */
+  const absorbTitle = (raw: string, flushTrailing = false) => {
     // The field wraps but is still one logical line — a pasted newline would
     // otherwise ride into the title and break every single-line rendering of it.
     const v = raw.replace(/\s*\r?\n\s*/g, " ");
-    const { stripped, tags: extracted } = extractCompletedTags(v);
-    if (extracted.length > 0) {
-      const existing = new Set(current.tags);
-      const fresh = extracted.filter((t) => !existing.has(t));
-      if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+    const {
+      stripped,
+      tags: extracted,
+      priority: extractedPriority,
+      durationMinutes: extractedDuration,
+    } = extractTitleShortcuts(v, flushTrailing);
+    const consumed =
+      extracted.length > 0 ||
+      extractedPriority !== undefined ||
+      extractedDuration !== undefined;
+    if (consumed) {
+      if (extracted.length > 0) {
+        const existing = new Set(current.tags);
+        const fresh = extracted.filter((t) => !existing.has(t));
+        if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      }
+      if (extractedPriority) setField("priority", extractedPriority);
+      if (extractedDuration) setField("duration_minutes", extractedDuration);
       setField("title", stripped);
     } else {
       setField("title", v);
     }
+  };
+
+  const handleTitleChange = (raw: string) => absorbTitle(raw);
+
+  /** Blur fires on Return too (`submitBehavior="blurAndSubmit"`). */
+  const handleTitleBlur = () => absorbTitle(current.title, true);
+
+  /** Tapping "Close" can tear the sheet down without the title input ever
+   *  blurring, so absorb a trailing token here as well. `onClose` animates the
+   *  sheet out before it unmounts, which leaves the autosave room to commit. */
+  const handleCloseFromBar = () => {
+    absorbTitle(current.title, true);
+    onClose();
   };
 
   const handleAddTag = (tag: string) => {
@@ -1947,6 +1970,7 @@ function Inner({
             <TextInput
               value={current.title}
               onChangeText={handleTitleChange}
+              onBlur={handleTitleBlur}
               placeholder="Task title…"
               placeholderTextColor="#9ca3af"
               // A long title has to be readable in full, so the box grows with
@@ -2236,7 +2260,7 @@ function Inner({
           alone. */}
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={onClose}
+          onPress={handleCloseFromBar}
           accessibilityRole="button"
           accessibilityLabel="Close editor"
           style={styles.closeBarBtn}
