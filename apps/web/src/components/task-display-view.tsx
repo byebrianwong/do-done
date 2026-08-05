@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { Project, Task } from "@do-done/shared";
 import { useDisplayConfig } from "@/lib/use-display-config";
+import { useTasksHeldForEditing } from "@/lib/task-editing-hold";
 import { DisplayMenu } from "./display-menu";
 import { DraggableTaskGroups } from "./draggable-task-groups-client";
 
@@ -38,11 +39,15 @@ export function TaskDisplayView({
 }: TaskDisplayViewProps) {
   const { config, setConfig, reset, isDefault } = useDisplayConfig(viewKey);
 
+  // A task whose editor is open keeps its row here even once a save has taken
+  // it out of this view's query — the modal is rendered by the row.
+  const visibleTasks = useTasksHeldForEditing(tasks);
+
   const availableTags = useMemo(() => {
     const set = new Set<string>();
-    for (const t of tasks) for (const tag of t.tags) set.add(tag);
+    for (const t of visibleTasks) for (const tag of t.tags) set.add(tag);
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [tasks]);
+  }, [visibleTasks]);
 
   return (
     <div>
@@ -69,13 +74,13 @@ export function TaskDisplayView({
         <p className="mb-6 text-sm text-neutral-500">{subtitle}</p>
       ) : null}
 
-      {tasks.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <div className="py-16 text-center">
           <p className="text-sm text-neutral-400">{emptyText}</p>
         </div>
       ) : (
         <DraggableTaskGroups
-          tasks={tasks}
+          tasks={visibleTasks}
           projects={projects}
           config={config}
           onConfigChange={setConfig}

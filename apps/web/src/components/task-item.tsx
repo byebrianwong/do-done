@@ -28,6 +28,7 @@ import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { useCompletionExit } from "@/lib/use-completion-exit";
 import { useKeepsCompleted } from "@/lib/task-row-behavior";
+import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
@@ -582,6 +583,11 @@ export function TaskItem({
     };
   }, [isSubtask, task.parent_task_id, parentTask?.title]);
   const [editing, setEditing] = useState(false);
+  // The editor auto-saves, and a save can re-qualify the task out of the list
+  // it was opened from — which used to unmount this row, and the modal it
+  // renders along with it. Hold the row until the editor closes, so the edit
+  // stays undoable and further edits stay possible.
+  useHoldWhileEditing(task, editing);
   // Right-click context menu, anchored at the cursor. Null = closed.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   // Bulk right-click menu, opened when this row is right-clicked while it's

@@ -26,6 +26,7 @@ import {
 } from "@do-done/shared";
 import { taskDate } from "@do-done/api-client";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { useTasksHeldForEditing } from "@/lib/task-editing-hold";
 import {
   EVENT_FALLBACK_COLOR,
   eventClockMinutes,
@@ -54,8 +55,11 @@ export function WeekView({
 }: WeekViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [localTasks, setLocalTasks] = useState(tasks);
-  useEffect(() => setLocalTasks(tasks), [tasks]);
+  // A task whose editor is open holds its place in the week, even once a save
+  // has moved it off this week — the modal is rendered by the row.
+  const weekTasks = useTasksHeldForEditing(tasks);
+  const [localTasks, setLocalTasks] = useState(weekTasks);
+  useEffect(() => setLocalTasks(weekTasks), [weekTasks]);
   // Mouse drags start after a small move (distinguishes click from drag).
   // Touch drags start after a short press so a normal swipe scrolls the
   // (horizontally scrollable) week grid instead of grabbing a task.
