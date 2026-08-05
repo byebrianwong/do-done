@@ -388,18 +388,54 @@ the 1×1 quick-add widget rather than instead of it.
   It is why `vitest.config.ts` includes `plugins/**` as well as `lib/**`.
 
 ### Location reminders (geofencing)
-A task can carry reminders at saved places — "buy milk when I get to Tesco",
-"post the letter when I leave the office". `task_locations` links a task to a
-location with a `trigger_type` of `enter` or `exit`; a task can have several.
+A task can carry reminders at places — "buy milk when I get to Tesco", "post the
+letter when I leave the office". `task_locations` links a task to a location with
+a `trigger_type` of `enter` or `exit`; a task can have several.
 
 **Surfaces**
-- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor.
-  Toggles Arriving/Leaving per place, and creates places from the current
-  position or a geocoded address. **This is the only place in the app that
-  prompts for location**, and it primes with an explanation first.
+- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor. A
+  search field over tappable places: the first tap attaches the reminder, and
+  direction, radius and whether to keep the place are adjustments made
+  afterwards. **This is the only place in the app that prompts for location**,
+  and it primes with an explanation first.
 - `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete.
+  Also lists any *one-off* place currently holding a region, since those count
+  against the cap the warning on that screen is about.
 - `lib/location-queries.ts` — query hooks + mutations. Every write ends in a
   geofence sync; the OS holds its own copy of the regions.
+
+**Capture: search first, save never required.** Three rules, and each was a
+usability bug before it was a rule:
+- **A place doesn't have to be saved.** Attaching writes a location with
+  `is_saved = false` — geofenced exactly like a saved one, hidden from the
+  pickers, and deleted by a database trigger when its last `task_locations` row
+  goes (`20260805000002_one_off_locations.sql`). "Save place" promotes the same
+  row, so the task links survive. Client-side cleanup would have leaked rows on
+  the paths that don't go through the client — a deleted task, a cascade — and a
+  leaked one-off place is invisible by construction, since nothing lists it.
+- **A name is never asked for.** `locations.name` stays NOT NULL because it's
+  what the notification says; it comes from the search result ("Target") or the
+  reverse-geocoded street line, not from the user.
+- **Search is type-ahead** (`lib/place-search.ts`), biased towards the last
+  known position and labelled with distance so "the closest one" is a thing the
+  eye picks. Provider is **Photon** (OSM data, keyless): `expo-location`'s
+  `geocodeAsync` returns coordinates with no label, so it can't populate a
+  suggestion list at all, and Nominatim's usage policy forbids autocomplete
+  outright. `geocodeAsync` stays on as the "look up what I typed" fallback for
+  when the provider is unreachable. Reading the position for bias uses
+  `getLastKnownPosition()`, which returns null rather than prompting or waiting
+  for a fix — opening the sheet must stay free.
+
+`components/MapPreview.tsx` draws the pin, its radius and your own position from
+raster tiles (`lib/map-tiles.ts` holds the Web-Mercator projection, tested in
+node). Deliberately not `react-native-maps`: that's a native module, so it would
+need a fresh dev-client build and a Maps API key before anyone could see a pixel.
+The trade is that it can't be panned and the pin can't be dragged.
+
+The sheet tracks the IME height itself and shrinks its list to fit —
+`edgeToEdgeEnabled` turns off Android's `adjustResize`, so nothing moves on its
+own and a bottom-anchored sheet is simply behind the keyboard. Same approach as
+`QuickAddBar`.
 
 **Engine** (`lib/geofencing.ts`)
 - `registerUserGeofences()` **never prompts**. It registers only locations with

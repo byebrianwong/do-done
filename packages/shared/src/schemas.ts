@@ -94,6 +94,10 @@ export const LocationSchema = z.object({
   longitude: z.number().min(-180).max(180),
   radius_meters: z.number().positive().default(100),
   address: z.string().max(500).nullable(),
+  // false = a one-off place, attached to a task inline and never filed under
+  // Saved places. It geofences exactly like a saved one; it is just hidden
+  // from the pickers and swept up when its last task link goes.
+  is_saved: z.boolean().default(true),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
@@ -254,11 +258,18 @@ export const UpdateProjectInput = z.object({
 export type UpdateProjectInput = z.infer<typeof UpdateProjectInput>;
 
 export const CreateLocationInput = z.object({
+  // Required here, never asked for in the UI: a place picked from search
+  // supplies its own name ("Target"), and a dropped pin falls back to its
+  // street line. The name is what a location reminder's notification says, so
+  // it has to exist — it just doesn't have to be typed.
   name: z.string().min(1).max(200),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   radius_meters: z.number().positive().default(100),
   address: z.string().max(500).optional(),
+  // Omitted means saved: the column defaults to true, so only the inline
+  // one-off path has to say anything.
+  is_saved: z.boolean().optional(),
 });
 export type CreateLocationInput = z.infer<typeof CreateLocationInput>;
 
