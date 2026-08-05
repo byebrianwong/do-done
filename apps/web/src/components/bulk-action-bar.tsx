@@ -75,7 +75,16 @@ function PopoverAction({
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  useClickOutside(ref, () => onOpenChange(false));
+  // Only the *open* popover may act on an outside click. The three popovers
+  // here share one `menu` state (unlike every other menu in the app, which
+  // owns a local `open`), so a closed sibling calling onOpenChange(false) sets
+  // that shared state to null — and a mousedown inside the open popover is
+  // "outside" to both its siblings. That unmounted the open popover between
+  // mousedown and click, so the item's onClick never fired and Schedule /
+  // Move / Priority silently did nothing.
+  useClickOutside(ref, () => {
+    if (open) onOpenChange(false);
+  });
   return (
     <div ref={ref} className="relative">
       <button
