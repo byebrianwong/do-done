@@ -6,6 +6,7 @@ import { UndoToastProvider } from "@/components/undo-toast";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { TaskEditorProvider } from "@/components/task-editor-provider";
 import { TaskSelectionProvider } from "@/lib/task-selection";
+import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { PIP_HIDDEN_COOKIE } from "@/lib/pip-visibility";
@@ -35,21 +36,23 @@ export default async function AppLayout({
   return (
     <UndoToastProvider>
       <TaskSelectionProvider>
-        <QuickAddProvider projects={projects} userId={user?.id ?? null}>
-          {/* Owns the task editor for the whole app, and mirrors it onto the
-              URL — so an open task always has a link to share. */}
-          <TaskEditorProvider>
-            <AppShell
-              projects={projects}
-              userEmail={user?.email ?? null}
-              pipHidden={pipHidden}
-            >
-              {children}
-            </AppShell>
-            <CommandPalette projects={projects} />
-            <QuickAddModal projects={projects} userId={user?.id ?? null} />
-          </TaskEditorProvider>
-        </QuickAddProvider>
+        <TaskEditingHoldProvider>
+          <QuickAddProvider projects={projects} userId={user?.id ?? null}>
+            {/* Owns the task editor for the whole app, and mirrors it onto the
+                URL — so an open task always has a link to share. */}
+            <TaskEditorProvider>
+              <AppShell
+                projects={projects}
+                userEmail={user?.email ?? null}
+                pipHidden={pipHidden}
+              >
+                {children}
+              </AppShell>
+              <CommandPalette projects={projects} />
+              <QuickAddModal projects={projects} userId={user?.id ?? null} />
+            </TaskEditorProvider>
+          </QuickAddProvider>
+        </TaskEditingHoldProvider>
         <BulkActionBar projects={projects} />
       </TaskSelectionProvider>
     </UndoToastProvider>

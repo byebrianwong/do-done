@@ -792,16 +792,10 @@ function TaskMenu({
         aria-expanded={open}
         className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-900"
       >
-        <svg
-          aria-hidden
-          className="h-3.5 w-3.5"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.75}
-          strokeLinecap="round"
-        >
-          <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+        <svg aria-hidden className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="8" cy="13" r="1.5" />
         </svg>
       </button>
       {open ? (

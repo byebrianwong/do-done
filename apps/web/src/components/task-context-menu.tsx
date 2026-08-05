@@ -257,8 +257,11 @@ export function TaskContextMenu({
   }
 
   function pickPriority(p: TaskPriority) {
-    setPriority(p);
-    void mutate({ priority: p });
+    // Picking the priority a task already has clears it back to p4 — the
+    // "no priority" default, same toggle the editor's priority bars use.
+    const next = p === priority ? "p4" : p;
+    setPriority(next);
+    void mutate({ priority: next });
     onClose();
   }
 

@@ -9,6 +9,7 @@ import {
 } from "@do-done/shared";
 import { useDisplayConfig } from "@/lib/use-display-config";
 import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
+import { useTasksHeldForEditing } from "@/lib/task-editing-hold";
 import { DisplayMenu } from "./display-menu";
 import { DraggableTaskGroups } from "./draggable-task-groups-client";
 
@@ -52,15 +53,19 @@ export function CuratedDisplayView({
 }: CuratedDisplayViewProps) {
   const { config, setConfig, reset, isDefault } = useDisplayConfig(viewKey);
 
+  // A task whose editor is open holds its row, even once a save has scheduled
+  // it out of this view's universe — the modal is rendered by the row.
+  const universe = useTasksHeldForEditing(allTasks);
+
   const availableTags = useMemo(() => {
     const set = new Set<string>();
-    for (const t of allTasks) for (const tag of t.tags) set.add(tag);
+    for (const t of universe) for (const tag of t.tags) set.add(tag);
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [allTasks]);
+  }, [universe]);
 
   const filtered = useMemo(
-    () => filterByConfig(allTasks, config),
-    [allTasks, config]
+    () => filterByConfig(universe, config),
+    [universe, config]
   );
 
   return (
@@ -88,7 +93,7 @@ export function CuratedDisplayView({
           renderCurated(filtered, config, setConfig)
         ) : (
           <DraggableTaskGroups
-            tasks={allTasks}
+            tasks={universe}
             projects={projects}
             config={config}
             onConfigChange={setConfig}

@@ -104,6 +104,26 @@ describe("TaskEditModalV2 — fits and scrolls on small screens", () => {
   });
 });
 
+describe("Priority bars", () => {
+  function renderAt(priority: "p1" | "p2" | "p3" | "p4") {
+    render(
+      <TaskEditModalV2 task={makeTask({ priority })} open onClose={vi.fn()} />
+    );
+  }
+
+  it("clicking the priority the task already has clears it to p4", () => {
+    renderAt("p2");
+    fireEvent.click(screen.getByLabelText("Set priority High"));
+    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p4");
+  });
+
+  it("clicking a different bar sets that priority", () => {
+    renderAt("p2");
+    fireEvent.click(screen.getByLabelText("Set priority Urgent"));
+    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p1");
+  });
+});
+
 describe("Deadline quick picks", () => {
   function openDeadlinePopover(): HTMLElement {
     render(

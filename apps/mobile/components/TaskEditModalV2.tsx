@@ -229,27 +229,29 @@ function BarSelector({
   colW: number;
   colH: number;
   litColor: string;
-  onSelectIndex: (index: number) => void;
+  onSelectIndex: (index: number, source: "tap" | "drag") => void;
 }) {
   const widthRef = useRef(0);
   const count = barHeights.length;
 
-  const selectFromX = (x: number) => {
+  const selectFromX = (x: number, source: "tap" | "drag") => {
     const w = widthRef.current;
     if (w <= 0) return;
     const idx = Math.min(count - 1, Math.max(0, Math.floor((x / w) * count)));
-    onSelectIndex(idx);
+    onSelectIndex(idx, source);
   };
 
   // Tap selects the bar under the finger; horizontal drag scrubs the value.
   // activeOffsetX lets vertical scroll pass through to the parent ScrollView.
+  // `source` is passed on because a scrub fires repeatedly over the same bar —
+  // only a deliberate tap may read as "re-selected, so clear it".
   const pan = Gesture.Pan()
     .runOnJS(true)
     .activeOffsetX([-10, 10])
-    .onUpdate((e) => selectFromX(e.x));
+    .onUpdate((e) => selectFromX(e.x, "drag"));
   const tap = Gesture.Tap()
     .runOnJS(true)
-    .onEnd((e) => selectFromX(e.x));
+    .onEnd((e) => selectFromX(e.x, "tap"));
   const gesture = Gesture.Race(tap, pan);
 
   return (
@@ -302,7 +304,13 @@ function PrioritySignal({
       colW={PRI_COL_W}
       colH={PRI_COL_H}
       litColor={PRIORITY_COLORS[value]}
-      onSelectIndex={(i) => onChange(barPriorities[i])}
+      onSelectIndex={(i, source) => {
+        // Tapping the priority already set clears it to p4 ("no priority").
+        // A scrub must not — it fires on every frame over the same bar and
+        // would flip the value off mid-gesture.
+        const picked = barPriorities[i];
+        onChange(source === "tap" && picked === value ? "p4" : picked);
+      }}
     />
   );
 }
@@ -1880,9 +1888,9 @@ function Inner({
           accessibilityLabel="Task menu"
           style={styles.menuBtn}
         >
-          <View style={styles.menuLine} />
-          <View style={styles.menuLine} />
-          <View style={styles.menuLine} />
+          <View style={styles.menuDot} />
+          <View style={styles.menuDot} />
+          <View style={styles.menuDot} />
         </Pressable>
       </View>
 
@@ -2070,7 +2078,11 @@ function Inner({
           }))}
           selectedKey={current.priority}
           onSelect={(key) => {
-            setField("priority", key as TaskPriority);
+            // Re-picking the current row clears to p4, as the bars do.
+            setField(
+              "priority",
+              key === current.priority ? "p4" : (key as TaskPriority)
+            );
             setPriPickerOpen(false);
           }}
           onClose={() => setPriPickerOpen(false)}
@@ -2332,10 +2344,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 3,
   },
-  menuLine: {
-    width: 15,
-    height: 1.5,
-    borderRadius: 1,
+  menuDot: {
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 2,
     backgroundColor: "#6b7280",
   },
   menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
