@@ -143,6 +143,33 @@ check so it can round-trip through `/login?next=…`).
 > sees remote connectors only. Use the hosted endpoint for Chat, and the Claude
 > Code tab for the local stdio server.
 
+## Linking to a task (web)
+
+Every task has an address, and the editor keeps the address bar honest:
+
+| URL | What it is |
+| --- | --- |
+| `/task/<id>` | Canonical, context-free. What every "Copy link" hands out, and what a recipient opens: a standalone page. |
+| `/inbox?task=<id>` | The editor, mirrored onto the view it was opened from. Written while the modal is up, so the address bar is always shareable and Back closes the modal. |
+
+`OpenTaskProvider` (`apps/web/src/lib/open-task.tsx`) owns *the* editor for the
+whole authenticated app — mounted once in `(app)/layout.tsx`, not per row. That
+placement is load-bearing twice over: a link can open a task with no row on
+screen, and a task showing in two lists still opens exactly once.
+
+It writes the URL with the **native History API**, not `router.push`. A router
+navigation would re-run the underlying list's server components on every row
+click and change nothing — the list is already rendered, the editor is a layer
+above it. `popstate` is what keeps state and URL in agreement.
+
+`TaskItem` falls back to its own local modal state when the provider is absent
+(Storybook, unit tests), which is why `useOpenTask()` returns null rather than
+throwing.
+
+The auth proxy carries the destination through sign-in (`?next=`), so a task
+link handed to someone signed out survives the login round-trip; `safeNext` on
+the login page is what stops that being an open redirector.
+
 ## Design System
 
 - Accent: indigo-500 (#6366f1)

@@ -12,7 +12,10 @@ import { createClientSupabase } from "@/lib/supabase/client";
  */
 function safeNext(raw: string | null): string {
   if (!raw) return "/inbox";
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/inbox";
+  if (!raw.startsWith("/")) return "/inbox";
+  // "//host" and "/\host" are both protocol-relative to a browser — the second
+  // spelling is the one a naive `startsWith("//")` check misses.
+  if (raw[1] === "/" || raw[1] === "\\") return "/inbox";
   return raw;
 }
 

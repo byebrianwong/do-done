@@ -69,6 +69,12 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    // Carry the destination through the sign-in. Without this, a shared task
+    // link handed to someone who happens to be signed out lands them on their
+    // inbox with no idea what they were sent — the link is spent. `safeNext`
+    // on the login page is what keeps this from being an open redirector.
+    const dest = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+    url.search = dest === "/" ? "" : `?next=${encodeURIComponent(dest)}`;
     return NextResponse.redirect(url);
   }
 

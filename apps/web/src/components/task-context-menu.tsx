@@ -14,6 +14,8 @@ import type {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { toCreateInput } from "@/lib/task-create-input";
+import { isCopyLinkShortcut } from "@/lib/task-link";
+import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { useUndoToast } from "./undo-toast";
 import {
   PRIORITY_OPTIONS,
@@ -207,6 +209,7 @@ export function TaskContextMenu({
   onMutated,
 }: TaskContextMenuProps) {
   const toast = useUndoToast();
+  const copyLinkFor = useCopyTaskLink();
 
   // Optimistic copies so highlights update instantly before the refresh lands.
   const [priority, setPriority] = useState(task.priority);
@@ -219,16 +222,25 @@ export function TaskContextMenu({
   // Which expandable section is open (only one at a time keeps the menu short).
   const [section, setSection] = useState<"deadline" | "move" | null>(null);
 
+  // Esc closes; ⇧⌘C makes good on the shortcut the "Copy link" row advertises.
+  // Both are scoped to the menu, which only exists while it's open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
+        return;
+      }
+      if (isCopyLinkShortcut(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        void copyLinkFor(task.id);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, copyLinkFor, task.id]);
 
   async function mutate(patch: UpdateTaskInput) {
     try {
@@ -303,15 +315,7 @@ export function TaskContextMenu({
 
   async function copyLink() {
     onClose();
-    const url =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/task/${task.id}`
-        : `/task/${task.id}`;
-    try {
-      await navigator.clipboard?.writeText(url);
-    } catch (e) {
-      console.error("Copy link failed:", e);
-    }
+    await copyLinkFor(task.id);
   }
 
   async function remove() {

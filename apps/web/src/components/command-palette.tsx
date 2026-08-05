@@ -8,6 +8,8 @@ import { TasksApi } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
 import { openQuickAdd } from "@/lib/quick-add-events";
 import { togglePipPanel } from "@/lib/pip-visibility";
+import { useOpenTask } from "@/lib/open-task";
+import { taskPath } from "@/lib/task-link";
 
 // Window event other components (e.g. the mobile top-bar search button) can
 // dispatch to open the palette without a physical keyboard.
@@ -92,6 +94,9 @@ function NavIcon({ path }: { path: string }) {
 
 export function CommandPalette({ projects }: { projects: Project[] }) {
   const router = useRouter();
+  // Null in Storybook, where the palette renders on its own; there a task hit
+  // navigates to the task page instead of opening the editor over the view.
+  const openTask = useOpenTask();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [taskResults, setTaskResults] = useState<Task[]>([]);
@@ -183,9 +188,11 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
             ? `Deadline ${t.deadline_date}${t.deadline_time ? ` ${t.deadline_time}` : ""}`
             : t.status,
         color: PRIORITY_CONFIG[t.priority].color,
-        href: t.project_id ? `/projects/${t.project_id}` : "/inbox",
+        // Open the task the user picked — dropping them on its project list and
+        // leaving them to find the row again was never what they asked for.
+        onRun: () => (openTask ? openTask.open(t) : router.push(taskPath(t.id))),
       })),
-    [taskResults]
+    [taskResults, openTask, router]
   );
 
   const actionCommands: Command[] = useMemo(
