@@ -550,7 +550,11 @@ export function QuickAddPickers({
   };
 
   const selectPriority = (key: string) => {
-    fields.setPriority(key === 'none' ? null : (key as TaskPriority));
+    // Picking the priority already on the draft clears it, so the chip is a
+    // toggle as well as a picker — the explicit "No priority" row stays for
+    // discoverability.
+    const cleared = key === 'none' || key === priority;
+    fields.setPriority(cleared ? null : (key as TaskPriority));
     fields.setMenu(null);
   };
 
