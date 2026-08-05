@@ -20,6 +20,12 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
+import { useListLoadState } from '@/lib/list-load-state';
+import {
   invalidateTasks,
   reorderTasks,
   updateTask,
@@ -122,7 +128,9 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
 export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: tasks = [], isRefetching, refetch } = useAllTasks();
+  const tasksQuery = useAllTasks();
+  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const loadState = useListLoadState(tasksQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
@@ -266,8 +274,13 @@ export default function UpcomingScreen() {
           </Pressable>
         </View>
       </View>
+      <UpdatingBar visible={loadState.showUpdating} />
 
-      {curated ? (
+      {loadState.showSkeleton ? (
+        <ListSkeleton rows={6} />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : curated ? (
         <SectionedDraggableList
           sections={renderSections}
           renderHeader={renderHeader}

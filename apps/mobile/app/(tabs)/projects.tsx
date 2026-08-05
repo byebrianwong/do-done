@@ -11,15 +11,22 @@ import type { Project } from '@do-done/shared';
 
 import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { useListLoadState } from '@/lib/list-load-state';
 import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
 
 type ProjectRow = Project & { task_count: number; open_count: number };
 
 export default function ProjectsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: projects = [], isLoading, isRefetching, refetch } =
-    useProjectsWithCounts();
+  const projectsQuery = useProjectsWithCounts();
+  const { data: projects = [], isRefetching, refetch } = projectsQuery;
+  const loadState = useListLoadState(projectsQuery);
   useRefreshOnFocus(refetch);
 
   // Local copy so a drag reorders instantly; re-seeded whenever the server list
@@ -88,6 +95,7 @@ export default function ProjectsScreen() {
           <Ionicons name="add" size={24} color="#6366f1" />
         </Pressable>
       </View>
+      <UpdatingBar visible={loadState.showUpdating} />
 
       <DraggableFlatList
         data={ordered}
@@ -102,14 +110,18 @@ export default function ProjectsScreen() {
           />
         }
         ListEmptyComponent={
-          !isLoading ? (
+          loadState.showSkeleton ? (
+            <ListSkeleton rows={4} />
+          ) : loadState.showError ? (
+            <ListError onRetry={refetch} />
+          ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No projects yet</Text>
               <Text style={styles.emptyHint}>
                 Tap + to create your first project
               </Text>
             </View>
-          ) : null
+          )
         }
         contentContainerStyle={styles.listContent}
       />

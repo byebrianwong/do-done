@@ -10,14 +10,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
 import { invalidateTasks, reorderTasks, useInboxTasks } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 export default function InboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: tasks = [], isLoading, isRefetching, refetch } = useInboxTasks();
+  const inboxQuery = useInboxTasks();
+  const { data: tasks = [], isRefetching, refetch } = inboxQuery;
+  const loadState = useListLoadState(inboxQuery);
   const [order, setOrder] = useState<Task[]>([]);
   const [editing, setEditing] = useState<Task | null>(null);
 
@@ -63,6 +71,7 @@ export default function InboxScreen() {
           </Pressable>
         </View>
       </View>
+      <UpdatingBar visible={loadState.showUpdating} />
 
       <DraggableFlatList
         data={order}
@@ -77,14 +86,18 @@ export default function InboxScreen() {
           />
         }
         ListEmptyComponent={
-          !isLoading ? (
+          loadState.showSkeleton ? (
+            <ListSkeleton rows={4} />
+          ) : loadState.showError ? (
+            <ListError onRetry={refetch} />
+          ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Inbox is empty</Text>
               <Text style={styles.emptyHint}>
                 Add a task below to get started
               </Text>
             </View>
-          ) : null
+          )
         }
         contentContainerStyle={styles.listContent}
       />

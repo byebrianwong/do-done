@@ -170,6 +170,39 @@ The auth proxy carries the destination through sign-in (`?next=`), so a task
 link handed to someone signed out survives the login round-trip; `safeNext` on
 the login page is what stops that being an open redirector.
 
+## Cold start (mobile)
+
+**"Nothing scheduled today" is an answer, and the app must not give it before it
+has one.** The mobile query cache is in memory, so every launch began with
+`data === undefined` on every list, and every screen rendered its empty state
+into that gap — the app opened by telling the user their day was clear, then
+quietly filled in. Web never had this: its pages are async server components, so
+the rows arrive with the HTML.
+
+Three pieces, all under `apps/mobile`:
+
+- **`lib/query-persist.ts`** writes the query cache to AsyncStorage, restored by
+  `PersistQueryClientProvider` in `app/_layout.tsx`. Launch opens on the rows the
+  user last saw, refreshed underneath. A snapshot older than `CACHE_MAX_AGE_MS`
+  (24h) is dropped rather than shown; `gcTime` in `query-client.ts` is the same
+  24h **and has to stay in step**, or a restored list for a tab the user hasn't
+  opened is collected before it is ever observed and the next write-out persists
+  the cache without it.
+- **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for
+  every list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a
+  restored empty list is a real answer and gets the empty state, while a cache
+  that has never held one gets the skeleton. It stays a plain function over a
+  plain input because `apps/mobile` has no renderer to test a hook with.
+- **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an
+  `UpdatingBar` that self-delays ~350ms (`useRefreshOnFocus` refires every query
+  on every tab switch, so a bar bound straight to `isFetching` strobes), and
+  `ListError` — without which an offline first launch pulses a skeleton forever.
+
+The cache is restored **only for the account that wrote it**, and that check
+lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
+event resolve independently, so clearing after the fact is a race the previous
+user's rows can win.
+
 ## Design System
 
 - Accent: indigo-500 (#6366f1)

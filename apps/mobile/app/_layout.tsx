@@ -12,7 +12,7 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -21,6 +21,7 @@ import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
+import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 
@@ -62,7 +63,14 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
+      {/* Restores the last-seen task lists from AsyncStorage before the first
+          frame, so launch opens on yesterday's rows instead of on an empty
+          screen. Anything older than a day is dropped rather than shown — see
+          lib/query-persist.ts. */}
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={persistOptions}
+      >
         <AuthProvider>
           <UndoToastProvider>
             <TaskSelectionProvider>
@@ -70,7 +78,7 @@ export default function RootLayout() {
             </TaskSelectionProvider>
           </UndoToastProvider>
         </AuthProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }
