@@ -41,5 +41,18 @@ jobs:
           workingDir: apps/web
           buildScriptName: build-storybook
           onlyChanged: true
+          # TurboSnap traces the *bundled* module graph, and every @do-done/*
+          # package is consumed as its built `dist/` output (their package.json
+          # exports point there, and the build step above runs first). So a
+          # change to `packages/shared/src/display.ts` matches nothing in the
+          # graph — TurboSnap concluded "0 story files affected" and skipped
+          # all 172 snapshots on a PR that visibly altered the Display menu.
+          # Since UI Tests is a required check, that made the gate blind to
+          # every regression originating in the design system or the shared
+          # display engine. Listing the packages as externals forces a full
+          # rebuild whenever they change, so the failure mode is "snapshot
+          # more than needed" rather than "silently snapshot nothing".
+          externals: |
+            packages/**
           exitZeroOnChanges: true
           exitOnceUploaded: true
