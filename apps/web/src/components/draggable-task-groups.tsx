@@ -38,7 +38,7 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { seedFromDrop } from "@/lib/quick-add";
-import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
+import { TaskRowBehaviorProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -141,7 +141,10 @@ export function DraggableTaskGroups({
   if (sortedView && !canConvert) {
     // Sorted view with no convert handler: static groups, no drag affordances.
     return (
-      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
+      <TaskRowBehaviorProvider
+        keepsCompleted={config.showCompleted}
+        density={config.density}
+      >
       <div>
         {groups.map((g) => (
           <GroupSection
@@ -384,7 +387,10 @@ export function DraggableTaskGroups({
           row must not play the collapse-and-vanish completion exit. Declared
           here as well as in CuratedDisplayView because this component is also
           mounted directly, with a config of its own. */}
-      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
+      <TaskRowBehaviorProvider
+        keepsCompleted={config.showCompleted}
+        density={config.density}
+      >
       <div>
         {groups.map((g) => {
           const collapsed = isCollapsed(config, g.key);
@@ -447,6 +453,10 @@ function GroupSection({
     id: dropId(group.key),
     disabled: !droppable,
   });
+  // Row padding alone doesn't buy much on a view like All tasks, where a dozen
+  // project headers each cost a header, a gap and a section margin. Compact
+  // tightens the chrome between groups by roughly as much as it tightens rows.
+  const compact = useIsCompact();
 
   const body = (
     <div
@@ -506,11 +516,12 @@ function GroupSection({
       <span className="text-neutral-400">({group.count})</span>
     </>
   );
-  const headerClass =
-    "mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider";
+  const headerClass = `flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${
+    compact ? "mb-0.5" : "mb-2"
+  }`;
 
   return (
-    <section className="group mb-6">
+    <section className={`group ${compact ? "mb-2.5" : "mb-6"}`}>
       {showHeader ? (
         onToggleCollapse ? (
           <button

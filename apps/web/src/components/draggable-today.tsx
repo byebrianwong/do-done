@@ -26,6 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Project, Task, UpdateTaskInput } from "@do-done/shared";
 import { partitionToday } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { useIsCompact } from "@/lib/task-row-behavior";
 import { OverdueSection } from "./overdue-section";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
@@ -377,7 +378,10 @@ function SectionHeading({
   colorClass: string;
   icon?: React.ReactNode;
 }) {
-  const base = `mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${colorClass}`;
+  const compact = useIsCompact();
+  const base = `flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${
+    compact ? "mb-1" : "mb-3"
+  } ${colorClass}`;
   const inner = (
     <>
       <Chevron collapsed={collapsed} />
@@ -413,11 +417,16 @@ function FocusSection({
   collapsed: boolean;
   onToggleCollapse?: () => void;
 }) {
+  const compact = useIsCompact();
   // Hidden when empty and idle; shown during a drag so it can receive a drop.
   if (tasks.length === 0 && !isDragActive) return null;
   return (
-    <section className="mb-8">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+    <section className={compact ? "mb-3" : "mb-8"}>
+      <div
+        className={`rounded-xl border border-indigo-100 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30 ${
+          compact ? "p-2" : "p-4"
+        }`}
+      >
         <SectionHeading
           label="Focus"
           count={tasks.length}

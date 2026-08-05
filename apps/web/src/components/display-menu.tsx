@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  DENSITY_OPTIONS,
   GROUP_OPTIONS,
   PRIORITY_CONFIG,
   SORT_OPTIONS,
   activeFilterCount,
+  withDensity,
   hasFlagFilter,
   isManualSort,
   selectedFilterValues,
@@ -162,7 +164,25 @@ export function DisplayMenu({
             ) : null}
           </Section>
 
-          <Section label={filterCount ? `Filter · ${filterCount}` : "Filter"}>
+          <Section label="Density">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {DENSITY_OPTIONS.map((d) => (
+                <Pill
+                  key={d.key}
+                  active={config.density === d.key}
+                  title={d.hint}
+                  onClick={() => onChange(withDensity(config, d.key))}
+                >
+                  {d.label}
+                </Pill>
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            label={filterCount ? `Filter · ${filterCount}` : "Filter"}
+            name="Filter"
+          >
             <div className="space-y-2">
               <div className="flex flex-wrap gap-1.5">
                 {PRIORITIES.map((p) => (
@@ -242,15 +262,30 @@ export function DisplayMenu({
   );
 }
 
+/**
+ * One labelled block of pills.
+ *
+ * The `role="group"` is load-bearing, not decoration. Pill labels are not
+ * unique across the menu — "Status" is both a Group by and a Sort by option,
+ * and "Priority" is all three of a group, a sort and a filter — so a query for
+ * a button by name alone is ambiguous, and grows *more* ambiguous every time a
+ * section is added. Naming the group lets a caller (and a screen reader) say
+ * which "Status" it means.
+ *
+ * `name` overrides the accessible name when the visible label carries a live
+ * count ("Filter · 2"), so the group's name stays stable as filters come and go.
+ */
 function Section({
   label,
+  name,
   children,
 }: {
   label: string;
+  name?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-3 last:mb-0">
+    <div role="group" aria-label={name ?? label} className="mb-3 last:mb-0">
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
         {label}
       </div>
@@ -262,11 +297,13 @@ function Section({
 function Pill({
   active,
   accent,
+  title,
   onClick,
   children,
 }: {
   active: boolean;
   accent?: string;
+  title?: string;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -274,6 +311,7 @@ function Pill({
     <button
       type="button"
       onClick={onClick}
+      title={title}
       aria-pressed={active}
       style={active && accent ? { color: accent, borderColor: accent } : undefined}
       className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors ${
