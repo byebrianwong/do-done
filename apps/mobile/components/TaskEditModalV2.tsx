@@ -1795,8 +1795,11 @@ function Inner({
       }
       if (extractedPriority) setField("priority", extractedPriority);
       if (extractedDuration) setField("duration_minutes", extractedDuration);
-      setField("title", stripped);
-    } else {
+      if (stripped !== current.title) setField("title", stripped);
+    } else if (v !== current.title) {
+      // Only write on a real change. Blur runs this on every focus loss, and an
+      // unconditional `setField` would mark an untouched task dirty — flipping
+      // the save indicator and firing a pointless PATCH.
       setField("title", v);
     }
   };

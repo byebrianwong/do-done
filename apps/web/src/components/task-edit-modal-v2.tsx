@@ -2350,8 +2350,13 @@ function TaskEditModalBody({
       if (extractedPriority) setField("priority", extractedPriority);
       if (extractedDuration) setField("duration_minutes", extractedDuration);
       setTitleDraft(stripped);
-      setField("title", stripped);
-    } else {
+      if (stripped !== current.title) setField("title", stripped);
+    } else if (v !== current.title) {
+      // Only write on a real change. Blur now runs this on every focus loss,
+      // and an unconditional `setField` marked an untouched task dirty — which
+      // flipped the header's save indicator, fired a pointless PATCH, and made
+      // `hasChanges` true so `closeNow` would stop cleaning up an abandoned
+      // draft.
       setTitleDraft(v);
       setField("title", v);
     }

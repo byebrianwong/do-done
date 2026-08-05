@@ -374,3 +374,41 @@ describe("Title `#token` shortcuts", () => {
     expect(setFieldSpy).toHaveBeenCalledWith("title", "buy toothpaste");
   });
 });
+
+describe("Title blur does not dirty an untouched task", () => {
+  it("writes nothing when the title is blurred unchanged", () => {
+    // The blur/Enter/close flush runs on every focus loss. Writing
+    // unconditionally marked a task the user never edited as dirty, which
+    // flipped the header's save indicator, fired a pointless PATCH, and made
+    // `hasChanges` true so an abandoned draft stopped being cleaned up.
+    render(
+      <TaskEditModalV2
+        task={makeTask({ title: "Archive the Q3 board" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    setFieldSpy.mockClear();
+    fireEvent.blur(input, { target: { value: "Archive the Q3 board" } });
+    expect(setFieldSpy).not.toHaveBeenCalled();
+  });
+
+  it("still writes when the title actually changed", () => {
+    render(
+      <TaskEditModalV2 task={makeTask({ title: "old" })} open onClose={vi.fn()} />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value: "new" } });
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "new");
+  });
+
+  it("does not dirty the task when Esc closes it untouched", () => {
+    render(
+      <TaskEditModalV2 task={makeTask({ title: "untouched" })} open onClose={vi.fn()} />
+    );
+    setFieldSpy.mockClear();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(setFieldSpy).not.toHaveBeenCalled();
+  });
+});
