@@ -116,6 +116,42 @@ actions draw, that the tile carries a painted background, and that it draws with
 `@/lib/supabase` unimportable. Nothing in CI can prove the registration is early
 enough — that needs step 3 below, on a device, with the app force-stopped.
 
+---
+
+## Launcher quick actions (app shortcuts)
+
+Separate mechanism, same "never seen on a device" status. `plugins/withAndroidShortcuts.js`
+declares four static shortcuts — Add task, Search, Today, Upcoming — in
+`res/xml/shortcuts.xml`, pointed at from a `meta-data` tag on MainActivity.
+They are drawn by the *launcher*, not by us, so a pinned one occupies exactly
+one cell and lines up with the app icons around it. That is the entire reason
+they exist rather than a second 1×1 widget.
+
+1. **Long-press the DoDone icon.** Four rows appear under "Widgets": Add task,
+   Search, Today, Upcoming, each with its glyph on an indigo circle. A row
+   showing a generic icon means the drawable didn't resolve; a *missing* row
+   means Android dropped that `<shortcut>` — almost always a label that isn't a
+   `@string/` reference, which it discards without logging.
+2. **Tap each row.** Search / Today / Upcoming open MainActivity on that screen;
+   the URI is delivered as the intent's data, so this exercises the same
+   expo-linking path the widgets use. Add task floats the translucent composer
+   over the home screen without launching the app — identical to tapping the 1×1
+   widget, because it targets the same `QuickAddActivity`.
+3. **Pin one** with the "+" on its right. It lands on the home screen as a plain
+   icon, app-icon-sized, with a small DoDone badge in the corner (the launcher
+   adds that — it isn't ours and can't be turned off).
+4. **Compare it against a neighbouring app icon.** Same cell, same mask shape.
+   If the shortcut is a circle sitting inside a squircle app icon, the launcher
+   ignored the adaptive icon in `drawable-anydpi-v26` and fell back to the
+   plain `drawable/` vector — which is the intended API 24-25 behavior but
+   wrong on anything newer.
+
+Step 4 is the one that can't be checked anywhere but a device: the mask comes
+from the launcher's own config, so Pixel Launcher, One UI and Nova will each
+answer it differently.
+
+---
+
 ## If the tile renders blank or wrong (step 3 fails)
 
 `SvgWidget` takes a raw SVG string and renders it through AndroidSVG; the library
