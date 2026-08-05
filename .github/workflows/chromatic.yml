@@ -56,3 +56,12 @@ jobs:
             packages/**
           exitZeroOnChanges: true
           exitOnceUploaded: true
+          # Take whatever lands on main as the new baseline. Without this,
+          # nothing ever accepts main's own builds — a merged PR's visuals stay
+          # "unreviewed" forever, and the next branch to merge main inherits
+          # them as *its* pending changes. That's how a PR touching only the
+          # task editor ended up having to review 11 snapshots of someone
+          # else's Sort-by chip before the required UI Tests check would go
+          # green. Review still happens where it's useful (on the PR, against
+          # main's baseline); this only stops re-reviewing what already shipped.
+          autoAcceptChanges: main
