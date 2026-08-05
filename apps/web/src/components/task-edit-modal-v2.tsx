@@ -12,6 +12,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   datesBetweenLocalISO,
+  extractTitleShortcuts,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -2080,67 +2081,10 @@ type ParsedToken = {
   removable?: { tag: string };
 };
 
-// Shortcut maps — `#xs`/`#s`/`#m`/`#l`/`#xl`/`#xxl` set duration_minutes;
-// `#p1`/`#p2`/`#p3`/`#p4` set priority. Anything else becomes a regular tag.
-const ESTIMATE_SHORTCUTS: Record<string, number> = {
-  xs: 30,
-  s: 60,
-  m: 120,
-  l: 240,
-  xl: 480,
-  xxl: 960,
-};
-const PRIORITY_SHORTCUTS: Record<string, TaskPriority> = {
-  p1: "p1",
-  p2: "p2",
-  p3: "p3",
-  p4: "p4",
-};
-
-// Extract whitespace-terminated `#token` from text. Tokens are classified:
-//   - estimate shortcut → durationMinutes
-//   - priority shortcut → priority
-//   - otherwise → tag
-// Partial (unterminated) `#word` is left alone so the user can keep typing.
-function extractCompletedTags(text: string): {
-  stripped: string;
-  tags: string[];
-  priority?: TaskPriority;
-  durationMinutes?: number;
-} {
-  const tags: string[] = [];
-  let priority: TaskPriority | undefined;
-  let durationMinutes: number | undefined;
-  const re = /#(\w+)(\s+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    const token = m[1].toLowerCase();
-    if (token in ESTIMATE_SHORTCUTS) {
-      durationMinutes = ESTIMATE_SHORTCUTS[token];
-    } else if (token in PRIORITY_SHORTCUTS) {
-      priority = PRIORITY_SHORTCUTS[token];
-    } else {
-      tags.push(m[1]);
-    }
-  }
-  if (
-    tags.length === 0 &&
-    priority === undefined &&
-    durationMinutes === undefined
-  ) {
-    return { stripped: text, tags };
-  }
-  // Strip every completed `#token\s+` match — whether tag, priority, or
-  // estimate — then collapse the resulting double spaces.
-  const stripped = text
-    .replace(/#(\w+)\s+/g, " ")
-    .replace(/\s{2,}/g, " ");
-  return { stripped, tags, priority, durationMinutes };
-}
-
 function SlashCommandInput({
   value,
   onChange,
+  onCommit,
   parsedTokens,
   onRemoveTag,
   onAddTag,
@@ -2149,6 +2093,9 @@ function SlashCommandInput({
 }: {
   value: string;
   onChange: (v: string) => void;
+  /** Fired on blur / Enter — absorbs a trailing `#token` that `onChange`
+   *  intentionally leaves alone while the user is still typing it. */
+  onCommit: (v: string) => void;
   parsedTokens: ParsedToken[];
   onRemoveTag: (tag: string) => void;
   onAddTag: (tag: string) => void;
@@ -2186,6 +2133,10 @@ function SlashCommandInput({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={(e) => onCommit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onCommit(e.currentTarget.value);
+          }}
           autoFocus={autoFocus}
           placeholder="Task title or /command…"
           className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
@@ -2373,6 +2324,55 @@ function TaskEditModalBody({
     setTitleDraft(current.title);
   }, [current.title]);
 
+  /**
+   * Pull `#token` shortcuts out of the title and into their real fields.
+   * Returns true when something was consumed.
+   *
+   * Declared here, above `handleClose`, so the close path can call it directly.
+   */
+  const absorbTitle = (v: string, flushTrailing = false): boolean => {
+    const {
+      stripped,
+      tags: extracted,
+      priority: extractedPriority,
+      durationMinutes: extractedDuration,
+    } = extractTitleShortcuts(v, flushTrailing);
+    const consumed =
+      extracted.length > 0 ||
+      extractedPriority !== undefined ||
+      extractedDuration !== undefined;
+    if (consumed) {
+      if (extracted.length > 0) {
+        const existing = new Set(current.tags);
+        const fresh = extracted.filter((t) => !existing.has(t));
+        if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      }
+      if (extractedPriority) setField("priority", extractedPriority);
+      if (extractedDuration) setField("duration_minutes", extractedDuration);
+      setTitleDraft(stripped);
+      if (stripped !== current.title) setField("title", stripped);
+    } else if (v !== current.title) {
+      // Only write on a real change. Blur now runs this on every focus loss,
+      // and an unconditional `setField` marked an untouched task dirty — which
+      // flipped the header's save indicator, fired a pointless PATCH, and made
+      // `hasChanges` true so `closeNow` would stop cleaning up an abandoned
+      // draft.
+      setTitleDraft(v);
+      setField("title", v);
+    }
+    return consumed;
+  };
+
+  const handleTitleChange = (v: string) => {
+    absorbTitle(v);
+  };
+
+  /** Blur / Enter: the user is done with the last token, so absorb it even
+   *  without the trailing space that `handleTitleChange` waits for. */
+  const handleTitleCommit = (v: string) => {
+    absorbTitle(v, true);
+  };
+
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -2421,7 +2421,7 @@ function TaskEditModalBody({
     [copyLinkFor, task.id]
   );
 
-  const handleClose = useCallback(() => {
+  const closeNow = useCallback(() => {
     // A throwaway draft the user opened but never edited: drop it instead of
     // leaving an orphaned "New task" behind.
     if (draft && !hasChanges) {
@@ -2430,6 +2430,22 @@ function TaskEditModalBody({
     onClose();
     router.refresh();
   }, [draft, hasChanges, tasksApi, task.id, onClose, router]);
+
+  const handleClose = useCallback(() => {
+    // Esc / the Close button unmount the title input, and React does not fire
+    // `onBlur` on unmount — so absorb a trailing `#token` here too. The absorb
+    // is a state update and the autosave reads its task through a ref synced in
+    // an effect; closing in this same tick would unmount before that effect
+    // runs and `flushOnExit` would persist the pre-absorb title. Yield one task
+    // so React commits first.
+    if (absorbTitle(titleDraft, true)) {
+      setTimeout(closeNow, 0);
+      return;
+    }
+    closeNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `absorbTitle` is
+    // redefined every render; `titleDraft` is the only input that matters here.
+  }, [closeNow, titleDraft]);
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
@@ -2542,33 +2558,6 @@ function TaskEditModalBody({
       toneClass: "bg-green-100 text-green-700",
     });
   }
-
-  const handleTitleChange = (v: string) => {
-    const {
-      stripped,
-      tags: extracted,
-      priority: extractedPriority,
-      durationMinutes: extractedDuration,
-    } = extractCompletedTags(v);
-    const consumed =
-      extracted.length > 0 ||
-      extractedPriority !== undefined ||
-      extractedDuration !== undefined;
-    if (consumed) {
-      if (extracted.length > 0) {
-        const existing = new Set(current.tags);
-        const fresh = extracted.filter((t) => !existing.has(t));
-        if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
-      }
-      if (extractedPriority) setField("priority", extractedPriority);
-      if (extractedDuration) setField("duration_minutes", extractedDuration);
-      setTitleDraft(stripped);
-      setField("title", stripped);
-    } else {
-      setTitleDraft(v);
-      setField("title", v);
-    }
-  };
 
   const handleRemoveTag = (tag: string) => {
     setField(
@@ -2691,6 +2680,7 @@ function TaskEditModalBody({
             <SlashCommandInput
               value={titleDraft}
               onChange={handleTitleChange}
+              onCommit={handleTitleCommit}
               parsedTokens={tokens}
               onRemoveTag={handleRemoveTag}
               onAddTag={handleAddTag}

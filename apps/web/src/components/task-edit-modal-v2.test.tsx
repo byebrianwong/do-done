@@ -312,3 +312,103 @@ describe("Subtask rows", () => {
     expect(open.className).toContain("focus-visible:opacity-100");
   });
 });
+
+describe("Title `#token` shortcuts", () => {
+  function typeTitle(value: string) {
+    render(<TaskEditModalV2 task={makeTask({ title: "" })} open onClose={vi.fn()} />);
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value } });
+    return input;
+  }
+
+  it("absorbs a space-terminated #xs into the estimate", () => {
+    typeTitle("buy toothpaste #xs ");
+    expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 30);
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "buy toothpaste");
+  });
+
+  it("leaves a partial #token alone while the user is still typing", () => {
+    // `#x` must not be absorbed on the way to `#xs`.
+    typeTitle("buy toothpaste #x");
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "buy toothpaste #x");
+    expect(setFieldSpy).not.toHaveBeenCalledWith("duration_minutes", 30);
+  });
+
+  it("absorbs a trailing #xs on blur, with no trailing space", () => {
+    // The reported bug: typing "buy toothpaste #xs" and stopping left the
+    // token in the title verbatim, because a space was the only terminator.
+    const input = typeTitle("buy toothpaste #xs");
+    setFieldSpy.mockClear();
+    fireEvent.blur(input, { target: { value: "buy toothpaste #xs" } });
+    expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 30);
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "buy toothpaste");
+  });
+
+  it("absorbs a trailing #p1 on Enter as a priority, not a tag", () => {
+    const input = typeTitle("ship widget #p1");
+    setFieldSpy.mockClear();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p1");
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "ship widget");
+    expect(setFieldSpy).not.toHaveBeenCalledWith("tags", ["p1"]);
+  });
+
+  it("absorbs a trailing #tag on blur", () => {
+    const input = typeTitle("email bob #work");
+    setFieldSpy.mockClear();
+    fireEvent.blur(input, { target: { value: "email bob #work" } });
+    expect(setFieldSpy).toHaveBeenCalledWith("tags", ["work"]);
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "email bob");
+  });
+
+  it("absorbs a trailing token when Esc closes the modal", async () => {
+    // Esc unmounts the input, and React fires no `onBlur` on unmount — so the
+    // close path has to absorb too, or the token is saved into the title.
+    const onClose = vi.fn();
+    render(<TaskEditModalV2 task={makeTask({ title: "" })} open onClose={onClose} />);
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value: "buy toothpaste #xs" } });
+    setFieldSpy.mockClear();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 30);
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "buy toothpaste");
+  });
+});
+
+describe("Title blur does not dirty an untouched task", () => {
+  it("writes nothing when the title is blurred unchanged", () => {
+    // The blur/Enter/close flush runs on every focus loss. Writing
+    // unconditionally marked a task the user never edited as dirty, which
+    // flipped the header's save indicator, fired a pointless PATCH, and made
+    // `hasChanges` true so an abandoned draft stopped being cleaned up.
+    render(
+      <TaskEditModalV2
+        task={makeTask({ title: "Archive the Q3 board" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    setFieldSpy.mockClear();
+    fireEvent.blur(input, { target: { value: "Archive the Q3 board" } });
+    expect(setFieldSpy).not.toHaveBeenCalled();
+  });
+
+  it("still writes when the title actually changed", () => {
+    render(
+      <TaskEditModalV2 task={makeTask({ title: "old" })} open onClose={vi.fn()} />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value: "new" } });
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "new");
+  });
+
+  it("does not dirty the task when Esc closes it untouched", () => {
+    render(
+      <TaskEditModalV2 task={makeTask({ title: "untouched" })} open onClose={vi.fn()} />
+    );
+    setFieldSpy.mockClear();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(setFieldSpy).not.toHaveBeenCalled();
+  });
+});

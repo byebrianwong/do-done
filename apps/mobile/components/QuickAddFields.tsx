@@ -43,6 +43,7 @@ import { parseTaskInput } from '@do-done/task-engine';
 import {
   PRIORITY_CONFIG,
   QUICK_SCHEDULE,
+  extractTitleShortcuts,
   formatScheduleHint,
   resolveQuickSchedule,
   type CreateTaskInput,
@@ -55,7 +56,6 @@ import {
   PRIORITY_PICKER_OPTIONS,
   ESTIMATE_PICKER_OPTIONS,
   PRIORITY_COLORS,
-  extractCompletedTags,
   shortDateLabel,
 } from './TaskEditModalV2';
 
@@ -104,10 +104,14 @@ export interface QuickAddFields {
   addTag: (tag: string) => void;
   removeTag: (tag: string) => void;
   /**
-   * Pull whitespace-terminated `#tag` tokens out of the title as they're typed
-   * (same behavior as the detailed editor) and return the text to keep.
+   * Pull `#token` shortcuts out of the title as they're typed (same behavior as
+   * the detailed editor) and return the text to keep. `#p1`…`#p4` set the
+   * priority and `#xs`…`#xxl` the estimate; anything else becomes a tag.
+   *
+   * Pass `flushTrailing` from blur/submit, where end-of-input terminates the
+   * last token — otherwise a trailing `#xs` never lands anywhere.
    */
-  absorbTags: (value: string) => string;
+  absorbTags: (value: string, flushTrailing?: boolean) => string;
   menu: QuickAddMenu;
   setMenu: (menu: QuickAddMenu) => void;
   toggleMenu: (menu: ChipKey) => void;
@@ -178,14 +182,30 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
   const removeTag = (tag: string) =>
     setTags((prev) => prev.filter((t) => t !== tag));
 
-  const absorbTags = (value: string): string => {
-    const { stripped, tags: extracted } = extractCompletedTags(value);
-    if (extracted.length === 0) return value;
-    setTags((prev) => {
-      const seen = new Set(prev);
-      const fresh = extracted.filter((t) => !seen.has(t));
-      return fresh.length ? [...prev, ...fresh] : prev;
-    });
+  const absorbTags = (value: string, flushTrailing = false): string => {
+    const {
+      stripped,
+      tags: extracted,
+      priority: extractedPriority,
+      durationMinutes: extractedDuration,
+    } = extractTitleShortcuts(value, flushTrailing);
+    if (
+      extracted.length === 0 &&
+      extractedPriority === undefined &&
+      extractedDuration === undefined
+    ) {
+      return value;
+    }
+    if (extracted.length > 0) {
+      setTags((prev) => {
+        const seen = new Set(prev);
+        const fresh = extracted.filter((t) => !seen.has(t));
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
+    }
+    // A typed token fills the chip the same way tapping the chip would.
+    if (extractedPriority) setPriority(extractedPriority);
+    if (extractedDuration) setDuration(extractedDuration);
     return stripped;
   };
 
