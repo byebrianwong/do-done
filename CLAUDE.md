@@ -281,7 +281,21 @@ After the dev client is installed, you can iterate on native code without rebuil
 ### Android widget setup
 - Widgets are declared in `apps/mobile/app.config.ts` under the `react-native-android-widget` plugin
 - Widget JSX components live in `apps/mobile/widgets/`
-- Background handler `widget-task-handler.ts` is registered at app launch
+- **`widget-task-handler.ts` is registered from `index.js`, the bundle entry, and
+  nowhere else.** `registerWidgetTaskHandler` is `AppRegistry.registerHeadlessTask`:
+  it names the JS entry point the launcher's widget update runs. That update
+  arrives through a headless worker that starts the ReactHost with **no activity
+  and no React tree**, so anything registered from a component — or from a module
+  only a component pulls in — has not run yet, the task key is unregistered, and
+  nothing draws. Expo Router route modules load via `require.context`, whose
+  entries are lazy getters, so `app/_layout.tsx` (where this used to live)
+  evaluates only when the router renders. The widgets drew only while the app was
+  warm, and were blank whenever they were added or updated with it closed. A blank
+  widget is an *invisible* one — no crash, no log, just an empty cell.
+- Everything reachable from `widget-task-handler.ts`'s **static** imports has to
+  load in that cold context before anything can be drawn, so it stays tiny (React
+  + the Quick Add tile). Supabase, `@do-done/api-client` and the task engine are
+  behind `await import(...)` on the branch that needs them.
 - Widgets use AsyncStorage (shared with main app) to read the Supabase session
 
 ### Quick-add widget (floats over the home screen)
@@ -324,6 +338,18 @@ quick-add sheet over the live home screen without launching the main app.
   use `IconWidget`: it renders the icon name as *text* in a typeface the app has to
   ship itself, so `icon="add"` with no `material.ttf` literally drew "add" on the
   home screen.
+- The tile paints its squircle **twice** — once as the SVG, once as a
+  `backgroundColor` on the `FlexWidget` behind it — and that is deliberate.
+  `SvgWidget` hands the string to AndroidSVG and swallows a parse failure with a
+  bare `printStackTrace`, so artwork alone has a silent path to fully transparent.
+  It's sized to a centred square of `min(width, height)` from `widgetInfo`, not
+  `match_parent`: a launcher cell is taller than it is wide, and the square
+  artwork would letterbox inside its own background.
+- The handler draws the tile for **every** action except `WIDGET_DELETED`. With
+  `updatePeriodMillis: 0` there is no update tick, so an action it declines to
+  draw for leaves the tile exactly as it was — and for a fresh widget, that's
+  blank forever. `_layout.tsx` also calls `repaintQuickAddWidget()` once per
+  launch, so opening the app heals a tile whose one render was lost.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.
