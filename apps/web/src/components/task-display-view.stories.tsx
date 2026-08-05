@@ -108,7 +108,10 @@ export const SwitchToCompact: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: /display/i }));
-    await userEvent.click(canvas.getByRole("button", { name: "Compact" }));
+    // Scoped to its section for the same reason the Upcoming story is: pill
+    // labels repeat across the menu, so an unscoped name is a latent break.
+    const density = canvas.getByRole("group", { name: "Density" });
+    await userEvent.click(within(density).getByRole("button", { name: "Compact" }));
   },
 };
 

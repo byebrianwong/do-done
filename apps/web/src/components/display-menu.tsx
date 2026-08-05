@@ -179,7 +179,10 @@ export function DisplayMenu({
             </div>
           </Section>
 
-          <Section label={filterCount ? `Filter · ${filterCount}` : "Filter"}>
+          <Section
+            label={filterCount ? `Filter · ${filterCount}` : "Filter"}
+            name="Filter"
+          >
             <div className="space-y-2">
               <div className="flex flex-wrap gap-1.5">
                 {PRIORITIES.map((p) => (
@@ -259,15 +262,30 @@ export function DisplayMenu({
   );
 }
 
+/**
+ * One labelled block of pills.
+ *
+ * The `role="group"` is load-bearing, not decoration. Pill labels are not
+ * unique across the menu — "Status" is both a Group by and a Sort by option,
+ * and "Priority" is all three of a group, a sort and a filter — so a query for
+ * a button by name alone is ambiguous, and grows *more* ambiguous every time a
+ * section is added. Naming the group lets a caller (and a screen reader) say
+ * which "Status" it means.
+ *
+ * `name` overrides the accessible name when the visible label carries a live
+ * count ("Filter · 2"), so the group's name stays stable as filters come and go.
+ */
 function Section({
   label,
+  name,
   children,
 }: {
   label: string;
+  name?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-3 last:mb-0">
+    <div role="group" aria-label={name ?? label} className="mb-3 last:mb-0">
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
         {label}
       </div>
