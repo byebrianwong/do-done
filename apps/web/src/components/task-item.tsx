@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,6 +29,7 @@ import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { useCompletionExit } from "@/lib/use-completion-exit";
 import { useKeepsCompleted } from "@/lib/task-row-behavior";
+import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
@@ -582,11 +584,22 @@ export function TaskItem({
       cancelled = true;
     };
   }, [isSubtask, task.parent_task_id, parentTask?.title]);
-  const [editing, setEditing] = useState(false);
+  // The editor lives in the app-wide provider so it can also be opened by URL
+  // (`?task=<id>`) and so a task showing in two lists still opens once. The
+  // local `editing` state is the fallback for rows rendered outside it —
+  // Storybook and the component tests.
+  const openTask = useOpenTask();
+  const [localEditing, setLocalEditing] = useState(false);
+  // True whichever owner has this row's editor up.
+  const editing = openTask ? openTask.task?.id === task.id : localEditing;
+  const openEditor = useCallback(() => {
+    if (openTask) openTask.open(task);
+    else setLocalEditing(true);
+  }, [openTask, task]);
   // The editor auto-saves, and a save can re-qualify the task out of the list
-  // it was opened from — which used to unmount this row, and the modal it
-  // renders along with it. Hold the row until the editor closes, so the edit
-  // stays undoable and further edits stay possible.
+  // it was opened from. The editor no longer rides on this row, so it survives
+  // that either way — but the hold is still what stops the row vanishing or
+  // hopping to another group behind the open modal.
   useHoldWhileEditing(task, editing);
   // Right-click context menu, anchored at the cursor. Null = closed.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -838,7 +851,7 @@ export function TaskItem({
             selection.toggle(task.id);
             return;
           }
-          setEditing(true);
+          openEditor();
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -1080,7 +1093,7 @@ export function TaskItem({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setEditing(true);
+              openEditor();
             }}
             className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
             aria-label="Edit task"
@@ -1105,12 +1118,16 @@ export function TaskItem({
       </div>
       </div>
 
-      <TaskEditModalV2
-        task={task}
-        projects={allProjects}
-        open={editing}
-        onClose={() => setEditing(false)}
-      />
+      {/* Only the fallback editor — inside the app the provider renders it once,
+          above every list. */}
+      {openTask ? null : (
+        <TaskEditModalV2
+          task={task}
+          projects={allProjects}
+          open={localEditing}
+          onClose={() => setLocalEditing(false)}
+        />
+      )}
 
       {menuPos &&
         createPortal(
@@ -1126,7 +1143,7 @@ export function TaskItem({
               <TaskContextMenu
                 task={task}
                 projects={allProjects}
-                onEdit={() => setEditing(true)}
+                onEdit={openEditor}
                 onClose={() => setMenuPos(null)}
                 onMutated={() => startTransition(() => router.refresh())}
               />

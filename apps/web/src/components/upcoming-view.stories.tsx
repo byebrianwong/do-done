@@ -106,6 +106,11 @@ export const OverrideGroupedByStatus: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: /display/i }));
-    await userEvent.click(canvas.getByRole("button", { name: "Status" }));
+    // First "Status" button is the Group-by pill (precedes the Sort-by one,
+    // which the menu grew when sorting by status was added). A bare getByRole
+    // matches both and throws, which shows up as a capture error, not a
+    // failing test — the story simply stops rendering.
+    const statusPills = canvas.getAllByRole("button", { name: "Status" });
+    await userEvent.click(statusPills[0]);
   },
 };

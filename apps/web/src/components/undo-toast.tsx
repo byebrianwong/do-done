@@ -12,7 +12,11 @@ import {
 type Toast = {
   id: number;
   message: string;
-  undo: () => void | Promise<void>;
+  /**
+   * Omit for a plain confirmation ("Link copied") — the Undo button is only
+   * rendered when there is in fact something to undo.
+   */
+  undo?: () => void | Promise<void>;
 };
 
 type Ctx = {
@@ -63,17 +67,19 @@ export function UndoToastProvider({ children }: { children: React.ReactNode }) {
             <span className="text-sm text-neutral-700 dark:text-neutral-200">
               {toast.message}
             </span>
-            <button
-              type="button"
-              onClick={async () => {
-                const fn = toast.undo;
-                dismiss();
-                await fn();
-              }}
-              className="rounded px-2 py-1 text-sm font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950"
-            >
-              Undo
-            </button>
+            {toast.undo ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  const fn = toast.undo;
+                  dismiss();
+                  await fn?.();
+                }}
+                className="rounded px-2 py-1 text-sm font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950"
+              >
+                Undo
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={dismiss}

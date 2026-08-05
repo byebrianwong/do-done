@@ -18,10 +18,12 @@ import type { Task } from "@do-done/shared";
  *
  * The editor auto-saves, and every save refreshes the server components — so
  * setting Status to "next" from the Inbox, or pushing a Today task out to next
- * week, drops the task from the view's query mid-edit. The list then unmounts
- * the row, and since the modal is rendered *by* the row (see `TaskItem`), the
- * editor the user was still working in vanished with it: one field change and
- * the modal shut, with no way back to it and nothing to undo the change with.
+ * week, drops the task from the view's query mid-edit, and the list unmounts
+ * the row. That used to take the editor with it, the modal being rendered *by*
+ * the row: one field change and it shut, with no way back to it and nothing to
+ * undo the change with. The editor is now mounted app-wide (`OpenTaskProvider`)
+ * and survives regardless — but the row still shouldn't vanish or hop groups
+ * behind an open modal, which is what this holds still.
  *
  * So a list holds on to the row until the editor closes. The held copy is the
  * task as it looked when the editor opened, which is also what keeps the row

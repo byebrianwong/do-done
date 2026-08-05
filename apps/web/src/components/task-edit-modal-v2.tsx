@@ -28,6 +28,8 @@ import {
   type SaveStatus,
 } from "@do-done/api-client";
 import { createClientSupabase } from "@/lib/supabase/client";
+import { isCopyLinkShortcut } from "@/lib/task-link";
+import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
 
@@ -2411,6 +2413,14 @@ function TaskEditModalBody({
     };
   }, [open]);
 
+  // Shares whichever task is on screen — the one drilled into, not the one the
+  // editor was opened on.
+  const copyLinkFor = useCopyTaskLink();
+  const copyLink = useCallback(
+    () => copyLinkFor(task.id),
+    [copyLinkFor, task.id]
+  );
+
   const handleClose = useCallback(() => {
     // A throwaway draft the user opened but never edited: drop it instead of
     // leaving an orphaned "New task" behind.
@@ -2459,6 +2469,14 @@ function TaskEditModalBody({
         handleClose();
         return;
       }
+      // Deliberately ahead of the input/textarea bail below: the title field
+      // holds focus the moment the editor opens, so a copy-link shortcut that
+      // only worked outside it would never fire in practice.
+      if (isCopyLinkShortcut(e)) {
+        e.preventDefault();
+        void copyLink();
+        return;
+      }
       // Skip shortcuts if focused in input/textarea
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
@@ -2471,7 +2489,7 @@ function TaskEditModalBody({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose, setField, confirmingDelete, menuOpen]);
+  }, [open, handleClose, setField, confirmingDelete, menuOpen, copyLink]);
 
   // Esc cancels the delete confirmation (captured so it never reaches the
   // main modal's Esc-to-close handler).
@@ -2622,6 +2640,27 @@ function TaskEditModalBody({
               }`}
             >
               <span>↶</span>Undo all changes
+            </button>
+            {/* The task on screen has an address (`?task=<id>` while the editor
+                is open); this hands out the canonical /task/<id> form of it. */}
+            <button
+              type="button"
+              onClick={copyLink}
+              aria-label="Copy link to task"
+              title="Copy link to task (⇧⌘C)"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-900"
+            >
+              <svg
+                aria-hidden
+                className="h-3.5 w-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+              >
+                <path d="M10 14a3.5 3.5 0 005 0l3-3a3.5 3.5 0 00-5-5l-1 1M14 10a3.5 3.5 0 00-5 0l-3 3a3.5 3.5 0 005 5l1-1" />
+              </svg>
             </button>
             <TaskMenu
               open={menuOpen}
