@@ -54,9 +54,13 @@ the code.
    proves the APK's contents with no JS involved. If it still shows the plain app
    icon, the APK predates PR #154. ("DoDone — Today" legitimately still previews
    `icon.png`.)
-3. **Placed widget** renders the badged tile. If the picker thumbnail is right but
-   the placed tile is blank or wrong, that's a `SvgWidget` rendering problem — see
-   the fallback below.
+3. **Placed widget** renders the badged tile — and check it **with the app force-
+   stopped** (Settings → Apps → DoDone → Force stop, then add the widget; better
+   still, reboot the phone and watch it redraw). That is the case that was broken:
+   the tile drew whenever the app was warm and was invisible when it wasn't, so a
+   check done straight after opening the app proves nothing. If the picker
+   thumbnail is right but the placed tile is blank, and it's blank warm *and*
+   cold, that's a `SvgWidget` rendering problem — see the fallback below.
 4. **Tap it.** The composer opens above the keyboard, on the first frame, and
    stays put. Nothing should slide or settle after the keyboard lands.
 5. **Tap Date, Priority, Estimate.** Each opens a popover directly above its chip;
@@ -71,6 +75,46 @@ the code.
    shares the same composer, so re-check 4-7 there.
 
 ---
+
+## Fixed since: the tile was invisible whenever the app was closed
+
+Reported after PR #157, and the cause predates it — it was there from the day the
+widget shipped, it just needed the app to be cold to show.
+
+`registerWidgetTaskHandler` is `AppRegistry.registerHeadlessTask`. It was called
+from `app/_layout.tsx`, at that module's top level. Expo Router loads route
+modules through `require.context`, and Metro compiles a context module to a map
+of **lazy getters** — `_layout.tsx` is `require`d when the router renders it, not
+when the bundle is evaluated. Meanwhile the launcher's widget update arrives
+through `RNWidgetBackgroundTaskWorker`, which calls `reactHost.start()` when
+there's no live context: the bundle runs with no activity and no React tree. So
+the task key was unregistered, the render never happened, and the widget kept the
+empty `initialLayout` it was born with. On a home screen that isn't an error
+state, it's an invisible tile.
+
+It drew fine whenever the app happened to be running or recently killed (warm
+ReactContext, `_layout` already evaluated), which is exactly why it read as
+intermittent, and as "fixed" right after every install-and-open.
+
+Three changes, in order of how much they matter:
+
+1. **Registration moved to `index.js`**, the bundle entry — the only place that
+   runs in every JS context: MainActivity, QuickAddActivity, and the headless
+   widget task. This is the actual fix, and it fixes the Today and Upcoming
+   widgets too.
+2. **The tile paints its own background.** `SvgWidget` catches a parse failure
+   with `printStackTrace` and draws nothing, and the tile had no background
+   behind it, so that path also ended in a transparent widget. There's now a flat
+   indigo squircle under the SVG, sized to a centred `min(width, height)` square.
+3. **Fewer ways to skip the draw.** The handler renders for every action but
+   `WIDGET_DELETED` (it used to ignore `WIDGET_RESIZED`), the data layer is
+   `await import`ed so a Supabase failure can't stop the static tile loading, and
+   `repaintQuickAddWidget()` runs once per app launch so a lost render heals.
+
+`widgets/widget-task-handler.test.ts` covers what's coverable in node: which
+actions draw, that the tile carries a painted background, and that it draws with
+`@/lib/supabase` unimportable. Nothing in CI can prove the registration is early
+enough — that needs step 3 below, on a device, with the app force-stopped.
 
 ## If the tile renders blank or wrong (step 3 fails)
 
