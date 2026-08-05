@@ -32,6 +32,7 @@ import {
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
+import { useIsCompact } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -224,8 +225,10 @@ function DateGroup({
   // whole row shares one.
   const showReschedule =
     date === OVERDUE_KEY && !!onRescheduleAll && taskIds.length > 0;
-  const headingRow =
-    "mb-2 border-b border-neutral-100 pb-2 dark:border-neutral-800";
+  const compact = useIsCompact();
+  const headingRow = `border-b border-neutral-100 dark:border-neutral-800 ${
+    compact ? "mb-1 pb-1" : "mb-2 pb-2"
+  }`;
   const headingText =
     "flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400";
   const headingWidth = showReschedule ? "min-w-0 flex-1" : `${headingRow} w-full`;
@@ -342,6 +345,8 @@ export function DraggableUpcoming({
     setByDate(initial.byDate);
     setTasks(initial.tasks);
   }, [initial]);
+
+  const compact = useIsCompact();
 
   // Mouse drags after a 4px move; touch drags after a short press so a swipe
   // scrolls the page rather than picking up a task.
@@ -625,7 +630,7 @@ export function DraggableUpcoming({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="space-y-6">
+      <div className={compact ? "space-y-2.5" : "space-y-6"}>
         {visibleGroups.map((g) => (
           <DateGroup
             key={g.date}

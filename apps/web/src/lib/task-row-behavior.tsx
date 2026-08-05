@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import type { Density } from "@do-done/shared";
 
 /**
  * Does the surrounding list keep a task once it has been completed?
@@ -21,16 +22,32 @@ import { createContext, useContext, type ReactNode } from "react";
  */
 const KeepsCompletedContext = createContext(false);
 
+/**
+ * How much vertical room the surrounding list gives each row.
+ *
+ * Comes down from the view's DisplayConfig rather than a prop because TaskItem
+ * is rendered from a dozen call sites — the grouped list, Today's focus
+ * sections, Upcoming's day columns, the drag overlay — and every one of them
+ * would otherwise have to thread the same value through untouched.
+ *
+ * The default is "comfortable" so surfaces with no Display menu of their own
+ * (the single-task page, Storybook stories, the modal's subtask list) keep the
+ * roomy layout they were designed at.
+ */
+const DensityContext = createContext<Density>("comfortable");
+
 export function TaskRowBehaviorProvider({
   keepsCompleted,
+  density = "comfortable",
   children,
 }: {
   keepsCompleted: boolean;
+  density?: Density;
   children: ReactNode;
 }) {
   return (
     <KeepsCompletedContext.Provider value={keepsCompleted}>
-      {children}
+      <DensityContext.Provider value={density}>{children}</DensityContext.Provider>
     </KeepsCompletedContext.Provider>
   );
 }
@@ -38,4 +55,14 @@ export function TaskRowBehaviorProvider({
 /** True when completing a task leaves it visible in this list. */
 export function useKeepsCompleted(): boolean {
   return useContext(KeepsCompletedContext);
+}
+
+/** Row density for the current list. */
+export function useRowDensity(): Density {
+  return useContext(DensityContext);
+}
+
+/** True when the current list is in compact density. */
+export function useIsCompact(): boolean {
+  return useContext(DensityContext) === "compact";
 }

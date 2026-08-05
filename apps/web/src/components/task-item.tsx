@@ -28,7 +28,7 @@ import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { useCompletionExit } from "@/lib/use-completion-exit";
-import { useKeepsCompleted } from "@/lib/task-row-behavior";
+import { useIsCompact, useKeepsCompleted } from "@/lib/task-row-behavior";
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { LinkifiedText } from "./linkified-text";
@@ -559,6 +559,10 @@ export function TaskItem({
   // an exit rather than a disappearance. See `useCompletionExit`.
   const exit = useCompletionExit();
   const keepsCompleted = useKeepsCompleted();
+  // Compact density trims the row's own padding and leading. It changes nothing
+  // about what the row renders — every chip and control is still here — so the
+  // only branches below are on spacing and type scale.
+  const compact = useIsCompact();
   // Parent title for the "↳ parent" subtask reference. Prefer the prop the
   // caller supplied; otherwise fall back to a lazily-resolved title so any list
   // view flags a subtask without every caller having to thread the parent
@@ -824,7 +828,16 @@ export function TaskItem({
       <div className="@container">
       <div
         data-task-row={task.id}
-        className={`group/row flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors @lg:items-center ${
+        /* `leading-4` in compact is what actually shortens the row. Trimming
+           the padding alone doesn't: the chips, badges and priority bars are
+           inline boxes that inherit the body's ~24px line height, so the
+           tallest of them — not the padding — sets the row's floor. Capping
+           leading here shrinks every one of them at once, and the few children
+           that need their own leading (the title, the subtask breadcrumb)
+           already declare it. */
+        className={`group/row flex cursor-pointer items-start rounded-lg px-3 transition-colors @lg:items-center ${
+          compact ? "gap-2.5 py-1 leading-4" : "gap-3 py-2.5"
+        } ${
           selected
             ? "bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60"
             : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
@@ -927,7 +940,11 @@ export function TaskItem({
             crowded out by the metadata; from @lg up everything collapses back
             to a single inline row (the metadata wrapper becomes
             `display: contents`). */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:flex-row @lg:items-center @lg:gap-2">
+        <div
+          className={`flex min-w-0 flex-1 flex-col @lg:flex-row @lg:items-center ${
+            compact ? "gap-0.5 @lg:gap-1.5" : "gap-1 @lg:gap-2"
+          }`}
+        >
           {/* Title, with the subtask breadcrumb stacked above it so a subtask
               row reads "↳ parent / this task" in both the wide and stacked
               layouts. */}
@@ -945,8 +962,17 @@ export function TaskItem({
                 <span className="truncate">{parentTitle ?? "Parent task"}</span>
               </Link>
             ) : null}
+            {/* Compact clamps to a single line at every width — a row that can
+                grow to two or three lines defeats the point of the mode, and a
+                uniform row height is what makes a long list scannable. The full
+                title is a hover away, and one click away in the editor. */}
             <span
-              className={`line-clamp-2 break-words text-sm leading-snug transition-colors ease-out motion-reduce:transition-none @lg:line-clamp-none ${
+              title={compact ? task.title : undefined}
+              className={`break-words transition-colors ease-out motion-reduce:transition-none ${
+                compact
+                  ? "line-clamp-1 text-[13px] leading-tight"
+                  : "line-clamp-2 text-sm leading-snug @lg:line-clamp-none"
+              } ${
                 completed
                   ? "text-neutral-400 line-through dark:text-neutral-600"
                   : "text-neutral-900 dark:text-neutral-100"
@@ -957,7 +983,11 @@ export function TaskItem({
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 @lg:contents">
+          <div
+            className={`flex flex-wrap items-center @lg:contents ${
+              compact ? "gap-1.5" : "gap-2"
+            }`}
+          >
             {task.tags.map((tag) => (
               <span
                 key={tag}
@@ -1009,7 +1039,15 @@ export function TaskItem({
 
             {showStatusBadge && statusCfg && (
               <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                /* Left free to wrap in the roomy layout, where a two-line badge
+                   just makes an already-tall row slightly taller. Compact's
+                   whole promise is a uniform row height, and "IN PROGRESS"
+                   breaking across two lines is the one thing in the row that
+                   silently breaks it — so there it stays on one line and the
+                   title absorbs the squeeze instead. */
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  compact ? "shrink-0 whitespace-nowrap" : ""
+                }`}
                 style={{
                   color: statusCfg.color,
                   backgroundColor: `${statusCfg.color}1a`,

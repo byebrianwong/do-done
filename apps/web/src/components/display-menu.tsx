@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  DENSITY_OPTIONS,
   GROUP_OPTIONS,
   PRIORITY_CONFIG,
   SORT_OPTIONS,
   activeFilterCount,
+  withDensity,
   hasFlagFilter,
   isManualSort,
   selectedFilterValues,
@@ -162,6 +164,21 @@ export function DisplayMenu({
             ) : null}
           </Section>
 
+          <Section label="Density">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {DENSITY_OPTIONS.map((d) => (
+                <Pill
+                  key={d.key}
+                  active={config.density === d.key}
+                  title={d.hint}
+                  onClick={() => onChange(withDensity(config, d.key))}
+                >
+                  {d.label}
+                </Pill>
+              ))}
+            </div>
+          </Section>
+
           <Section label={filterCount ? `Filter · ${filterCount}` : "Filter"}>
             <div className="space-y-2">
               <div className="flex flex-wrap gap-1.5">
@@ -262,11 +279,13 @@ function Section({
 function Pill({
   active,
   accent,
+  title,
   onClick,
   children,
 }: {
   active: boolean;
   accent?: string;
+  title?: string;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -274,6 +293,7 @@ function Pill({
     <button
       type="button"
       onClick={onClick}
+      title={title}
       aria-pressed={active}
       style={active && accent ? { color: accent, borderColor: accent } : undefined}
       className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors ${

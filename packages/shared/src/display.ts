@@ -50,6 +50,19 @@ export type SortField = z.infer<typeof SortField>;
 export const SortDir = z.enum(["asc", "desc"]);
 export type SortDir = z.infer<typeof SortDir>;
 
+/**
+ * How much vertical room a list spends per task. Purely a render concern —
+ * `applyDisplay` ignores it — but it lives in the config so it persists and
+ * syncs with the rest of the view's Display settings.
+ *
+ * "compact" trims the row's padding, line height and inter-group spacing so a
+ * long list (many projects, many tasks) fits on one screen. It removes no
+ * information: every chip, badge and control a comfortable row shows, a compact
+ * row shows too.
+ */
+export const Density = z.enum(["comfortable", "compact"]);
+export type Density = z.infer<typeof Density>;
+
 export const SortRuleSchema = z.object({
   field: SortField,
   dir: SortDir.default("asc"),
@@ -96,6 +109,8 @@ export const DisplayConfigSchema = z.object({
   sort: z.array(SortRuleSchema).default([{ field: "manual", dir: "asc" }]),
   filters: z.array(FilterRuleSchema).default([]),
   showCompleted: z.boolean().default(false),
+  // Row height / spacing. Render-only (see Density).
+  density: Density.default("comfortable"),
   // Group keys (e.g. "status:next") the user has collapsed in this view. Purely
   // a render concern — applyDisplay ignores it. Excluded from "is this the
   // default view?" checks (see isDisplayDefault) so collapsing doesn't read as
@@ -113,6 +128,7 @@ export const DEFAULT_DISPLAY: DisplayConfig = {
   sort: [{ field: "manual", dir: "asc" }],
   filters: [],
   showCompleted: false,
+  density: "comfortable",
   collapsed: [],
 };
 
@@ -221,7 +237,20 @@ export const SORT_OPTIONS: { field: SortField; label: string }[] = [
   { field: "duration", label: "Estimate" },
 ];
 
+export const DENSITY_OPTIONS: { key: Density; label: string; hint: string }[] = [
+  { key: "comfortable", label: "Comfortable", hint: "Roomy rows" },
+  { key: "compact", label: "Compact", hint: "Fit more on screen" },
+];
+
 // ── Config mutation helpers (shared by web + mobile menus) ──
+
+export function withDensity(config: DisplayConfig, density: Density): DisplayConfig {
+  return { ...config, density };
+}
+
+export function isCompact(config: DisplayConfig): boolean {
+  return config.density === "compact";
+}
 
 export function withGroup(config: DisplayConfig, group: GroupKey): DisplayConfig {
   return { ...config, group };

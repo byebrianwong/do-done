@@ -9,6 +9,7 @@ import {
   filterByConfig,
   hasFlagFilter,
   isCollapsed,
+  isCompact,
   isDisplayDefault,
   isManualSort,
   parseDisplayConfig,
@@ -19,6 +20,7 @@ import {
   toggleFlagFilter,
   toggleGroupDir,
   toggleSortDir,
+  withDensity,
   withGroup,
   withSort,
   type DisplayConfig,
@@ -72,6 +74,7 @@ describe("parseDisplayConfig", () => {
       sort: [{ field: "priority", dir: "asc" }],
       filters: [],
       showCompleted: false,
+      density: "comfortable",
       collapsed: [],
     };
     expect(parseDisplayConfig(cfg).group).toBe("priority");
@@ -130,6 +133,34 @@ describe("parseDisplayConfig", () => {
   it("defaults collapsed to [] for pre-collapse configs", () => {
     const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
     expect(cfg.collapsed).toEqual([]);
+  });
+
+  it("defaults density to comfortable for pre-density configs", () => {
+    const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
+    expect(cfg.density).toBe("comfortable");
+  });
+});
+
+describe("density", () => {
+  it("round-trips through withDensity", () => {
+    const compact = withDensity(DEFAULT_DISPLAY, "compact");
+    expect(isCompact(compact)).toBe(true);
+    expect(isCompact(withDensity(compact, "comfortable"))).toBe(false);
+  });
+
+  // Density is a render concern; the engine must not read it.
+  it("does not change what applyDisplay produces", () => {
+    const list = [task({ status: "next" }), task({ priority: "p1" }), task()];
+    const comfortable = applyDisplay(list, DEFAULT_DISPLAY, ctx());
+    const compact = applyDisplay(list, withDensity(DEFAULT_DISPLAY, "compact"), ctx());
+    expect(flat(compact).map((t) => t.id)).toEqual(flat(comfortable).map((t) => t.id));
+  });
+
+  // Changing it must light the "customized" dot, like any other menu option.
+  it("counts as a customization", () => {
+    expect(
+      isDisplayDefault(withDensity(DEFAULT_DISPLAY, "compact"), DEFAULT_DISPLAY)
+    ).toBe(false);
   });
 });
 

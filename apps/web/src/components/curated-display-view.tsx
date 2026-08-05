@@ -88,7 +88,10 @@ export function CuratedDisplayView({
 
       {/* With "show completed" on, a ticked-off task stays in the list — so its
           row must not play the collapse-and-vanish exit it would elsewhere. */}
-      <TaskRowBehaviorProvider keepsCompleted={config.showCompleted}>
+      <TaskRowBehaviorProvider
+        keepsCompleted={config.showCompleted}
+        density={config.density}
+      >
         {curatedWhen(config) ? (
           renderCurated(filtered, config, setConfig)
         ) : (

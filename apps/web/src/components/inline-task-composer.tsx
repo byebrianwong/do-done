@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
 import { useQuickAddContext } from "@/lib/quick-add-context";
+import { useIsCompact } from "@/lib/task-row-behavior";
 import type { QuickAddSeed } from "@/lib/quick-add";
 import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
@@ -61,6 +62,9 @@ export function InlineTaskComposer({
 }) {
   const ctx = useQuickAddContext();
   const composer = useQuickAddComposer(seed, { keepOpen: true });
+  // Only the collapsed affordance shrinks. Once expanded this is a form the
+  // user is typing into, and it keeps its full size in either density.
+  const compact = useIsCompact();
   const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -115,7 +119,9 @@ export function InlineTaskComposer({
         ref={buttonRef}
         type="button"
         onClick={expand}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-neutral-400 opacity-0 transition-opacity hover:text-indigo-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-neutral-500 dark:hover:text-indigo-400"
+        className={`flex w-full items-center gap-2 rounded-md px-3 text-left text-neutral-400 opacity-0 transition-opacity hover:text-indigo-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-neutral-500 dark:hover:text-indigo-400 ${
+          compact ? "py-0.5 text-[13px]" : "py-1.5 text-sm"
+        }`}
       >
         <PlusIcon />
         Add task
