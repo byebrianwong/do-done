@@ -3,13 +3,26 @@ import { useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { QueryClient, focusManager } from '@tanstack/react-query';
 
+/**
+ * How long a query may sit unobserved before it's collected.
+ *
+ * This is deliberately the same 24 hours as `CACHE_MAX_AGE_MS` in
+ * `query-persist.ts`, and the two have to stay in step. The persisted snapshot
+ * is dehydrated from whatever is in this cache, so a shorter `gcTime` would
+ * evict a restored list minutes after reading it back — a tab the user hadn't
+ * opened yet would be collected before it was ever observed, and the next
+ * write-out would persist the cache without it. Launch would then be empty
+ * again for exactly the screens that hadn't been visited.
+ */
+const CACHE_GC_TIME_MS = 24 * 60 * 60 * 1000;
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Cached data shows instantly across tabs; anything older than this
       // refetches in the background when a query mounts or the app refocuses.
       staleTime: 30_000,
-      gcTime: 5 * 60_000,
+      gcTime: CACHE_GC_TIME_MS,
       retry: 1,
       // RN has no window focus; we drive refetch-on-focus via AppState below.
       refetchOnWindowFocus: false,

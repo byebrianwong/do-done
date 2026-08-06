@@ -11,8 +11,14 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
 import { invalidateTasks, useProject, useProjectTasks } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 type Section = { title: string; data: Task[] };
@@ -22,12 +28,9 @@ export default function ProjectDetailScreen() {
   const projectId = id ?? '';
 
   const { data: project } = useProject(projectId);
-  const {
-    data: tasks = [],
-    isLoading,
-    isRefetching,
-    refetch,
-  } = useProjectTasks(projectId);
+  const tasksQuery = useProjectTasks(projectId);
+  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const loadState = useListLoadState(tasksQuery);
   useRefreshOnFocus(refetch);
 
   const [editing, setEditing] = useState<Task | null>(null);
@@ -68,6 +71,7 @@ export default function ProjectDetailScreen() {
           ),
         }}
       />
+      <UpdatingBar visible={loadState.showUpdating} />
       <SectionList
         sections={sections}
         keyExtractor={(t) => t.id}
@@ -82,12 +86,16 @@ export default function ProjectDetailScreen() {
           </View>
         )}
         ListEmptyComponent={
-          !isLoading ? (
+          loadState.showSkeleton ? (
+            <ListSkeleton rows={4} />
+          ) : loadState.showError ? (
+            <ListError onRetry={refetch} />
+          ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No tasks in this project yet</Text>
               <Text style={styles.emptyHint}>Add one below.</Text>
             </View>
-          ) : null
+          )
         }
         refreshControl={
           <RefreshControl
