@@ -54,9 +54,13 @@ the code.
    proves the APK's contents with no JS involved. If it still shows the plain app
    icon, the APK predates PR #154. ("DoDone — Today" legitimately still previews
    `icon.png`.)
-3. **Placed widget** renders the badged tile. If the picker thumbnail is right but
-   the placed tile is blank or wrong, that's a `SvgWidget` rendering problem — see
-   the fallback below.
+3. **Placed widget** renders the badged tile — and check it **with the app force-
+   stopped** (Settings → Apps → DoDone → Force stop, then add the widget; better
+   still, reboot the phone and watch it redraw). That is the case that was broken:
+   the tile drew whenever the app was warm and was invisible when it wasn't, so a
+   check done straight after opening the app proves nothing. If the picker
+   thumbnail is right but the placed tile is blank, and it's blank warm *and*
+   cold, that's a `SvgWidget` rendering problem — see the fallback below.
 4. **Tap it.** The composer opens above the keyboard, on the first frame, and
    stays put. Nothing should slide or settle after the keyboard lands.
 5. **Tap Date, Priority, Estimate.** Each opens a popover directly above its chip;
@@ -69,6 +73,82 @@ the code.
    the whole surface to the launcher.
 8. **The in-app path** — `dodone://quick-add`, and the quick-add bar in the app —
    shares the same composer, so re-check 4-7 there.
+
+---
+
+## Fixed since: the tile was invisible whenever the app was closed
+
+Reported after PR #157, and the cause predates it — it was there from the day the
+widget shipped, it just needed the app to be cold to show.
+
+`registerWidgetTaskHandler` is `AppRegistry.registerHeadlessTask`. It was called
+from `app/_layout.tsx`, at that module's top level. Expo Router loads route
+modules through `require.context`, and Metro compiles a context module to a map
+of **lazy getters** — `_layout.tsx` is `require`d when the router renders it, not
+when the bundle is evaluated. Meanwhile the launcher's widget update arrives
+through `RNWidgetBackgroundTaskWorker`, which calls `reactHost.start()` when
+there's no live context: the bundle runs with no activity and no React tree. So
+the task key was unregistered, the render never happened, and the widget kept the
+empty `initialLayout` it was born with. On a home screen that isn't an error
+state, it's an invisible tile.
+
+It drew fine whenever the app happened to be running or recently killed (warm
+ReactContext, `_layout` already evaluated), which is exactly why it read as
+intermittent, and as "fixed" right after every install-and-open.
+
+Three changes, in order of how much they matter:
+
+1. **Registration moved to `index.js`**, the bundle entry — the only place that
+   runs in every JS context: MainActivity, QuickAddActivity, and the headless
+   widget task. This is the actual fix, and it fixes the Today and Upcoming
+   widgets too.
+2. **The tile paints its own background.** `SvgWidget` catches a parse failure
+   with `printStackTrace` and draws nothing, and the tile had no background
+   behind it, so that path also ended in a transparent widget. There's now a flat
+   indigo squircle under the SVG, sized to a centred `min(width, height)` square.
+3. **Fewer ways to skip the draw.** The handler renders for every action but
+   `WIDGET_DELETED` (it used to ignore `WIDGET_RESIZED`), the data layer is
+   `await import`ed so a Supabase failure can't stop the static tile loading, and
+   `repaintQuickAddWidget()` runs once per app launch so a lost render heals.
+
+`widgets/widget-task-handler.test.ts` covers what's coverable in node: which
+actions draw, that the tile carries a painted background, and that it draws with
+`@/lib/supabase` unimportable. Nothing in CI can prove the registration is early
+enough — that needs step 3 below, on a device, with the app force-stopped.
+
+---
+
+## Launcher quick actions (app shortcuts)
+
+Separate mechanism, same "never seen on a device" status. `plugins/withAndroidShortcuts.js`
+declares four static shortcuts — Add task, Search, Today, Upcoming — in
+`res/xml/shortcuts.xml`, pointed at from a `meta-data` tag on MainActivity.
+They are drawn by the *launcher*, not by us, so a pinned one occupies exactly
+one cell and lines up with the app icons around it. That is the entire reason
+they exist rather than a second 1×1 widget.
+
+1. **Long-press the DoDone icon.** Four rows appear under "Widgets": Add task,
+   Search, Today, Upcoming, each with its glyph on an indigo circle. A row
+   showing a generic icon means the drawable didn't resolve; a *missing* row
+   means Android dropped that `<shortcut>` — almost always a label that isn't a
+   `@string/` reference, which it discards without logging.
+2. **Tap each row.** Search / Today / Upcoming open MainActivity on that screen;
+   the URI is delivered as the intent's data, so this exercises the same
+   expo-linking path the widgets use. Add task floats the translucent composer
+   over the home screen without launching the app — identical to tapping the 1×1
+   widget, because it targets the same `QuickAddActivity`.
+3. **Pin one** with the "+" on its right. It lands on the home screen as a plain
+   icon, app-icon-sized, with a small DoDone badge in the corner (the launcher
+   adds that — it isn't ours and can't be turned off).
+4. **Compare it against a neighbouring app icon.** Same cell, same mask shape.
+   If the shortcut is a circle sitting inside a squircle app icon, the launcher
+   ignored the adaptive icon in `drawable-anydpi-v26` and fell back to the
+   plain `drawable/` vector — which is the intended API 24-25 behavior but
+   wrong on anything newer.
+
+Step 4 is the one that can't be checked anywhere but a device: the mask comes
+from the launcher's own config, so Pixel Launcher, One UI and Nova will each
+answer it differently.
 
 ---
 

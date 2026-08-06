@@ -149,6 +149,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Translucent QuickAddActivity for the 1x1 widget (floats over the home
     // screen). See plugins/withQuickAddActivity.js.
     "./plugins/withQuickAddActivity",
+    // Launcher quick actions (Add task / Search / Today / Upcoming), each
+    // pinnable to the home screen as a one-cell icon. See
+    // plugins/withAndroidShortcuts.js.
+    "./plugins/withAndroidShortcuts",
   ],
   experiments: {
     typedRoutes: true,

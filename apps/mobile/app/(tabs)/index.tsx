@@ -21,6 +21,12 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
+import { useListLoadState } from '@/lib/list-load-state';
+import {
   invalidateTasks,
   reorderTasks,
   updateTask,
@@ -82,7 +88,12 @@ const scheduleStyles = StyleSheet.create({
 export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: allTasks = [], isRefetching, refetch } = useTodayTasks();
+  const todayQuery = useTodayTasks();
+  const { data: allTasks = [], isRefetching, refetch } = todayQuery;
+  // Whether we have an answer at all — "Nothing scheduled today" is only ever
+  // shown once we do. On a cold start that's the restored cache; failing that,
+  // a skeleton until the fetch lands.
+  const loadState = useListLoadState(todayQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   // Today only, in the device's local day (the fetch passes the device
   // timezone so the server resolves the same day the user is looking at;
@@ -245,8 +256,13 @@ export default function TodayScreen() {
           </Pressable>
         </View>
       </View>
+      <UpdatingBar visible={loadState.showUpdating} />
 
-      {curated ? (
+      {loadState.showSkeleton ? (
+        <ListSkeleton />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : curated ? (
         isEmpty ? (
           <View style={styles.emptyWrap}>
             <TodaySchedule events={events} />

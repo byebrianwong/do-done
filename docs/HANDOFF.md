@@ -80,6 +80,27 @@ at all, **widen the radius before touching the dwell** — a typical urban fix i
 20–60 m off, which is why the floor is 100 m. Design rationale for dwell, cooldown
 and the region cap is in CLAUDE.md under "Location reminders".
 
+**The capture flow was rebuilt on 2026-08-05 and adds three more unverified
+things**, all in `LocationReminderSheet.tsx` and none of them exercised by CI:
+
+- **Type-ahead search** calls Photon (`lib/place-search.ts`) — the first outbound
+  HTTP request the mobile app makes to anything that isn't Supabase. The parsing
+  and the query are unit-tested; whether the endpoint is reachable from a phone on
+  mobile data, and how it behaves for non-Latin queries, is not.
+- **The map preview** loads OpenStreetMap raster tiles through `<Image source={{uri,
+  headers}}>`. If tiles come back blank, check the User-Agent header actually
+  reaches the server (RN's `headers` support differs by platform); the component
+  falls back to a coordinates card only on an `onError`, so a *transparent* tile
+  would look like a broken map rather than triggering the fallback.
+- **The keyboard lift** assumes the RN `keyboardDidShow` height is the whole
+  inset, matching `QuickAddBar`. Inside a `Modal` on Android that's the part most
+  likely to be off — symptom would be the sheet floating too high or the search
+  field still covered.
+
+Check these before concluding the geofence engine is broken: all three sit *in
+front of* it, and a place you couldn't finish attaching produces the same "no
+notification" as a region that never registered.
+
 **Related, and easy to misread as a regression:** location permission is no longer
 requested at sign-in. It used to prompt for foreground *and* background on every
 login, before checking whether the user had any saved places — which they never

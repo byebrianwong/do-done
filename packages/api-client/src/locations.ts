@@ -23,7 +23,32 @@ export class LocationsApi {
     private userId?: string
   ) {}
 
+  /**
+   * The user's *saved* places — what a picker or the places manager means by
+   * "my locations".
+   *
+   * One-off places (`is_saved = false`) are deliberately absent. They exist to
+   * carry a single task's reminder and are swept away with it; listing them
+   * would refill the very list this feature exists to keep short. Use
+   * `listAll()` for anything that has to see every geofenceable place.
+   */
   async list(): Promise<{ data: Location[]; error: Error | null }> {
+    let query = this.supabase
+      .from("locations")
+      .select("*")
+      .eq("is_saved", true)
+      .order("name");
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query;
+    return { data: (data as Location[]) ?? [], error: error as Error | null };
+  }
+
+  /**
+   * Every place, saved or one-off. Only the geofence path wants this: the OS
+   * has to watch a one-off place exactly as it watches a saved one.
+   */
+  async listAll(): Promise<{ data: Location[]; error: Error | null }> {
     let query = this.supabase.from("locations").select("*").order("name");
     if (this.userId) query = query.eq("user_id", this.userId);
 
@@ -107,6 +132,23 @@ export class LocationsApi {
   }
 
   /**
+   * Promote a one-off place into Saved places, optionally renaming it on the
+   * way. Attaching a place inline is the fast path; this is the "actually, keep
+   * this one" afterthought, and it must survive the orphan sweep, so it is a
+   * plain update rather than a re-create (the task links keep pointing at the
+   * same row).
+   */
+  async save(
+    id: string,
+    name?: string
+  ): Promise<{ data: Location | null; error: Error | null }> {
+    return this.update(id, {
+      is_saved: true,
+      ...(name ? { name } : {}),
+    });
+  }
+
+  /**
    * Locations that still have at least one open task attached — i.e. the only
    * ones worth handing to the OS as geofences.
    *
@@ -120,7 +162,9 @@ export class LocationsApi {
     data: LocationWithPending[];
     error: Error | null;
   }> {
-    const { data: locations, error: locError } = await this.list();
+    // listAll, not list: a one-off place is not in the picker but is very much
+    // in the set the OS has to watch.
+    const { data: locations, error: locError } = await this.listAll();
     if (locError) return { data: [], error: locError };
     if (locations.length === 0) return { data: [], error: null };
 

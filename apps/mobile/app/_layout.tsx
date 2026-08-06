@@ -12,7 +12,7 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -21,24 +21,15 @@ import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
-import { IS_EXPO_GO } from '@/lib/runtime';
+import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
-import { refreshTaskWidgets } from '@/lib/widgets';
+import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 
-// Register widget handler at module load (Android, real builds only).
-// react-native-android-widget ships custom native code that isn't in Expo
-// Go, so we lazy-load + skip when running in Go.
-if (Platform.OS === 'android' && !IS_EXPO_GO) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { registerWidgetTaskHandler } = require('react-native-android-widget');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { widgetTaskHandler } = require('@/widgets/widget-task-handler');
-    registerWidgetTaskHandler(widgetTaskHandler);
-  } catch {
-    // widget plugin not available — that's fine in Expo Go
-  }
-}
+// NOTE: the widget task handler is registered in `index.js`, the bundle entry —
+// deliberately not here. The launcher's widget update runs headlessly, with no
+// activity and no React tree, so a route module like this one has not been
+// evaluated by then. Registering from here left the widgets blank whenever the
+// app was closed. See the comment in index.js.
 
 export {
   ErrorBoundary,
@@ -72,7 +63,14 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
+      {/* Restores the last-seen task lists from AsyncStorage before the first
+          frame, so launch opens on yesterday's rows instead of on an empty
+          screen. Anything older than a day is dropped rather than shown — see
+          lib/query-persist.ts. */}
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={persistOptions}
+      >
         <AuthProvider>
           <UndoToastProvider>
             <TaskSelectionProvider>
@@ -80,7 +78,7 @@ export default function RootLayout() {
             </TaskSelectionProvider>
           </UndoToastProvider>
         </AuthProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }
@@ -119,6 +117,15 @@ function RootLayoutNav() {
   useEffect(() => {
     refreshTaskWidgets();
   }, [session?.user?.id]);
+
+  // Repaint the static Quick Add tile once per launch. It has
+  // `updatePeriodMillis: 0`, so if its one render ever failed — an OS-killed
+  // headless task, a launcher that added it before the app was installed
+  // properly — nothing would ever redraw it and it would sit invisible forever.
+  // Opening the app heals it.
+  useEffect(() => {
+    void repaintQuickAddWidget();
+  }, []);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

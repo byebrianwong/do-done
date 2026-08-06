@@ -170,6 +170,132 @@ The auth proxy carries the destination through sign-in (`?next=`), so a task
 link handed to someone signed out survives the login round-trip; `safeNext` on
 the login page is what stops that being an open redirector.
 
+## Click feedback (web)
+
+**Every route under `(app)` needs a `loading.tsx`, and it is not optional
+polish.** These routes are all dynamic server components — auth comes from
+cookies, the rows from Supabase — so without a fallback Next.js skips
+prefetching them *and* blocks the entire client-side transition until the server
+render lands. Clicking a sidebar item changed nothing on screen for a second or
+two: not the rows, not even the active pill, because `usePathname()` only
+updates once the navigation commits. There was no mechanism producing feedback
+at all. The fallback is what lets the transition commit on the click; it also
+enables partial prefetching, so most navigations then land instantly.
+
+Feedback is three layers, and each covers what the one before it can't:
+
+1. **`active:` styling** on every sidebar row (`PRESS` in `sidebar-nav.tsx`) —
+   CSS-only, fires on pointer-down, before React or the network. Note the
+   explicit short duration: Tailwind's default 150ms is tuned for hover and
+   reads as lag on a press. Project rows get the background but **not** the
+   scale — they're also dnd-kit drag handles, and an inline `transform` can't
+   share the property with a utility class.
+2. **The active pill moving**, the moment the transition commits — which the
+   `loading.tsx` files are what make immediate.
+3. **`NavPendingDot`** (`useLinkStatus`) — only for when the shell hasn't
+   prefetched and the click really is waiting on the network.
+
+Both 1 and 3, and the skeletons themselves, start invisible and fade in on a
+~140ms delay (`.dd-skeleton`, `.dd-link-pending` in `globals.css`): a navigation
+faster than that shows no placeholder at all, rather than a flash. The skeletons
+carry the **real page title in the real type** and the geometry of a real task
+row, so the destination is readable on the first frame and the swap is a fill-in
+rather than a jump — which is also why `PageSkeleton` takes `maxWidth`
+(`/calendar` is `max-w-7xl`, everything else `max-w-3xl`).
+
+One CSS trap, already paid for: **don't drive the pending dot with a fade-in
+animation plus a pulse animation.** Two animations on `opacity` means the later
+one wins outright, and a pulse whose `0%`/`100%` frames are implicit resolves
+them to the *underlying* opacity — 0 here. The dot pulsed between invisible and
+almost invisible. It is one keyframe set whose first quarter is the fade-in.
+
+`app-shell.test.tsx` mocks `next/link`, so that mock has to export
+`useLinkStatus` or every test in the file dies on the nav rows.
+
+## Cold start (mobile)
+
+**"Nothing scheduled today" is an answer, and the app must not give it before it
+has one.** The mobile query cache is in memory, so every launch began with
+`data === undefined` on every list, and every screen rendered its empty state
+into that gap — the app opened by telling the user their day was clear, then
+quietly filled in. Web never had this: its pages are async server components, so
+the rows arrive with the HTML.
+
+Three pieces, all under `apps/mobile`:
+
+- **`lib/query-persist.ts`** writes the query cache to AsyncStorage, restored by
+  `PersistQueryClientProvider` in `app/_layout.tsx`. Launch opens on the rows the
+  user last saw, refreshed underneath. A snapshot older than `CACHE_MAX_AGE_MS`
+  (24h) is dropped rather than shown; `gcTime` in `query-client.ts` is the same
+  24h **and has to stay in step**, or a restored list for a tab the user hasn't
+  opened is collected before it is ever observed and the next write-out persists
+  the cache without it.
+- **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for
+  every list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a
+  restored empty list is a real answer and gets the empty state, while a cache
+  that has never held one gets the skeleton. It stays a plain function over a
+  plain input because `apps/mobile` has no renderer to test a hook with.
+- **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an
+  `UpdatingBar` that self-delays ~350ms (`useRefreshOnFocus` refires every query
+  on every tab switch, so a bar bound straight to `isFetching` strobes), and
+  `ListError` — without which an offline first launch pulses a skeleton forever.
+
+The cache is restored **only for the account that wrote it**, and that check
+lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
+event resolve independently, so clearing after the fact is a race the previous
+user's rows can win.
+
+## The task editor sheet (mobile)
+
+**Everything under the finger runs on the UI thread.** The sheet's rise, its
+drag and the backdrop's dimming are one Reanimated shared value — `translateY`,
+in pixels below the sheet's resting place — written by worklet gesture handlers
+and read by two `useAnimatedStyle`s. Nothing about the motion crosses into JS
+until the sheet is off-screen and there is a close callback to fire.
+
+It was a plain `Animated.Value` on `useNativeDriver: false` with a
+`runOnJS(true)` pan, which put every frame of both on the JS thread — the same
+thread the editor mounts on. Opening a task fires three requests, lays out a
+month grid, and used to mount six nested `Modal`s, all inside the 280ms the open
+animation had to run in. The animation lost, every time.
+
+- `lib/sheet-motion.ts` holds the policy as pure worklets, tested in node like
+  the rest of `lib/`: when a release dismisses (a *projected* rest position, so
+  a short fast flick counts and a flick back up never does), how long the
+  closing sweep takes (velocity-matched, so a flicked sheet doesn't decelerate
+  the instant the finger leaves), and the backdrop's opacity for a position.
+  The `'worklet'` directives are what let those ship to the UI thread;
+  `babel-preset-expo` adds `react-native-worklets/plugin` on its own, and under
+  vitest the directive is an inert string.
+- **`SHEET_HEIGHT_RATIO` and `styles.ghRoot.height` have to stay in step.** The
+  slide is measured against the ratio, so a sheet taller than its travel never
+  fully leaves the screen.
+- **The height a worklet reads is a `SharedValue`, not a ref.** Reanimated
+  copies captured values into the UI runtime, so `ref.current` read from the
+  memoised gesture is whatever it was on the first render, forever.
+- **The backdrop is derived from the sheet, never animated alongside it.** It
+  was a flat `rgba(17,24,39,0.4)` under `animationType="none"` — the room went
+  dark in a single frame with the sheet still off the bottom of the screen, and
+  came back only after it had finished leaving. Deriving it is also what makes
+  it follow a *drag*: half dismissed is half lit. The style's colour is opaque
+  now; putting the alpha back would multiply the two.
+- **The body owns the drag until it has nothing left to scroll.**
+  `activeOffsetY(12)` claims downward drags, which is also how you scroll a list
+  back up, so the pan samples the ScrollView's offset in `onBegin` and stands
+  down unless it was already at the top. Without that the editor lurched toward
+  the floor instead of scrolling.
+
+Two render-cost rules, both downstream of the fact that **the editor re-renders
+on every keystroke in the title** — autosave holds the task in React state:
+
+- `ScheduleCalendar` and `SubtasksSection` are `React.memo`ed and their props
+  kept stable for it. `SubtasksSection` takes `parentId`/`parentDepth` rather
+  than the parent `Task` for exactly this reason: a `Task` prop is a new object
+  on every keystroke and would defeat the memo on the renders it exists to skip.
+- Nested pickers are mounted only while they are up. Six of them lived
+  permanently inside every open editor, each rebuilding its option rows per
+  keystroke and holding a host view it never showed.
+
 ## Attachments
 
 A task can carry files. Two halves that have to stay in agreement:
@@ -253,7 +379,9 @@ directories around and will show more). `grep '^@types+node@'` should print one
 line too.
 
 **`apps/mobile` tests logic only — there is no renderer.** `vitest.config.ts`
-there runs `lib/**/*.test.ts` in a node environment and nothing else. Anything
+there runs `lib/`, `widgets/` and `plugins/` tests in a node environment and
+nothing else — query-cache logic, the widget task handler's decisions, and the
+XML a config plugin emits, none of which need pixels. Anything
 that draws needs a device or a simulator, and neither exists in CI; a jsdom shim
 would only prove things about a React Native that isn't the one that ships. What
 the suite is for is the sequencing the eye can't check on a device anyway —
@@ -335,7 +463,21 @@ After the dev client is installed, you can iterate on native code without rebuil
 ### Android widget setup
 - Widgets are declared in `apps/mobile/app.config.ts` under the `react-native-android-widget` plugin
 - Widget JSX components live in `apps/mobile/widgets/`
-- Background handler `widget-task-handler.ts` is registered at app launch
+- **`widget-task-handler.ts` is registered from `index.js`, the bundle entry, and
+  nowhere else.** `registerWidgetTaskHandler` is `AppRegistry.registerHeadlessTask`:
+  it names the JS entry point the launcher's widget update runs. That update
+  arrives through a headless worker that starts the ReactHost with **no activity
+  and no React tree**, so anything registered from a component — or from a module
+  only a component pulls in — has not run yet, the task key is unregistered, and
+  nothing draws. Expo Router route modules load via `require.context`, whose
+  entries are lazy getters, so `app/_layout.tsx` (where this used to live)
+  evaluates only when the router renders. The widgets drew only while the app was
+  warm, and were blank whenever they were added or updated with it closed. A blank
+  widget is an *invisible* one — no crash, no log, just an empty cell.
+- Everything reachable from `widget-task-handler.ts`'s **static** imports has to
+  load in that cold context before anything can be drawn, so it stays tiny (React
+  + the Quick Add tile). Supabase, `@do-done/api-client` and the task engine are
+  behind `await import(...)` on the branch that needs them.
 - Widgets use AsyncStorage (shared with main app) to read the Supabase session
 
 ### Quick-add widget (floats over the home screen)
@@ -378,6 +520,18 @@ quick-add sheet over the live home screen without launching the main app.
   use `IconWidget`: it renders the icon name as *text* in a typeface the app has to
   ship itself, so `icon="add"` with no `material.ttf` literally drew "add" on the
   home screen.
+- The tile paints its squircle **twice** — once as the SVG, once as a
+  `backgroundColor` on the `FlexWidget` behind it — and that is deliberate.
+  `SvgWidget` hands the string to AndroidSVG and swallows a parse failure with a
+  bare `printStackTrace`, so artwork alone has a silent path to fully transparent.
+  It's sized to a centred square of `min(width, height)` from `widgetInfo`, not
+  `match_parent`: a launcher cell is taller than it is wide, and the square
+  artwork would letterbox inside its own background.
+- The handler draws the tile for **every** action except `WIDGET_DELETED`. With
+  `updatePeriodMillis: 0` there is no update tick, so an action it declines to
+  draw for leaves the tile exactly as it was — and for a fresh widget, that's
+  blank forever. `_layout.tsx` also calls `repaintQuickAddWidget()` once per
+  launch, so opening the app heals a tile whose one render was lost.
 - Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
   launches in debug builds. After changing the widget's size, remove and re-add it
   on the device.
@@ -387,19 +541,81 @@ quick-add sheet over the live home screen without launching the main app.
   not to render, and the build gotchas (stale checkouts, APK signing, launcher
   caching) that have already burned three install cycles.
 
+### Launcher quick actions (app shortcuts)
+Long-pressing the DoDone icon offers **Add task / Search / Today / Upcoming**,
+each pinnable to the home screen with the "+" beside it. These are *not* widgets:
+the launcher draws them itself, so a pinned one takes exactly one cell and sits
+flush with the app icons around it — which is the point of having them alongside
+the 1×1 quick-add widget rather than instead of it.
+
+- `plugins/withAndroidShortcuts.js` writes `res/xml/shortcuts.xml`, the icon
+  drawables and the labels, then hangs a `meta-data` tag off MainActivity.
+  Static shortcuts, so they exist from install with no native code at runtime.
+- **Labels must be `@string/` references.** Android drops a `<shortcut>` whose
+  label is a literal, silently — no build error, the row just isn't there.
+- **Intents must be explicit** (`targetPackage` + `targetClass`); an implicit
+  one never launches. The deep link rides along as the intent's `data`, which is
+  what `expo-linking`'s `getInitialURL` reads. Add task targets
+  `QuickAddActivity` directly, so it floats the composer over the home screen
+  exactly as the widget does; the rest target MainActivity.
+- Each icon ships twice: an `<adaptive-icon>` in `drawable-anydpi-v26` so the
+  launcher masks it to the same shape as the app icons, and a plain circle
+  vector in `drawable/` for API 24-25, which has no mask. The glyph is scaled
+  into 24..84 of the 108 viewport — inside the safe zone no mask can clip.
+- `plugins/withAndroidShortcuts.test.ts` asserts the generated XML, including
+  that every `dodone://` target has a route file. Every failure mode on this
+  surface is silent on the device, so the test is the only place they surface.
+  It is why `vitest.config.ts` includes `plugins/**` as well as `lib/**`.
+
 ### Location reminders (geofencing)
-A task can carry reminders at saved places — "buy milk when I get to Tesco",
-"post the letter when I leave the office". `task_locations` links a task to a
-location with a `trigger_type` of `enter` or `exit`; a task can have several.
+A task can carry reminders at places — "buy milk when I get to Tesco", "post the
+letter when I leave the office". `task_locations` links a task to a location with
+a `trigger_type` of `enter` or `exit`; a task can have several.
 
 **Surfaces**
-- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor.
-  Toggles Arriving/Leaving per place, and creates places from the current
-  position or a geocoded address. **This is the only place in the app that
-  prompts for location**, and it primes with an explanation first.
+- `components/LocationReminderSheet.tsx` — the 📍 row in the task editor. A
+  search field over tappable places: the first tap attaches the reminder, and
+  direction, radius and whether to keep the place are adjustments made
+  afterwards. **This is the only place in the app that prompts for location**,
+  and it primes with an explanation first.
 - `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete.
+  Also lists any *one-off* place currently holding a region, since those count
+  against the cap the warning on that screen is about.
 - `lib/location-queries.ts` — query hooks + mutations. Every write ends in a
   geofence sync; the OS holds its own copy of the regions.
+
+**Capture: search first, save never required.** Three rules, and each was a
+usability bug before it was a rule:
+- **A place doesn't have to be saved.** Attaching writes a location with
+  `is_saved = false` — geofenced exactly like a saved one, hidden from the
+  pickers, and deleted by a database trigger when its last `task_locations` row
+  goes (`20260805000002_one_off_locations.sql`). "Save place" promotes the same
+  row, so the task links survive. Client-side cleanup would have leaked rows on
+  the paths that don't go through the client — a deleted task, a cascade — and a
+  leaked one-off place is invisible by construction, since nothing lists it.
+- **A name is never asked for.** `locations.name` stays NOT NULL because it's
+  what the notification says; it comes from the search result ("Target") or the
+  reverse-geocoded street line, not from the user.
+- **Search is type-ahead** (`lib/place-search.ts`), biased towards the last
+  known position and labelled with distance so "the closest one" is a thing the
+  eye picks. Provider is **Photon** (OSM data, keyless): `expo-location`'s
+  `geocodeAsync` returns coordinates with no label, so it can't populate a
+  suggestion list at all, and Nominatim's usage policy forbids autocomplete
+  outright. `geocodeAsync` stays on as the "look up what I typed" fallback for
+  when the provider is unreachable. Reading the position for bias uses
+  `getLastKnownPosition()`, which returns null rather than prompting or waiting
+  for a fix — opening the sheet must stay free.
+
+`components/MapPreview.tsx` draws the pin, its radius and your own position from
+raster tiles (`lib/map-tiles.ts` holds the Web-Mercator projection, tested in
+node). Deliberately not `react-native-maps`: that's a native module, so it would
+need a fresh dev-client build and a Maps API key before anyone could see a pixel.
+The trade is that it can't be panned and the pin can't be dragged.
+
+The sheet tracks the IME height itself and shrinks its list to fit —
+`edgeToEdgeEnabled` turns off Android's `adjustResize`, so nothing moves on its
+own and a bottom-anchored sheet is simply behind the keyboard. Same approach as
+`QuickAddBar`.
 
 **Engine** (`lib/geofencing.ts`)
 - `registerUserGeofences()` **never prompts**. It registers only locations with

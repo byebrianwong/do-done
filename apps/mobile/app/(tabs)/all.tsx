@@ -9,18 +9,26 @@ import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
+import {
   invalidateTasks,
   useAllTasks,
   useProjectsWithCounts,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
+import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 export default function AllTasksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: tasks = [], isRefetching, refetch } = useAllTasks();
+  const tasksQuery = useAllTasks();
+  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const loadState = useListLoadState(tasksQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
@@ -65,18 +73,25 @@ export default function AllTasksScreen() {
           </Pressable>
         </View>
       </View>
+      <UpdatingBar visible={loadState.showUpdating} />
 
-      <GroupedTaskList
-        tasks={tasks}
-        projects={projectList}
-        config={config}
-        onConfigChange={setConfig}
-        onTaskPress={handlePress}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
-        }
-        contentContainerStyle={styles.listContent}
-      />
+      {loadState.showSkeleton ? (
+        <ListSkeleton rows={6} />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : (
+        <GroupedTaskList
+          tasks={tasks}
+          projects={projectList}
+          config={config}
+          onConfigChange={setConfig}
+          onTaskPress={handlePress}
+          refreshControl={
+            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      )}
       <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}

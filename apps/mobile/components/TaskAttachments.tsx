@@ -177,7 +177,7 @@ function AttachmentCard({
   );
 }
 
-export function AttachmentsSection({
+function AttachmentsSectionImpl({
   taskId,
   api,
 }: {
@@ -374,6 +374,13 @@ export function AttachmentsSection({
     </View>
   );
 }
+
+/**
+ * Memoized for the same reason `SubtasksSection` is: both props are stable
+ * (an id and a memoized API), so the section sits out the re-render every
+ * keystroke in the title field causes.
+ */
+export const AttachmentsSection = React.memo(AttachmentsSectionImpl);
 
 const styles = StyleSheet.create({
   rowHead: {

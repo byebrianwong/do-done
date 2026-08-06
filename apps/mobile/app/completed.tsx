@@ -8,8 +8,14 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import TaskItem from '@/components/TaskItem';
+import {
+  ListError,
+  ListSkeleton,
+  UpdatingBar,
+} from '@/components/ListPlaceholder';
 import { useCompletedTasks } from '@/lib/task-queries';
 import { useRefreshOnFocus } from '@/lib/query-client';
+import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 type Section = { title: string; data: Task[] };
@@ -51,8 +57,9 @@ function groupByDay(tasks: Task[]): Section[] {
 }
 
 export default function CompletedScreen() {
-  const { data: tasks = [], isLoading, isRefetching, refetch } =
-    useCompletedTasks();
+  const completedQuery = useCompletedTasks();
+  const { data: tasks = [], isRefetching, refetch } = completedQuery;
+  const loadState = useListLoadState(completedQuery);
   useRefreshOnFocus(refetch);
 
   const sections = groupByDay(tasks);
@@ -60,6 +67,7 @@ export default function CompletedScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Completed' }} />
+      <UpdatingBar visible={loadState.showUpdating} />
       <SectionList
         sections={sections}
         keyExtractor={(t) => t.id}
@@ -72,13 +80,17 @@ export default function CompletedScreen() {
           </View>
         )}
         ListEmptyComponent={
-          !isLoading ? (
+          loadState.showSkeleton ? (
+            <ListSkeleton rows={4} />
+          ) : loadState.showError ? (
+            <ListError onRetry={refetch} />
+          ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
                 Nothing here yet — complete a task and it’ll land here.
               </Text>
             </View>
-          ) : null
+          )
         }
         refreshControl={
           <RefreshControl

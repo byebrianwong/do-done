@@ -33,6 +33,7 @@ import {
 } from '@do-done/shared';
 import {
   deleteLocation,
+  saveLocationAsPlace,
   updateLocation,
   useLocations,
   useLocationsWithPending,
@@ -54,25 +55,28 @@ export default function LocationsScreen() {
    * Same ordering registerUserGeofences() uses, so "Paused" here means exactly
    * the places it trims. Places with no open tasks sort last: they aren't
    * registered at all, which is a different state from being over the cap.
+   *
+   * The armed half is built from `targets`, which includes one-off places —
+   * a place attached inline to a task holds a region like any other, and a cap
+   * warning that counted regions this screen didn't list would be unanswerable.
+   * The idle half comes from the saved list, since a one-off place with no open
+   * tasks has already been swept away by the database.
    */
   const rows = useMemo(() => {
-    const pendingById = new Map(
-      targets.map((t) => [t.location.id, t.pendingCount])
-    );
-    const armed = [...locations]
-      .filter((l) => pendingById.has(l.id))
+    const armed = [...targets]
       .sort(
         (a, b) =>
-          (pendingById.get(b.id) ?? 0) - (pendingById.get(a.id) ?? 0) ||
-          a.name.localeCompare(b.name)
+          b.pendingCount - a.pendingCount ||
+          a.location.name.localeCompare(b.location.name)
       )
-      .map((location, index) => ({
+      .map(({ location, pendingCount }, index) => ({
         location,
-        pendingCount: pendingById.get(location.id) ?? 0,
+        pendingCount,
         paused: index >= cap,
       }));
+    const armedIds = new Set(armed.map((r) => r.location.id));
     const idle = locations
-      .filter((l) => !pendingById.has(l.id))
+      .filter((l) => !armedIds.has(l.id))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((location) => ({ location, pendingCount: 0, paused: false }));
     return [...armed, ...idle];
@@ -173,6 +177,19 @@ function PlaceCard({
     }
   };
 
+  const keepPlace = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await saveLocationAsPlace(location.id);
+    } catch (e) {
+      console.error('[locations] keep failed', e);
+      Alert.alert('Could not save', 'That place wasn’t added to your places.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const confirmDelete = () => {
     Alert.alert(
       `Delete “${location.name}”?`,
@@ -242,6 +259,20 @@ function PlaceCard({
         {paused ? <Text style={styles.pausedTag}>Paused</Text> : null}
         {saving ? <ActivityIndicator size="small" color="#6366f1" /> : null}
       </View>
+
+      {/* A one-off place is here only because it holds a region; it isn't in
+          the saved list and disappears with its last reminder. Saying so is
+          what stops "why can't I find this place again?". */}
+      {location.is_saved ? null : (
+        <View style={styles.oneOffRow}>
+          <Text style={styles.oneOffText}>
+            One-off — goes away with its last reminder
+          </Text>
+          <Pressable onPress={keepPlace} disabled={saving} style={styles.keepBtn}>
+            <Text style={styles.keepBtnText}>Keep</Text>
+          </Pressable>
+        </View>
+      )}
 
       {editing ? (
         <View style={styles.radiusRow}>
@@ -333,6 +364,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   radiusSummary: { fontSize: 12, color: '#9ca3af', marginTop: 6 },
+  oneOffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+  },
+  oneOffText: { flex: 1, fontSize: 11, color: '#9ca3af' },
+  keepBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  keepBtnText: { fontSize: 12, fontWeight: '700', color: '#4338ca' },
   radiusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   radiusChip: {
     paddingVertical: 7,

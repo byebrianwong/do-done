@@ -17,7 +17,6 @@ import {
   AccessibilityInfo,
   Alert,
   Animated,
-  Dimensions,
   Modal,
   View,
   Text,
@@ -26,12 +25,14 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
   datesBetweenLocalISO,
+  extractTitleShortcuts,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -63,6 +64,30 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
+// Aliased: this module already uses RN's own `Animated` for the ambient
+// decorations (the save dot, the calendar's wave), which stay on the JS driver
+// because nothing about them is under a finger. The sheet itself does not.
+import Reanimated, {
+  Easing,
+  type SharedValue,
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
+import { hapticLight } from "@/lib/haptics";
+import {
+  RETURN_SPRING,
+  SHEET_CLOSE_MS,
+  SHEET_HEIGHT_RATIO,
+  SHEET_OPEN_MS,
+  backdropOpacity,
+  closeDurationMs,
+  dragTranslation,
+  shouldDismiss,
+} from "@/lib/sheet-motion";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -147,22 +172,11 @@ function dotWidth(minutes: number): number {
   return 17;
 }
 
-// Extract whitespace-terminated `#tag` tokens from text. Partial (unterminated)
-// `#word` is left alone so the user can keep typing.
-export function extractCompletedTags(text: string): {
-  stripped: string;
-  tags: string[];
-} {
-  const tags: string[] = [];
-  const re = /#(\w+)(\s+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    tags.push(m[1]);
-  }
-  if (tags.length === 0) return { stripped: text, tags };
-  const stripped = text.replace(/#(\w+)\s+/g, " ").replace(/\s{2,}/g, " ");
-  return { stripped, tags };
-}
+// `#token` absorption lives in `@do-done/shared` as `extractTitleShortcuts`,
+// shared with the web title field. The local copy that used to sit here only
+// ever produced tags, so `#p1` became a tag literally named "p1" and `#xs` a
+// tag named "xs" — and since it runs on every keystroke it stripped the token
+// before `parseTaskInput` could classify it at submit.
 
 export function shortDateLabel(date: string | null): string {
   if (date) {
@@ -684,7 +698,7 @@ function SpanWaveRun({
   );
 }
 
-export function ScheduleCalendar({
+function ScheduleCalendarImpl({
   scheduledDate,
   busyness,
   onPickDate,
@@ -798,21 +812,7 @@ export function ScheduleCalendar({
 
   // One shared driver for every run on screen, so rows never drift apart.
   const waveProgress = useRef(new Animated.Value(0)).current;
-  const [reduceMotion, setReduceMotion] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
-      if (alive) setReduceMotion(on);
-    });
-    const sub = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion
-    );
-    return () => {
-      alive = false;
-      sub.remove();
-    };
-  }, []);
+  const reduceMotion = useReduceMotion();
 
   const activeWave = mode === "month" ? monthWave : weekWave;
   const waveDuration = activeWave?.durationMs ?? 0;
@@ -1039,6 +1039,16 @@ export function ScheduleCalendar({
     </View>
   );
 }
+
+/**
+ * Memoised because it is the most expensive thing in the sheet — up to six
+ * rows of day tiles, each with its own busyness dots, plus the span-wave
+ * layout — and because the editor re-renders on *every keystroke* in the
+ * title. Its four props are all stable across those renders (`busyness` is
+ * memoised, `onPickDate` and `onRangeChange` are `useCallback`ed), so this
+ * takes the calendar out of the typing path entirely.
+ */
+export const ScheduleCalendar = React.memo(ScheduleCalendarImpl);
 
 // Every half hour across the day, as "HH:MM". Pure JS (no native datetime
 // picker — that would force a dev-client rebuild); mirrors the web
@@ -1423,12 +1433,22 @@ function SubtaskRow({
   );
 }
 
-function SubtasksSection({
-  parentTask,
+/**
+ * Takes the parent's id and depth rather than the parent `Task`.
+ *
+ * The editor holds a fresh task object after every keystroke, so a `Task` prop
+ * would defeat the memo below on exactly the renders it exists to skip — while
+ * the only two things this section reads off the parent never change while it
+ * is open.
+ */
+function SubtasksSectionImpl({
+  parentId,
+  parentDepth,
   tasksApi,
   onOpenSubtask,
 }: {
-  parentTask: Task;
+  parentId: string;
+  parentDepth: number;
   tasksApi: TasksApi;
   /** Drill the sheet into a subtask's own editor. */
   onOpenSubtask: (task: Task) => void;
@@ -1442,7 +1462,7 @@ function SubtasksSection({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await tasksApi.listSubtasks(parentTask.id);
+      const { data } = await tasksApi.listSubtasks(parentId);
       if (!cancelled) {
         setSubtasks(data);
         setLoaded(true);
@@ -1451,14 +1471,14 @@ function SubtasksSection({
     return () => {
       cancelled = true;
     };
-  }, [parentTask.id, tasksApi]);
+  }, [parentId, tasksApi]);
 
   useEffect(() => {
     if (adding) inputRef.current?.focus();
   }, [adding]);
 
   // DB trigger enforces depth ≤ 2, so depth 2 tasks can't have children.
-  const canAdd = parentTask.depth < 2;
+  const canAdd = parentDepth < 2;
 
   const handleAdd = async () => {
     const title = draft.trim();
@@ -1468,7 +1488,7 @@ function SubtasksSection({
     }
     const { data } = await tasksApi.create({
       title,
-      parent_task_id: parentTask.id,
+      parent_task_id: parentId,
     });
     if (data) {
       setSubtasks((prev) => [...prev, data]);
@@ -1555,6 +1575,9 @@ function SubtasksSection({
   );
 }
 
+/** Holds its own list and fetch, so keep it out of the typing path too. */
+const SubtasksSection = React.memo(SubtasksSectionImpl);
+
 // ─── Main modal ─────────────────────────────────────────────
 
 interface Props {
@@ -1569,7 +1592,29 @@ interface Props {
   onSaved?: () => void;
 }
 
-const SCREEN_H = Dimensions.get("window").height;
+/**
+ * Reduce-motion, as a hook, because two surfaces here answer to it: the
+ * calendar's ambient wave and — since the sheet's rise is a full-screen
+ * translation, the largest single movement in the app — the sheet itself.
+ */
+function useReduceMotion(): boolean {
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
+      if (alive) setReduceMotion(on);
+    });
+    const sub = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return reduceMotion;
+}
 
 export default function TaskEditModalV2({
   task,
@@ -1585,7 +1630,61 @@ export default function TaskEditModalV2({
     onSaved?.();
   };
 
-  const translateY = useRef(new Animated.Value(SCREEN_H)).current;
+  // Read live rather than at module scope: a rotation or an Android split
+  // screen changes the sheet's height, and a slide measured against the
+  // launch-time window either stops short of the bottom or overshoots it.
+  const { height: windowH } = useWindowDimensions();
+  const sheetH = Math.round(windowH * SHEET_HEIGHT_RATIO);
+
+  const reduceMotion = useReduceMotion();
+  // The open effect reads this through a ref rather than taking it as a
+  // dependency: `isReduceMotionEnabled` resolves a tick or two after mount, so
+  // as a dependency it would re-run the open — sliding the sheet up and then
+  // snapping it, on the one device that asked for less movement.
+  const reduceMotionRef = useRef(reduceMotion);
+  reduceMotionRef.current = reduceMotion;
+
+  /**
+   * The sheet's position, in pixels below its resting place. Lives on the UI
+   * thread: the gesture writes it from a worklet and both animated styles read
+   * it there, so a drag never touches JS. That is the whole fix for the jank —
+   * the sheet used to be a JS-driven `Animated.Value` (`useNativeDriver: false`,
+   * forced by animating layout-adjacent props), which meant every frame of the
+   * rise was a round trip competing with this modal's own mount: three network
+   * calls, a month grid and six nested modals, all on the same thread, all
+   * landing inside the 280ms the animation had to run in.
+   */
+  const translateY = useSharedValue(sheetH);
+
+  /**
+   * The same height, held where the worklets can read it.
+   *
+   * A `useRef` would not do: Reanimated copies a worklet's captured values into
+   * the UI runtime, so `ref.current` read from a worklet is whatever it was
+   * when that worklet was built — which for the memoised gesture below is the
+   * first render, forever. A shared value is the one thing both threads see the
+   * current version of.
+   */
+  const sheetHeight = useSharedValue(sheetH);
+  useEffect(() => {
+    sheetHeight.value = sheetH;
+  }, [sheetH, sheetHeight]);
+
+  /**
+   * The body ScrollView's offset, and whether the current drag began with the
+   * body already at its top.
+   *
+   * Both live on the UI thread because the pan gesture has to consult them
+   * mid-gesture. `activeOffsetY(12)` claims *downward* drags — which is also
+   * how you scroll a list back up, so without this the sheet took every one of
+   * them and the body simply would not scroll down: the whole editor lurched
+   * toward the floor instead. The rule is the one every good sheet uses — the
+   * body owns the drag until it has nothing left to scroll, and only then does
+   * the sheet take over.
+   */
+  const scrollOffset = useSharedValue(0);
+  const dragOwnsSheet = useSharedValue(false);
+  const scrollRef = useRef<React.ComponentRef<typeof Reanimated.ScrollView>>(null);
 
   // Which task is on screen. The editor can drill from the opened task into a
   // subtask, or climb back to a parent, all within the same sheet. Re-rooted in
@@ -1600,51 +1699,108 @@ export default function TaskEditModalV2({
   }
 
   // Slide the sheet up whenever it becomes visible.
+  //
+  // Keyed on `marker`, not on the `task` object. Identity is the wrong trigger:
+  // every autosave calls `invalidateTasks`, and a caller that passed a row
+  // straight from the refreshed query would hand us a new object mid-edit —
+  // re-running this, dropping the sheet to the floor and sliding it back up
+  // under the user's hands. The id and visibility are what actually changed
+  // when a *different* task is opened.
   useEffect(() => {
-    if (visible && task) {
-      translateY.setValue(SCREEN_H);
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [visible, task, translateY]);
-
-  // Animate the sheet down, then actually close.
-  const animatedClose = () => {
-    Animated.timing(translateY, {
-      toValue: SCREEN_H,
-      duration: 220,
-      useNativeDriver: false,
-    }).start(() => closeRef.current());
-  };
-
-  // Drag the sheet down to dismiss. gesture-handler (the slider's stack — it
-  // reliably detects touches here) drives a plain RN Animated.Value, so we
-  // steer clear of Reanimated. activeOffsetY makes it claim only downward
-  // drags, leaving taps and the horizontal sliders alone.
-  const dismissPan = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetY(12)
-    .onUpdate((e) => {
-      if (e.translationY > 0) translateY.setValue(e.translationY);
-    })
-    .onEnd((e) => {
-      if (e.translationY > 120 || e.velocityY > 800) {
-        Animated.timing(translateY, {
-          toValue: SCREEN_H,
-          duration: 220,
-          useNativeDriver: false,
-        }).start(() => closeRef.current());
-      } else {
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: false,
-          bounciness: 0,
-        }).start();
-      }
+    if (!visible || !task) return;
+    translateY.value = sheetH;
+    hapticLight();
+    translateY.value = withTiming(0, {
+      duration: reduceMotionRef.current ? 0 : SHEET_OPEN_MS,
+      // Fast off the mark, easing into place: the sheet answers the tap on the
+      // first frame and settles rather than arriving at full speed.
+      easing: Easing.out(Easing.cubic),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marker]);
+
+  /** Runs on the JS thread once the sheet is off-screen. */
+  const finishClose = useCallback(() => {
+    closeRef.current();
+  }, []);
+
+  const animatedClose = useCallback(() => {
+    translateY.value = withTiming(
+      sheetHeight.value,
+      {
+        duration: reduceMotion ? 0 : SHEET_CLOSE_MS,
+        easing: Easing.in(Easing.cubic),
+      },
+      (done) => {
+        "worklet";
+        if (done) runOnJS(finishClose)();
+      }
+    );
+  }, [translateY, sheetHeight, reduceMotion, finishClose]);
+
+  /**
+   * Drag the sheet down to dismiss.
+   *
+   * No `runOnJS(true)` any more: the handlers below are worklets, so the finger
+   * moves the sheet on the UI thread at display rate whatever JS is busy with.
+   * `activeOffsetY` still makes it claim only downward drags, leaving taps and
+   * the horizontal sliders alone.
+   */
+  const dismissPan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(12)
+        // Runs alongside the body's own scrolling rather than cancelling it, so
+        // a drag that starts mid-list stays a scroll all the way through.
+        .simultaneousWithExternalGesture(scrollRef)
+        .onBegin(() => {
+          "worklet";
+          dragOwnsSheet.value = scrollOffset.value <= 0;
+        })
+        .onUpdate((e) => {
+          "worklet";
+          if (!dragOwnsSheet.value) return;
+          translateY.value = dragTranslation(e.translationY);
+        })
+        .onEnd((e) => {
+          "worklet";
+          if (!dragOwnsSheet.value) return;
+          const h = sheetHeight.value;
+          if (shouldDismiss(e.translationY, e.velocityY, h)) {
+            translateY.value = withTiming(
+              h,
+              {
+                duration: closeDurationMs(e.translationY, e.velocityY, h),
+                easing: Easing.out(Easing.quad),
+              },
+              (done) => {
+                "worklet";
+                if (done) runOnJS(finishClose)();
+              }
+            );
+          } else {
+            translateY.value = withSpring(0, RETURN_SPRING);
+          }
+        }),
+    [translateY, sheetHeight, finishClose, dragOwnsSheet, scrollOffset]
+  );
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  /**
+   * The scrim, derived from the sheet's own position rather than run as its own
+   * timing. It used to be a flat `rgba(17,24,39,0.4)` on a `Modal` with
+   * `animationType="none"` — so the room went dark in a single frame while the
+   * sheet was still off the bottom of the screen, and snapped back to bright
+   * only after the sheet had finished leaving. Sharing one value means it now
+   * rises with the sheet and, more to the point, follows a *drag*: pull the
+   * sheet halfway down and the view behind it is already half returned.
+   */
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity(translateY.value, sheetHeight.value),
+  }));
 
   return (
     <Modal
@@ -1655,12 +1811,18 @@ export default function TaskEditModalV2({
       onRequestClose={animatedClose}
     >
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={animatedClose} />
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.backdrop, backdropStyle]}
+        />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={animatedClose}
+          accessibilityLabel="Close editor"
+        />
         <GestureHandlerRootView style={styles.ghRoot}>
           <GestureDetector gesture={dismissPan}>
-            <Animated.View
-              style={[styles.sheet, { transform: [{ translateY }] }]}
-            >
+            <Reanimated.View style={[styles.sheet, sheetStyle]}>
               <View style={styles.grabberWrap}>
                 <View style={styles.grabber} />
               </View>
@@ -1670,9 +1832,11 @@ export default function TaskEditModalV2({
                   task={activeTask}
                   onClose={animatedClose}
                   onNavigateTask={setActiveTask}
+                  scrollRef={scrollRef}
+                  scrollOffset={scrollOffset}
                 />
               ) : null}
-            </Animated.View>
+            </Reanimated.View>
           </GestureDetector>
         </GestureHandlerRootView>
       </View>
@@ -1684,11 +1848,17 @@ function Inner({
   task,
   onClose,
   onNavigateTask,
+  scrollRef,
+  scrollOffset,
 }: {
   task: Task;
   onClose: () => void;
   /** Drill the sheet to another task (a subtask, or this task's parent). */
   onNavigateTask: (task: Task) => void;
+  /** The sheet's dismiss gesture defers to this list; see the root component. */
+  scrollRef: React.RefObject<React.ComponentRef<typeof Reanimated.ScrollView> | null>;
+  /** Body scroll offset, written on the UI thread for that same gesture. */
+  scrollOffset: SharedValue<number>;
 }) {
   const tasksApiMemo = useMemo(() => {
     // Lazy require avoids loading TasksApi at module init.
@@ -1779,23 +1949,70 @@ function Inner({
     await undoAll();
   }, [undoAll]);
 
-  const onPickDate = (date: string) => {
-    setField("scheduled_date", date);
-  };
+  // Written from the UI thread, so the offset the dismiss gesture reads is the
+  // one on screen — a JS `onScroll` would be a frame or more behind, which is
+  // exactly the window in which a fast flick gets misread as a sheet drag.
+  const scrollHandler = useAnimatedScrollHandler((e) => {
+    scrollOffset.value = e.contentOffset.y;
+  });
 
-  const handleTitleChange = (raw: string) => {
+  // Stable identity so the calendar below can skip re-rendering on keystrokes.
+  const onPickDate = useCallback(
+    (date: string) => {
+      setField("scheduled_date", date);
+    },
+    [setField]
+  );
+
+  /**
+   * Absorb `#token` shortcuts out of the title into their real fields.
+   *
+   * `flushTrailing` is for blur / close, where end-of-input terminates the last
+   * token — without it the trailing space is the only terminator, so a title
+   * finished as "buy toothpaste #xs" saved the token verbatim.
+   */
+  const absorbTitle = (raw: string, flushTrailing = false) => {
     // The field wraps but is still one logical line — a pasted newline would
     // otherwise ride into the title and break every single-line rendering of it.
     const v = raw.replace(/\s*\r?\n\s*/g, " ");
-    const { stripped, tags: extracted } = extractCompletedTags(v);
-    if (extracted.length > 0) {
-      const existing = new Set(current.tags);
-      const fresh = extracted.filter((t) => !existing.has(t));
-      if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
-      setField("title", stripped);
-    } else {
+    const {
+      stripped,
+      tags: extracted,
+      priority: extractedPriority,
+      durationMinutes: extractedDuration,
+    } = extractTitleShortcuts(v, flushTrailing);
+    const consumed =
+      extracted.length > 0 ||
+      extractedPriority !== undefined ||
+      extractedDuration !== undefined;
+    if (consumed) {
+      if (extracted.length > 0) {
+        const existing = new Set(current.tags);
+        const fresh = extracted.filter((t) => !existing.has(t));
+        if (fresh.length > 0) setField("tags", [...current.tags, ...fresh]);
+      }
+      if (extractedPriority) setField("priority", extractedPriority);
+      if (extractedDuration) setField("duration_minutes", extractedDuration);
+      if (stripped !== current.title) setField("title", stripped);
+    } else if (v !== current.title) {
+      // Only write on a real change. Blur runs this on every focus loss, and an
+      // unconditional `setField` would mark an untouched task dirty — flipping
+      // the save indicator and firing a pointless PATCH.
       setField("title", v);
     }
+  };
+
+  const handleTitleChange = (raw: string) => absorbTitle(raw);
+
+  /** Blur fires on Return too (`submitBehavior="blurAndSubmit"`). */
+  const handleTitleBlur = () => absorbTitle(current.title, true);
+
+  /** Tapping "Close" can tear the sheet down without the title input ever
+   *  blurring, so absorb a trailing token here as well. `onClose` animates the
+   *  sheet out before it unmounts, which leaves the autosave room to commit. */
+  const handleCloseFromBar = () => {
+    absorbTitle(current.title, true);
+    onClose();
   };
 
   const handleAddTag = (tag: string) => {
@@ -1921,7 +2138,18 @@ function Inner({
         </Pressable>
       ) : null}
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <Reanimated.ScrollView
+        ref={scrollRef}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        // No rubber-band at the top: the sheet's own drag begins there, and an
+        // overscrolling list underneath it would be a second thing moving.
+        bounces={false}
+        overScrollMode="never"
+        keyboardShouldPersistTaps="handled"
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+      >
         {/* Title input */}
         <View style={styles.inputWrap}>
           {/* The completion circle from a task row, brought into the editor so
@@ -1954,6 +2182,7 @@ function Inner({
             <TextInput
               value={current.title}
               onChangeText={handleTitleChange}
+              onBlur={handleTitleBlur}
               placeholder="Task title…"
               placeholderTextColor="#9ca3af"
               // A long title has to be readable in full, so the box grows with
@@ -2069,50 +2298,56 @@ function Inner({
           </Pressable>
         </View>
 
-        <LocationReminderSheet
-          visible={locationSheetOpen}
-          taskId={task.id}
-          onClose={() => setLocationSheetOpen(false)}
-        />
+        {locationSheetOpen ? (
+          <LocationReminderSheet
+            visible={locationSheetOpen}
+            taskId={task.id}
+            onClose={() => setLocationSheetOpen(false)}
+          />
+        ) : null}
 
-        <PickerSheet
-          visible={priPickerOpen}
-          title="Priority"
-          options={PRIORITY_PICKER_OPTIONS.map((p) => ({
-            key: p.value,
-            code: p.code,
-            label: p.label,
-          }))}
-          selectedKey={current.priority}
-          onSelect={(key) => {
-            // Re-picking the current row clears to p4, as the bars do.
-            setField(
-              "priority",
-              key === current.priority ? "p4" : (key as TaskPriority)
-            );
-            setPriPickerOpen(false);
-          }}
-          onClose={() => setPriPickerOpen(false)}
-          accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
-        />
-        <PickerSheet
-          visible={estPickerOpen}
-          title="Estimate"
-          options={ESTIMATE_PICKER_OPTIONS.map((b) => ({
-            key: String(b.minutes),
-            code: b.code,
-            label: b.label,
-          }))}
-          selectedKey={(() => {
-            const idx = estimateBarIndex(current.duration_minutes);
-            return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
-          })()}
-          onSelect={(key) => {
-            setField("duration_minutes", parseInt(key, 10));
-            setEstPickerOpen(false);
-          }}
-          onClose={() => setEstPickerOpen(false)}
-        />
+        {priPickerOpen ? (
+          <PickerSheet
+            visible={priPickerOpen}
+            title="Priority"
+            options={PRIORITY_PICKER_OPTIONS.map((p) => ({
+              key: p.value,
+              code: p.code,
+              label: p.label,
+            }))}
+            selectedKey={current.priority}
+            onSelect={(key) => {
+              // Re-picking the current row clears to p4, as the bars do.
+              setField(
+                "priority",
+                key === current.priority ? "p4" : (key as TaskPriority)
+              );
+              setPriPickerOpen(false);
+            }}
+            onClose={() => setPriPickerOpen(false)}
+            accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
+          />
+        ) : null}
+        {estPickerOpen ? (
+          <PickerSheet
+            visible={estPickerOpen}
+            title="Estimate"
+            options={ESTIMATE_PICKER_OPTIONS.map((b) => ({
+              key: String(b.minutes),
+              code: b.code,
+              label: b.label,
+            }))}
+            selectedKey={(() => {
+              const idx = estimateBarIndex(current.duration_minutes);
+              return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
+            })()}
+            onSelect={(key) => {
+              setField("duration_minutes", parseInt(key, 10));
+              setEstPickerOpen(false);
+            }}
+            onClose={() => setEstPickerOpen(false)}
+          />
+        ) : null}
 
         {/* Status + Project — side by side, one tap opens each picker */}
         <View style={styles.fieldPairRow}>
@@ -2168,31 +2403,36 @@ function Inner({
           </View>
         </View>
 
-        <PickerSheet
-          visible={statusPickerOpen}
-          title="Status"
-          options={STATUS_PICKER_OPTIONS}
-          selectedKey={current.status}
-          onSelect={(key) => {
-            setField("status", key as TaskStatus);
-            setStatusPickerOpen(false);
-          }}
-          onClose={() => setStatusPickerOpen(false)}
-          accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
-        />
+        {statusPickerOpen ? (
+          <PickerSheet
+            visible={statusPickerOpen}
+            title="Status"
+            options={STATUS_PICKER_OPTIONS}
+            selectedKey={current.status}
+            onSelect={(key) => {
+              setField("status", key as TaskStatus);
+              setStatusPickerOpen(false);
+            }}
+            onClose={() => setStatusPickerOpen(false)}
+            accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
+          />
+        ) : null}
 
-        <ProjectPickerSheet
-          visible={projectPickerOpen}
-          projects={allProjects}
-          selectedId={current.project_id}
-          onSelect={(id) => setField("project_id", id)}
-          onClose={() => setProjectPickerOpen(false)}
-          onCreate={handleProjectCreate}
-        />
+        {projectPickerOpen ? (
+          <ProjectPickerSheet
+            visible={projectPickerOpen}
+            projects={allProjects}
+            selectedId={current.project_id}
+            onSelect={(id) => setField("project_id", id)}
+            onClose={() => setProjectPickerOpen(false)}
+            onCreate={handleProjectCreate}
+          />
+        ) : null}
 
         {/* Subtasks */}
         <SubtasksSection
-          parentTask={current}
+          parentId={current.id}
+          parentDepth={current.depth}
           tasksApi={tasksApiMemo}
           onOpenSubtask={onNavigateTask}
         />
@@ -2237,7 +2477,7 @@ function Inner({
             </View>
           ) : null}
         </View>
-      </ScrollView>
+      </Reanimated.ScrollView>
 
       {/* Dismisses the editor. Deliberately quiet: everything auto-saves, so
           there is nothing to commit here, and this used to be a primary button
@@ -2246,7 +2486,7 @@ function Inner({
           alone. */}
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={onClose}
+          onPress={handleCloseFromBar}
           accessibilityRole="button"
           accessibilityLabel="Close editor"
           style={styles.closeBarBtn}
@@ -2255,11 +2495,13 @@ function Inner({
         </Pressable>
       </View>
 
-      <TaskMenuSheet
-        visible={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        onDelete={confirmDelete}
-      />
+      {menuOpen ? (
+        <TaskMenuSheet
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          onDelete={confirmDelete}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2309,9 +2551,13 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(17,24,39,0.4)",
+    // Opaque: the dimming is `backdropOpacity`, driven off the sheet's own
+    // position. Leaving the alpha here too would multiply the two.
+    backgroundColor: "#111827",
   },
-  ghRoot: { height: "92%" },
+  // Kept in step with SHEET_HEIGHT_RATIO, which is what the slide is measured
+  // against — a sheet taller than its travel never fully leaves the screen.
+  ghRoot: { height: `${SHEET_HEIGHT_RATIO * 100}%` },
   sheet: {
     flex: 1,
     backgroundColor: "#fff",

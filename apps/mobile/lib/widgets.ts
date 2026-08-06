@@ -37,6 +37,39 @@ export function refreshTaskWidgets(): void {
   }, DEBOUNCE_MS);
 }
 
+/**
+ * Redraw the static Quick Add tile. Unlike the task widgets it has no update
+ * tick (`updatePeriodMillis: 0`), so its render on add is the only one it ever
+ * gets — and a headless task the OS killed mid-render, or one that ran before
+ * the handler was registered, leaves a permanently invisible tile with nothing
+ * scheduled to fix it. Called once per app launch as that fix.
+ */
+export async function repaintQuickAddWidget(): Promise<void> {
+  if (Platform.OS !== 'android' || IS_EXPO_GO) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { requestWidgetUpdate } =
+      require('react-native-android-widget') as typeof import('react-native-android-widget');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { QuickAddWidget } =
+      require('@/widgets/QuickAddWidget') as typeof import('@/widgets/QuickAddWidget');
+
+    await requestWidgetUpdate({
+      widgetName: 'QuickAdd',
+      renderWidget: (info: WidgetInfo) =>
+        React.createElement(QuickAddWidget, {
+          width: info.width,
+          height: info.height,
+        }),
+      widgetNotFound: () => {
+        // The tile isn't on the home screen — nothing to repaint.
+      },
+    });
+  } catch {
+    // Native module unavailable (Expo Go) or the update failed — ignore.
+  }
+}
+
 async function doRefresh(): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

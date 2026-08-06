@@ -282,6 +282,35 @@ export async function hasGeofencePermissions(): Promise<boolean> {
   return bg.granted;
 }
 
+/**
+ * The user's position, but only if reading it costs nothing: no prompt, no fix,
+ * no wait. Returns null the moment either would be needed.
+ *
+ * This is what biases place search towards where you are and puts the "you"
+ * dot on the map preview. Both are improvements on a screen the user opened to
+ * do something else, so neither may interrupt: opening the 📍 row must not
+ * raise a permission dialog, and a cold GPS must not stall the suggestions.
+ * `getLastKnownPositionAsync` returns the OS's cached fix or nothing at all.
+ */
+export async function getLastKnownPosition(): Promise<{
+  latitude: number;
+  longitude: number;
+} | null> {
+  if (Platform.OS === 'web') return null;
+  try {
+    const fg = await Location.getForegroundPermissionsAsync();
+    if (!fg.granted) return null;
+    const last = await Location.getLastKnownPositionAsync();
+    if (!last) return null;
+    return {
+      latitude: last.coords.latitude,
+      longitude: last.coords.longitude,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export type GeofencePermissionError =
   | 'unsupported_runtime'
   | 'foreground_denied'

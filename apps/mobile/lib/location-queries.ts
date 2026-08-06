@@ -120,6 +120,34 @@ export async function createLocation(
   return data;
 }
 
+/**
+ * Attach a place to a task without filing it under Saved places.
+ *
+ * The row is real — geofences, notifications and the places screen's cap all
+ * work off `locations` — it is simply marked one-off, hidden from the pickers,
+ * and swept away by the database when its last task link goes. That sweep is
+ * why this doesn't need an undo path: nothing accumulates to clean up.
+ */
+export async function createOneOffLocation(
+  input: Omit<CreateLocationInput, 'is_saved'>
+): Promise<Location> {
+  return createLocation({ ...input, is_saved: false });
+}
+
+/**
+ * Promote a one-off place into Saved places — the "actually, keep this one"
+ * afterthought. The row keeps its id, so the task links attached to it survive.
+ */
+export async function saveLocationAsPlace(
+  id: string,
+  name?: string
+): Promise<void> {
+  const api = await getLocationsApi();
+  const { error } = await api.save(id, name);
+  if (error) throw error;
+  invalidateLocations();
+}
+
 export async function updateLocation(
   id: string,
   patch: Partial<CreateLocationInput>
