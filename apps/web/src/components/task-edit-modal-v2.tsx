@@ -23,6 +23,7 @@ import {
 } from "@do-done/shared";
 import {
   useAutoSaveTask,
+  AttachmentsApi,
   TasksApi,
   type DayBusyness,
   type SaveStatus,
@@ -32,6 +33,7 @@ import { isCopyLinkShortcut } from "@/lib/task-link";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
+import { AttachmentsSection } from "./task-attachments";
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -2334,6 +2336,10 @@ function TaskEditModalBody({
     () => new TasksApi(supabase, task.user_id),
     [supabase, task.user_id]
   );
+  const attachmentsApi = useMemo(
+    () => new AttachmentsApi(supabase, task.user_id),
+    [supabase, task.user_id]
+  );
 
   // Parent task, resolved when the active task is a subtask, so the top bar can
   // offer a "← parent" way back. Fetched once per task; the button also serves
@@ -2791,6 +2797,9 @@ function TaskEditModalBody({
               onChange={(v) => setField("description", v)}
             />
           </div>
+
+          {/* Attachments */}
+          <AttachmentsSection taskId={current.id} api={attachmentsApi} />
         </div>
         </div>
 

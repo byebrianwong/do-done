@@ -8,6 +8,7 @@ import type {
   TrackedField,
 } from "@do-done/shared";
 import { TRACKED_FIELDS, todayLocalISO, addDaysLocalISO } from "@do-done/shared";
+import { AttachmentsApi } from "./attachments.js";
 
 /**
  * Map legacy DB status values to the new enum so old rows render correctly
@@ -230,9 +231,43 @@ export class TasksApi {
     return this.update(id, { status: "done" }, actor);
   }
 
+  /**
+   * Ids of a task and every descendant, using the depth-2 ceiling the DB
+   * trigger enforces: a task's children and its grandchildren, and no deeper.
+   * Bounded, so this is two queries rather than an open recursion.
+   */
+  private async subtreeIds(id: string): Promise<string[]> {
+    const ids = [id];
+    let frontier = [id];
+    for (let level = 0; level < 2 && frontier.length > 0; level++) {
+      let query = this.supabase
+        .from("tasks")
+        .select("id")
+        .in("parent_task_id", frontier);
+      if (this.userId) query = query.eq("user_id", this.userId);
+      const { data } = await query;
+      frontier = ((data as { id: string }[] | null) ?? []).map((r) => r.id);
+      ids.push(...frontier);
+    }
+    return ids;
+  }
+
   async delete(id: string): Promise<{ error: Error | null }> {
     // Hard delete. FKs handle cleanup: task_locations cascade,
-    // pet_events.task_id sets null, child tasks (parent_task_id) cascade.
+    // pet_events.task_id sets null, child tasks (parent_task_id) cascade —
+    // and `task_attachments` rows cascade too.
+    //
+    // What no FK reaches is the attachment BYTES in the Storage bucket: an
+    // object has no foreign key to follow, so the cascade would leave them
+    // paying rent forever with nothing in the app pointing at them. Clear them
+    // first, across the whole subtree, since the children go with the parent.
+    //
+    // Best-effort by design: a Storage hiccup must not block the delete the
+    // user asked for. The cost of failing here is orphaned bytes, which is
+    // strictly better than a task that won't die.
+    const attachments = new AttachmentsApi(this.supabase, this.userId);
+    await attachments.removeForTasks(await this.subtreeIds(id));
+
     const { error } = await this.supabase.from("tasks").delete().eq("id", id);
     return { error: error as Error | null };
   }

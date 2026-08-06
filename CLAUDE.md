@@ -170,6 +170,60 @@ The auth proxy carries the destination through sign-in (`?next=`), so a task
 link handed to someone signed out survives the login round-trip; `safeNext` on
 the login page is what stops that being an open redirector.
 
+## Attachments
+
+A task can carry files. Two halves that have to stay in agreement:
+
+| Where | What |
+| --- | --- |
+| `task_attachments` | The metadata row — name, mime type, size. Cascades with the task. |
+| `task-attachments` Storage bucket | The bytes, at `{user_id}/{task_id}/{uuid}.{ext}`. |
+
+**The leading `user_id` segment is load-bearing.** Storage RLS can only see an
+object's path — it cannot join back to `tasks` — so the owner has to be *in*
+the key. `attachmentStoragePath()` in `packages/shared/src/attachments.ts` is
+the only thing that builds one. The bucket is private; every read is a
+short-lived signed URL from `AttachmentsApi.signedUrls()`.
+
+**Write order is deliberate, both ways.** Upload puts the bytes down before the
+row and deletes the object again if the insert fails; remove deletes the bytes
+before the row. A row pointing at absent bytes renders as a permanently broken
+attachment, whereas bytes with no row are merely invisible — so the failure
+mode always lands on the invisible side.
+
+**`TasksApi.delete()` clears the bucket first**, across the task's whole
+subtree. The `task_attachments` FK cascades, but a cascade only reaches the
+metadata: a Storage object has no foreign key to follow, so without this the
+bytes would sit there forever with nothing in the app pointing at them. The
+subtree walk is bounded by the depth-2 trigger, and short-circuits to a single
+query for a task with no children.
+
+**Rendering is classified once, in `attachmentKind()`** — by extension first,
+MIME type second. A `.md` file arrives as `text/plain` from a browser, as
+`application/octet-stream` from Android's document picker, and sometimes with
+an empty type from a drag-and-drop; the extension is the only signal that
+survives all three. SVG is deliberately *not* an inline image: it can carry a
+`<script>`, and inlining one would run it in the app's own origin.
+
+Markdown renders on both surfaces but through different machinery, because
+React Native has no DOM:
+
+- **web** — `react-markdown` + `remark-gfm`, with `MARKDOWN_COMPONENTS` mapping
+  its elements onto the modal's type scale (there's no `@tailwindcss/typography`
+  here). `rehype-raw` is deliberately absent: attachment content is untrusted,
+  so raw HTML in an uploaded file must stay inert text.
+- **mobile** — `parseMarkdown()` from `@do-done/shared` returns a typed block
+  tree that `MarkdownView.tsx` draws with `<Text>`/`<View>`. Keeping the parse
+  in the shared package is also what makes it testable: `apps/mobile` has no
+  renderer in CI.
+
+Mobile uses two pickers because the platforms split them — `expo-image-picker`
+for the library and `expo-document-picker` for files — and reads bytes with
+`expo-file-system`'s `File(uri).bytes()` (Hermes has no `atob`, and base64
+would inflate a 10 MB file by a third in memory). **All three are new native
+modules, so mobile attachments need a fresh `eas build`; they will not arrive
+over OTA.**
+
 ## Design System
 
 - Accent: indigo-500 (#6366f1)

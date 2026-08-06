@@ -57,6 +57,7 @@ import {
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
 import { LocationReminderSheet } from "./LocationReminderSheet";
 import { LinkifiedText } from "./LinkifiedText";
+import { AttachmentsSection } from "./TaskAttachments";
 import {
   Gesture,
   GestureDetector,
@@ -1695,6 +1696,12 @@ function Inner({
     return new TasksApi(supabase, task.user_id);
   }, [task.user_id]);
 
+  const attachmentsApiMemo = useMemo(() => {
+    const { AttachmentsApi } =
+      require("@do-done/api-client") as typeof import("@do-done/api-client");
+    return new AttachmentsApi(supabase, task.user_id);
+  }, [task.user_id]);
+
   // Parent task, resolved when the open task is a subtask, so the header can
   // offer a way back up. Doubles as the navigation target (no extra fetch on tap).
   // Starts null every mount; the sheet body is keyed on the task id, so
@@ -2200,6 +2207,9 @@ function Inner({
             onChange={(v) => setField("description", v)}
           />
         </View>
+
+        {/* Attachments */}
+        <AttachmentsSection taskId={current.id} api={attachmentsApiMemo} />
 
         {/* Repeat — rare, so it stays folded behind a one-line toggle */}
         <View style={{ marginTop: 14 }}>

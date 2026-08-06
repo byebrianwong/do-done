@@ -106,6 +106,22 @@ export const TaskLocationSchema = z.object({
 });
 export type TaskLocation = z.infer<typeof TaskLocationSchema>;
 
+// A file attached to a task. The bytes live in the private `task-attachments`
+// Storage bucket; this row is the metadata the app lists. `storage_path` is the
+// object key ({user_id}/{task_id}/{uuid}.{ext}) — never a URL, because the
+// bucket is private and every read is a freshly signed, short-lived URL.
+export const TaskAttachmentSchema = z.object({
+  id: z.string().uuid(),
+  task_id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  storage_path: z.string().min(1),
+  file_name: z.string().min(1).max(255),
+  mime_type: z.string().min(1),
+  size_bytes: z.number().int().min(0),
+  created_at: z.string().datetime(),
+});
+export type TaskAttachment = z.infer<typeof TaskAttachmentSchema>;
+
 export const CalendarSyncSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),

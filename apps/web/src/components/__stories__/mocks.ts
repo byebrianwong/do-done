@@ -7,8 +7,9 @@ import type {
   PetMood,
   Project,
   Task,
+  TaskAttachment,
 } from "@do-done/shared";
-import type { PetState } from "@do-done/api-client";
+import type { AttachmentsApi, PetState } from "@do-done/api-client";
 
 const NOW = new Date();
 const TODAY = NOW.toISOString().split("T")[0];
@@ -285,3 +286,84 @@ export const SAMPLE_PET_EVENTS: PetEvent[] = [
     narrative: "Update Storybook stories",
   }),
 ];
+
+// ── Attachments ────────────────────────────────────────────
+
+export function makeAttachment(
+  overrides: Partial<TaskAttachment> = {}
+): TaskAttachment {
+  return {
+    id: `att-${Math.random().toString(36).slice(2, 9)}`,
+    task_id: "task-1",
+    user_id: "user-1",
+    storage_path: "user-1/task-1/abc.png",
+    file_name: "screenshot.png",
+    mime_type: "image/png",
+    size_bytes: 184_320,
+    created_at: NOW.toISOString(),
+    ...overrides,
+  };
+}
+
+/** A 4×3 gradient, inlined so stories and tests need no network. */
+export const SAMPLE_IMAGE_DATA_URL =
+  "data:image/svg+xml;base64," +
+  btoa(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a5b4fc"/></linearGradient></defs><rect width="480" height="300" fill="url(#g)"/><text x="50%" y="52%" text-anchor="middle" font-family="Inter,sans-serif" font-size="26" fill="white">screenshot.png</text></svg>`
+  );
+
+export const SAMPLE_MARKDOWN = `# Launch checklist
+
+Ship **DoDone** attachments once every box below is ticked.
+
+- [x] Migration applied
+- [ ] Storage bucket verified
+- [ ] Mobile build cut
+
+## Notes
+
+Rendered with \`react-markdown\`. See the [design doc](https://example.com/doc).
+
+> Images render inline; everything else gets a download row.
+`;
+
+/**
+ * A stand-in for AttachmentsApi that resolves from memory. Stories and tests
+ * both need the component's real load → sign → render sequence without a
+ * Supabase project behind it, so this implements the four methods the section
+ * actually calls and nothing else.
+ */
+export function makeAttachmentsApi(options: {
+  attachments: TaskAttachment[];
+  /** Attachment id → signed URL. Absent ids render as still-loading. */
+  urls?: Record<string, string>;
+  /** Attachment id → file contents, for the text/markdown previews. */
+  text?: Record<string, string>;
+}): AttachmentsApi {
+  const api = {
+    async list() {
+      return { data: options.attachments, error: null };
+    },
+    async signedUrls(list: TaskAttachment[]) {
+      const map = new Map<string, string>();
+      for (const a of list) {
+        const url = options.urls?.[a.id];
+        if (url) map.set(a.id, url);
+      }
+      return { data: map, error: null };
+    },
+    async fetchText(a: TaskAttachment) {
+      return { data: options.text?.[a.id] ?? "", error: null };
+    },
+    async downloadUrl() {
+      return { data: null, error: null };
+    },
+    async remove() {
+      return { error: null };
+    },
+    async upload() {
+      return { data: null, error: new Error("Uploads are stubbed here.") };
+    },
+  };
+  return api as unknown as AttachmentsApi;
+}
