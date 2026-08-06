@@ -51,6 +51,20 @@ export function registerTools(
   // process clock is UTC on the hosted transport. See ../clock.ts.
   const clock = createClock(supabase, userId);
 
+  /**
+   * Bring statuses up to date before a read, so an MCP client sees the same
+   * list the apps do. If the user has status↔schedule sync switched on, a task
+   * whose scheduled day arrived overnight is still sitting at its old status
+   * until *something* sweeps — and an agent asking "what's next?" is exactly
+   * the caller that would be misled by it. A no-op (and a single early return)
+   * when the setting is off, which is the default.
+   */
+  const freshenStatuses = async () => {
+    await tasks.syncScheduledToStatus().catch(() => {
+      // Reporting the list matters more than syncing it.
+    });
+  };
+
   server.tool(
     "list_tasks",
     `List tasks with optional filters for status, project, priority, date windows, and search. ${DATE_MODEL} ` +
@@ -78,6 +92,7 @@ export function registerTools(
       limit: z.number().int().positive().max(100).default(50),
     },
     async (params) => {
+      await freshenStatuses();
       const [{ data, error }, { todayISO, timezone }] = await Promise.all([
         tasks.list({ ...params, offset: 0 }),
         clock.now(),
@@ -282,6 +297,7 @@ export function registerTools(
         ),
     },
     async ({ start_date, days, include_overdue }) => {
+      await freshenStatuses();
       const { todayISO, timezone } = await clock.now();
       const startISO = start_date ?? todayISO;
       const endISO = addDaysISO(startISO, days - 1);
@@ -320,6 +336,7 @@ export function registerTools(
       "For 'what do I have on today', call get_agenda instead.",
     {},
     async () => {
+      await freshenStatuses();
       const [{ data: allTasks, error }, { todayISO, timezone }] =
         await Promise.all([
           tasks.list({ limit: 100, offset: 0 }),

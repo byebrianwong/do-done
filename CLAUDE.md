@@ -31,6 +31,45 @@ and does *not* follow a column rename. Display configs persisted under the old
 `packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
 well as the DB, so SQL alone could not have reached them.
 
+## Status ↔ schedule auto-sync
+
+An opt-in rule (two independent halves, both off by default) that keeps a
+task's status and its `scheduled_date` from drifting apart. Settings live on
+`user_preferences` (`status_sync_*`); the rules are pure functions in
+`packages/shared/src/status-sync.ts`.
+
+- **promote** — a task scheduled on or before the *horizon* moves up to
+  `status_sync_status`. Never moves a task backwards, so `in_progress`, `done`
+  and `cancelled` are untouched. Overdue counts as inside the horizon.
+- **backfill** — a task set to `status_sync_status` *or past it* gets its
+  `scheduled_date` set to the horizon, when it had none or had one further out.
+
+The horizon is stored in both representations at once — `_horizon_days` and
+`_horizon_key` — with `_horizon_kind` selecting the live one, so switching
+modes in the settings UI remembers the other and neither column is ever null.
+
+**Both halves are applied in `TasksApi.create`/`update`**, not in the apps —
+that's the one door web, mobile and MCP all write through, and it folds the
+rule into the *same* UPDATE rather than chasing it with a second write. The
+settings are read once per instance and cached for a minute
+(`invalidateStatusSyncCache()` after saving them).
+
+The promote half also has to fire when *no write happens* — a task whose
+scheduled day simply arrived. `TasksApi.syncScheduledToStatus()` is that sweep:
+one filtered UPDATE, idempotent, a no-op when the feature is off. It's driven
+from `StatusSyncRunner` (web app layout), `startStatusSyncSweeps()` (mobile
+`_layout`, on resume), and ahead of the MCP read tools.
+
+Two precedence rules that look arbitrary but aren't: an explicit
+`scheduled_date` in the same write always beats backfill, and an explicit
+`status` does **not** exempt a row from promote. Demoting a near-scheduled task
+snaps straight back, which reads as the rule enforcing itself — letting the
+write through would only defer it to the next sweep, minutes later and with no
+visible cause.
+
+"Today" is resolved through `user_preferences.timezone`, never the process
+clock — see the timezone note under Dates above.
+
 ## Architecture
 
 ```

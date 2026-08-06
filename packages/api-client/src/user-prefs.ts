@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { UserPreferences } from "@do-done/shared";
+import type { UpdateStatusSyncInput, UserPreferences } from "@do-done/shared";
 
 // Subset writable via the pet settings panel.
 export interface PetSettingsPatch {
@@ -128,6 +128,18 @@ export class UserPrefsApi {
       { hidden_calendar_ids: hiddenIds },
       "updateHiddenCalendars"
     );
+  }
+
+  /**
+   * Update the status ↔ schedule auto-sync settings. Accepts any subset, so
+   * the settings UI can write one switch at a time. Seeds a defaults row if
+   * none exists yet.
+   */
+  async updateStatusSync(
+    patch: UpdateStatusSyncInput
+  ): Promise<{ data: UserPreferences | null; error: Error | null }> {
+    if (Object.keys(patch).length === 0) return this.get();
+    return this.patchPrefs({ ...patch }, "UserPrefsApi.updateStatusSync");
   }
 
   /**

@@ -191,6 +191,11 @@ export default function SettingsScreen() {
           label="Saved places"
           onPress={() => router.push('/locations' as never)}
         />
+        <SettingsRow
+          icon="sync-outline"
+          label="Status and schedule"
+          onPress={() => router.push('/status-sync' as never)}
+        />
       </View>
 
       <Text style={styles.sectionHeader}>Calendar Integration</Text>

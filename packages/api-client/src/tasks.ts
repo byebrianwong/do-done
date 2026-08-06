@@ -5,9 +5,20 @@ import type {
   UpdateTaskInput,
   TaskFilterInput,
   PetEventActor,
+  StatusSyncSettings,
   TrackedField,
 } from "@do-done/shared";
-import { TRACKED_FIELDS, todayLocalISO, addDaysLocalISO } from "@do-done/shared";
+import {
+  TRACKED_FIELDS,
+  todayLocalISO,
+  addDaysLocalISO,
+  todayISOInZone,
+  isStatusSyncActive,
+  parseStatusSyncSettings,
+  resolveStatusSyncHorizon,
+  statusSyncPatch,
+  statusesBelow,
+} from "@do-done/shared";
 
 /**
  * Map legacy DB status values to the new enum so old rows render correctly
@@ -68,11 +79,132 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
+/**
+ * How long a loaded copy of the status-sync settings is reused. The settings
+ * change about once ever; the horizon they resolve to changes at midnight. A
+ * minute is short enough that toggling the switch in Settings takes effect
+ * before you can navigate back to your list, and long enough that a burst of
+ * autosave writes costs one preferences read rather than one each.
+ */
+const STATUS_SYNC_TTL_MS = 60_000;
+
+/** Resolved sync context for one moment in time. */
+interface StatusSyncContext {
+  settings: StatusSyncSettings;
+  horizonISO: string;
+}
+
 export class TasksApi {
   constructor(
     private supabase: SupabaseClient,
     private userId?: string
   ) {}
+
+  // ── Status ↔ schedule auto-sync ──────────────────────
+  //
+  // Both halves of the rule are applied here rather than in the apps, because
+  // this is the one door every surface writes through — web, mobile, and MCP.
+  // See packages/shared/src/status-sync.ts for what the rules are.
+
+  private syncCache: { at: number; ctx: StatusSyncContext | null } | null = null;
+  private syncInFlight: Promise<StatusSyncContext | null> | null = null;
+
+  /**
+   * The user's sync settings and the horizon they currently resolve to, or
+   * null when the feature is off (the default) or unreadable. Cached briefly;
+   * concurrent callers share one read.
+   *
+   * "Today" is resolved through the preferences timezone, not the process
+   * clock — a deployed web server runs in UTC, and a horizon computed there is
+   * a day out either side of the user's midnight.
+   */
+  private async statusSyncContext(): Promise<StatusSyncContext | null> {
+    const now = Date.now();
+    if (this.syncCache && now - this.syncCache.at < STATUS_SYNC_TTL_MS) {
+      return this.syncCache.ctx;
+    }
+    if (this.syncInFlight) return this.syncInFlight;
+
+    this.syncInFlight = (async () => {
+      try {
+        // select("*"), not named columns: on a deploy that lands before its
+        // migration, naming the sync columns would error the whole read.
+        let query = this.supabase.from("user_preferences").select("*").limit(1);
+        if (this.userId) query = query.eq("user_id", this.userId);
+        const { data, error } = await query.maybeSingle();
+        if (error) return null;
+        const settings = parseStatusSyncSettings(data);
+        if (!isStatusSyncActive(settings)) return null;
+        const timezone =
+          (data as { timezone?: string } | null)?.timezone ?? undefined;
+        const todayISO = timezone
+          ? todayISOInZone(timezone)
+          : todayLocalISO();
+        return { settings, horizonISO: resolveStatusSyncHorizon(settings, todayISO) };
+      } catch {
+        // A preferences read that fails must never fail the task write. The
+        // rule simply doesn't apply on this pass.
+        return null;
+      }
+    })();
+
+    try {
+      const ctx = await this.syncInFlight;
+      this.syncCache = { at: Date.now(), ctx };
+      return ctx;
+    } finally {
+      this.syncInFlight = null;
+    }
+  }
+
+  /**
+   * Drop the cached settings so the next write re-reads them. Call it after
+   * saving the sync settings — on mobile this instance is a long-lived
+   * singleton, and without this the switch you just flipped would sit inert
+   * for up to a minute.
+   */
+  invalidateStatusSyncCache(): void {
+    this.syncCache = null;
+  }
+
+  /**
+   * Re-apply the date→status half across the user's whole list — the pass that
+   * catches tasks whose scheduled date didn't move but whose *day* arrived.
+   * Idempotent, and one round trip: a single filtered UPDATE, not a fan-out.
+   *
+   * Call it where the app can notice a new day: page load on web, foreground
+   * on mobile. Returns the number of rows moved so the caller can decide
+   * whether a refetch is worth it.
+   */
+  async syncScheduledToStatus(): Promise<{
+    updated: number;
+    error: Error | null;
+  }> {
+    const ctx = await this.statusSyncContext();
+    if (!ctx || !ctx.settings.status_sync_promote) {
+      return { updated: 0, error: null };
+    }
+    const target = ctx.settings.status_sync_status;
+    const from = statusesBelow(target);
+    if (from.length === 0) return { updated: 0, error: null };
+
+    let query = this.supabase
+      .from("tasks")
+      .update({ status: target })
+      .lte("scheduled_date", ctx.horizonISO)
+      .in("status", from);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    // `scheduled_date <= horizon` is already false for NULL (SQL three-valued
+    // logic), so undated tasks are excluded — stated explicitly because that
+    // exclusion is load-bearing, not incidental.
+    const { data, error } = await query
+      .not("scheduled_date", "is", null)
+      .select("id");
+    return {
+      updated: (data as { id: string }[] | null)?.length ?? 0,
+      error: error as Error | null,
+    };
+  }
 
   async list(filters?: TaskFilterInput): Promise<{ data: Task[]; error: Error | null }> {
     let query = this.supabase.from("tasks").select("*");
@@ -127,6 +259,23 @@ export class TasksApi {
       const { data: parent } = await this.getById(input.parent_task_id);
       if (parent?.project_id) row.project_id = parent.project_id;
     }
+    // Keep status and schedule in step from the first write, so a task created
+    // as "Next" arrives already dated rather than being fixed up a beat later.
+    const syncCtx = await this.statusSyncContext();
+    if (syncCtx) {
+      Object.assign(
+        row,
+        statusSyncPatch({
+          prior: null,
+          patch: {
+            status: input.status,
+            scheduled_date: input.scheduled_date ?? undefined,
+          },
+          settings: syncCtx.settings,
+          horizonISO: syncCtx.horizonISO,
+        })
+      );
+    }
     const { data, error } = await this.supabase
       .from("tasks")
       .insert(row)
@@ -174,6 +323,26 @@ export class TasksApi {
       input.status === "done" && priorStatus !== "done";
     if (isCompletionTransition) {
       patch.completed_at = new Date().toISOString();
+    }
+
+    // Status ↔ schedule auto-sync. Folded into the same UPDATE rather than
+    // chased with a second write, so the row the caller gets back is already
+    // the row the rule wants — no flicker, and no window where a concurrent
+    // read sees the half-synced state.
+    const syncCtx = await this.statusSyncContext();
+    if (syncCtx && prior) {
+      Object.assign(
+        patch,
+        statusSyncPatch({
+          prior: { status: prior.status, scheduled_date: prior.scheduled_date },
+          patch: {
+            status: input.status,
+            scheduled_date: input.scheduled_date,
+          },
+          settings: syncCtx.settings,
+          horizonISO: syncCtx.horizonISO,
+        })
+      );
     }
 
     const { data, error } = await this.supabase
