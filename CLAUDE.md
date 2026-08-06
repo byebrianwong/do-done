@@ -170,6 +170,48 @@ The auth proxy carries the destination through sign-in (`?next=`), so a task
 link handed to someone signed out survives the login round-trip; `safeNext` on
 the login page is what stops that being an open redirector.
 
+## Click feedback (web)
+
+**Every route under `(app)` needs a `loading.tsx`, and it is not optional
+polish.** These routes are all dynamic server components — auth comes from
+cookies, the rows from Supabase — so without a fallback Next.js skips
+prefetching them *and* blocks the entire client-side transition until the server
+render lands. Clicking a sidebar item changed nothing on screen for a second or
+two: not the rows, not even the active pill, because `usePathname()` only
+updates once the navigation commits. There was no mechanism producing feedback
+at all. The fallback is what lets the transition commit on the click; it also
+enables partial prefetching, so most navigations then land instantly.
+
+Feedback is three layers, and each covers what the one before it can't:
+
+1. **`active:` styling** on every sidebar row (`PRESS` in `sidebar-nav.tsx`) —
+   CSS-only, fires on pointer-down, before React or the network. Note the
+   explicit short duration: Tailwind's default 150ms is tuned for hover and
+   reads as lag on a press. Project rows get the background but **not** the
+   scale — they're also dnd-kit drag handles, and an inline `transform` can't
+   share the property with a utility class.
+2. **The active pill moving**, the moment the transition commits — which the
+   `loading.tsx` files are what make immediate.
+3. **`NavPendingDot`** (`useLinkStatus`) — only for when the shell hasn't
+   prefetched and the click really is waiting on the network.
+
+Both 1 and 3, and the skeletons themselves, start invisible and fade in on a
+~140ms delay (`.dd-skeleton`, `.dd-link-pending` in `globals.css`): a navigation
+faster than that shows no placeholder at all, rather than a flash. The skeletons
+carry the **real page title in the real type** and the geometry of a real task
+row, so the destination is readable on the first frame and the swap is a fill-in
+rather than a jump — which is also why `PageSkeleton` takes `maxWidth`
+(`/calendar` is `max-w-7xl`, everything else `max-w-3xl`).
+
+One CSS trap, already paid for: **don't drive the pending dot with a fade-in
+animation plus a pulse animation.** Two animations on `opacity` means the later
+one wins outright, and a pulse whose `0%`/`100%` frames are implicit resolves
+them to the *underlying* opacity — 0 here. The dot pulsed between invisible and
+almost invisible. It is one keyframe set whose first quarter is the fade-in.
+
+`app-shell.test.tsx` mocks `next/link`, so that mock has to export
+`useLinkStatus` or every test in the file dies on the nav rows.
+
 ## Cold start (mobile)
 
 **"Nothing scheduled today" is an answer, and the app must not give it before it

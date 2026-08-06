@@ -21,16 +21,23 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Project } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
+import { NavPendingDot } from "./nav-pending-dot";
 
 export interface SortableProjectListProps {
   projects: Project[];
 }
 
+/**
+ * Note the missing `active:scale-*` that the fixed nav items in `SidebarNav`
+ * carry: these rows are also drag handles, and dnd-kit drives them with an
+ * inline `transform` that a utility class can't share the property with. The
+ * press background alone is the acknowledgement here.
+ */
 function rowClassName(isActive: boolean): string {
-  return `group/prow flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+  return `group/prow flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-[background-color,color] duration-75 ${
     isActive
       ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 active:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 dark:active:bg-neutral-700"
   }`;
 }
 
@@ -59,6 +66,7 @@ function ProjectRowContent({ project }: { project: Project }) {
           <circle cx="13" cy="14" r="1.5" />
         </svg>
       </span>
+      <NavPendingDot />
     </>
   );
 }
