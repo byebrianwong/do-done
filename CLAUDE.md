@@ -203,6 +203,57 @@ lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
 event resolve independently, so clearing after the fact is a race the previous
 user's rows can win.
 
+## The task editor sheet (mobile)
+
+**Everything under the finger runs on the UI thread.** The sheet's rise, its
+drag and the backdrop's dimming are one Reanimated shared value — `translateY`,
+in pixels below the sheet's resting place — written by worklet gesture handlers
+and read by two `useAnimatedStyle`s. Nothing about the motion crosses into JS
+until the sheet is off-screen and there is a close callback to fire.
+
+It was a plain `Animated.Value` on `useNativeDriver: false` with a
+`runOnJS(true)` pan, which put every frame of both on the JS thread — the same
+thread the editor mounts on. Opening a task fires three requests, lays out a
+month grid, and used to mount six nested `Modal`s, all inside the 280ms the open
+animation had to run in. The animation lost, every time.
+
+- `lib/sheet-motion.ts` holds the policy as pure worklets, tested in node like
+  the rest of `lib/`: when a release dismisses (a *projected* rest position, so
+  a short fast flick counts and a flick back up never does), how long the
+  closing sweep takes (velocity-matched, so a flicked sheet doesn't decelerate
+  the instant the finger leaves), and the backdrop's opacity for a position.
+  The `'worklet'` directives are what let those ship to the UI thread;
+  `babel-preset-expo` adds `react-native-worklets/plugin` on its own, and under
+  vitest the directive is an inert string.
+- **`SHEET_HEIGHT_RATIO` and `styles.ghRoot.height` have to stay in step.** The
+  slide is measured against the ratio, so a sheet taller than its travel never
+  fully leaves the screen.
+- **The height a worklet reads is a `SharedValue`, not a ref.** Reanimated
+  copies captured values into the UI runtime, so `ref.current` read from the
+  memoised gesture is whatever it was on the first render, forever.
+- **The backdrop is derived from the sheet, never animated alongside it.** It
+  was a flat `rgba(17,24,39,0.4)` under `animationType="none"` — the room went
+  dark in a single frame with the sheet still off the bottom of the screen, and
+  came back only after it had finished leaving. Deriving it is also what makes
+  it follow a *drag*: half dismissed is half lit. The style's colour is opaque
+  now; putting the alpha back would multiply the two.
+- **The body owns the drag until it has nothing left to scroll.**
+  `activeOffsetY(12)` claims downward drags, which is also how you scroll a list
+  back up, so the pan samples the ScrollView's offset in `onBegin` and stands
+  down unless it was already at the top. Without that the editor lurched toward
+  the floor instead of scrolling.
+
+Two render-cost rules, both downstream of the fact that **the editor re-renders
+on every keystroke in the title** — autosave holds the task in React state:
+
+- `ScheduleCalendar` and `SubtasksSection` are `React.memo`ed and their props
+  kept stable for it. `SubtasksSection` takes `parentId`/`parentDepth` rather
+  than the parent `Task` for exactly this reason: a `Task` prop is a new object
+  on every keystroke and would defeat the memo on the renders it exists to skip.
+- Nested pickers are mounted only while they are up. Six of them lived
+  permanently inside every open editor, each rebuilding its option rows per
+  keystroke and holding a host view it never showed.
+
 ## Design System
 
 - Accent: indigo-500 (#6366f1)
