@@ -4,8 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_PROJECT_COLORS } from "@do-done/shared";
 import type { Project } from "@do-done/shared";
-import { ProjectsApi } from "@do-done/api-client";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { getClientProjectsApi } from "@/lib/supabase/projects-client";
 
 interface ProjectFormProps {
   project?: Project; // present = edit mode, absent = create mode
@@ -28,11 +27,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
     setSaving(true);
     setError(null);
 
-    const supabase = createClientSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const projects = new ProjectsApi(supabase, user?.id);
+    const projects = await getClientProjectsApi();
 
     const result = project
       ? await projects.update(project.id, {
@@ -63,11 +58,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
       )
     )
       return;
-    const supabase = createClientSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const projects = new ProjectsApi(supabase, user?.id);
+    const projects = await getClientProjectsApi();
     const { error } = await projects.delete(project.id);
     if (error) {
       setError(error.message);

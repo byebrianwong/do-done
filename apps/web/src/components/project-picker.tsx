@@ -14,8 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_PROJECT_COLORS } from "@do-done/shared";
 import type { Project } from "@do-done/shared";
-import { ProjectsApi } from "@do-done/api-client";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { getProjectsApiFor } from "@/lib/supabase/projects-client";
 
 export function ProjectPickerPopover({
   projects,
@@ -37,7 +36,7 @@ export function ProjectPickerPopover({
   align?: "left" | "right";
 }) {
   const projectsApi = useMemo(
-    () => new ProjectsApi(createClientSupabase(), userId),
+    () => getProjectsApiFor(userId),
     [userId]
   );
 
