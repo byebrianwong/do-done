@@ -26,6 +26,93 @@ body {
 }
 
 /*
+ * Nav pending dot (see components/nav-pending-dot.tsx).
+ *
+ * The last resort in the feedback chain: `loading.tsx` makes a click commit
+ * immediately *once the route shell is prefetched*, and on a slow connection it
+ * may not be. This is what fills that window.
+ *
+ * Fixed size and always mounted, so toggling it can't shift the row. Like the
+ * skeleton it starts invisible and fades in on a delay — a click that commits
+ * promptly never draws a dot at all.
+ */
+/*
+ * One animation, not a fade-in plus a pulse. Two animations touching `opacity`
+ * means the later one wins outright, and a pulse whose 0%/100% is implicit
+ * resolves those frames to the *underlying* opacity — which is 0 here. The dot
+ * pulsed between invisible and nearly invisible. So the fade-in is the first
+ * quarter of the pulse instead, and `both` fill-mode is what holds frame 0
+ * (opacity 0) through the delay.
+ */
+@keyframes dd-pending-pulse {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.dd-link-pending {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.dd-link-pending[data-pending="true"] {
+  visibility: visible;
+  animation: dd-pending-pulse 1.1s ease-in-out 140ms infinite both;
+}
+
+/* Still delayed, still invisible for fast navigations — just no throb. */
+@media (prefers-reduced-motion: reduce) {
+  .dd-link-pending[data-pending="true"] {
+    animation: none;
+    opacity: 0.55;
+    transition: opacity 1ms linear 140ms;
+  }
+}
+
+/*
+ * Route-transition skeletons (see components/page-skeleton.tsx).
+ *
+ * Every `(app)` route is a dynamic server component, so a `loading.tsx` is what
+ * makes a nav click commit immediately instead of hanging on the server render.
+ * The cost of that is a fallback that also shows for navigations too fast to
+ * need one, which reads as a flicker.
+ *
+ * So the skeleton starts invisible and only fades in after `--dd-skeleton-delay`.
+ * A transition that resolves inside that window swaps straight from the old page
+ * to the new one and the skeleton is never seen; a slow one gets a placeholder
+ * that arrives as a fade rather than a flash. `both` fill-mode is what holds
+ * opacity at 0 during the delay.
+ */
+@keyframes dd-skeleton-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.dd-skeleton {
+  opacity: 0;
+  animation: dd-skeleton-in 220ms ease-out var(--dd-skeleton-delay, 140ms) both;
+}
+
+/* The pulse is ambient; the layout itself is the message. */
+@media (prefers-reduced-motion: reduce) {
+  .dd-skeleton {
+    animation-duration: 1ms;
+    animation-delay: var(--dd-skeleton-delay, 140ms);
+  }
+
+  .dd-skeleton .animate-pulse {
+    animation: none;
+  }
+}
+
+/*
  * Date-span wave — a soft band of light that travels from "today" to the task's
  * date across the calendar grids.
  *

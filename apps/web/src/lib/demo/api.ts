@@ -281,6 +281,22 @@ class DemoTasksApiImpl {
     return this.getDatedBetween(addDaysLocalISO(-1), addDaysLocalISO(days));
   }
 
+  /**
+   * Status↔schedule auto-sync is a `user_preferences` feature, and the sandbox
+   * has no preferences row — which is exactly the "both halves off" state the
+   * real API defaults to, so these are the real no-op answers rather than
+   * stubs. They exist at all because `api.test.ts` requires the double to
+   * cover every method on `TasksApi`: `StatusSyncRunner` reaches for
+   * `syncScheduledToStatus` through `getClientTasksApi()`, and the day
+   * anything in the demo tree mounts it, a missing method here is a runtime
+   * crash no type-checker would have caught.
+   */
+  invalidateStatusSyncCache(): void {}
+
+  async syncScheduledToStatus() {
+    return { updated: 0, error: null };
+  }
+
   async getDatedBetween(startISO: string, endISO: string) {
     return ok(
       this.tasks

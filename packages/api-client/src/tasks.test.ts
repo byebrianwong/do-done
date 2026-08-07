@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Task } from "@do-done/shared";
-import { addDaysLocalISO, todayLocalISO } from "@do-done/shared";
+import {
+  addDaysLocalISO,
+  parseStatusSyncSettings,
+  resolveStatusSyncHorizon,
+  todayISOInZone,
+  todayLocalISO,
+} from "@do-done/shared";
 import { TasksApi } from "./tasks.js";
 
 // Pet feeding is a best-effort side-effect of create/update; stub it out so the
@@ -338,5 +344,242 @@ describe("TasksApi.bulkUpdate", () => {
     expect(peak()).toBeLessThanOrEqual(8);
     // Still concurrent, just capped — not serialized one-at-a-time.
     expect(peak()).toBeGreaterThan(1);
+  });
+});
+
+// ── status ↔ schedule auto-sync ────────────────────────────────────────
+
+/**
+ * A stub that serves a `user_preferences` row alongside the task read/write
+ * pair, so the sync rules have settings to run against. Captures the patch
+ * that actually reached the tasks table — the point of these tests is that the
+ * rule is folded into the *same* UPDATE, not chased with a second write.
+ */
+function makeSyncStub(prefs: Record<string, unknown> | null, prior: Task) {
+  const updates: Record<string, unknown>[] = [];
+  const inserts: Record<string, unknown>[] = [];
+  const bulkFilters: { method: string; args: unknown[] }[] = [];
+  let prefsReads = 0;
+
+  const supabase = {
+    from(table: string) {
+      const state = {
+        op: "select" as "select" | "update" | "insert",
+        patch: null as Record<string, unknown> | null,
+        filtered: false,
+      };
+      const result = () => {
+        if (table === "user_preferences") {
+          prefsReads++;
+          return { data: prefs, error: null };
+        }
+        if (state.op === "insert") {
+          return { data: { id: "new-task-id", ...state.patch }, error: null };
+        }
+        if (state.op === "update") {
+          return { data: { ...prior, ...state.patch }, error: null };
+        }
+        return { data: prior, error: null };
+      };
+      const proxy: unknown = new Proxy(
+        {},
+        {
+          get(_t, prop: string) {
+            if (prop === "update" || prop === "insert") {
+              return (patch: Record<string, unknown>) => {
+                state.op = prop as "update" | "insert";
+                state.patch = patch;
+                // Recorded on call, not on resolution: the bulk sweep awaits
+                // the builder directly and never reaches .single().
+                (prop === "insert" ? inserts : updates).push(patch);
+                return proxy;
+              };
+            }
+            if (prop === "single" || prop === "maybeSingle") {
+              return async () => result();
+            }
+            if (prop === "then") {
+              // The bulk sweep awaits the builder directly rather than calling
+              // .single(); resolve it the same way.
+              return (resolve: (v: unknown) => unknown) =>
+                resolve({ data: [{ id: "a" }, { id: "b" }], error: null });
+            }
+            return (...args: unknown[]) => {
+              if (table === "tasks" && state.op === "update") {
+                bulkFilters.push({ method: prop, args });
+              }
+              return proxy;
+            };
+          },
+        }
+      );
+      return proxy;
+    },
+  };
+  return {
+    supabase,
+    updates,
+    inserts,
+    bulkFilters,
+    prefsReads: () => prefsReads,
+  };
+}
+
+const SYNC_ON = {
+  timezone: "UTC",
+  status_sync_promote: true,
+  status_sync_backfill: true,
+  status_sync_status: "next",
+  status_sync_horizon_kind: "days",
+  status_sync_horizon_days: 3,
+  status_sync_horizon_key: "this_week",
+};
+
+/**
+ * The horizon SYNC_ON resolves to right now. Derived the same way the code
+ * derives it — through the preferences timezone, not the machine clock, which
+ * is the whole point and is a day out from `todayLocalISO()` for half of each
+ * day in the Americas.
+ */
+const horizon = () =>
+  resolveStatusSyncHorizon(parseStatusSyncSettings(SYNC_ON), todayISOInZone("UTC"));
+
+describe("TasksApi — status ↔ schedule sync", () => {
+  it("dates a task in the same write that moves it to the target status", async () => {
+    const { supabase, updates } = makeSyncStub(
+      SYNC_ON,
+      makeTask({ status: "not_started", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("t1", { status: "next" });
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      status: "next",
+      scheduled_date: horizon(),
+    });
+  });
+
+  it("promotes a task in the same write that gives it a near date", async () => {
+    const { supabase, updates } = makeSyncStub(
+      SYNC_ON,
+      makeTask({ status: "not_started", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("t1", { scheduled_date: todayLocalISO() });
+
+    expect(updates[0]).toMatchObject({ status: "next" });
+  });
+
+  it("leaves writes alone when the feature is off", async () => {
+    const { supabase, updates } = makeSyncStub(
+      { timezone: "UTC" },
+      makeTask({ status: "not_started", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("t1", { status: "next" });
+
+    expect(updates[0]).toEqual({ status: "next" });
+  });
+
+  it("survives a preferences row that predates the migration", async () => {
+    const { supabase, updates } = makeSyncStub(
+      null,
+      makeTask({ status: "not_started", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { error } = await api.update("t1", { status: "next" });
+
+    expect(error).toBeNull();
+    expect(updates[0]).toEqual({ status: "next" });
+  });
+
+  it("still stamps completed_at, and never re-dates a task on the way to done", async () => {
+    const { supabase, updates } = makeSyncStub(
+      SYNC_ON,
+      makeTask({ status: "next", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.complete("t1");
+
+    expect(updates[0].status).toBe("done");
+    expect(updates[0].completed_at).toEqual(expect.any(String));
+    expect(updates[0].scheduled_date).toBeUndefined();
+  });
+
+  it("applies the rule to a newly created task too", async () => {
+    const { supabase, inserts } = makeSyncStub(SYNC_ON, makeTask());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.create({ title: "Ship it", status: "next" });
+
+    expect(inserts[0]).toMatchObject({ scheduled_date: horizon() });
+  });
+
+  it("reads preferences once for a burst of writes", async () => {
+    const { supabase, prefsReads } = makeSyncStub(
+      SYNC_ON,
+      makeTask({ status: "not_started", scheduled_date: null })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await Promise.all([
+      api.update("t1", { title: "a" }),
+      api.update("t2", { title: "b" }),
+      api.update("t3", { title: "c" }),
+    ]);
+
+    // Concurrent callers share one read; the cache covers the rest.
+    expect(prefsReads()).toBe(1);
+  });
+});
+
+describe("TasksApi.syncScheduledToStatus", () => {
+  it("moves every near-dated task below the target in one filtered UPDATE", async () => {
+    const { supabase, updates, bulkFilters } = makeSyncStub(SYNC_ON, makeTask());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { updated, error } = await api.syncScheduledToStatus();
+
+    expect(error).toBeNull();
+    expect(updated).toBe(2);
+    expect(updates).toEqual([{ status: "next" }]);
+
+    const lte = bulkFilters.find((c) => c.method === "lte");
+    expect(lte?.args).toEqual(["scheduled_date", horizon()]);
+    // Only statuses *below* the target — the sweep must never walk a task back
+    // from In progress or resurrect a done one.
+    const inFilter = bulkFilters.find((c) => c.method === "in");
+    expect(inFilter?.args[1]).toEqual(["inbox", "later", "not_started"]);
+    // Undated tasks are excluded explicitly, not just by SQL null semantics.
+    const notNull = bulkFilters.find((c) => c.method === "not");
+    expect(notNull?.args).toEqual(["scheduled_date", "is", null]);
+  });
+
+  it("does nothing when only the backfill half is on", async () => {
+    const { supabase, updates } = makeSyncStub(
+      { ...SYNC_ON, status_sync_promote: false },
+      makeTask()
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { updated } = await api.syncScheduledToStatus();
+
+    expect(updated).toBe(0);
+    expect(updates).toEqual([]);
   });
 });

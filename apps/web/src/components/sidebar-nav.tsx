@@ -5,7 +5,18 @@ import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
 import { openQuickAdd } from "@/lib/quick-add-events";
 import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
+import { NavPendingDot } from "./nav-pending-dot";
 import { SortableProjectList } from "./sortable-project-list";
+
+/**
+ * Pressed state, shared by every clickable row in the sidebar.
+ *
+ * This is the only feedback that costs nothing to produce: it lands on
+ * pointer-down, before React, the router or the network are involved. The
+ * short, explicit duration is the point — Tailwind's default 150ms on a
+ * `transition-colors` is tuned for hover, and reads as lag on a press.
+ */
+const PRESS = "transition-[background-color,color,transform] duration-75 active:scale-[0.985]";
 
 const NAV_ITEMS = [
   {
@@ -167,7 +178,7 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
         type="button"
         onClick={() => openQuickAdd()}
         title="New task (q)"
-        className="mb-2 flex w-full items-center gap-3 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600"
+        className={`mb-2 flex w-full items-center gap-3 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-600 active:bg-indigo-700 ${PRESS}`}
       >
         <svg
           className="h-4 w-4"
@@ -193,14 +204,15 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
           <Link
             key={item.href}
             href={href}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${PRESS} ${
               isActive
                 ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-                : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 active:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 dark:active:bg-neutral-700"
             }`}
           >
             {item.icon}
             {item.label}
+            <NavPendingDot />
           </Link>
         );
       })}

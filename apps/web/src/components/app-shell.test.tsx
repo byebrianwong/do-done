@@ -42,6 +42,9 @@ vi.mock("next/link", () => ({
       {children}
     </a>
   ),
+  // The nav rows render a NavPendingDot, which reads the enclosing Link's
+  // status. There is no router here to be pending on.
+  useLinkStatus: () => ({ pending: false }),
 }));
 
 function renderShell(props?: { pipHidden?: boolean }) {

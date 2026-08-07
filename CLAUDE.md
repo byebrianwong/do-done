@@ -31,6 +31,45 @@ and does *not* follow a column rename. Display configs persisted under the old
 `packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
 well as the DB, so SQL alone could not have reached them.
 
+## Status ↔ schedule auto-sync
+
+An opt-in rule (two independent halves, both off by default) that keeps a
+task's status and its `scheduled_date` from drifting apart. Settings live on
+`user_preferences` (`status_sync_*`); the rules are pure functions in
+`packages/shared/src/status-sync.ts`.
+
+- **promote** — a task scheduled on or before the *horizon* moves up to
+  `status_sync_status`. Never moves a task backwards, so `in_progress`, `done`
+  and `cancelled` are untouched. Overdue counts as inside the horizon.
+- **backfill** — a task set to `status_sync_status` *or past it* gets its
+  `scheduled_date` set to the horizon, when it had none or had one further out.
+
+The horizon is stored in both representations at once — `_horizon_days` and
+`_horizon_key` — with `_horizon_kind` selecting the live one, so switching
+modes in the settings UI remembers the other and neither column is ever null.
+
+**Both halves are applied in `TasksApi.create`/`update`**, not in the apps —
+that's the one door web, mobile and MCP all write through, and it folds the
+rule into the *same* UPDATE rather than chasing it with a second write. The
+settings are read once per instance and cached for a minute
+(`invalidateStatusSyncCache()` after saving them).
+
+The promote half also has to fire when *no write happens* — a task whose
+scheduled day simply arrived. `TasksApi.syncScheduledToStatus()` is that sweep:
+one filtered UPDATE, idempotent, a no-op when the feature is off. It's driven
+from `StatusSyncRunner` (web app layout), `startStatusSyncSweeps()` (mobile
+`_layout`, on resume), and ahead of the MCP read tools.
+
+Two precedence rules that look arbitrary but aren't: an explicit
+`scheduled_date` in the same write always beats backfill, and an explicit
+`status` does **not** exempt a row from promote. Demoting a near-scheduled task
+snaps straight back, which reads as the rule enforcing itself — letting the
+write through would only defer it to the next sweep, minutes later and with no
+visible cause.
+
+"Today" is resolved through `user_preferences.timezone`, never the process
+clock — see the timezone note under Dates above.
+
 ## Architecture
 
 ```
@@ -222,6 +261,48 @@ throwing.
 The auth proxy carries the destination through sign-in (`?next=`), so a task
 link handed to someone signed out survives the login round-trip; `safeNext` on
 the login page is what stops that being an open redirector.
+
+## Click feedback (web)
+
+**Every route under `(app)` needs a `loading.tsx`, and it is not optional
+polish.** These routes are all dynamic server components — auth comes from
+cookies, the rows from Supabase — so without a fallback Next.js skips
+prefetching them *and* blocks the entire client-side transition until the server
+render lands. Clicking a sidebar item changed nothing on screen for a second or
+two: not the rows, not even the active pill, because `usePathname()` only
+updates once the navigation commits. There was no mechanism producing feedback
+at all. The fallback is what lets the transition commit on the click; it also
+enables partial prefetching, so most navigations then land instantly.
+
+Feedback is three layers, and each covers what the one before it can't:
+
+1. **`active:` styling** on every sidebar row (`PRESS` in `sidebar-nav.tsx`) —
+   CSS-only, fires on pointer-down, before React or the network. Note the
+   explicit short duration: Tailwind's default 150ms is tuned for hover and
+   reads as lag on a press. Project rows get the background but **not** the
+   scale — they're also dnd-kit drag handles, and an inline `transform` can't
+   share the property with a utility class.
+2. **The active pill moving**, the moment the transition commits — which the
+   `loading.tsx` files are what make immediate.
+3. **`NavPendingDot`** (`useLinkStatus`) — only for when the shell hasn't
+   prefetched and the click really is waiting on the network.
+
+Both 1 and 3, and the skeletons themselves, start invisible and fade in on a
+~140ms delay (`.dd-skeleton`, `.dd-link-pending` in `globals.css`): a navigation
+faster than that shows no placeholder at all, rather than a flash. The skeletons
+carry the **real page title in the real type** and the geometry of a real task
+row, so the destination is readable on the first frame and the swap is a fill-in
+rather than a jump — which is also why `PageSkeleton` takes `maxWidth`
+(`/calendar` is `max-w-7xl`, everything else `max-w-3xl`).
+
+One CSS trap, already paid for: **don't drive the pending dot with a fade-in
+animation plus a pulse animation.** Two animations on `opacity` means the later
+one wins outright, and a pulse whose `0%`/`100%` frames are implicit resolves
+them to the *underlying* opacity — 0 here. The dot pulsed between invisible and
+almost invisible. It is one keyframe set whose first quarter is the fade-in.
+
+`app-shell.test.tsx` mocks `next/link`, so that mock has to export
+`useLinkStatus` or every test in the file dies on the nav rows.
 
 ## Cold start (mobile)
 

@@ -4,7 +4,11 @@ import type { SupabaseClient } from "@do-done/api-client";
 import { TasksApi, ProjectsApi } from "@do-done/api-client";
 import { generateFocusList, generateWeeklySummary } from "@do-done/task-engine";
 import type { Task } from "@do-done/shared";
-import { TaskStatus, TaskPriority } from "@do-done/shared";
+import {
+  TaskStatus,
+  TaskPriority,
+  TASK_DESCRIPTION_MAX_LENGTH,
+} from "@do-done/shared";
 import { executeOrganize } from "../organize.js";
 import { createClock } from "../clock.js";
 import {
@@ -51,6 +55,20 @@ export function registerTools(
   // process clock is UTC on the hosted transport. See ../clock.ts.
   const clock = createClock(supabase, userId);
 
+  /**
+   * Bring statuses up to date before a read, so an MCP client sees the same
+   * list the apps do. If the user has status↔schedule sync switched on, a task
+   * whose scheduled day arrived overnight is still sitting at its old status
+   * until *something* sweeps — and an agent asking "what's next?" is exactly
+   * the caller that would be misled by it. A no-op (and a single early return)
+   * when the setting is off, which is the default.
+   */
+  const freshenStatuses = async () => {
+    await tasks.syncScheduledToStatus().catch(() => {
+      // Reporting the list matters more than syncing it.
+    });
+  };
+
   server.tool(
     "list_tasks",
     `List tasks with optional filters for status, project, priority, date windows, and search. ${DATE_MODEL} ` +
@@ -78,6 +96,7 @@ export function registerTools(
       limit: z.number().int().positive().max(100).default(50),
     },
     async (params) => {
+      await freshenStatuses();
       const [{ data, error }, { todayISO, timezone }] = await Promise.all([
         tasks.list({ ...params, offset: 0 }),
         clock.now(),
@@ -111,7 +130,7 @@ export function registerTools(
       "project automatically (override by also passing project_id).",
     {
       title: z.string().min(1).max(500),
-      description: z.string().max(5000).optional(),
+      description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).optional(),
       status: z
         .enum(["inbox", "later", "not_started", "next", "in_progress"])
         .optional(),
@@ -164,7 +183,7 @@ export function registerTools(
     {
       id: z.string().uuid(),
       title: z.string().min(1).max(500).optional(),
-      description: z.string().max(5000).nullable().optional(),
+      description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable().optional(),
       status: TaskStatus.optional(),
       priority: TaskPriority.optional(),
       project_id: z.string().uuid().nullable().optional(),
@@ -282,6 +301,7 @@ export function registerTools(
         ),
     },
     async ({ start_date, days, include_overdue }) => {
+      await freshenStatuses();
       const { todayISO, timezone } = await clock.now();
       const startISO = start_date ?? todayISO;
       const endISO = addDaysISO(startISO, days - 1);
@@ -320,6 +340,7 @@ export function registerTools(
       "For 'what do I have on today', call get_agenda instead.",
     {},
     async () => {
+      await freshenStatuses();
       const [{ data: allTasks, error }, { todayISO, timezone }] =
         await Promise.all([
           tasks.list({ limit: 100, offset: 0 }),

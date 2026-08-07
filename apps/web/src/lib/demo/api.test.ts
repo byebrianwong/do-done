@@ -17,7 +17,7 @@ import { DEMO_BASE, isDemoPath } from "./mode";
  * like any other — so internal helpers have to be named to be skipped. Only
  * add to this list something a caller genuinely cannot reach.
  */
-const INTERNAL = new Set(["nextSortOrder"]);
+const INTERNAL = new Set(["nextSortOrder", "statusSyncContext"]);
 
 function methodsOf(proto: object): string[] {
   return Object.getOwnPropertyNames(proto)
