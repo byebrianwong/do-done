@@ -15,6 +15,7 @@ export {
   useAutoSaveTask,
   nextSaveStatus,
   SAVED_FLASH_MS,
+  RETRY_BACKOFF_MS,
 } from "./use-autosave-task.js";
 export type {
   UseAutoSaveTaskResult,

@@ -31,6 +31,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  TASK_DESCRIPTION_MAX_LENGTH,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -1300,37 +1301,84 @@ export function locationReminderLabel(links: TaskLocationLink[]): string {
  * editor: tap the notes to edit, blur to go back to links. Empty notes go
  * straight to the input so the "add notes" affordance still takes one tap.
  */
+// How close to the notes ceiling the character counter starts showing. 2,000
+// chars of warning is a few paragraphs — enough to wrap up a thought rather
+// than have the box stop taking input mid-word.
+const NOTES_COUNTER_THRESHOLD = 2000;
+
 function NotesField({
   value,
   onChange,
+  error,
 }: {
   value: string | null;
   onChange: (next: string | null) => void;
+  /** Why the last save refused these notes, if it did. */
+  error?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const text = value ?? "";
+  const remaining = TASK_DESCRIPTION_MAX_LENGTH - text.length;
+
+  // Shown in both the read and edit views: notes that didn't save are worth
+  // saying so regardless of whether the box happens to be focused.
+  const errorLine = error ? (
+    <Text style={styles.notesError}>{error}</Text>
+  ) : null;
 
   if (editing || text.length === 0) {
     return (
-      <TextInput
-        value={text}
-        autoFocus={editing}
-        onChangeText={(v) => onChange(v.length === 0 ? null : v)}
-        onBlur={() => setEditing(false)}
-        placeholder="Tap to add notes…"
-        placeholderTextColor="#9ca3af"
-        multiline
-        style={styles.notesInput}
-      />
+      <>
+        <TextInput
+          value={text}
+          autoFocus={editing}
+          // The cap is the whole point: without it the input happily accepts
+          // notes the `tasks_description_check` constraint rejects, and the
+          // rejected description then rides along in every later autosave patch
+          // — so the task stops saving *at all*, not just its notes.
+          maxLength={TASK_DESCRIPTION_MAX_LENGTH}
+          onChangeText={(v) => onChange(v.length === 0 ? null : v)}
+          onBlur={() => setEditing(false)}
+          placeholder="Tap to add notes…"
+          placeholderTextColor="#9ca3af"
+          multiline
+          style={[styles.notesInput, error ? styles.notesInputError : null]}
+        />
+        {/* Silent until the limit is actually in sight — a counter on an empty
+            box is noise. */}
+        {remaining <= NOTES_COUNTER_THRESHOLD ? (
+          <Text
+            style={[
+              styles.notesCounter,
+              remaining <= 0 && styles.notesCounterFull,
+            ]}
+          >
+            {/* `<= 0`, not `=== 0`: `maxLength` bounds typing and pasting but
+                doesn't truncate a value set from props, so a row stored before
+                the limit tightened would otherwise count down past zero into
+                negative numbers. */}
+            {remaining <= 0
+              ? "Notes are full"
+              : `${remaining.toLocaleString()} characters left`}
+          </Text>
+        ) : null}
+        {errorLine}
+      </>
     );
   }
 
   return (
-    // A tap that lands on a link opens it (the link's own onPress takes the
-    // tap); anywhere else in the box switches to the editor.
-    <Pressable onPress={() => setEditing(true)} style={styles.notesBox}>
-      <LinkifiedText text={text} style={styles.notesText} />
-    </Pressable>
+    <>
+      {/* A tap that lands on a link opens it (the link's own onPress takes the
+          tap); anywhere else in the box switches to the editor. */}
+      <Pressable
+        onPress={() => setEditing(true)}
+        style={[styles.notesBox, error ? styles.notesInputError : null]}
+      >
+        <LinkifiedText text={text} style={styles.notesText} />
+      </Pressable>
+      {errorLine}
+    </>
   );
 }
 
@@ -1592,6 +1640,13 @@ interface Props {
 }
 
 /**
+ * The body's veto over the sheet's dismissal. `blocked` is read on both threads
+ * (mirrored into a shared value for the drag worklet); `prompt` puts the
+ * discard confirmation up and only ever runs on JS.
+ */
+type CloseGuard = { blocked: boolean; prompt: () => void };
+
+/**
  * Reduce-motion, as a hook, because two surfaces here answer to it: the
  * calendar's ambient wave and — since the sheet's rise is a full-screen
  * translation, the largest single movement in the app — the sheet itself.
@@ -1723,7 +1778,38 @@ export default function TaskEditModalV2({
     closeRef.current();
   }, []);
 
+  /**
+   * The sheet has four ways out — Android back, the backdrop, the swipe-down
+   * and the body's own Close button — but only the body knows whether an edit
+   * is still stranded off the server. It registers a guard here.
+   *
+   * Two representations of the same fact, because the drag handler is a worklet
+   * on the UI thread and can't read a JS ref: `closeGuardRef` for the JS-thread
+   * paths, `closeBlocked` (a shared value) for the gesture.
+   */
+  const closeGuardRef = useRef<CloseGuard | null>(null);
+  const closeBlocked = useSharedValue(false);
+  const registerCloseGuard = useCallback(
+    (guard: CloseGuard | null) => {
+      closeGuardRef.current = guard;
+      closeBlocked.value = guard?.blocked ?? false;
+    },
+    [closeBlocked]
+  );
+  /** Put the body's prompt up. Safe to call from `runOnJS`. */
+  const promptDiscard = useCallback(() => {
+    closeGuardRef.current?.prompt();
+  }, []);
+  /** True when the guard has taken the close over, so the caller should stop. */
+  const guardBlocksClose = () => {
+    if (!closeGuardRef.current?.blocked) return false;
+    promptDiscard();
+    return true;
+  };
+
   const animatedClose = useCallback(() => {
+    // Never animate away underneath the prompt.
+    if (guardBlocksClose()) return;
     translateY.value = withTiming(
       sheetHeight.value,
       {
@@ -1766,6 +1852,14 @@ export default function TaskEditModalV2({
           if (!dragOwnsSheet.value) return;
           const h = sheetHeight.value;
           if (shouldDismiss(e.translationY, e.velocityY, h)) {
+            // A dismissal the body has vetoed springs back and hands the
+            // explanation to JS, rather than leaving the sheet half-off screen
+            // behind its own prompt.
+            if (closeBlocked.value) {
+              translateY.value = withSpring(0, RETURN_SPRING);
+              runOnJS(promptDiscard)();
+              return;
+            }
             translateY.value = withTiming(
               h,
               {
@@ -1781,7 +1875,15 @@ export default function TaskEditModalV2({
             translateY.value = withSpring(0, RETURN_SPRING);
           }
         }),
-    [translateY, sheetHeight, finishClose, dragOwnsSheet, scrollOffset]
+    [
+      translateY,
+      sheetHeight,
+      finishClose,
+      dragOwnsSheet,
+      scrollOffset,
+      closeBlocked,
+      promptDiscard,
+    ]
   );
 
   const sheetStyle = useAnimatedStyle(() => ({
@@ -1833,6 +1935,7 @@ export default function TaskEditModalV2({
                   onNavigateTask={setActiveTask}
                   scrollRef={scrollRef}
                   scrollOffset={scrollOffset}
+                  registerCloseGuard={registerCloseGuard}
                 />
               ) : null}
             </Reanimated.View>
@@ -1849,6 +1952,7 @@ function Inner({
   onNavigateTask,
   scrollRef,
   scrollOffset,
+  registerCloseGuard,
 }: {
   task: Task;
   onClose: () => void;
@@ -1858,6 +1962,8 @@ function Inner({
   scrollRef: React.RefObject<React.ComponentRef<typeof Reanimated.ScrollView> | null>;
   /** Body scroll offset, written on the UI thread for that same gesture. */
   scrollOffset: SharedValue<number>;
+  /** Hand the sheet a veto over its own dismissal; null clears it. */
+  registerCloseGuard: (guard: CloseGuard | null) => void;
 }) {
   const tasksApiMemo = useMemo(() => {
     // Lazy require avoids loading TasksApi at module init.
@@ -1889,6 +1995,10 @@ function Inner({
     undoAll,
     hasChanges,
     status: saveStatus,
+    lastError,
+    fieldErrors,
+    hasUnsavedWork,
+    retry,
   } = useAutoSaveTask(task, tasksApiMemo, {
     // Reconcile the TanStack Query lists after each commit. Doing it here (not
     // on modal close) means the refetch reads the row *after* the PATCH lands,
@@ -2029,6 +2139,32 @@ function Inner({
 
   // Delete lives in the top-bar overflow menu now, not loose in the bottom bar
   // next to the dismiss control.
+  // A save that failed and whose edit the server still doesn't have.
+  // `lastError` only clears on a success, so this survives the user typing
+  // again after a failure — which is when closing would cost the most. A merely
+  // *pending* save isn't in here: `flushOnExit` persists those, and prompting
+  // during the 250ms debounce would fire on every dismissal.
+  const closeWouldLoseWork = hasUnsavedWork && lastError !== null;
+
+  const promptDiscard = useCallback(() => {
+    Alert.alert(
+      "This task hasn\u2019t saved",
+      lastError
+        ? `${lastError.message} Closing now loses that change.`
+        : "The last change couldn\u2019t be saved. Closing now loses it.",
+      [
+        { text: "Keep editing", style: "cancel" },
+        { text: "Retry save", onPress: retry },
+        { text: "Close anyway", style: "destructive", onPress: onClose },
+      ]
+    );
+  }, [lastError, retry, onClose]);
+
+  useEffect(() => {
+    registerCloseGuard({ blocked: closeWouldLoseWork, prompt: promptDiscard });
+    return () => registerCloseGuard(null);
+  }, [closeWouldLoseWork, promptDiscard, registerCloseGuard]);
+
   const confirmDelete = useCallback(() => {
     Alert.alert(
       "Delete task?",
@@ -2044,12 +2180,16 @@ function Inner({
               console.error("Delete failed:", error);
               return;
             }
+            // Stand the guard down first: the row is gone, so there's no
+            // unsaved edit left to rescue, and prompting to save a deleted
+            // task's notes would be nonsense.
+            registerCloseGuard(null);
             onClose();
           },
         },
       ]
     );
-  }, [current.title, tasksApiMemo, task.id, onClose]);
+  }, [current.title, tasksApiMemo, task.id, onClose, registerCloseGuard]);
 
   // Drives the completion circle beside the title. STATUS_CONFIG[status] can be
   // undefined for an unmigrated DB still serving legacy values — guard before
@@ -2110,6 +2250,25 @@ function Inner({
           <View style={styles.menuDot} />
         </Pressable>
       </View>
+
+      {/* Above the scroll view, so a failure can't be scrolled out of sight
+          while the user carries on editing. The dot alone can't carry this: it
+          has no tooltip to fall back on here at all. */}
+      {saveStatus === "error" && lastError ? (
+        <View style={styles.saveErrorBanner}>
+          <Text style={styles.saveErrorText} numberOfLines={3}>
+            {lastError.message}
+          </Text>
+          <Pressable
+            onPress={retry}
+            hitSlop={8}
+            accessibilityRole="button"
+            style={styles.saveErrorRetry}
+          >
+            <Text style={styles.saveErrorRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* When the open task is a subtask, offer a way back up to its parent —
           the sheet drills in place, so this is the climb-out. */}
@@ -2438,6 +2597,7 @@ function Inner({
           <NotesField
             value={current.description}
             onChange={(v) => setField("description", v)}
+            error={fieldErrors.description}
           />
         </View>
 
@@ -3158,6 +3318,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#374151",
     minHeight: 60,
+  },
+  notesCounter: {
+    marginTop: 4,
+    textAlign: "right",
+    fontSize: 11,
+    color: "#9ca3af",
+  },
+  notesCounterFull: {
+    color: "#d97706",
+    fontWeight: "500",
+  },
+  // Tints whichever notes box is showing, so the eye lands on the field the
+  // banner up top is talking about.
+  notesInputError: {
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  notesError: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#b45309",
+  },
+  saveErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fffbeb",
+    borderBottomWidth: 1,
+    borderBottomColor: "#fde68a",
+  },
+  saveErrorText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#92400e",
+  },
+  saveErrorRetry: {
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  saveErrorRetryText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#92400e",
   },
   // Same box as notesInput for the read view — the font lives on the Text
   // inside it, since a View can't carry text styles.

@@ -30,6 +30,9 @@ vi.mock("@do-done/api-client", () => ({
     isSaving: false,
     status: "idle",
     lastError: null,
+    fieldErrors: {},
+    hasUnsavedWork: false,
+    retry: vi.fn(),
   }),
   TasksApi: class {
     async listSubtasks() {

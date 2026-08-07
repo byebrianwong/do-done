@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
+import { TASK_DESCRIPTION_MAX_LENGTH } from "@do-done/shared";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 import { makeTask } from "./__stories__/mocks";
 
@@ -9,9 +10,20 @@ vi.mock("next/navigation", () => ({
 
 // Captured so individual tests can assert which field the pickers wrote.
 // `subtasks` is mutable so a test can stock the subtask list the modal loads.
-const { setFieldSpy, subtasks } = vi.hoisted(() => ({
+const { setFieldSpy, subtasks, saveState, retrySpy } = vi.hoisted(() => ({
   setFieldSpy: vi.fn(),
   subtasks: { current: [] as unknown[] },
+  retrySpy: vi.fn(),
+  // What the autosave hook reports back. Mutable so a test can put the editor
+  // into a failed-save state without a backend.
+  saveState: {
+    current: {
+      status: "idle" as string,
+      lastError: null as Error | null,
+      fieldErrors: {} as Record<string, string>,
+      hasUnsavedWork: false,
+    },
+  },
 }));
 
 // The modal autosaves and loads calendar busyness; stub the data layer so we
@@ -24,8 +36,8 @@ vi.mock("@do-done/api-client", () => ({
     hasChanges: false,
     lastSavedAt: null,
     isSaving: false,
-    status: "idle",
-    lastError: null,
+    retry: retrySpy,
+    ...saveState.current,
   }),
   TasksApi: class {
     async listSubtasks() {
@@ -45,7 +57,14 @@ vi.mock("@do-done/api-client", () => ({
 
 beforeEach(() => {
   setFieldSpy.mockClear();
+  retrySpy.mockClear();
   subtasks.current = [];
+  saveState.current = {
+    status: "idle",
+    lastError: null,
+    fieldErrors: {},
+    hasUnsavedWork: false,
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -283,6 +302,74 @@ describe("Notes", () => {
       "whitespace-pre-wrap"
     );
   });
+  it("caps the notes at the length the DB will accept", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: null })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByPlaceholderText("Tap to add notes…")).toHaveAttribute(
+      "maxlength",
+      String(TASK_DESCRIPTION_MAX_LENGTH)
+    );
+  });
+
+  it("stays quiet about the limit until it's actually in reach", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: null })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.queryByText(/characters left/)).toBeNull();
+  });
+
+  it("counts down as the notes approach the limit", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({
+          description: "x".repeat(TASK_DESCRIPTION_MAX_LENGTH - 500),
+        })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole("textbox", { name: "Notes" }));
+    expect(screen.getByText("500 characters left")).toBeInTheDocument();
+  });
+
+  it("says so plainly once the notes are full, rather than just going silent", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "x".repeat(TASK_DESCRIPTION_MAX_LENGTH) })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole("textbox", { name: "Notes" }));
+    expect(screen.getByText("Notes are full")).toBeInTheDocument();
+  });
+
+  // `maxLength` bounds typing and pasting but never truncates a value handed in
+  // as a prop, so an already-oversized row must read "full" rather than count
+  // down into negatives.
+  it("doesn't count past zero on notes that are already over the limit", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({
+          description: "x".repeat(TASK_DESCRIPTION_MAX_LENGTH + 40),
+        })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole("textbox", { name: "Notes" }));
+    expect(screen.getByText("Notes are full")).toBeInTheDocument();
+    expect(screen.queryByText(/-\d+ characters left/)).toBeNull();
+  });
 });
 
 describe("Subtask rows", () => {
@@ -410,5 +497,115 @@ describe("Title blur does not dirty an untouched task", () => {
     setFieldSpy.mockClear();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(setFieldSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("Failed saves", () => {
+  const failed = (message: string) => {
+    saveState.current = {
+      status: "error",
+      lastError: new Error(message),
+      fieldErrors: {},
+      hasUnsavedWork: true,
+    };
+  };
+
+  it("states the reason in the modal itself, not only in a tooltip", () => {
+    failed("Notes is too long — 50,000 characters max.");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Notes is too long");
+  });
+
+  it("offers a retry that doesn't depend on typing again", () => {
+    failed("Save failed");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+
+    fireEvent.click(within(screen.getByRole("alert")).getByText("Retry"));
+    expect(retrySpy).toHaveBeenCalled();
+  });
+
+  it("says nothing when there's nothing wrong", () => {
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("marks the field the failure is about", () => {
+    saveState.current = {
+      status: "error",
+      lastError: new Error("Notes is too long — 50,000 characters max."),
+      fieldErrors: { description: "Notes is too long — 50,000 characters max." },
+      hasUnsavedWork: true,
+    };
+    render(
+      <TaskEditModalV2
+        task={makeTask({ description: "some notes" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    // Once in the banner, once against the Notes field itself.
+    expect(screen.getAllByText(/Notes is too long/)).toHaveLength(2);
+  });
+
+  it("won't let the editor close over an edit the server never took", () => {
+    const onClose = vi.fn();
+    failed("Save failed");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("closes anyway when the user says so", () => {
+    const onClose = vi.fn();
+    failed("Save failed");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByText("Close anyway"));
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("retries from the prompt instead of losing the edit", () => {
+    failed("Save failed");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={vi.fn()} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByText("Retry save"));
+    expect(retrySpy).toHaveBeenCalled();
+  });
+
+  it("keeps Esc from escaping the very guard it triggered", () => {
+    const onClose = vi.fn();
+    failed("Save failed");
+    render(<TaskEditModalV2 task={makeTask()} open onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    // A second Esc backs out of the prompt rather than dismissing the editor.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("closes without ceremony when the save is merely queued", () => {
+    // `flushOnExit` persists a pending save, so prompting here would fire on
+    // every close inside the 250ms debounce window.
+    const onClose = vi.fn();
+    saveState.current = {
+      status: "pending",
+      lastError: null,
+      fieldErrors: {},
+      hasUnsavedWork: true,
+    };
+    render(<TaskEditModalV2 task={makeTask()} open onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
   });
 });

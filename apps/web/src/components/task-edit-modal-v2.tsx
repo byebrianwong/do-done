@@ -11,6 +11,7 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
+  TASK_DESCRIPTION_MAX_LENGTH,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -83,6 +84,41 @@ const SAVE_STATUS_COPY: Record<
   saved: { label: "Saved", dot: "bg-green-500", text: "text-green-600" },
   error: { label: "Save failed", dot: "bg-red-500", text: "text-red-600" },
 };
+
+/**
+ * The standing, always-visible account of a failed save.
+ *
+ * The dot alone was never enough. It's 11px of colour with the reason parked in
+ * a `title` tooltip — invisible on touch, invisible to a keyboard, and gone the
+ * moment the pointer moves. A save that failed means something the user typed
+ * is not on the server, which is worth a row of the modal and a way to act on
+ * it, not a hover affordance.
+ */
+function SaveErrorBanner({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 dark:border-amber-900/60 dark:bg-amber-950/40"
+    >
+      <span className="min-w-0 text-[12px] text-amber-800 dark:text-amber-200">
+        {message}
+      </span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="shrink-0 rounded-md border border-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/50"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
 
 function SaveStatusDot({
   status,
@@ -1661,55 +1697,110 @@ function SubtasksSection({
  * editor: click the notes to edit, blur to go back to links. Empty notes go
  * straight to the textarea so the "add notes" affordance still takes one click.
  */
+// How close to the notes ceiling the character counter starts showing. 2,000
+// chars of warning is a few paragraphs — enough to wrap up a thought rather
+// than have the box stop taking input mid-word.
+const NOTES_COUNTER_THRESHOLD = 2000;
+
 function NotesField({
   value,
   onChange,
+  error,
 }: {
   value: string | null;
   onChange: (next: string | null) => void;
+  /** Why the last save refused these notes, if it did. */
+  error?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const text = value ?? "";
+  const remaining = TASK_DESCRIPTION_MAX_LENGTH - text.length;
 
   // One box shared by both states — same padding, border and min-height — so
   // swapping between them doesn't nudge the layout. The min-height carries the
   // sizing rather than `rows`, which measures differently from a block element.
-  const box =
-    "w-full min-h-[5.25rem] rounded-lg border px-3.5 py-2.5 text-[13px] text-neutral-700 border-neutral-100 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-900 dark:text-neutral-300";
+  // An unsaved-notes error tints the border so the eye lands on the field the
+  // banner up top is talking about.
+  const box = `w-full min-h-[5.25rem] rounded-lg border px-3.5 py-2.5 text-[13px] text-neutral-700 bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 ${
+    error
+      ? "border-amber-300 dark:border-amber-800"
+      : "border-neutral-100 dark:border-neutral-900"
+  }`;
+
+  // Shown in both the read and edit views: notes that didn't save are worth
+  // saying so regardless of whether the box happens to be focused.
+  const errorLine = error ? (
+    <div className="mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+      {error}
+    </div>
+  ) : null;
 
   if (editing || text.length === 0) {
     return (
-      <textarea
-        value={text}
-        autoFocus={editing}
-        onChange={(e) => onChange(e.target.value || null)}
-        onBlur={() => setEditing(false)}
-        placeholder="Tap to add notes…"
-        className={`${box} block outline-none transition-colors focus:border-indigo-300 focus:bg-white dark:focus:border-indigo-700 dark:focus:bg-neutral-950`}
-      />
+      <>
+        <textarea
+          value={text}
+          autoFocus={editing}
+          // The cap is the whole point: without it the browser happily accepts
+          // notes the `tasks_description_check` constraint rejects, and the
+          // rejected description then rides along in every later autosave patch
+          // — so the task stops saving *at all*, not just its notes. `maxLength`
+          // bounds pastes as well as keystrokes, so there's no way past it.
+          maxLength={TASK_DESCRIPTION_MAX_LENGTH}
+          onChange={(e) => onChange(e.target.value || null)}
+          onBlur={() => setEditing(false)}
+          placeholder="Tap to add notes…"
+          className={`${box} block outline-none transition-colors focus:border-indigo-300 focus:bg-white dark:focus:border-indigo-700 dark:focus:bg-neutral-950`}
+        />
+        {/* Silent until the limit is actually in sight — a counter on an empty
+            box is noise. It appears with room to spare so the ceiling is never
+            a surprise mid-sentence. */}
+        {remaining <= NOTES_COUNTER_THRESHOLD ? (
+          <div
+            aria-live="polite"
+            className={`mt-1 text-right text-[11px] tabular-nums ${
+              remaining <= 0
+                ? "font-medium text-amber-600 dark:text-amber-500"
+                : "text-neutral-400"
+            }`}
+          >
+            {/* `<= 0`, not `=== 0`: `maxLength` bounds typing and pasting but
+                doesn't truncate a value set from props, so a row stored before
+                the limit tightened would otherwise count down past zero into
+                negative numbers. */}
+            {remaining <= 0
+              ? "Notes are full"
+              : `${remaining.toLocaleString()} characters left`}
+          </div>
+        ) : null}
+        {errorLine}
+      </>
     );
   }
 
   return (
-    <div
-      // Not a <button>: the read view contains anchors, and an <a> inside a
-      // <button> is invalid. A click that lands on a link follows it (the
-      // anchor stops propagation) — anywhere else opens the editor.
-      role="textbox"
-      tabIndex={0}
-      aria-label="Notes"
-      onClick={() => setEditing(true)}
-      // Only a focus on the box itself (tabbing in) opens the editor. React's
-      // onFocus is focusin, which bubbles — without this guard, clicking a
-      // link focuses the anchor, unmounts the read view mid-click and the
-      // navigation never happens.
-      onFocus={(e) => {
-        if (e.target === e.currentTarget) setEditing(true);
-      }}
-      className={`${box} cursor-text whitespace-pre-wrap break-words outline-none`}
-    >
-      <LinkifiedText text={text} />
-    </div>
+    <>
+      <div
+        // Not a <button>: the read view contains anchors, and an <a> inside a
+        // <button> is invalid. A click that lands on a link follows it (the
+        // anchor stops propagation) — anywhere else opens the editor.
+        role="textbox"
+        tabIndex={0}
+        aria-label="Notes"
+        onClick={() => setEditing(true)}
+        // Only a focus on the box itself (tabbing in) opens the editor. React's
+        // onFocus is focusin, which bubbles — without this guard, clicking a
+        // link focuses the anchor, unmounts the read view mid-click and the
+        // navigation never happens.
+        onFocus={(e) => {
+          if (e.target === e.currentTarget) setEditing(true);
+        }}
+        className={`${box} cursor-text whitespace-pre-wrap break-words outline-none`}
+      >
+        <LinkifiedText text={text} />
+      </div>
+      {errorLine}
+    </>
   );
 }
 
@@ -2312,6 +2403,9 @@ function TaskEditModalBody({
     hasChanges,
     status: saveStatus,
     lastError,
+    fieldErrors,
+    hasUnsavedWork,
+    retry,
   } = useAutoSaveTask(task, tasksApi, {
     // Re-run the server components so the list views pick up the row that was
     // just saved. Fires after the PATCH commits, so it never re-reads the stale
@@ -2374,6 +2468,7 @@ function TaskEditModalBody({
   };
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -2421,6 +2516,13 @@ function TaskEditModalBody({
     [copyLinkFor, task.id]
   );
 
+  // A save that failed and whose edit the server still doesn't have. `lastError`
+  // is only cleared by a success, so this stays true across the user typing
+  // again after a failure — which is exactly when closing would lose the most.
+  // A merely *pending* save isn't in here: `flushOnExit` persists those, and
+  // prompting during the 250ms debounce would fire on every close.
+  const closeWouldLoseWork = hasUnsavedWork && lastError !== null;
+
   const closeNow = useCallback(() => {
     // A throwaway draft the user opened but never edited: drop it instead of
     // leaving an orphaned "New task" behind.
@@ -2431,6 +2533,16 @@ function TaskEditModalBody({
     router.refresh();
   }, [draft, hasChanges, tasksApi, task.id, onClose, router]);
 
+  // Closing, once the title has had its chance to absorb. Prompts instead when
+  // an edit the server never took would go with the modal.
+  const attemptClose = useCallback(() => {
+    if (closeWouldLoseWork) {
+      setConfirmingClose(true);
+      return;
+    }
+    closeNow();
+  }, [closeWouldLoseWork, closeNow]);
+
   const handleClose = useCallback(() => {
     // Esc / the Close button unmount the title input, and React does not fire
     // `onBlur` on unmount — so absorb a trailing `#token` here too. The absorb
@@ -2438,14 +2550,30 @@ function TaskEditModalBody({
     // an effect; closing in this same tick would unmount before that effect
     // runs and `flushOnExit` would persist the pre-absorb title. Yield one task
     // so React commits first.
+    //
+    // The absorb runs *before* the unsaved-work check either way: it's the last
+    // edit the user made, and it deserves the same guard as any other.
     if (absorbTitle(titleDraft, true)) {
-      setTimeout(closeNow, 0);
+      setTimeout(attemptClose, 0);
       return;
     }
-    closeNow();
+    attemptClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `absorbTitle` is
     // redefined every render; `titleDraft` is the only input that matters here.
-  }, [closeNow, titleDraft]);
+  }, [attemptClose, titleDraft]);
+
+  // The tab going away takes the edit with it, and no in-app confirm can catch
+  // that. `flushOnExit` never runs on a real navigation away.
+  useEffect(() => {
+    if (!open || !closeWouldLoseWork) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Legacy signal — some browsers still require a non-empty returnValue.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [open, closeWouldLoseWork]);
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
@@ -2456,14 +2584,18 @@ function TaskEditModalBody({
       setConfirmingDelete(false);
       return;
     }
-    handleClose();
-  }, [tasksApi, task.id, handleClose]);
+    // `closeNow`, not `handleClose`: the row is gone, so there is no unsaved
+    // edit left to warn about — prompting to rescue a deleted task's notes
+    // would be nonsense.
+    closeNow();
+  }, [tasksApi, task.id, closeNow]);
 
-  // Reset the delete confirmation and overflow menu whenever the modal closes
-  // so neither reappears pre-opened on the next launch.
+  // Reset the confirmations and overflow menu whenever the modal closes
+  // so none of them reappear pre-opened on the next launch.
   useEffect(() => {
     if (!open) {
       setConfirmingDelete(false);
+      setConfirmingClose(false);
       setDeleting(false);
       setMenuOpen(false);
     }
@@ -2473,8 +2605,15 @@ function TaskEditModalBody({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      // While the delete confirmation is up, its own handler owns the keyboard.
+      // While a confirmation is up, it owns the keyboard.
       if (confirmingDelete) return;
+      if (confirmingClose) {
+        // Esc backs out of the prompt rather than dismissing the editor under
+        // it — otherwise the guard could be escaped with the very key it exists
+        // to intercept.
+        if (e.key === "Escape") setConfirmingClose(false);
+        return;
+      }
       if (e.key === "Escape") {
         // The overflow menu owns Esc while it's open — back out of the menu
         // rather than dismissing the whole editor under it.
@@ -2505,7 +2644,15 @@ function TaskEditModalBody({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose, setField, confirmingDelete, menuOpen, copyLink]);
+  }, [
+    open,
+    handleClose,
+    setField,
+    confirmingDelete,
+    confirmingClose,
+    menuOpen,
+    copyLink,
+  ]);
 
   // Esc cancels the delete confirmation (captured so it never reaches the
   // main modal's Esc-to-close handler).
@@ -2659,6 +2806,12 @@ function TaskEditModalBody({
           </div>
         </div>
 
+        {/* Outside the scroll region below, so a failure can't be scrolled out
+            of sight while the user carries on editing. */}
+        {saveStatus === "error" && lastError ? (
+          <SaveErrorBanner message={lastError.message} onRetry={retry} />
+        ) : null}
+
         {/* Scrollable region — keeps the modal within the viewport on short
             screens (phones) instead of overflowing off the bottom. */}
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -2779,6 +2932,7 @@ function TaskEditModalBody({
             <NotesField
               value={current.description}
               onChange={(v) => setField("description", v)}
+              error={fieldErrors.description}
             />
           </div>
         </div>
@@ -2810,7 +2964,95 @@ function TaskEditModalBody({
         }}
       />
     ) : null}
+    {confirmingClose ? (
+      <ConfirmDiscardDialog
+        reason={lastError?.message ?? null}
+        onCancel={() => setConfirmingClose(false)}
+        onRetry={() => {
+          setConfirmingClose(false);
+          retry();
+        }}
+        onDiscard={() => {
+          setConfirmingClose(false);
+          closeNow();
+        }}
+      />
+    ) : null}
     </>
+  );
+}
+
+/**
+ * Last stop before an edit the server never took disappears with the modal.
+ *
+ * Closing used to be silent here: a failed save left the edit in local state
+ * only, and the component unmounting threw it away with nothing said. Retry is
+ * the default action because it's usually what fixes it — discarding is the
+ * deliberate choice, and it's spelled out as one.
+ */
+function ConfirmDiscardDialog({
+  reason,
+  onCancel,
+  onRetry,
+  onDiscard,
+}: {
+  reason: string | null;
+  onCancel: () => void;
+  onRetry: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div
+      data-no-dnd
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-discard-title"
+        className="w-[min(27rem,calc(100vw-2rem))] overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.18),0_4px_12px_rgba(17,24,39,0.08)] dark:bg-neutral-950 dark:ring-1 dark:ring-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 pb-5 pt-6">
+          <h2
+            id="confirm-discard-title"
+            className="text-[17px] font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
+          >
+            This task hasn’t saved
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            {reason
+              ? `${reason} Closing now loses that change.`
+              : "The last change couldn’t be saved. Closing now loses it."}
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-5 py-3.5 dark:border-neutral-900 dark:bg-neutral-900/50">
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="rounded-lg px-3.5 py-2 text-[13px] font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            Close anyway
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg px-3.5 py-2 text-[13px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            Keep editing
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={onRetry}
+            className="rounded-lg bg-indigo-600 px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 dark:hover:bg-indigo-500"
+          >
+            Retry save
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

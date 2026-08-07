@@ -4,7 +4,11 @@ import type { SupabaseClient } from "@do-done/api-client";
 import { TasksApi, ProjectsApi } from "@do-done/api-client";
 import { generateFocusList, generateWeeklySummary } from "@do-done/task-engine";
 import type { Task } from "@do-done/shared";
-import { TaskStatus, TaskPriority } from "@do-done/shared";
+import {
+  TaskStatus,
+  TaskPriority,
+  TASK_DESCRIPTION_MAX_LENGTH,
+} from "@do-done/shared";
 import { executeOrganize } from "../organize.js";
 import { createClock } from "../clock.js";
 import {
@@ -126,7 +130,7 @@ export function registerTools(
       "project automatically (override by also passing project_id).",
     {
       title: z.string().min(1).max(500),
-      description: z.string().max(5000).optional(),
+      description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).optional(),
       status: z
         .enum(["inbox", "later", "not_started", "next", "in_progress"])
         .optional(),
@@ -179,7 +183,7 @@ export function registerTools(
     {
       id: z.string().uuid(),
       title: z.string().min(1).max(500).optional(),
-      description: z.string().max(5000).nullable().optional(),
+      description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable().optional(),
       status: TaskStatus.optional(),
       priority: TaskPriority.optional(),
       project_id: z.string().uuid().nullable().optional(),
