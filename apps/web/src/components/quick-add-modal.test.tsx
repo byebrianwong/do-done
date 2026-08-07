@@ -14,8 +14,25 @@ const createMock = vi.fn(async () => ({ data: createdTask, error: null }));
 
 // The submit path goes through getClientTasksApi; stub it so we don't need a
 // real Supabase session (the shared mock's getUser() resolves to null).
+// `getTasksApiFor` is the same seam, synchronous — the editor the handoff
+// opens builds its API through it.
 vi.mock("@/lib/supabase/tasks-client", () => ({
   getClientTasksApi: async () => ({ create: createMock }),
+  getTasksApiFor: () => ({
+    create: createMock,
+    async getById() {
+      return { data: null, error: null };
+    },
+    async listSubtasks() {
+      return { data: [] };
+    },
+    async update() {
+      return { data: null, error: null };
+    },
+    async delete() {
+      return { error: null };
+    },
+  }),
 }));
 
 // The handoff renders TaskEditModalV2 (auto-save) and the project chip builds a

@@ -15,12 +15,20 @@
  * list, which is the thing the modal exists to keep.
  */
 
+import { DEMO_BASE, isDemoMode } from "@/lib/demo/mode";
+
 /** Search param that mirrors an open task modal onto the current URL. */
 export const TASK_PARAM = "task";
 
-/** Canonical path for a single task, independent of the current view. */
+/**
+ * Canonical path for a single task, independent of the current view.
+ *
+ * In the demo the whole app lives one level down, so the path does too — a
+ * bare `/task/<id>` would take a signed-out visitor straight to the login wall
+ * the sandbox exists to get around.
+ */
 export function taskPath(id: string): string {
-  return `/task/${id}`;
+  return `${isDemoMode() ? DEMO_BASE : ""}/task/${id}`;
 }
 
 /** Absolute link to a task, for handing to someone else. */

@@ -27,6 +27,7 @@ export function AppShell({
   projects,
   userEmail,
   pipHidden = false,
+  sidebarFooter,
   children,
 }: {
   projects: Project[];
@@ -36,6 +37,12 @@ export function AppShell({
    * the first paint already has the right layout (no flash). Device-scoped.
    */
   pipHidden?: boolean;
+  /**
+   * Replaces the account card at the foot of the sidebar. The demo puts its
+   * "nothing here is saved" card there, in the slot the signed-in user's
+   * address and sign-out button occupy in the real app.
+   */
+  sidebarFooter?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -194,6 +201,7 @@ export function AppShell({
         </div>
 
         <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
+          {sidebarFooter}
           {userEmail && (
             <div className="mb-3 flex items-center gap-2 px-2 py-1">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">

@@ -25,11 +25,11 @@ import {
 } from "@do-done/shared";
 import {
   useAutoSaveTask,
-  TasksApi,
+  type TasksApi,
   type DayBusyness,
   type SaveStatus,
 } from "@do-done/api-client";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { getTasksApiFor } from "@/lib/supabase/tasks-client";
 import { isCopyLinkShortcut } from "@/lib/task-link";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { ProjectPickerPopover } from "./project-picker";
@@ -2371,11 +2371,7 @@ function TaskEditModalBody({
   onNavigateTask: (task: Task) => void;
 }) {
   const router = useRouter();
-  const supabase = useMemo(() => createClientSupabase(), []);
-  const tasksApi = useMemo(
-    () => new TasksApi(supabase, task.user_id),
-    [supabase, task.user_id]
-  );
+  const tasksApi = useMemo(() => getTasksApiFor(task.user_id), [task.user_id]);
 
   // Parent task, resolved when the active task is a subtask, so the top bar can
   // offer a "← parent" way back. Fetched once per task; the button also serves

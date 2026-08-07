@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
 import { openQuickAdd } from "@/lib/quick-add-events";
+import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
 import { NavPendingDot } from "./nav-pending-dot";
 import { SortableProjectList } from "./sortable-project-list";
 
@@ -165,6 +166,11 @@ const NAV_ITEMS = [
 
 export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
   const pathname = usePathname();
+  // The demo runs the whole app under `/demo`, so every nav link has to stay
+  // inside it — a bare `/today` would bounce a signed-out visitor to the login
+  // wall the demo exists to get around. Derived from the path rather than
+  // passed down: the shell that renders this doesn't otherwise care.
+  const base = isDemoPath(pathname) ? DEMO_BASE : "";
 
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pt-2 pb-4">
@@ -186,12 +192,18 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
         </svg>
         New task
       </button>
-      {NAV_ITEMS.map((item) => {
-        const isActive = pathname === item.href;
+      {NAV_ITEMS.filter(
+        // Settings is account-level — connected calendars, timezone, sign-out.
+        // There is no account behind the demo, so the page would be a wall of
+        // controls that quietly do nothing.
+        (item) => !(base && item.href === "/settings")
+      ).map((item) => {
+        const href = `${base}${item.href}`;
+        const isActive = pathname === href;
         return (
           <Link
             key={item.href}
-            href={item.href}
+            href={href}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${PRESS} ${
               isActive
                 ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
@@ -207,9 +219,9 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
 
       <div className="mt-6 px-3 py-1">
         <Link
-          href="/projects"
+          href={`${base}/projects`}
           className={`text-xs font-semibold uppercase tracking-wider ${
-            pathname === "/projects"
+            pathname === `${base}/projects`
               ? "text-indigo-600 dark:text-indigo-400"
               : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
           }`}

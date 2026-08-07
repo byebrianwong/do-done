@@ -1,0 +1,458 @@
+import {
+  addDaysLocalISO,
+  todayLocalISO,
+  type CalendarEvent,
+  type Project,
+  type Task,
+  type TaskPriority,
+  type TaskStatus,
+} from "@do-done/shared";
+import { DEMO_USER_ID } from "./mode";
+
+/**
+ * The sandbox's starting data: a week of somebody's actual life, dated
+ * relative to whenever you happen to open it.
+ *
+ * Everything here is a pure function of one ISO day, which is what lets the
+ * store re-seed at midnight and the tests assert on it without freezing a
+ * clock. Ids are stable across seeds so a link into the demo keeps working
+ * within a day.
+ */
+
+/** A stable, uuid-shaped id — the schemas validate the shape, so "demo-3" won't do. */
+function demoId(n: number): string {
+  return `d0d0d0d0-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+
+const PROJECT_SEED: Array<Pick<Project, "name" | "color" | "icon">> = [
+  { name: "Work", color: "#6366f1", icon: "💼" },
+  { name: "Home", color: "#10b981", icon: "🏠" },
+  { name: "Health", color: "#f43f5e", icon: "🏃" },
+  { name: "Side project", color: "#f59e0b", icon: "🚀" },
+  { name: "Reading", color: "#8b5cf6", icon: "📚" },
+];
+
+/** Index into PROJECT_SEED, by name, for readable task definitions below. */
+const P = {
+  work: 0,
+  home: 1,
+  health: 2,
+  side: 3,
+  reading: 4,
+} as const;
+
+interface TaskSeed {
+  title: string;
+  /** Days from today. Omit for an undated task. */
+  day?: number;
+  time?: string;
+  deadlineDay?: number;
+  project?: number;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  minutes?: number;
+  /** Bare words — the leading `#` is quick-add *syntax*, stripped by the
+   *  parser before it ever reaches the column. Seeding "#finance" here renders
+   *  as "##finance", since the chip adds its own. */
+  tags?: string[];
+  description?: string;
+  recurrence?: string;
+  /** Index (within this array) of this task's parent. */
+  parent?: number;
+  /** Days ago it was completed. Only read for `done` tasks. */
+  doneDaysAgo?: number;
+  focus?: "include" | "exclude";
+}
+
+/**
+ * Hand-written rather than generated: a demo is a piece of writing. Generated
+ * filler ("Task 14") reads as filler, and the point of the sandbox is to look
+ * like a real week so the views have something true to say about it.
+ */
+const TASK_SEED: TaskSeed[] = [
+  // ── Overdue — every task app's real first impression ──────────────
+  {
+    title: "Send the Q3 numbers to Priya",
+    day: -2,
+    project: P.work,
+    priority: "p1",
+    minutes: 30,
+    tags: ["finance"],
+    description:
+      "She needs the revenue split by region before the board pack goes out.",
+  },
+  {
+    title: "Renew the car insurance",
+    day: -1,
+    deadlineDay: 3,
+    project: P.home,
+    priority: "p2",
+    minutes: 20,
+  },
+
+  // ── Today ─────────────────────────────────────────────────────────
+  {
+    title: "Write the launch announcement",
+    day: 0,
+    time: "09:30",
+    project: P.work,
+    priority: "p1",
+    minutes: 90,
+    tags: ["writing"],
+    description:
+      "Short and human. Lead with what changed for the user, not the release number.",
+    status: "in_progress",
+  },
+  {
+    title: "Draft the opening paragraph",
+    day: 0,
+    project: P.work,
+    priority: "p2",
+    minutes: 20,
+    parent: 2,
+    status: "done",
+    doneDaysAgo: 0,
+  },
+  {
+    title: "Pull three screenshots for the post",
+    day: 0,
+    project: P.work,
+    priority: "p3",
+    minutes: 15,
+    parent: 2,
+  },
+  {
+    title: "Design review with Sam",
+    day: 0,
+    time: "14:00",
+    project: P.work,
+    priority: "p2",
+    minutes: 45,
+  },
+  {
+    title: "Run — 5k easy",
+    day: 0,
+    time: "18:00",
+    project: P.health,
+    priority: "p3",
+    minutes: 40,
+    recurrence: "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+  },
+  {
+    title: "Book the dentist",
+    day: 0,
+    project: P.health,
+    priority: "p3",
+    minutes: 10,
+    status: "next",
+  },
+  {
+    title: "Reply to the landlord about the boiler",
+    day: 0,
+    project: P.home,
+    priority: "p2",
+    minutes: 10,
+  },
+
+  // ── Tomorrow and the rest of the week ─────────────────────────────
+  {
+    title: "Ship the onboarding empty states",
+    day: 1,
+    time: "10:00",
+    project: P.work,
+    priority: "p1",
+    minutes: 120,
+    tags: ["design"],
+    description: "The skeleton → empty → error trio, on every list.",
+  },
+  {
+    title: "Grocery run",
+    day: 1,
+    project: P.home,
+    priority: "p4",
+    minutes: 45,
+    tags: ["errands"],
+  },
+  {
+    title: "Read two chapters of Thinking in Systems",
+    day: 1,
+    project: P.reading,
+    priority: "p4",
+    minutes: 45,
+  },
+  {
+    title: "Fix the flaky checkout test",
+    day: 2,
+    project: P.work,
+    priority: "p2",
+    minutes: 60,
+    tags: ["bug"],
+  },
+  {
+    title: "Sketch the pricing page",
+    day: 2,
+    project: P.side,
+    priority: "p3",
+    minutes: 90,
+  },
+  {
+    title: "Call Mum",
+    day: 3,
+    time: "19:00",
+    project: P.home,
+    priority: "p2",
+    minutes: 30,
+    recurrence: "FREQ=WEEKLY",
+  },
+  {
+    title: "Physio exercises",
+    day: 3,
+    project: P.health,
+    priority: "p3",
+    minutes: 20,
+  },
+  {
+    title: "Team retro",
+    day: 4,
+    time: "15:30",
+    project: P.work,
+    priority: "p3",
+    minutes: 60,
+  },
+  {
+    title: "Submit the conference talk proposal",
+    day: 4,
+    deadlineDay: 5,
+    project: P.side,
+    priority: "p1",
+    minutes: 60,
+    description: "300 words on shipping design systems in small teams.",
+  },
+  {
+    title: "Deep clean the kitchen",
+    day: 5,
+    project: P.home,
+    priority: "p4",
+    minutes: 60,
+  },
+  {
+    title: "Long run — 12k",
+    day: 6,
+    time: "08:00",
+    project: P.health,
+    priority: "p3",
+    minutes: 75,
+  },
+
+  // ── Next week and beyond ──────────────────────────────────────────
+  {
+    title: "Plan the Q4 roadmap",
+    day: 8,
+    project: P.work,
+    priority: "p1",
+    minutes: 120,
+  },
+  {
+    title: "Renew passport",
+    day: 10,
+    deadlineDay: 21,
+    project: P.home,
+    priority: "p2",
+    minutes: 45,
+  },
+  {
+    title: "Set up analytics on the landing page",
+    day: 11,
+    project: P.side,
+    priority: "p3",
+    minutes: 45,
+  },
+  {
+    title: "Dinner with Alex and Rae",
+    day: 12,
+    time: "19:30",
+    project: P.home,
+    priority: "p3",
+    minutes: 150,
+  },
+
+  // ── Inbox: caught, not yet sorted ─────────────────────────────────
+  {
+    title: "Look into that standing desk everyone keeps mentioning",
+    status: "inbox",
+    priority: "p4",
+  },
+  {
+    title: "Idea: weekly review template inside DoDone",
+    status: "inbox",
+    project: P.side,
+    priority: "p3",
+    description: "Five prompts, prefilled with last week's completed tasks.",
+  },
+  {
+    title: "Cancel the subscription I stopped using",
+    status: "inbox",
+    priority: "p4",
+    minutes: 10,
+  },
+  {
+    title: "Ask Jo which climbing gym they use",
+    status: "inbox",
+    priority: "p4",
+  },
+  {
+    title: "Back up the photo library",
+    status: "later",
+    project: P.home,
+    priority: "p4",
+    minutes: 30,
+  },
+
+  // ── Already done — so Completed and the streaks aren't empty ──────
+  {
+    title: "Fix the sign-in redirect loop",
+    project: P.work,
+    priority: "p1",
+    status: "done",
+    doneDaysAgo: 1,
+    minutes: 45,
+  },
+  {
+    title: "Water the plants",
+    project: P.home,
+    priority: "p4",
+    status: "done",
+    doneDaysAgo: 1,
+  },
+  {
+    title: "Swim — 1km",
+    project: P.health,
+    priority: "p3",
+    status: "done",
+    doneDaysAgo: 2,
+    minutes: 45,
+  },
+  {
+    title: "Write up the migration notes",
+    project: P.work,
+    priority: "p2",
+    status: "done",
+    doneDaysAgo: 2,
+    minutes: 30,
+  },
+  {
+    title: "Finish 'The Mom Test'",
+    project: P.reading,
+    priority: "p4",
+    status: "done",
+    doneDaysAgo: 3,
+  },
+  {
+    title: "Set up the new laptop",
+    project: P.work,
+    priority: "p2",
+    status: "done",
+    doneDaysAgo: 4,
+    minutes: 90,
+  },
+];
+
+export interface DemoSeed {
+  projects: Project[];
+  tasks: Task[];
+  events: CalendarEvent[];
+}
+
+/** Build the sandbox's starting data, dated relative to `today` (YYYY-MM-DD). */
+export function buildDemoSeed(today: string = todayLocalISO()): DemoSeed {
+  // Midday, so adding whole days can't tip over a DST boundary into the day
+  // before or after the one being asked for.
+  const base = new Date(`${today}T12:00:00`);
+  const dayOf = (offset: number) => addDaysLocalISO(offset, base);
+  /** Timestamps are only ever displayed relatively, so 09:00 local will do. */
+  const stamp = (daysAgo: number) => `${dayOf(-daysAgo)}T09:00:00.000Z`;
+
+  const projects: Project[] = PROJECT_SEED.map((p, i) => ({
+    id: demoId(i + 1),
+    user_id: DEMO_USER_ID,
+    name: p.name,
+    color: p.color,
+    icon: p.icon,
+    parent_project_id: null,
+    sort_order: i * 1000,
+    created_at: stamp(40),
+    updated_at: stamp(40),
+  }));
+
+  const tasks: Task[] = TASK_SEED.map((s, i) => {
+    const id = demoId(100 + i);
+    const parentId = s.parent === undefined ? null : demoId(100 + s.parent);
+    const status: TaskStatus = s.status ?? "not_started";
+    return {
+      id,
+      user_id: DEMO_USER_ID,
+      title: s.title,
+      description: s.description ?? null,
+      status,
+      priority: s.priority ?? "p4",
+      project_id: s.project === undefined ? null : projects[s.project]!.id,
+      scheduled_date: s.day === undefined ? null : dayOf(s.day),
+      scheduled_time: s.time ?? null,
+      deadline_date: s.deadlineDay === undefined ? null : dayOf(s.deadlineDay),
+      deadline_time: null,
+      duration_minutes: s.minutes ?? null,
+      recurrence_rule: s.recurrence ?? null,
+      calendar_event_id: null,
+      tags: s.tags ?? [],
+      parent_task_id: parentId,
+      depth: parentId ? 1 : 0,
+      sort_order: i * 100,
+      focus_override: s.focus ?? null,
+      created_at: stamp(Math.min(30, i + 2)),
+      updated_at: stamp(Math.min(30, i + 1)),
+      completed_at:
+        status === "done" ? stamp(s.doneDaysAgo ?? 1) : null,
+    };
+  });
+
+  return { projects, tasks, events: buildDemoEvents(dayOf) };
+}
+
+/**
+ * A handful of read-only calendar events, so the Today strip and the Upcoming
+ * columns show the thing DoDone's calendar sync is actually for: your tasks
+ * and your meetings in one column, with the gaps between them visible.
+ */
+function buildDemoEvents(dayOf: (offset: number) => string): CalendarEvent[] {
+  const event = (
+    n: number,
+    title: string,
+    day: number,
+    start: string,
+    end: string,
+    color: string
+  ): CalendarEvent => ({
+    id: `demo-event-${n}`,
+    calendar_id: "demo",
+    calendar_name: "Calendar",
+    color,
+    title,
+    all_day: false,
+    start_date: null,
+    end_date: null,
+    start: `${dayOf(day)}T${start}:00`,
+    end: `${dayOf(day)}T${end}:00`,
+    location: null,
+    html_link: null,
+  });
+
+  return [
+    event(1, "Standup", 0, "09:00", "09:15", "#6366f1"),
+    event(2, "1:1 with Priya", 0, "11:00", "11:30", "#10b981"),
+    event(3, "Lunch with the design team", 0, "12:30", "13:30", "#f59e0b"),
+    event(4, "Standup", 1, "09:00", "09:15", "#6366f1"),
+    event(5, "Customer call — Northwind", 1, "16:00", "17:00", "#f43f5e"),
+    event(6, "Standup", 2, "09:00", "09:15", "#6366f1"),
+    event(7, "All-hands", 4, "16:00", "17:00", "#8b5cf6"),
+  ];
+}
