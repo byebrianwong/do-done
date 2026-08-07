@@ -1,4 +1,7 @@
 import { z } from "zod";
+// Type-only in the other direction (constants.ts imports types from here), so
+// this pair doesn't form a runtime cycle.
+import { TASK_DESCRIPTION_MAX_LENGTH } from "./constants.js";
 
 // ── Enums ──────────────────────────────────────────────
 
@@ -41,7 +44,7 @@ export const TaskSchema = z
     id: z.string().uuid(),
     user_id: z.string().uuid(),
     title: z.string().min(1).max(500),
-    description: z.string().max(5000).nullable(),
+    description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable(),
     status: TaskStatus.default("inbox"),
     priority: TaskPriority.default("p4"),
     project_id: z.string().uuid().nullable(),
@@ -257,7 +260,7 @@ export const DEFAULT_DECAY_PREFERENCES: PetDecayPreferences = {
 
 export const CreateTaskInput = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().max(5000).optional(),
+  description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).optional(),
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().optional(),
@@ -274,7 +277,7 @@ export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = z.object({
   title: z.string().min(1).max(500).optional(),
-  description: z.string().max(5000).nullable().optional(),
+  description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable().optional(),
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().nullable().optional(),

@@ -1,5 +1,26 @@
 import type { TaskPriority, TaskStatus } from "./schemas.js";
 
+/**
+ * How long a task's notes (`description`) may be.
+ *
+ * This number is load-bearing in three places that must agree: the DB CHECK
+ * constraint on `tasks.description`, the Zod schemas, and the `maxLength` on
+ * every notes input. When they disagreed — an unbounded textarea over a
+ * 5,000-char CHECK — passing the limit didn't just reject the notes, it made
+ * the *whole task* unsaveable: the autosave hook diffs against the snapshot it
+ * mounted with, so the oversized description rode along in every subsequent
+ * PATCH and took the user's title, priority and date edits down with it, with
+ * nothing but a red dot to say why.
+ *
+ * So the inputs stop at exactly this many characters. The DB check is the
+ * backstop for writes that don't come through an editor (MCP, SQL); it can
+ * never be the thing a typing user meets.
+ *
+ * 50,000 is roughly 20 pages — past any plausible task note, and still far
+ * inside the 1MB `to_tsvector` ceiling the `fts` generated column would hit.
+ */
+export const TASK_DESCRIPTION_MAX_LENGTH = 50_000;
+
 export const PRIORITY_CONFIG: Record<
   TaskPriority,
   { label: string; color: string; score: number }

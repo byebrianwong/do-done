@@ -5,6 +5,7 @@ import {
   UpdateTaskInput,
   UpdateProjectInput,
 } from "./schemas.js";
+import { TASK_DESCRIPTION_MAX_LENGTH } from "./constants.js";
 
 // Base set of fields that satisfy TaskSchema's non-when requirements.
 // Returns a plain object so test cases can spread arbitrary overrides
@@ -80,6 +81,44 @@ describe("UpdateTaskInput", () => {
   it("accepts a new scheduled_date", () => {
     const r = UpdateTaskInput.safeParse({ scheduled_date: "2026-05-12" });
     expect(r.success).toBe(true);
+  });
+});
+
+// The notes limit has to be the same number in the Zod schemas, the
+// `tasks_description_check` DB constraint and every notes input's `maxLength`.
+// When it wasn't, exceeding it didn't just reject the notes: the autosave hook
+// keeps diffing against the snapshot it mounted with, so the oversized
+// description rode along in every later PATCH and the whole task — title,
+// priority, dates — silently stopped saving.
+describe("description length", () => {
+  const atLimit = "x".repeat(TASK_DESCRIPTION_MAX_LENGTH);
+  const overLimit = "x".repeat(TASK_DESCRIPTION_MAX_LENGTH + 1);
+
+  it("accepts notes far longer than the old 5,000-char cap", () => {
+    const r = UpdateTaskInput.safeParse({ description: "x".repeat(20_000) });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts notes exactly at the limit on every write path", () => {
+    expect(TaskSchema.safeParse(baseTask({ description: atLimit })).success).toBe(
+      true
+    );
+    expect(
+      CreateTaskInput.safeParse({ title: "t", description: atLimit }).success
+    ).toBe(true);
+    expect(UpdateTaskInput.safeParse({ description: atLimit }).success).toBe(true);
+  });
+
+  it("rejects one character past the limit, matching the DB constraint", () => {
+    expect(
+      TaskSchema.safeParse(baseTask({ description: overLimit })).success
+    ).toBe(false);
+    expect(
+      CreateTaskInput.safeParse({ title: "t", description: overLimit }).success
+    ).toBe(false);
+    expect(UpdateTaskInput.safeParse({ description: overLimit }).success).toBe(
+      false
+    );
   });
 });
 

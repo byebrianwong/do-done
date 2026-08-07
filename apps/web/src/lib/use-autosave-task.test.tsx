@@ -11,8 +11,13 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useAutoSaveTask, SAVED_FLASH_MS } from "@do-done/api-client";
+import {
+  useAutoSaveTask,
+  SAVED_FLASH_MS,
+  RETRY_BACKOFF_MS,
+} from "@do-done/api-client";
 import type { TasksApi } from "@do-done/api-client";
+import { TASK_DESCRIPTION_MAX_LENGTH } from "@do-done/shared";
 import { makeTask } from "@/components/__stories__/mocks";
 
 /** A TasksApi stand-in whose `update` resolves when the test says so. */
@@ -146,5 +151,212 @@ describe("useAutoSaveTask — save status", () => {
 
     act(() => result.current.setField("title", "Ship it again"));
     expect(result.current.status).toBe("pending");
+  });
+});
+
+/**
+ * The class of failure that made a single bad field look like "the task won't
+ * save": the patch was diffed against the *mount* snapshot, so a rejected value
+ * was re-sent with — and sank — every later edit.
+ */
+describe("useAutoSaveTask — one bad field doesn't sink the rest", () => {
+  const tooLong = "x".repeat(TASK_DESCRIPTION_MAX_LENGTH + 1);
+
+  /** An api whose `update` always succeeds, recording what it was sent. */
+  function recordingApi() {
+    const update = vi.fn(async () => ({ data: null, error: null }));
+    return { api: { update } as unknown as TasksApi, update };
+  }
+
+  it("sends the valid fields and holds back only the invalid one", async () => {
+    const { api, update } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("description", tooLong));
+    act(() => result.current.setField("priority", "p1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    const [, patch] = update.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(patch).toEqual({ priority: "p1" });
+    expect(result.current.fieldErrors.description).toContain("Notes");
+  });
+
+  it("keeps saving later edits instead of re-sending the rejected value", async () => {
+    const { api, update } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("description", tooLong));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+
+    // The edit that used to be collateral damage: before the fix this PATCH
+    // still carried the oversized description and failed with it.
+    act(() => result.current.setField("title", "Still saves"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+
+    const last = update.mock.calls.at(-1) as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(last[1]).toEqual({ title: "Still saves" });
+    expect(last[1]).not.toHaveProperty("description");
+  });
+
+  it("won't report Saved while a field is still being held back", async () => {
+    const { api } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("description", tooLong));
+    act(() => result.current.setField("priority", "p1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+
+    // `priority` committed, but the notes did not — "Saved" would be a lie
+    // about the part the user is most likely watching.
+    expect(result.current.status).toBe("error");
+    expect(result.current.hasUnsavedWork).toBe(true);
+  });
+
+  it("stops re-sending a field once the server has taken it", async () => {
+    const { api, update } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("title", "First"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    act(() => result.current.setField("priority", "p1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+
+    // Diffing against the mount snapshot would put `title` in this patch too.
+    const last = update.mock.calls.at(-1) as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(last[1]).toEqual({ priority: "p1" });
+  });
+
+  it("clears a field's complaint as soon as the user edits it back", async () => {
+    const { api } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("description", tooLong));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    expect(result.current.fieldErrors.description).toBeDefined();
+
+    act(() => result.current.setField("description", "short again"));
+    expect(result.current.fieldErrors.description).toBeUndefined();
+  });
+
+  it("doesn't retry a validation failure — it can't fix itself", async () => {
+    const { api, update } = recordingApi();
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("description", tooLong));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    // Nothing was sendable, so nothing was sent.
+    expect(update).not.toHaveBeenCalled();
+
+    // Well past every backoff step: hammering the server with a patch we
+    // already know is invalid helps nobody.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("error");
+  });
+});
+
+describe("useAutoSaveTask — transient failures", () => {
+  it("retries on a backoff so a last keystroke isn't lost to a blip", async () => {
+    // Fails once, then recovers — the network blip this exists for.
+    let calls = 0;
+    const update = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? { data: null, error: new Error("network") }
+        : { data: null, error: null };
+    });
+    const api = { update } as unknown as TasksApi;
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("title", "Ship it"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    expect(result.current.status).toBe("error");
+
+    // Nobody typed again; the recovery has to come from the hook itself.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS[0]);
+    });
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe("saved");
+    expect(result.current.hasUnsavedWork).toBe(false);
+  });
+
+  it("gives up after the last backoff step rather than retrying forever", async () => {
+    const update = vi.fn(async () => ({
+      data: null,
+      error: new Error("still down"),
+    }));
+    const api = { update } as unknown as TasksApi;
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("title", "Ship it"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    // One original attempt plus one per backoff step, and then it stops.
+    expect(update).toHaveBeenCalledTimes(1 + RETRY_BACKOFF_MS.length);
+    expect(result.current.status).toBe("error");
+    // Still flagged, so the close guard has something to stop on.
+    expect(result.current.hasUnsavedWork).toBe(true);
+  });
+
+  it("retries on demand, without waiting out the backoff", async () => {
+    let failing = true;
+    const update = vi.fn(async () =>
+      failing
+        ? { data: null, error: new Error("network") }
+        : { data: null, error: null }
+    );
+    const api = { update } as unknown as TasksApi;
+    const { result } = renderHook(() => useAutoSaveTask(makeTask(), api));
+
+    act(() => result.current.setField("title", "Ship it"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEBOUNCE);
+    });
+    expect(result.current.status).toBe("error");
+
+    failing = false;
+    await act(async () => {
+      result.current.retry();
+    });
+
+    expect(result.current.status).toBe("saved");
+    expect(result.current.hasUnsavedWork).toBe(false);
   });
 });
