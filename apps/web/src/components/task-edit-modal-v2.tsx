@@ -18,6 +18,9 @@ import {
   formatRelativeDay,
   formatScheduleHint,
   formatTimeOfDay,
+  hashString,
+  hexToRgb,
+  shiftHue,
   type Project,
   type Task,
   type TaskPriority,
@@ -53,6 +56,11 @@ export function estimateBarIndex(minutes: number | null): number {
 }
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** `formatRelativeDay` returns lowercase prose; the headline wants a sentence. */
+function capitalizeFirst(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -316,16 +324,14 @@ function EstimateEqualizer({
   );
 }
 
-// ── Priority / Estimate field wrappers (label opens popover picker) ────────
+// ── Status ────────────────────────────────────────────────
 
 function StatusField({
   value,
   onChange,
-  dividerLeft,
 }: {
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
-  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -333,13 +339,8 @@ function StatusField({
   const cfg = STATUS_CONFIG[value];
 
   return (
-    <div
-      ref={ref}
-      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
-        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
-      }`}
-    >
-      <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+    <div ref={ref} className="relative flex items-center gap-2.5">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
         Status
       </span>
       <button
@@ -397,66 +398,359 @@ function StatusField({
   );
 }
 
-function ProjectField({
+// ─── Project identity: the cover ───────────────────────────
+//
+// The editor's accents come from the task's project rather than a fixed
+// indigo, so a task announces which part of your life it belongs to before
+// you've read its title. Everything below is derived from columns that
+// already exist — `projects.color` and `projects.icon` — so no new data.
+
+/** Fallback identity for a task with no project: the app's own accent. */
+const NO_PROJECT_COLOR = "#6366f1";
+
+/** `"99 102 241"` — the space-separated form Tailwind's `rgb(… / <alpha>)`
+ *  arbitrary values want, so every wash in the calendar derives from one var. */
+function rgbTriple(hex: string): string {
+  const rgb = hexToRgb(hex) ?? hexToRgb(NO_PROJECT_COLOR)!;
+  return rgb.join(" ");
+}
+
+/** Blend toward black or white. Used for the two text tones — a project colour
+ *  legible on white is rarely legible on near-black, and vice versa. */
+function towardsTriple(hex: string, target: 0 | 255, amount: number): string {
+  const rgb = hexToRgb(hex) ?? hexToRgb(NO_PROJECT_COLOR)!;
+  return rgb
+    .map((c) => Math.round(c + (target - c) * amount))
+    .join(" ");
+}
+
+/**
+ * The accent variables the scheduling surface reads. Set once on the modal
+ * root; the calendar, the date headline and the time chip all resolve their
+ * colour through these rather than a hard-coded indigo, which is what makes an
+ * amber task look amber all the way down instead of only in its banner.
+ */
+export function accentVars(projectColor: string | null): React.CSSProperties {
+  const base = projectColor ?? NO_PROJECT_COLOR;
+  return {
+    "--dd-accent": rgbTriple(base),
+    "--dd-accent-ink": towardsTriple(base, 0, 0.26),
+    "--dd-accent-ink-dark": towardsTriple(base, 255, 0.38),
+  } as React.CSSProperties;
+}
+
+/**
+ * Cover textures. Colour alone can't separate two projects that sit near each
+ * other on the wheel — a violet "Mobile" and an indigo "Reading" read as the
+ * same header at a glance. The pattern is what makes them distinct, so it is
+ * chosen per project rather than being one house texture.
+ */
+const COVER_TEXTURES: { image: string; size: string }[] = [
+  {
+    image:
+      "radial-gradient(circle, rgba(255,255,255,0.26) 1.6px, transparent 1.7px)",
+    size: "15px 15px",
+  },
+  {
+    image:
+      "repeating-radial-gradient(circle at 12% 118%, transparent 0 17px, rgba(255,255,255,0.24) 17px 19px)",
+    size: "auto",
+  },
+  {
+    image:
+      "repeating-linear-gradient(58deg, rgba(255,255,255,0.22) 0 2px, transparent 2px 13px)",
+    size: "auto",
+  },
+  {
+    image:
+      "repeating-linear-gradient(0deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px 16px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px 16px)",
+    size: "auto",
+  },
+  {
+    image:
+      "repeating-linear-gradient(135deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px 11px)",
+    size: "auto",
+  },
+];
+
+/**
+ * Pick a texture from the project id. Deterministic and derived, so the same
+ * project always wears the same pattern without storing one.
+ */
+export function coverTextureFor(projectId: string | null): {
+  image: string;
+  size: string;
+} {
+  if (!projectId) return COVER_TEXTURES[0];
+  return COVER_TEXTURES[hashString(projectId) % COVER_TEXTURES.length];
+}
+
+/**
+ * The banner. Carries the project (pill, emoji watermark, colour), the
+ * estimate (a rail along its bottom edge) and — only when it's set above
+ * Medium — the priority word. Priority's own signal is the stripe above this,
+ * which is rendered by the modal so it can sit flush with the top edge.
+ */
+function TaskCover({
+  project,
   projects,
-  value,
+  userId,
+  onChangeProject,
+  onProjectCreated,
+  priority,
+  onChangePriority,
+  estimateMinutes,
+  onChangeEstimate,
+}: {
+  project: Project | null;
+  projects: Project[];
+  userId: string;
+  onChangeProject: (projectId: string | null) => void;
+  onProjectCreated: (project: Project) => void;
+  priority: TaskPriority;
+  onChangePriority: (p: TaskPriority) => void;
+  estimateMinutes: number | null;
+  onChangeEstimate: (minutes: number | null) => void;
+}) {
+  const base = project?.color ?? NO_PROJECT_COLOR;
+  const texture = coverTextureFor(project?.id ?? null);
+  const gradient = `linear-gradient(118deg, ${base}, ${shiftHue(base, 14, 0.16)})`;
+
+  return (
+    <div
+      // A flex column ending at the bottom, rather than two absolutely
+      // positioned rows: the pill and the rail are both bottom-aligned, and
+      // stacking them means the rail's generous hit area can't creep up over
+      // the project button the way overlapping absolute boxes did.
+      className="relative flex h-16 shrink-0 flex-col justify-end overflow-hidden sm:h-[92px]"
+      style={{
+        backgroundImage: `${texture.image}, ${gradient}`,
+        backgroundSize: `${texture.size}, auto`,
+      }}
+    >
+      {/* Emoji watermark, bled off the top-right corner so it never competes
+          with the controls that sit along the cover's bottom edge. */}
+      {project?.icon ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-3.5 -top-4 select-none text-[64px] leading-none opacity-30 drop-shadow-[0_4px_10px_rgba(0,0,0,0.2)] sm:-top-[18px] sm:text-[86px]"
+          style={{ rotate: "-13deg" }}
+        >
+          {project.icon}
+        </span>
+      ) : null}
+      {/* Darkens the bottom so white controls hold their contrast over a pale
+          project colour (amber and lime are the ones that would otherwise
+          wash out). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent to-[62%]"
+      />
+
+      <div className="relative flex items-end gap-2 px-3 pb-1">
+        <CoverProjectPill
+          project={project}
+          projects={projects}
+          userId={userId}
+          onChange={onChangeProject}
+          onCreated={onProjectCreated}
+        />
+        <CoverPriorityWord priority={priority} onChange={onChangePriority} />
+      </div>
+
+      <EstimateRail value={estimateMinutes} onChange={onChangeEstimate} />
+    </div>
+  );
+}
+
+/** The project control, and the cover's own caption. */
+function CoverProjectPill({
+  project,
+  projects,
   userId,
   onChange,
   onCreated,
-  dividerLeft,
 }: {
+  project: Project | null;
   projects: Project[];
-  value: string | null;
   userId: string;
   onChange: (projectId: string | null) => void;
-  onCreated: (project: Project) => void;
-  dividerLeft?: boolean;
+  onCreated: (p: Project) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
-  const selected = value ? projects.find((p) => p.id === value) ?? null : null;
 
   return (
-    <div
-      ref={ref}
-      className={`relative flex min-w-0 flex-col items-center gap-2 px-2 py-3 ${
-        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
-      }`}
-    >
-      <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-        Project
-      </span>
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+        aria-label={project ? `Project: ${project.name}` : "Set project"}
+        className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-black/25 px-2.5 py-1 text-[12px] font-bold tracking-wide text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)] backdrop-blur-sm transition-colors hover:bg-black/40"
       >
-        {selected ? (
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: selected.color }}
-          />
-        ) : (
-          <span className="h-2 w-2 shrink-0 rounded-full border border-dashed border-neutral-400" />
-        )}
-        <span className={`truncate ${selected ? "" : "text-neutral-400"}`}>
-          {selected
-            ? `${selected.icon ? `${selected.icon} ` : ""}${selected.name}`
-            : "No project"}
-        </span>
-        <span className="shrink-0 text-neutral-400">▾</span>
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            project ? "bg-white" : "border border-dashed border-white/80"
+          }`}
+        />
+        <span className="truncate">{project ? project.name : "No project"}</span>
       </button>
       {open ? (
         <ProjectPickerPopover
           projects={projects}
-          selectedId={value}
+          selectedId={project?.id ?? null}
           userId={userId}
           onSelect={onChange}
           onCreated={onCreated}
           onClose={() => setOpen(false)}
+          align="left"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ── Priority: a stripe, and a word by exception ───────────
+
+// Coloured by exception, exactly like the cover's priority word: red and amber
+// mean something, and everything at or below Medium is a hairline the same
+// weight as the modal's other borders. Two reasons. Most tasks on a personal
+// list never get a priority, so a permanently lit stripe would stop being
+// read; and an indigo P3 stripe above a green project cover reads as a stray
+// UI accent rather than as a property of the task. The value is still spoken
+// by the button's aria-label at every level, and the meter behind it shows all
+// four.
+const PRIORITY_STRIPE_COLORS: Record<TaskPriority, string> = {
+  p1: "bg-red-500",
+  p2: "bg-amber-500",
+  p3: "bg-neutral-200 dark:bg-neutral-800",
+  p4: "bg-neutral-200 dark:bg-neutral-800",
+};
+
+/**
+ * Shared body for the priority popover — the same meter the editor has always
+ * used, now reached from the stripe and the cover word rather than from a
+ * cell in the body grid. Keeping the meter (rather than a plain list) keeps
+ * the hover preview and the click-the-current-value-to-clear behaviour.
+ */
+function PriorityPopoverPanel({
+  value,
+  onChange,
+  align,
+}: {
+  value: TaskPriority;
+  onChange: (p: TaskPriority) => void;
+  align: "left" | "right";
+}) {
+  const [hovered, setHovered] = useState<TaskPriority | null>(null);
+  const previewLabel =
+    hovered !== null && hovered !== value
+      ? PRIORITY_CONFIG[hovered].label
+      : null;
+  return (
+    <div
+      role="dialog"
+      aria-label="Priority"
+      className={`absolute top-full z-40 mt-1.5 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
+        align === "left" ? "left-3" : "right-3"
+      }`}
+    >
+      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+        Priority
+      </span>
+      <PrioritySignal
+        value={value}
+        hovered={hovered}
+        onChange={onChange}
+        onHover={setHovered}
+      />
+      <span className="min-w-[5ch] text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+        {previewLabel ?? PRIORITY_CONFIG[value].label}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The modal's top edge, coloured by priority. An edge is the one channel the
+ * cover hasn't already spent — hue and texture belong to the project, so a
+ * priority that reached for either would read as "something about the
+ * project" instead.
+ */
+function PriorityStripe({
+  value,
+  onChange,
+}: {
+  value: TaskPriority;
+  onChange: (p: TaskPriority) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  // Clicking the current value clears to p4, matching the meter's own rule.
+  const handleChange = (p: TaskPriority) => onChange(p === value ? "p4" : p);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Priority: ${PRIORITY_CONFIG[value].label}`}
+        title={`Priority: ${PRIORITY_CONFIG[value].label}`}
+        className={`block h-[7px] w-full transition-colors ${PRIORITY_STRIPE_COLORS[value]}`}
+      />
+      {open ? (
+        <PriorityPopoverPanel
+          value={value}
+          onChange={handleChange}
+          align="left"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The word on the cover, shown only for Urgent and High. Most tasks on a
+ * personal list never get a priority, and furniture that's empty on most
+ * tasks is furniture that stops being read — so this appears by exception and
+ * the stripe carries the quiet cases alone.
+ */
+function CoverPriorityWord({
+  priority,
+  onChange,
+}: {
+  priority: TaskPriority;
+  onChange: (p: TaskPriority) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const handleChange = (p: TaskPriority) => onChange(p === priority ? "p4" : p);
+
+  if (priority !== "p1" && priority !== "p2") return null;
+  const tone = priority === "p1" ? "bg-red-500" : "bg-amber-500";
+
+  return (
+    <div ref={ref} className="relative ml-auto shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`rounded-md px-2 py-1 text-[11px] font-extrabold uppercase tracking-wider text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)] ${tone}`}
+      >
+        {PRIORITY_CONFIG[priority].label}
+      </button>
+      {open ? (
+        <PriorityPopoverPanel
+          value={priority}
+          onChange={handleChange}
           align="right"
         />
       ) : null}
@@ -464,164 +758,89 @@ function ProjectField({
   );
 }
 
-function PriorityField({
-  value,
-  onChange,
-  dividerLeft,
-}: {
-  value: TaskPriority;
-  onChange: (p: TaskPriority) => void;
-  dividerLeft?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState<TaskPriority | null>(null);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useClickOutside(ref, () => setOpen(false));
-
-  // Clicking the current value clears to p4 (the "no priority" default —
-  // the priority chip in the title bar is hidden for p4).
-  const handleChange = (p: TaskPriority) => {
-    onChange(p === value ? "p4" : p);
-  };
-
-  const previewLabel =
-    hovered !== null && hovered !== value
-      ? PRIORITY_CONFIG[hovered].label
-      : null;
-
-  return (
-    <div
-      ref={ref}
-      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
-        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="rounded text-[11px] font-medium text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
-      >
-        Priority
-      </button>
-      <div className="flex flex-col items-center gap-1.5">
-        <PrioritySignal
-          value={value}
-          hovered={hovered}
-          onChange={handleChange}
-          onHover={setHovered}
-        />
-        {/* Single value slot — hover preview replaces the committed label
-            (rather than appending an arrow) so the cell width can't grow and
-            jostle neighbouring fields. */}
-        <span className="min-w-[5ch] text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
-          {previewLabel ?? PRIORITY_CONFIG[value].label}
-        </span>
-      </div>
-      {open ? (
-        <PickerPopover
-          ariaLabel="Priority options"
-          options={PRIORITY_OPTIONS.map((p) => ({
-            key: p.value,
-            code: p.code,
-            label: p.label,
-            selected: p.value === value,
-            onSelect: () => {
-              handleChange(p.value);
-              setOpen(false);
-            },
-            accentClass: {
-              p1: "bg-red-500",
-              p2: "bg-amber-500",
-              p3: "bg-indigo-500",
-              p4: "bg-neutral-400",
-            }[p.value],
-          }))}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </div>
-  );
-}
+// ── Estimate: a rail along the cover's bottom edge ────────
 
 function formatEstimateShort(minutes: number): string {
   return minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`;
 }
 
-function EstimateField({
+/**
+ * Six segments filling left to right. Length is the right metaphor for a
+ * duration — a longer task is a longer bar — and the bottom edge is free
+ * space the artwork wasn't using.
+ */
+function EstimateRail({
   value,
   onChange,
-  dividerLeft,
 }: {
   value: number | null;
   onChange: (minutes: number | null) => void;
-  dividerLeft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
+
   const activeIdx = estimateBarIndex(value);
-
-  // Clicking the current bar clears to null. Otherwise set to the new value.
-  const handleChange = (minutes: number) => {
+  const handleChange = (minutes: number) =>
     onChange(minutes === value ? null : minutes);
-  };
-
   const previewLabel =
     hovered !== null && hovered !== value ? formatEstimateShort(hovered) : null;
 
   return (
-    <div
-      ref={ref}
-      className={`relative flex flex-col items-center gap-2 px-2 py-3 ${
-        dividerLeft ? "border-l border-neutral-100 dark:border-neutral-800" : ""
-      }`}
-    >
+    <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
-        className="rounded text-[11px] font-medium text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+        aria-label={
+          value
+            ? `Estimate: ${formatEstimateShort(value)}`
+            : "Set an estimate"
+        }
+        title={value ? `Estimate: ${formatEstimateShort(value)}` : "Set an estimate"}
+        // The whole bottom strip of the cover is the hit area, not just the
+        // 4px of visible rail.
+        className="flex w-full items-center gap-2 px-3 pb-2 pt-1.5"
       >
-        Estimate
-      </button>
-      <div className="flex flex-col items-center gap-1.5">
-        <EstimateEqualizer
-          value={value}
-          hovered={hovered}
-          onChange={handleChange}
-          onHover={setHovered}
-        />
-        {/* Single value slot — hover preview replaces the committed value so
-            the cell width stays stable and neighbours don't shift. */}
-        <span className="min-w-[5ch] text-center text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
-          {previewLabel ?? (value ? formatEstimateShort(value) : "—")}
+        <span className="flex flex-1 items-center gap-[3px]">
+          {ESTIMATE_OPTIONS.map((b, i) => (
+            <span
+              key={b.minutes}
+              className={`h-1 flex-1 rounded-sm transition-colors ${
+                i <= activeIdx ? "bg-white" : "bg-white/25"
+              }`}
+            />
+          ))}
         </span>
-      </div>
+        <span className="shrink-0 text-[11px] font-bold tabular-nums text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]">
+          {value ? formatEstimateShort(value) : "—"}
+        </span>
+      </button>
       {open ? (
-        <PickerPopover
-          ariaLabel="Estimate options"
-          options={ESTIMATE_OPTIONS.map((b, i) => ({
-            key: String(b.minutes),
-            code: b.code,
-            label: b.label,
-            selected: i === activeIdx,
-            onSelect: () => {
-              handleChange(b.minutes);
-              setOpen(false);
-            },
-            accentClass: "bg-indigo-500",
-          }))}
-          onClose={() => setOpen(false)}
-        />
+        <div
+          role="dialog"
+          aria-label="Estimate"
+          className="absolute right-3 top-full z-40 mt-1.5 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+            Estimate
+          </span>
+          <EstimateEqualizer
+            value={value}
+            hovered={hovered}
+            onChange={handleChange}
+            onHover={setHovered}
+          />
+          <span className="min-w-[5ch] text-center text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
+            {previewLabel ?? (value ? formatEstimateShort(value) : "—")}
+          </span>
+        </div>
       ) : null}
     </div>
   );
 }
-
 // ── Picker popover ─────────────────────────────────────
 
 export interface PickerOption {
@@ -1129,11 +1348,11 @@ export function MonthGrid({
                 isPast
                   ? "cursor-not-allowed text-neutral-300 dark:text-neutral-700"
                   : isActive
-                    ? "bg-indigo-500 text-white shadow-sm shadow-indigo-500/40"
+                    ? "bg-[rgb(var(--dd-accent))] text-white shadow-sm shadow-[0_2px_6px_rgb(var(--dd-accent)/0.4)]"
                     : isToday
-                      ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-400 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
+                      ? "bg-[rgb(var(--dd-accent)/0.1)] ring-1 ring-inset ring-[rgb(var(--dd-accent)/0.75)] text-[rgb(var(--dd-accent-ink))] dark:bg-[rgb(var(--dd-accent)/0.2)] dark:text-[rgb(var(--dd-accent-ink-dark))]"
                       : inSpan
-                        ? "bg-indigo-500/[0.13] text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-indigo-500/20 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                        ? "bg-[rgb(var(--dd-accent)/0.13)] text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-[rgb(var(--dd-accent)/0.2)] dark:text-neutral-300 dark:hover:bg-neutral-800"
                         : "text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:ring-neutral-700"
               }`}
             >
@@ -1141,7 +1360,9 @@ export function MonthGrid({
               {hasBusy && !isActive && !isPast ? (
                 <span
                   className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${
-                    isToday ? "bg-indigo-500" : "bg-neutral-400 dark:bg-neutral-500"
+                    isToday
+                      ? "bg-[rgb(var(--dd-accent))]"
+                      : "bg-neutral-400 dark:bg-neutral-500"
                   }`}
                 />
               ) : null}
@@ -1321,9 +1542,9 @@ function ScheduleCalendar({
             : specialLabels.get(c.date) ?? null;
           // Highlight tone for the label.
           const labelTone = isActive
-            ? "text-indigo-100"
+            ? "text-white/75"
             : isToday
-              ? "text-indigo-600 dark:text-indigo-400"
+              ? "text-[rgb(var(--dd-accent-ink))] dark:text-[rgb(var(--dd-accent-ink-dark))]"
               : "text-neutral-400 dark:text-neutral-500";
           return (
             <button
@@ -1338,24 +1559,24 @@ function ScheduleCalendar({
                 isPast
                   ? "opacity-30 cursor-not-allowed border-transparent bg-neutral-50 dark:bg-neutral-900"
                   : isActive
-                    ? "border-indigo-500 bg-indigo-500 shadow-lg shadow-indigo-500/40 ring-2 ring-indigo-500/20 dark:bg-indigo-500"
+                    ? "border-[rgb(var(--dd-accent))] bg-[rgb(var(--dd-accent))] shadow-lg shadow-[0_10px_24px_rgb(var(--dd-accent)/0.4)] ring-2 ring-[rgb(var(--dd-accent)/0.2)]"
                     : isToday
                       ? // Today used to read as a plain white cell, quieter than
                         // every neighbour. It anchors the span now, so it gets
                         // its own outline — one step below the selected fill.
-                        "border-indigo-400 bg-indigo-500/[0.10] dark:border-indigo-500/70 dark:bg-indigo-500/20"
+                        "border-[rgb(var(--dd-accent)/0.75)] bg-[rgb(var(--dd-accent)/0.10)] dark:bg-[rgb(var(--dd-accent)/0.2)]"
                       : inSpan
                         ? // Weekends already carry a 0.035 indigo wash, so the
                           // runway needs real separation from it to read as a
                           // span rather than as another weekend.
-                          "border-transparent bg-indigo-500/[0.13] hover:border-neutral-200 hover:bg-white dark:bg-indigo-500/20 dark:hover:bg-neutral-900"
+                          "border-transparent bg-[rgb(var(--dd-accent)/0.13)] hover:border-neutral-200 hover:bg-white dark:bg-[rgb(var(--dd-accent)/0.2)] dark:hover:bg-neutral-900"
                         : isWeekend
-                          ? "border-transparent bg-indigo-500/[0.035] hover:border-neutral-200 hover:bg-white dark:hover:bg-neutral-900"
+                          ? "border-transparent bg-[rgb(var(--dd-accent)/0.04)] hover:border-neutral-200 hover:bg-white dark:hover:bg-neutral-900"
                           : "border-transparent bg-neutral-50 hover:border-neutral-200 hover:bg-white dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
               }`}
             >
               {isToday && !isActive && (
-                <span className="absolute top-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-500" />
+                <span className="absolute top-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-[rgb(var(--dd-accent))]" />
               )}
               <span
                 className={`text-sm font-semibold leading-none ${
@@ -1414,7 +1635,7 @@ function ScheduleCalendar({
                 e === "collapsed" ? "two-weeks" : "months"
               )
             }
-            className="flex-1 min-w-[140px] rounded-lg bg-indigo-50 px-2 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300"
+            className="flex-1 min-w-[140px] rounded-lg bg-[rgb(var(--dd-accent)/0.1)] px-2 py-2 text-xs font-medium text-[rgb(var(--dd-accent-ink))] transition-colors hover:bg-[rgb(var(--dd-accent)/0.18)] dark:bg-[rgb(var(--dd-accent)/0.22)] dark:text-[rgb(var(--dd-accent-ink-dark))]"
           >
             See more dates ⇣
           </button>
@@ -1424,7 +1645,7 @@ function ScheduleCalendar({
           onClick={() => onPickDate(nextWeekStr)}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
             scheduledDate === nextWeekStr
-              ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+              ? "bg-[rgb(var(--dd-accent)/0.18)] text-[rgb(var(--dd-accent-ink))] dark:bg-[rgb(var(--dd-accent)/0.28)] dark:text-[rgb(var(--dd-accent-ink-dark))]"
               : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
           }`}
         >
@@ -1432,7 +1653,7 @@ function ScheduleCalendar({
           <span
             className={
               scheduledDate === nextWeekStr
-                ? "text-indigo-500/80 dark:text-indigo-300/70"
+                ? "text-[rgb(var(--dd-accent-ink)/0.75)] dark:text-[rgb(var(--dd-accent-ink-dark)/0.7)]"
                 : "text-neutral-400 dark:text-neutral-500"
             }
           >
@@ -2430,6 +2651,16 @@ function TaskEditModalBody({
     () => [...(projects ?? []), ...createdProjects],
     [projects, createdProjects]
   );
+  // Drives every accent on the cover. Null is a first-class case, not a
+  // failure — an unfiled task gets the app's own indigo rather than a hole
+  // where the banner should be.
+  const currentProject = useMemo(
+    () =>
+      current.project_id
+        ? allProjects.find((p) => p.id === current.project_id) ?? null
+        : null,
+    [allProjects, current.project_id]
+  );
 
   /**
    * Pull `#token` shortcuts out of the title and into their real fields.
@@ -2683,36 +2914,18 @@ function TaskEditModalBody({
     setField("scheduled_date", date);
   };
 
-  const tokens: ParsedToken[] = [];
-  if (current.priority !== "p4") {
-    const toneClass = {
-      p1: "bg-red-100 text-red-700",
-      p2: "bg-amber-100 text-amber-700",
-      p3: "bg-indigo-100 text-indigo-700",
-      p4: "bg-neutral-100 text-neutral-700",
-    }[current.priority];
-    tokens.push({
-      kind: "priority",
-      label: current.priority,
-      toneClass,
-    });
-  }
-  for (const tag of current.tags) {
-    tokens.push({
-      kind: "tag",
-      label: `#${tag}`,
-      toneClass:
-        "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
-      removable: { tag },
-    });
-  }
-  if (current.duration_minutes) {
-    tokens.push({
-      kind: "estimate",
-      label: `~${current.duration_minutes >= 60 ? `${Math.round(current.duration_minutes / 60)}h` : `${current.duration_minutes}m`}`,
-      toneClass: "bg-green-100 text-green-700",
-    });
-  }
+  // Tags only. Priority and estimate used to appear here as chips too, which
+  // made them the third and fourth place on screen claiming the same two
+  // values — the stripe and the rail say it above, and `#p1`/`#xs` typed into
+  // the title still route to the real fields, they just land in the header
+  // now rather than echoing back as a chip.
+  const tokens: ParsedToken[] = current.tags.map((tag) => ({
+    kind: "tag" as const,
+    label: `#${tag}`,
+    toneClass:
+      "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+    removable: { tag },
+  }));
 
   const handleRemoveTag = (tag: string) => {
     setField(
@@ -2738,9 +2951,34 @@ function TaskEditModalBody({
       onClick={handleClose}
     >
       <div
-        className="flex max-h-[calc(100dvh-1.5rem)] w-[640px] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.10),0_4px_12px_rgba(17,24,39,0.04)] sm:max-h-[90vh] dark:bg-neutral-950"
+        className="flex max-h-[calc(100dvh-1.5rem)] w-[660px] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.10),0_4px_12px_rgba(17,24,39,0.04)] sm:max-h-[90vh] dark:bg-neutral-950"
+        // Every accent below this point — the selected day, the runway, the
+        // "Tomorrow" headline, the time chip — resolves through these, so an
+        // amber project is amber all the way down rather than only in its
+        // banner. Priority is deliberately NOT on this ramp: red has to mean
+        // urgent in Health exactly as it does in Home.
+        style={accentVars(currentProject?.color ?? null)}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Priority owns the modal's top edge, and the cover carries the
+            project and the estimate. Both sit outside the scroll region: they
+            are what the task *is*, so they shouldn't scroll away from it. */}
+        <PriorityStripe
+          value={current.priority}
+          onChange={(p) => setField("priority", p)}
+        />
+        <TaskCover
+          project={currentProject}
+          projects={allProjects}
+          userId={current.user_id}
+          onChangeProject={(id) => setField("project_id", id)}
+          onProjectCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
+          priority={current.priority}
+          onChangePriority={(p) => setField("priority", p)}
+          estimateMinutes={current.duration_minutes}
+          onChangeEstimate={(m) => setField("duration_minutes", m)}
+        />
+
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-white px-4 py-2.5 dark:border-neutral-900 dark:bg-neutral-950">
           <div className="flex min-w-0 items-center gap-3">
@@ -2853,24 +3091,23 @@ function TaskEditModalBody({
 
         {/* Body */}
         <div className="flex flex-col gap-5 px-5 py-4">
-          {/* DATE calendar */}
+          {/* DATE calendar. Relative reading first and large: on a personal
+              list "tomorrow" is the answer and "Tuesday, August 5th" is the
+              receipt, so the receipt is the one set small. */}
           <div>
-            <div className="mb-2 flex items-baseline gap-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-                Date
-              </span>
-              <span className="text-sm font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+            <div className="mb-2.5 flex items-baseline gap-2.5">
+              <span className="text-[22px] font-bold leading-none tracking-tight text-[rgb(var(--dd-accent-ink))] dark:text-[rgb(var(--dd-accent-ink-dark))]">
                 {current.scheduled_date
-                  ? formatFullDate(current.scheduled_date)
+                  ? capitalizeFirst(formatRelativeDay(current.scheduled_date))
                   : "Not scheduled"}
               </span>
               {current.scheduled_date ? (
-                <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">
-                  · {formatRelativeDay(current.scheduled_date)}
+                <span className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">
+                  {formatFullDate(current.scheduled_date)}
                 </span>
               ) : null}
               {current.scheduled_date && current.scheduled_time ? (
-                <span className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">
+                <span className="rounded-md bg-[rgb(var(--dd-accent)/0.12)] px-1.5 py-0.5 text-[12px] font-semibold text-[rgb(var(--dd-accent-ink))] dark:bg-[rgb(var(--dd-accent)/0.24)] dark:text-[rgb(var(--dd-accent-ink-dark))]">
                   {formatTimeOfDay(current.scheduled_time)}
                 </span>
               ) : null}
@@ -2897,31 +3134,16 @@ function TaskEditModalBody({
             ) : null}
           </div>
 
-          {/* Inline meta — a fixed 4-column grid. Each control lives in its
-              own 1fr cell, so changing one value (or previewing on hover) can
-              never change another field's width and shove its neighbours. */}
-          <div className="grid grid-cols-4 border-y border-neutral-100 dark:border-neutral-900">
+          {/* Status is what's left of the old 4-up grid. Priority, estimate
+              and project all moved to the header, and none of them was left
+              behind here: a signal at the top plus a control at the bottom is
+              worse than either alone, because you read the value in one place
+              and then have to hunt for where to change it. The header marks
+              are the controls. */}
+          <div className="border-y border-neutral-100 py-2.5 dark:border-neutral-900">
             <StatusField
               value={current.status}
               onChange={(s) => setField("status", s)}
-            />
-            <PriorityField
-              dividerLeft
-              value={current.priority}
-              onChange={(p) => setField("priority", p)}
-            />
-            <EstimateField
-              dividerLeft
-              value={current.duration_minutes}
-              onChange={(m) => setField("duration_minutes", m)}
-            />
-            <ProjectField
-              dividerLeft
-              projects={allProjects}
-              value={current.project_id}
-              userId={current.user_id}
-              onChange={(id) => setField("project_id", id)}
-              onCreated={(p) => setCreatedProjects((prev) => [...prev, p])}
             />
           </div>
 

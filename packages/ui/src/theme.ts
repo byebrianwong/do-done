@@ -24,15 +24,20 @@ export const colors = {
     900: "#171717",
     950: "#0a0a0a",
   },
+  // Must stay in step with PRIORITY_CONFIG in @do-done/shared — see the note
+  // there for why P3 is indigo rather than yellow (contrast on white, and
+  // red/orange/yellow collapsing into one tone under deuteranopia).
   priority: {
     p1: "#ef4444",
-    p2: "#f97316",
-    p3: "#eab308",
-    p4: "#6b7280",
+    p2: "#f59e0b",
+    p3: "#6366f1",
+    p4: "#a3a3a3",
   },
   status: {
     success: "#22c55e",
-    warning: "#eab308",
+    // Amber, not yellow: this is drawn on white too, and #eab308 doesn't
+    // clear 3:1 there.
+    warning: "#f59e0b",
     error: "#ef4444",
     info: "#3b82f6",
   },

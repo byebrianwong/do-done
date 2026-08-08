@@ -1,0 +1,1162 @@
+<title>Round 8 · Bringing notes up</title>
+<style>
+  /* ─── Tokens ─────────────────────────────────────────────
+     The app's own palette: indigo-500 accent, Tailwind neutral scale,
+     amber for deadline. The bench around the mockups is the only thing
+     that isn't product — a cool slate so white cards read as specimens. */
+  :root {
+    --page: #eef0f4;
+    --page-2: #e3e6ec;
+    --bench-ink: #1e2230;
+    --bench-muted: #5b6377;
+    --bench-line: #d3d8e2;
+    --bench-card: #ffffff;
+
+    --surface: #ffffff;
+    --sunken: #fafafa;
+    --sunken-2: #f5f5f5;
+    --line: #f5f5f5;
+    --line-2: #e5e5e5;
+    --ink: #171717;
+    --ink-2: #404040;
+    --muted: #737373;
+    --faint: #a3a3a3;
+    --fainter: #d4d4d4;
+
+    --indigo: #6366f1;
+    --indigo-ink: #4338ca;
+    --indigo-soft: #eef2ff;
+    --indigo-wash: rgba(99, 102, 241, 0.13);
+    --indigo-weekend: rgba(99, 102, 241, 0.035);
+    --amber: #f59e0b;
+    --amber-ink: #b45309;
+    --amber-soft: #fffbeb;
+    --amber-line: #fde68a;
+    --red: #ef4444;
+    --green: #22c55e;
+
+    --shadow-modal: 0 24px 60px rgba(17, 24, 39, 0.10), 0 4px 12px rgba(17, 24, 39, 0.04);
+    --shadow-pop: 0 12px 24px rgba(17, 24, 39, 0.10), 0 2px 6px rgba(17, 24, 39, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #101319;
+      --page-2: #171b23;
+      --bench-ink: #e8ecf4;
+      --bench-muted: #9aa3b6;
+      --bench-line: #2a3040;
+      --bench-card: #191d26;
+
+      --surface: #0a0a0a;
+      --sunken: #171717;
+      --sunken-2: #1c1c1c;
+      --line: #171717;
+      --line-2: #262626;
+      --ink: #fafafa;
+      --ink-2: #d4d4d4;
+      --muted: #a3a3a3;
+      --faint: #737373;
+      --fainter: #404040;
+
+      --indigo-soft: #1e1b4b;
+      --indigo-ink: #a5b4fc;
+      --indigo-wash: rgba(99, 102, 241, 0.22);
+      --indigo-weekend: rgba(99, 102, 241, 0.07);
+      --amber-soft: #2a1e05;
+      --amber-ink: #fcd34d;
+      --amber-line: #5a4210;
+
+      --shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.4);
+      --shadow-pop: 0 12px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --page: #101319;
+    --page-2: #171b23;
+    --bench-ink: #e8ecf4;
+    --bench-muted: #9aa3b6;
+    --bench-line: #2a3040;
+    --bench-card: #191d26;
+    --surface: #0a0a0a;
+    --sunken: #171717;
+    --sunken-2: #1c1c1c;
+    --line: #171717;
+    --line-2: #262626;
+    --ink: #fafafa;
+    --ink-2: #d4d4d4;
+    --muted: #a3a3a3;
+    --faint: #737373;
+    --fainter: #404040;
+    --indigo-soft: #1e1b4b;
+    --indigo-ink: #a5b4fc;
+    --indigo-wash: rgba(99, 102, 241, 0.22);
+    --indigo-weekend: rgba(99, 102, 241, 0.07);
+    --amber-soft: #2a1e05;
+    --amber-ink: #fcd34d;
+    --amber-line: #5a4210;
+    --shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-pop: 0 12px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+
+  :root[data-theme="light"] {
+    --page: #eef0f4;
+    --page-2: #e3e6ec;
+    --bench-ink: #1e2230;
+    --bench-muted: #5b6377;
+    --bench-line: #d3d8e2;
+    --bench-card: #ffffff;
+    --surface: #ffffff;
+    --sunken: #fafafa;
+    --sunken-2: #f5f5f5;
+    --line: #f5f5f5;
+    --line-2: #e5e5e5;
+    --ink: #171717;
+    --ink-2: #404040;
+    --muted: #737373;
+    --faint: #a3a3a3;
+    --fainter: #d4d4d4;
+    --indigo-soft: #eef2ff;
+    --indigo-ink: #4338ca;
+    --indigo-wash: rgba(99, 102, 241, 0.13);
+    --indigo-weekend: rgba(99, 102, 241, 0.035);
+    --amber-soft: #fffbeb;
+    --amber-ink: #b45309;
+    --amber-line: #fde68a;
+    --shadow-modal: 0 24px 60px rgba(17, 24, 39, 0.10), 0 4px 12px rgba(17, 24, 39, 0.04);
+    --shadow-pop: 0 12px 24px rgba(17, 24, 39, 0.10), 0 2px 6px rgba(17, 24, 39, 0.05);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    /* Inter when the machine has it (the app's face), SF/system otherwise.
+       No CDN link — a blocked font request would fall back silently. */
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, var(--page-2), var(--page));
+    color: var(--bench-ink);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  /* ─── Bench chrome ───────────────────────────────────── */
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  header.intro { max-width: 62ch; }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--bench-muted); margin: 0 0 10px;
+  }
+  h1 {
+    margin: 0 0 12px; font-size: clamp(26px, 3.4vw, 36px); font-weight: 800;
+    letter-spacing: -0.025em; line-height: 1.1; text-wrap: balance;
+  }
+  header.intro p {
+    margin: 0; font-size: 15px; line-height: 1.6; color: var(--bench-muted);
+  }
+  header.intro p + p { margin-top: 10px; }
+  header.intro b { color: var(--bench-ink); font-weight: 600; }
+
+  /* Variant switcher */
+  .switcher {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin: 32px 0 8px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--bench-line);
+  }
+  .tab {
+    appearance: none; cursor: pointer; text-align: left;
+    background: var(--bench-card); border: 1px solid var(--bench-line);
+    border-radius: 12px; padding: 10px 14px;
+    font: inherit; color: var(--bench-ink);
+    display: flex; flex-direction: column; gap: 2px;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+  }
+  .tab:hover { border-color: var(--indigo); }
+  .tab:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+  .tab .key {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--bench-muted);
+  }
+  .tab .name { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+  .tab[aria-selected="true"] {
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+  }
+  .tab[aria-selected="true"] .key { color: var(--indigo); }
+
+  .panel[hidden] { display: none; }
+
+  .stage {
+    margin: 28px 0 0;
+    padding: 40px 24px;
+    border-radius: 20px;
+    background:
+      linear-gradient(var(--page-2), var(--page-2)) padding-box,
+      var(--bench-line) border-box;
+    border: 1px solid var(--bench-line);
+    display: flex; justify-content: center;
+    overflow-x: auto;
+  }
+
+  /* Rationale card under each stage */
+  .why {
+    margin-top: 24px;
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+  .why section {
+    background: var(--bench-card); border: 1px solid var(--bench-line);
+    border-radius: 14px; padding: 16px 18px;
+  }
+  .why h3 {
+    margin: 0 0 8px; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--bench-muted);
+  }
+  .why ul { margin: 0; padding-left: 17px; }
+  .why li { font-size: 13px; line-height: 1.55; margin-bottom: 6px; color: var(--bench-ink); }
+  .why li:last-child { margin-bottom: 0; }
+  .why li b { font-weight: 650; }
+  .why section.cost h3 { color: var(--amber-ink); }
+
+  .hint {
+    margin-top: 14px; font-size: 12px; color: var(--bench-muted);
+    display: flex; align-items: center; gap: 7px; justify-content: center;
+  }
+  .hint kbd {
+    font: 500 11px/1 ui-monospace, Menlo, monospace;
+    border: 1px solid var(--bench-line); border-radius: 4px;
+    padding: 3px 5px; background: var(--bench-card);
+  }
+
+  /* ─── Shared modal chrome (the product's own styling) ─── */
+
+  .modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: var(--shadow-modal);
+    overflow: hidden; flex-shrink: 0;
+    color: var(--ink);
+    font-size: 13px;
+  }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+  }
+  .save {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 500; color: var(--green);
+  }
+  .save .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  .undo {
+    border: 1px solid var(--line-2); border-radius: 6px; background: none;
+    padding: 4px 10px; font: 600 11px Inter, system-ui, sans-serif;
+    color: var(--muted);
+  }
+  .burger { width: 24px; height: 24px; display: grid; place-items: center; color: var(--faint); }
+
+  /* Title row */
+  .titlebar {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 16px; background: var(--sunken);
+    border-bottom: 1px solid var(--line);
+  }
+  .titlebar.plain { background: var(--surface); }
+  .circle {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid var(--indigo); flex-shrink: 0; margin-top: 4px;
+  }
+  .title {
+    font-size: 17px; font-weight: 650; letter-spacing: -0.015em;
+    color: var(--ink); line-height: 1.3;
+  }
+  .title-wrap { min-width: 0; flex: 1; }
+  .caret {
+    display: inline-block; width: 1.5px; height: 17px; background: var(--indigo);
+    vertical-align: -3px; margin-left: 1px; animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+
+  /* Section labels */
+  .lbl {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--faint);
+  }
+
+  /* Notes */
+  .notes {
+    border: 1px solid var(--line); background: var(--sunken);
+    border-radius: 10px; padding: 12px 14px;
+    font-size: 13px; line-height: 1.62; color: var(--ink-2);
+    white-space: pre-wrap;
+  }
+  .notes a { color: var(--indigo); text-decoration: underline; text-underline-offset: 2px; }
+  .notes.hero { min-height: 244px; }
+  .notes.tall { min-height: 236px; }
+  .notes.xl { flex: 1; min-height: 300px; }
+
+  /* Subtasks */
+  .subs {
+    border: 1px solid var(--line); background: var(--sunken);
+    border-radius: 10px; padding: 6px;
+  }
+  .sub {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; font-size: 13px; color: var(--ink-2);
+  }
+  .sub .box {
+    width: 16px; height: 16px; border-radius: 5px;
+    border: 1.5px solid var(--fainter); flex-shrink: 0;
+  }
+  .sub.done { color: var(--faint); text-decoration: line-through; }
+  .sub.done .box {
+    background: var(--indigo); border-color: var(--indigo);
+    color: #fff; display: grid; place-items: center; font-size: 10px;
+    text-decoration: none;
+  }
+  .sub.add { color: var(--muted); font-size: 12px; font-weight: 500; }
+  .sub.add .box { border-style: dashed; display: grid; place-items: center; font-size: 11px; color: var(--faint); }
+
+  /* Week strip calendar */
+  .weekhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding-bottom: 4px; }
+  .weekhead span {
+    text-align: center; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint);
+  }
+  .weekgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .day {
+    position: relative; aspect-ratio: 1; border-radius: 9px;
+    border: 1.5px solid transparent; background: var(--sunken);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 8px 2px 5px; overflow: hidden;
+  }
+  .day .n { font-size: 14px; font-weight: 650; line-height: 1; color: var(--ink); }
+  .day .tag {
+    margin-top: 3px; font-size: 9px; font-weight: 500;
+    letter-spacing: 0.06em; line-height: 1; color: var(--faint);
+  }
+  .day .dots {
+    margin-top: auto; display: flex; flex-wrap: wrap; gap: 2px;
+    justify-content: center; align-items: flex-end; min-height: 12px; width: 100%;
+  }
+  .day .dots i { height: 5px; border-radius: 2.5px; display: block; }
+  .day.weekend { background: var(--indigo-weekend); }
+  .day.past { opacity: 0.3; }
+  .day.span { background: var(--indigo-wash); }
+  .day.today {
+    background: var(--indigo-weekend); border-color: var(--indigo);
+  }
+  .day.today .tag { color: var(--indigo); }
+  .day.sel {
+    background: var(--indigo); border-color: var(--indigo);
+    box-shadow: 0 8px 18px rgba(99, 102, 241, 0.38);
+  }
+  .day.sel .n { color: #fff; }
+  .day.sel .tag { color: rgba(255, 255, 255, 0.75); }
+  .day.sel .dots i { background: rgba(255, 255, 255, 0.7) !important; border-color: rgba(255,255,255,.7) !important; }
+  .d-p1 { background: var(--red); }
+  .d-p2 { background: var(--amber); }
+  .d-p3 { background: var(--indigo); }
+  .d-ev { background: transparent; border: 1.5px solid #94a3b8; }
+  .w5 { width: 5px; } .w9 { width: 9px; } .w14 { width: 14px; } .w20 { width: 20px; }
+
+  /* Fixed-height cells for the narrower grids — a 46px square can't hold a
+     number, a label and a busyness row without clipping the dots. */
+  .weekgrid.roomy .day { aspect-ratio: auto; height: 58px; }
+
+  /* Compact week strip for the narrow rail — no square cells */
+  .weekgrid.mini .day { aspect-ratio: auto; height: 46px; padding: 6px 2px 4px; border-radius: 8px; }
+  .weekgrid.mini .day .n { font-size: 12px; }
+  .weekgrid.mini .day .tag { font-size: 8px; margin-top: 2px; }
+  .weekgrid.mini .day .dots { min-height: 6px; }
+  .weekgrid.mini .day .dots i { height: 3px; }
+
+  /* Calendar action row */
+  .calrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .pill {
+    border: none; border-radius: 9px; background: var(--sunken-2);
+    padding: 7px 11px; font: 500 12px Inter, system-ui, sans-serif;
+    color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill .sub-hint { color: var(--faint); }
+  .pill.more { background: var(--indigo-soft); color: var(--indigo-ink); flex: 1; justify-content: center; }
+  .pill.deadline {
+    background: var(--amber-soft); color: var(--amber-ink);
+    box-shadow: inset 0 0 0 1px var(--amber-line);
+  }
+  .pill.time { background: var(--indigo-soft); color: var(--indigo-ink); box-shadow: inset 0 0 0 1px rgba(99,102,241,.3); }
+
+  /* Meta grid (the current 4-up) */
+  .metagrid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .metacell {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 12px 8px; min-width: 0;
+  }
+  .metacell + .metacell { border-left: 1px solid var(--line); }
+  .metacell .cap { font-size: 11px; font-weight: 500; color: var(--muted); }
+  .chipbtn {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 8px;
+    font-size: 12px; font-weight: 650; color: var(--ink-2); background: none;
+  }
+  .chipbtn .swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .chipbtn .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chipbtn .arrow { color: var(--faint); }
+
+  /* Priority / estimate bar meters */
+  .bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 28px; }
+  .bars i { width: 6px; border-radius: 2px; background: var(--line-2); display: block; }
+  .h1 { height: 8px; } .h2 { height: 14px; } .h3 { height: 20px; } .h4 { height: 26px; }
+  .e1 { height: 6px; } .e2 { height: 11px; } .e3 { height: 15px; }
+  .e4 { height: 19px; } .e5 { height: 23px; } .e6 { height: 26px; }
+  .lit-amber { background: var(--amber) !important; }
+  .lit-indigo { background: var(--indigo) !important; }
+  .metaval { font-size: 11px; font-weight: 500; color: var(--ink-2); }
+  .metaval.indigo { color: var(--indigo-ink); font-weight: 650; }
+
+  /* Footer */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-top: 1px solid var(--line); background: var(--sunken);
+  }
+  .keys { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--faint); }
+  .keys kbd {
+    font: 400 10px/1 ui-monospace, Menlo, monospace; color: var(--muted);
+    border: 1px solid var(--line-2); border-radius: 4px; padding: 3px 5px; background: var(--surface);
+  }
+  .closebtn {
+    border: 1px solid var(--line-2); border-radius: 9px; background: none;
+    padding: 7px 12px; font: 650 13px Inter, system-ui, sans-serif; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .closebtn kbd {
+    font: 400 10px/1 ui-monospace, Menlo, monospace;
+    background: var(--sunken-2); border-radius: 4px; padding: 3px 5px; color: var(--faint);
+  }
+
+  /* ─── The property rail (variants A, B) ──────────────── */
+
+  .split { display: flex; align-items: stretch; }
+  .main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 20px; padding: 18px 20px 22px; }
+  .rail {
+    flex-shrink: 0; border-left: 1px solid var(--line); background: var(--sunken);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .rowlbl {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    padding: 0 2px 4px; letter-spacing: 0.01em;
+  }
+  .row {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 6px 8px; border-radius: 8px; background: none; border: none;
+    font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+    transition: background .12s;
+  }
+  .row:hover { background: var(--surface); box-shadow: 0 0 0 1px var(--line-2); }
+  .row .val { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }
+  .row .val.muted { color: var(--faint); font-weight: 500; }
+  .row .rel { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: auto; }
+  .row .swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .row .glyph { width: 15px; text-align: center; color: var(--faint); flex-shrink: 0; font-size: 12px; }
+  .railgroup + .railgroup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-2); }
+  .taglist { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 8px 0; }
+  .taglist span {
+    font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 5px;
+    background: var(--indigo-soft); color: var(--indigo-ink);
+  }
+  .bars.inline { height: 20px; }
+  .bars.inline i { width: 5px; }
+  .bars.inline .h1 { height: 6px; } .bars.inline .h2 { height: 10px; }
+  .bars.inline .h3 { height: 15px; } .bars.inline .h4 { height: 19px; }
+  .bars.inline .e1 { height: 5px; } .bars.inline .e2 { height: 8px; } .bars.inline .e3 { height: 11px; }
+  .bars.inline .e4 { height: 14px; } .bars.inline .e5 { height: 17px; } .bars.inline .e6 { height: 19px; }
+
+  /* ─── Chip bar (variant C) ───────────────────────────── */
+
+  .chipbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 10px 16px 12px 48px; border-bottom: 1px solid var(--line);
+    background: var(--sunken);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line-2); background: var(--surface);
+    border-radius: 8px; padding: 5px 9px;
+    font: 600 12px Inter, system-ui, sans-serif; color: var(--ink-2);
+    cursor: pointer; position: relative;
+  }
+  .chip:hover { border-color: var(--indigo); }
+  .chip .swatch { width: 8px; height: 8px; border-radius: 50%; }
+  .chip.on-indigo {
+    background: var(--indigo-soft); border-color: transparent;
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.28); color: var(--indigo-ink);
+  }
+  .chip.on-amber {
+    background: var(--amber-soft); border-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--amber-line); color: var(--amber-ink);
+  }
+  .chip.ghost { border-style: dashed; color: var(--faint); background: none; }
+
+  .popwrap { position: relative; }
+  .pop {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
+    width: 408px; padding: 14px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--line-2);
+    box-shadow: var(--shadow-pop);
+  }
+  .pop[hidden] { display: none; }
+  /* Rail-anchored popovers open leftward — a 408px panel hung off a 272px
+     rail at the modal's right edge would run straight off it. */
+  .pop.fromright { left: auto; right: 0; }
+  .pop-title {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
+  }
+  .pop-title .d { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
+  .pop-title .r { font-size: 12px; color: var(--muted); }
+
+  /* ─── Tabbed pane (variant D) ────────────────────────── */
+
+  .pane { flex-shrink: 0; border-left: 1px solid var(--line); background: var(--sunken); display: flex; flex-direction: column; }
+  .panetabs { display: flex; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }
+  .panetab {
+    appearance: none; border: none; background: none; cursor: pointer;
+    font: 650 12px Inter, system-ui, sans-serif; color: var(--muted);
+    padding: 7px 11px 9px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .panetab[aria-selected="true"] { color: var(--indigo-ink); border-bottom-color: var(--indigo); }
+  .panetab:focus-visible { outline: 2px solid var(--indigo); outline-offset: -2px; border-radius: 4px; }
+  .panebody { padding: 14px 14px 16px; }
+  .panebody[hidden] { display: none; }
+  .stackfield { display: flex; flex-direction: column; gap: 7px; }
+  .stackfield + .stackfield { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-2); }
+  .stackfield .cap { font-size: 11px; font-weight: 600; color: var(--muted); }
+  .stackrow { display: flex; align-items: center; gap: 10px; }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <p class="eyebrow">Task editor · Round 8</p>
+    <h1>Getting the notes above the fold</h1>
+    <p>
+      Today the notes sit last, under a calendar that owns roughly half the modal's height —
+      on a 640&nbsp;px&nbsp;× 90vh editor you scroll to reach them. Four ways to fix that,
+      all borrowing Todoist's move of demoting metadata to a rail so the writing surface
+      can come first.
+    </p>
+    <p>
+      Every mockup uses the same task and the same components you already ship — the
+      week strip with its busyness dots, the priority and estimate meters, the linkified
+      notes box. <b>Only the arrangement changes.</b>
+    </p>
+  </header>
+
+  <div class="switcher" role="tablist" aria-label="Layout variants">
+    <button class="tab" role="tab" id="tab-a" aria-controls="panel-a" aria-selected="true">
+      <span class="key">Option A</span>
+      <span class="name">Property rail</span>
+    </button>
+    <button class="tab" role="tab" id="tab-b" aria-controls="panel-b" aria-selected="false">
+      <span class="key">Option B</span>
+      <span class="name">Rail keeps the calendar</span>
+    </button>
+    <button class="tab" role="tab" id="tab-c" aria-controls="panel-c" aria-selected="false">
+      <span class="key">Option C</span>
+      <span class="name">Chip bar, one column</span>
+    </button>
+    <button class="tab" role="tab" id="tab-d" aria-controls="panel-d" aria-selected="false">
+      <span class="key">Option D</span>
+      <span class="name">Two panes, tabbed</span>
+    </button>
+  </div>
+
+  <!-- ══════════════════ A · Property rail ══════════════════ -->
+  <div class="panel" id="panel-a" role="tabpanel" aria-labelledby="tab-a">
+    <div class="stage">
+      <div class="modal" style="width: 880px;">
+        <div class="topbar">
+          <span class="save"><span class="dot"></span>Saved</span>
+          <div class="topbar-right">
+            <button class="undo">↶ Undo all changes</button>
+            <span class="burger">≡</span>
+          </div>
+        </div>
+
+        <div class="titlebar plain">
+          <span class="circle"></span>
+          <div class="title-wrap">
+            <div class="title">Ship the quick-add widget to preview<span class="caret"></span></div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="main">
+            <div>
+              <div class="lbl" style="margin-bottom: 8px;">Notes</div>
+              <div class="notes hero">Spec: <a href="#" onclick="return false">example.com/specs/quick-add-widget</a>
+
+Blocked on the Android signing key — Ravi has it, ping before Thursday
+or the preview build slips a week.
+
+Open questions
+· does the 1×1 tile need its own launcher icon, or does the mark do?
+· keep the old size buckets, or migrate them on first render?</div>
+            </div>
+            <div>
+              <div class="lbl" style="margin-bottom: 8px;">Subtasks <span style="color: var(--muted); font-weight: 500; letter-spacing: 0;">1/3</span></div>
+              <div class="subs">
+                <div class="sub done"><span class="box">✓</span>Draft the migration note</div>
+                <div class="sub"><span class="box"></span>Get the signing key from Ravi</div>
+                <div class="sub"><span class="box"></span>Cut the preview build</div>
+                <div class="sub add"><span class="box">+</span>Add subtask</div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="rail" style="width: 272px;">
+            <div class="railgroup">
+              <div class="rowlbl">Scheduled</div>
+              <div class="popwrap">
+                <button class="row" data-pop="pop-a">
+                  <span class="glyph">▦</span>
+                  <span class="val">Tue, Aug 5</span>
+                  <span class="rel">tomorrow</span>
+                </button>
+                <div class="pop fromright" id="pop-a" hidden>
+                  <div class="pop-title">
+                    <span class="d">Tuesday, August 5th</span>
+                    <span class="r">· tomorrow</span>
+                  </div>
+                  <div class="weekhead"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+                  <div class="weekgrid">
+                    <div class="day past weekend"><span class="n">3</span></div>
+                    <div class="day today"><span class="n">4</span><span class="tag">today</span><span class="dots"><i class="d-p1 w9"></i><i class="d-ev w14"></i></span></div>
+                    <div class="day sel"><span class="n">5</span><span class="tag">selected</span><span class="dots"><i class="w5"></i></span></div>
+                    <div class="day"><span class="n">6</span><span class="dots"><i class="d-p3 w14"></i></span></div>
+                    <div class="day"><span class="n">7</span><span class="dots"><i class="d-p2 w9"></i><i class="d-ev w9"></i></span></div>
+                    <div class="day"><span class="n">8</span><span class="dots"></span></div>
+                    <div class="day weekend"><span class="n">9</span><span class="tag">weekend</span><span class="dots"></span></div>
+                  </div>
+                  <div class="calrow">
+                    <button class="pill more">See more dates ⇣</button>
+                    <button class="pill">Next week <span class="sub-hint">Aug 11</span></button>
+                  </div>
+                </div>
+              </div>
+              <button class="row">
+                <span class="glyph">◷</span>
+                <span class="val">9:30 AM</span>
+              </button>
+            </div>
+
+            <div class="railgroup">
+              <div class="rowlbl">Deadline</div>
+              <button class="row">
+                <span class="glyph">⚑</span>
+                <span class="val">Fri, Aug 8</span>
+                <span class="rel">in 4 days</span>
+              </button>
+            </div>
+
+            <div class="railgroup">
+              <div class="rowlbl">Project</div>
+              <button class="row">
+                <span class="swatch" style="background: #6366f1"></span>
+                <span class="val">📱 Mobile</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 10px;">Status</div>
+              <button class="row">
+                <span class="swatch" style="background: #f59e0b"></span>
+                <span class="val">In progress</span>
+              </button>
+            </div>
+
+            <div class="railgroup">
+              <div class="rowlbl">Priority</div>
+              <button class="row">
+                <span class="bars inline"><i class="h1 lit-amber"></i><i class="h2 lit-amber"></i><i class="h3 lit-amber"></i><i class="h4"></i></span>
+                <span class="val">High</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 10px;">Estimate</div>
+              <button class="row">
+                <span class="bars inline"><i class="e1 lit-indigo"></i><i class="e2 lit-indigo"></i><i class="e3 lit-indigo"></i><i class="e4"></i><i class="e5"></i><i class="e6"></i></span>
+                <span class="val">2h</span>
+              </button>
+            </div>
+
+            <div class="railgroup">
+              <div class="rowlbl">Labels</div>
+              <div class="taglist"><span>#android</span><span>#widget</span></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="footer">
+          <div class="keys"><kbd>1</kbd>–<kbd>4</kbd><span>priority</span><kbd>Esc</kbd><span>close</span></div>
+          <button class="closebtn">Close <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </div>
+    <p class="hint"><kbd>Click</kbd> the Scheduled row to see the calendar popover</p>
+
+    <div class="why">
+      <section>
+        <h3>What it does</h3>
+        <ul>
+          <li><b>Notes start at ~130&nbsp;px from the top</b> — second thing you read, right under the title.</li>
+          <li>Every property becomes one scannable row; the rail reads top-down as when → deadline → where → how much.</li>
+          <li>The calendar keeps all its behaviour — busyness dots, the runway wave, month scroll — it just opens on demand.</li>
+        </ul>
+      </section>
+      <section class="cost">
+        <h3>What it costs</h3>
+        <ul>
+          <li>Picking a date is <b>two clicks instead of one</b>. That's the trade the whole option turns on — dating is the most frequent edit here.</li>
+          <li>The busyness dots stop being ambient. You only see how loaded a day is once you've opened the picker.</li>
+          <li>Needs a real popover layer with collision handling; the rail sits at the modal's right edge.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <!-- ═══════════ B · Rail keeps the calendar ═══════════ -->
+  <div class="panel" id="panel-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+    <div class="stage">
+      <div class="modal" style="width: 960px;">
+        <div class="topbar">
+          <span class="save"><span class="dot"></span>Saved</span>
+          <div class="topbar-right">
+            <button class="undo">↶ Undo all changes</button>
+            <span class="burger">≡</span>
+          </div>
+        </div>
+
+        <div class="titlebar plain">
+          <span class="circle"></span>
+          <div class="title-wrap">
+            <div class="title">Ship the quick-add widget to preview<span class="caret"></span></div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="main">
+            <div>
+              <div class="lbl" style="margin-bottom: 8px;">Notes</div>
+              <div class="notes tall">Spec: <a href="#" onclick="return false">example.com/specs/quick-add-widget</a>
+
+Blocked on the Android signing key — Ravi has it, ping before Thursday
+or the preview build slips a week.
+
+Open questions
+· does the 1×1 tile need its own launcher icon, or does the mark do?
+· keep the old size buckets, or migrate them on first render?
+
+Tap flow only works in a preview build — expo-dev-client eats the
+launch intent in debug.</div>
+            </div>
+            <div>
+              <div class="lbl" style="margin-bottom: 8px;">Subtasks <span style="color: var(--muted); font-weight: 500; letter-spacing: 0;">1/3</span></div>
+              <div class="subs">
+                <div class="sub done"><span class="box">✓</span>Draft the migration note</div>
+                <div class="sub"><span class="box"></span>Get the signing key from Ravi</div>
+                <div class="sub"><span class="box"></span>Cut the preview build</div>
+                <div class="sub add"><span class="box">+</span>Add subtask</div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="rail" style="width: 348px; gap: 0;">
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px;">
+              <span class="lbl">Scheduled</span>
+              <span style="font-size: 13px; font-weight: 700; letter-spacing: -0.01em;">Tue, Aug 5</span>
+              <span style="font-size: 12px; color: var(--muted);">· tomorrow</span>
+            </div>
+            <div class="weekhead"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+            <div class="weekgrid mini">
+              <div class="day past weekend"><span class="n">3</span></div>
+              <div class="day today"><span class="n">4</span><span class="tag">today</span><span class="dots"><i class="d-p1 w9"></i><i class="d-ev w14"></i></span></div>
+              <div class="day sel"><span class="n">5</span><span class="tag">sel</span><span class="dots"><i class="w5"></i></span></div>
+              <div class="day"><span class="n">6</span><span class="dots"><i class="d-p3 w14"></i></span></div>
+              <div class="day"><span class="n">7</span><span class="dots"><i class="d-p2 w9"></i><i class="d-ev w9"></i></span></div>
+              <div class="day"><span class="n">8</span><span class="dots"></span></div>
+              <div class="day weekend"><span class="n">9</span><span class="tag">wknd</span><span class="dots"></span></div>
+            </div>
+            <div class="calrow">
+              <button class="pill more" style="flex: 1 0 100%;">See more dates ⇣</button>
+              <button class="pill time">◷ 9:30 AM</button>
+              <button class="pill deadline">⚑ Deadline Aug 8</button>
+            </div>
+
+            <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 2px;">
+              <div class="rowlbl">Project</div>
+              <button class="row">
+                <span class="swatch" style="background: #6366f1"></span>
+                <span class="val">📱 Mobile</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 8px;">Status</div>
+              <button class="row">
+                <span class="swatch" style="background: #f59e0b"></span>
+                <span class="val">In progress</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 8px;">Priority</div>
+              <button class="row">
+                <span class="bars inline"><i class="h1 lit-amber"></i><i class="h2 lit-amber"></i><i class="h3 lit-amber"></i><i class="h4"></i></span>
+                <span class="val">High</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 8px;">Estimate</div>
+              <button class="row">
+                <span class="bars inline"><i class="e1 lit-indigo"></i><i class="e2 lit-indigo"></i><i class="e3 lit-indigo"></i><i class="e4"></i><i class="e5"></i><i class="e6"></i></span>
+                <span class="val">2h</span>
+              </button>
+              <div class="rowlbl" style="padding-top: 8px;">Labels</div>
+              <div class="taglist"><span>#android</span><span>#widget</span></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="footer">
+          <div class="keys"><kbd>1</kbd>–<kbd>4</kbd><span>priority</span><kbd>Esc</kbd><span>close</span></div>
+          <button class="closebtn">Close <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <section>
+        <h3>What it does</h3>
+        <ul>
+          <li>Notes still start at ~130&nbsp;px — <b>same win as A, no clicks given up.</b></li>
+          <li>The calendar stays live, so a day's load still reads at a glance and dating is one click.</li>
+          <li>The week strip is the rail's own header, which gives the metadata below it a natural order: when first, then everything that qualifies it.</li>
+        </ul>
+      </section>
+      <section class="cost">
+        <h3>What it costs</h3>
+        <ul>
+          <li>960&nbsp;px wide. Fine on a laptop, but it's the widest of the four and needs a real breakpoint plan below ~1040&nbsp;px.</li>
+          <li>Day cells shrink to ~44&nbsp;px in a 348&nbsp;px rail — the "see more dates" month grid gets tight, and long busyness rows clip sooner.</li>
+          <li>Two scroll regions if notes get long and the rail doesn't.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <!-- ═══════════ C · Chip bar, one column ═══════════ -->
+  <div class="panel" id="panel-c" role="tabpanel" aria-labelledby="tab-c" hidden>
+    <div class="stage">
+      <div class="modal" style="width: 680px;">
+        <div class="topbar">
+          <span class="save"><span class="dot"></span>Saved</span>
+          <div class="topbar-right">
+            <button class="undo">↶ Undo all changes</button>
+            <span class="burger">≡</span>
+          </div>
+        </div>
+
+        <div class="titlebar">
+          <span class="circle"></span>
+          <div class="title-wrap">
+            <div class="title">Ship the quick-add widget to preview<span class="caret"></span></div>
+          </div>
+        </div>
+
+        <div class="chipbar">
+          <span class="popwrap">
+            <button class="chip on-indigo" data-pop="pop-c">▦ Tue, Aug 5 <span style="opacity:.7; font-weight:500;">tomorrow</span></button>
+            <div class="pop" id="pop-c" hidden>
+              <div class="pop-title">
+                <span class="d">Tuesday, August 5th</span>
+                <span class="r">· tomorrow</span>
+              </div>
+              <div class="weekhead"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+              <div class="weekgrid roomy">
+                <div class="day past weekend"><span class="n">3</span></div>
+                <div class="day today"><span class="n">4</span><span class="tag">today</span><span class="dots"><i class="d-p1 w9"></i><i class="d-ev w14"></i></span></div>
+                <div class="day sel"><span class="n">5</span><span class="tag">selected</span><span class="dots"><i class="w5"></i></span></div>
+                <div class="day"><span class="n">6</span><span class="dots"><i class="d-p3 w14"></i></span></div>
+                <div class="day"><span class="n">7</span><span class="dots"><i class="d-p2 w9"></i><i class="d-ev w9"></i></span></div>
+                <div class="day"><span class="n">8</span><span class="dots"></span></div>
+                <div class="day weekend"><span class="n">9</span><span class="tag">weekend</span><span class="dots"></span></div>
+              </div>
+              <div class="calrow">
+                <button class="pill more">See more dates ⇣</button>
+                <button class="pill">Next week <span class="sub-hint">Aug 11</span></button>
+              </div>
+            </div>
+          </span>
+          <button class="chip on-indigo">◷ 9:30 AM</button>
+          <button class="chip on-amber">⚑ Aug 8</button>
+          <button class="chip"><span class="swatch" style="background:#6366f1"></span>📱 Mobile</button>
+          <button class="chip"><span class="swatch" style="background:#f59e0b"></span>In progress</button>
+          <button class="chip"><span class="bars inline" style="height:14px"><i class="h1 lit-amber" style="height:5px"></i><i class="h2 lit-amber" style="height:8px"></i><i class="h3 lit-amber" style="height:11px"></i><i class="h4" style="height:14px"></i></span>High</button>
+          <button class="chip"><span class="bars inline" style="height:14px"><i class="e1 lit-indigo" style="height:4px"></i><i class="e2 lit-indigo" style="height:7px"></i><i class="e3 lit-indigo" style="height:10px"></i><i class="e4" style="height:12px"></i><i class="e5" style="height:14px"></i></span>2h</button>
+          <button class="chip ghost">+ Label</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 20px; padding: 18px 20px 22px;">
+          <div>
+            <div class="lbl" style="margin-bottom: 8px;">Notes</div>
+            <div class="notes tall">Spec: <a href="#" onclick="return false">example.com/specs/quick-add-widget</a>
+
+Blocked on the Android signing key — Ravi has it, ping before Thursday
+or the preview build slips a week.
+
+Open questions
+· does the 1×1 tile need its own launcher icon, or does the mark do?
+· keep the old size buckets, or migrate them on first render?
+
+Tap flow only works in a preview build — expo-dev-client eats the
+launch intent in debug.</div>
+          </div>
+          <div>
+            <div class="lbl" style="margin-bottom: 8px;">Subtasks <span style="color: var(--muted); font-weight: 500; letter-spacing: 0;">1/3</span></div>
+            <div class="subs">
+              <div class="sub done"><span class="box">✓</span>Draft the migration note</div>
+              <div class="sub"><span class="box"></span>Get the signing key from Ravi</div>
+              <div class="sub"><span class="box"></span>Cut the preview build</div>
+              <div class="sub add"><span class="box">+</span>Add subtask</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <div class="keys"><kbd>1</kbd>–<kbd>4</kbd><span>priority</span><kbd>Esc</kbd><span>close</span></div>
+          <button class="closebtn">Close <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </div>
+    <p class="hint"><kbd>Click</kbd> the date chip to see the calendar popover</p>
+
+    <div class="why">
+      <section>
+        <h3>What it does</h3>
+        <ul>
+          <li>Notes start at ~150&nbsp;px, and the whole editor <b>fits above the fold at 680&nbsp;px wide</b> — no side-scrolling, no breakpoint work.</li>
+          <li>The chip row is the same vocabulary as the quick-add bar and the mobile composer, so one control language covers capture and edit.</li>
+          <li>Cheapest of the four to build: the chips already exist in <code>quick-add-chips.tsx</code>.</li>
+        </ul>
+      </section>
+      <section class="cost">
+        <h3>What it costs</h3>
+        <ul>
+          <li>Everything is behind a popover — <b>eight of them</b>, all opening downward over the notes.</li>
+          <li>Priority and estimate lose their meters to a 14&nbsp;px chip glyph; the "how loaded is Thursday" read disappears entirely.</li>
+          <li>The chip row wraps to two lines on a long project name, which shoves the notes back down.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <!-- ═══════════ D · Two panes, tabbed ═══════════ -->
+  <div class="panel" id="panel-d" role="tabpanel" aria-labelledby="tab-d" hidden>
+    <div class="stage">
+      <div class="modal" style="width: 940px;">
+        <div class="topbar">
+          <span class="save"><span class="dot"></span>Saved</span>
+          <div class="topbar-right">
+            <button class="undo">↶ Undo all changes</button>
+            <span class="burger">≡</span>
+          </div>
+        </div>
+
+        <div class="titlebar plain">
+          <span class="circle"></span>
+          <div class="title-wrap">
+            <div class="title">Ship the quick-add widget to preview<span class="caret"></span></div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="main" style="gap: 18px;">
+            <div style="display: flex; flex-direction: column; flex: 1;">
+              <div class="lbl" style="margin-bottom: 8px;">Notes</div>
+              <div class="notes xl">Spec: <a href="#" onclick="return false">example.com/specs/quick-add-widget</a>
+
+Blocked on the Android signing key — Ravi has it, ping before Thursday
+or the preview build slips a week.
+
+Open questions
+· does the 1×1 tile need its own launcher icon, or does the mark do?
+· keep the old size buckets, or migrate them on first render?
+
+Tap flow only works in a preview build — expo-dev-client eats the
+launch intent in debug. Three install cycles already burned on stale
+checkouts and launcher caching.</div>
+            </div>
+            <div>
+              <div class="lbl" style="margin-bottom: 8px;">Subtasks <span style="color: var(--muted); font-weight: 500; letter-spacing: 0;">1/3</span></div>
+              <div class="subs">
+                <div class="sub done"><span class="box">✓</span>Draft the migration note</div>
+                <div class="sub"><span class="box"></span>Get the signing key from Ravi</div>
+                <div class="sub"><span class="box"></span>Cut the preview build</div>
+                <div class="sub add"><span class="box">+</span>Add subtask</div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="pane" style="width: 380px;">
+            <div class="panetabs" role="tablist" aria-label="Task properties">
+              <button class="panetab" role="tab" id="d-tab-sched" aria-controls="d-sched" aria-selected="true">Schedule</button>
+              <button class="panetab" role="tab" id="d-tab-det" aria-controls="d-det" aria-selected="false">Details</button>
+            </div>
+
+            <div class="panebody" id="d-sched" role="tabpanel" aria-labelledby="d-tab-sched">
+              <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;">
+                <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.015em;">Tue, Aug 5</span>
+                <span style="font-size: 12px; color: var(--muted);">· tomorrow</span>
+                <span style="font-size: 12px; font-weight: 650; color: var(--indigo-ink); margin-left: auto;">9:30 AM</span>
+              </div>
+              <div class="weekhead"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+              <div class="weekgrid roomy">
+                <div class="day past weekend"><span class="n">3</span></div>
+                <div class="day today"><span class="n">4</span><span class="tag">today</span><span class="dots"><i class="d-p1 w9"></i><i class="d-ev w14"></i></span></div>
+                <div class="day sel"><span class="n">5</span><span class="tag">selected</span><span class="dots"><i class="w5"></i></span></div>
+                <div class="day"><span class="n">6</span><span class="dots"><i class="d-p3 w14"></i></span></div>
+                <div class="day"><span class="n">7</span><span class="dots"><i class="d-p2 w9"></i><i class="d-ev w9"></i></span></div>
+                <div class="day"><span class="n">8</span><span class="dots"></span></div>
+                <div class="day weekend"><span class="n">9</span><span class="tag">weekend</span><span class="dots"></span></div>
+              </div>
+              <div class="weekgrid roomy" style="margin-top: 4px;">
+                <div class="day weekend"><span class="n">10</span><span class="dots"></span></div>
+                <div class="day"><span class="n">11</span><span class="tag">next wk</span><span class="dots"><i class="d-p3 w9"></i></span></div>
+                <div class="day"><span class="n">12</span><span class="dots"></span></div>
+                <div class="day"><span class="n">13</span><span class="dots"><i class="d-ev w20"></i></span></div>
+                <div class="day"><span class="n">14</span><span class="dots"></span></div>
+                <div class="day"><span class="n">15</span><span class="dots"><i class="d-p2 w5"></i></span></div>
+                <div class="day weekend"><span class="n">16</span><span class="dots"></span></div>
+              </div>
+              <div class="calrow">
+                <button class="pill more">See more dates ⇣</button>
+                <button class="pill time">◷ 9:30 AM</button>
+                <button class="pill deadline">⚑ Deadline Aug 8</button>
+              </div>
+            </div>
+
+            <div class="panebody" id="d-det" role="tabpanel" aria-labelledby="d-tab-det" hidden>
+              <div class="stackfield">
+                <span class="cap">Project</span>
+                <div class="stackrow">
+                  <button class="chipbtn"><span class="swatch" style="background:#6366f1"></span><span class="name">📱 Mobile</span><span class="arrow">▾</span></button>
+                </div>
+              </div>
+              <div class="stackfield">
+                <span class="cap">Status</span>
+                <div class="stackrow">
+                  <button class="chipbtn"><span class="swatch" style="background:#f59e0b"></span><span class="name">In progress</span><span class="arrow">▾</span></button>
+                </div>
+              </div>
+              <div class="stackfield">
+                <span class="cap">Priority</span>
+                <div class="stackrow">
+                  <span class="bars"><i class="h1 lit-amber"></i><i class="h2 lit-amber"></i><i class="h3 lit-amber"></i><i class="h4"></i></span>
+                  <span class="metaval">High</span>
+                </div>
+              </div>
+              <div class="stackfield">
+                <span class="cap">Estimate</span>
+                <div class="stackrow">
+                  <span class="bars"><i class="e1 lit-indigo"></i><i class="e2 lit-indigo"></i><i class="e3 lit-indigo"></i><i class="e4"></i><i class="e5"></i><i class="e6"></i></span>
+                  <span class="metaval indigo">2h</span>
+                </div>
+              </div>
+              <div class="stackfield">
+                <span class="cap">Labels</span>
+                <div class="taglist" style="padding-left: 0;"><span>#android</span><span>#widget</span></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="footer">
+          <div class="keys"><kbd>1</kbd>–<kbd>4</kbd><span>priority</span><kbd>Esc</kbd><span>close</span></div>
+          <button class="closebtn">Close <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </div>
+    <p class="hint"><kbd>Click</kbd> Schedule / Details to switch the right pane</p>
+
+    <div class="why">
+      <section>
+        <h3>What it does</h3>
+        <ul>
+          <li>Notes become the tallest thing on screen — a real writing pane, ~300&nbsp;px before it scrolls.</li>
+          <li>The Schedule tab gets <b>more</b> room than today, not less: two full weeks visible without expanding.</li>
+          <li>Clean split of concerns — the left pane is what the task <i>is</i>, the right is what the system knows about it.</li>
+        </ul>
+      </section>
+      <section class="cost">
+        <h3>What it costs</h3>
+        <ul>
+          <li>A tab hides half the metadata. Priority and project stop being glanceable, and there's no badge telling you what's set behind Details.</li>
+          <li>Tabs inside a modal are a second navigation layer — the modal already drills into subtasks and climbs to parents.</li>
+          <li>Most work of the four: new pane component, tab state, and a decision about which tab opens by default.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <div class="why" style="margin-top: 40px;">
+    <section style="grid-column: 1 / -1;">
+      <h3>Where I'd land</h3>
+      <ul>
+        <li><b>B, then A as the narrow-viewport fallback.</b> B is the only one that lifts the notes without taxing the single most frequent edit in this modal — picking a day — and it keeps the busyness dots doing their ambient job.</li>
+        <li>A and B share a component: the rail is the same set of rows, B just mounts the week strip as its header. Building B gets you A for the sub-1040&nbsp;px case almost free.</li>
+        <li>C is the one to take if the modal should stay one column on phones too — it's the same layout the mobile composer already uses.</li>
+        <li>D reads best in a screenshot and worst in use; a tab that hides priority behind a click is a regression from today's always-visible 4-up.</li>
+      </ul>
+    </section>
+  </div>
+</div>
+
+<script>
+  // Variant switcher
+  const tabs = Array.from(document.querySelectorAll('.switcher .tab'));
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      closeAllPops();
+    });
+  });
+
+  // Popovers (the date picker in A and C)
+  const pops = Array.from(document.querySelectorAll('.pop'));
+  function closeAllPops() { pops.forEach((p) => { p.hidden = true; }); }
+  document.querySelectorAll('[data-pop]').forEach((trigger) => {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = document.getElementById(trigger.dataset.pop);
+      const wasOpen = !target.hidden;
+      closeAllPops();
+      target.hidden = wasOpen;
+    });
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.pop')) closeAllPops();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAllPops();
+  });
+
+  // Variant D's pane tabs
+  const paneTabs = Array.from(document.querySelectorAll('.panetab'));
+  paneTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      paneTabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    });
+  });
+</script>
