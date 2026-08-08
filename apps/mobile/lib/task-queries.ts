@@ -258,12 +258,63 @@ export interface ToggleCompleteOptions {
   holdMs?: number;
 }
 
+/**
+ * Completion writes in flight, one chain per task id, and the sequence number
+ * of the most recent *intent* for that id.
+ *
+ * Undo is a second write to the same row while the first is still in the air:
+ * the toast goes up the moment the completion is sent, and the row is still
+ * being held on screen for its collapse animation. Fired concurrently, the two
+ * UPDATEs race — the row keeps whichever reached Postgres second — so tapping
+ * Undo quickly could leave the task completed and the toast looking inert.
+ *
+ * Chaining per id makes the *last intent* the last write. The sequence number
+ * is claimed before the queue is joined, so a superseded write also knows to
+ * keep its hands off the cache on the way out: its `dropFromLists()` would
+ * otherwise fire mid-undo and take the row the user just asked back.
+ */
+const completionChains = new Map<string, Promise<unknown>>();
+const completionSeq = new Map<string, number>();
+
 /** Complete or reopen a task, optimistically removing it from the relevant cache. */
 export async function toggleComplete(
   id: string,
   complete: boolean,
   options: ToggleCompleteOptions = {}
 ) {
+  const seq = (completionSeq.get(id) ?? 0) + 1;
+  completionSeq.set(id, seq);
+
+  const run = () => runToggleComplete(id, complete, options, seq);
+  // `.then(run, run)` rather than `.finally` — a failed write must not stop the
+  // next one from being attempted, and must not reject *its* promise either.
+  const chained = (completionChains.get(id) ?? Promise.resolve()).then(run, run);
+  completionChains.set(
+    id,
+    chained.catch(() => {})
+  );
+
+  try {
+    return await chained;
+  } finally {
+    // Last one out clears the row's slot, so the map can't grow with the
+    // session. A newer intent means the chain is still someone else's.
+    if (completionSeq.get(id) === seq) {
+      completionSeq.delete(id);
+      completionChains.delete(id);
+    }
+  }
+}
+
+async function runToggleComplete(
+  id: string,
+  complete: boolean,
+  options: ToggleCompleteOptions,
+  seq: number
+) {
+  /** True once a newer toggle for this row has been asked for (an Undo tap). */
+  const superseded = () => (completionSeq.get(id) ?? seq) !== seq;
+
   const holdMs = options.holdMs ?? 0;
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
@@ -296,7 +347,7 @@ export async function toggleComplete(
     // A no-op when we never dropped anything, which is exactly right — the
     // caller un-collapses the row and it was never missing from the list.
     restoreTaskLists(prev);
-    invalidateTasks();
+    if (!superseded()) invalidateTasks();
     throw e;
   }
 
@@ -305,12 +356,17 @@ export async function toggleComplete(
     // of the animation's runtime, and waiting the full hold on top of it would
     // leave a finished row sitting there.
     const remaining = holdMs - (Date.now() - startedAt);
-    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
-    dropFromLists();
+    // Nothing to hold *for* once an Undo is queued behind us: the row is
+    // staying, and the sooner the reopen goes out the better.
+    if (remaining > 0 && !superseded())
+      await new Promise((r) => setTimeout(r, remaining));
+    if (!superseded()) dropFromLists();
   }
   // Held until now on purpose: a refetch landing mid-animation would report the
-  // task as done and pull the row out from under it.
-  invalidateTasks();
+  // task as done and pull the row out from under it. Skipped when superseded —
+  // the write queued behind us invalidates on its own, and this one's refetch
+  // would only race it with an answer the user has already taken back.
+  if (!superseded()) invalidateTasks();
 }
 
 /** Patch a task in place across every cached list (reschedule, field edits). */
