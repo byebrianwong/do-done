@@ -6,6 +6,7 @@ import { parseTaskInput } from "@do-done/task-engine";
 import type { CreateTaskInput, ParsedTask, Task } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { applyOverride, buildCreateInput, type QuickAddSeed } from "./quick-add";
+import { useQuickAddContext } from "./quick-add-context";
 
 export interface UseQuickAddOptions {
   /** After a successful create, clear the input for rapid multi-add instead of
@@ -49,14 +50,18 @@ export function useQuickAdd(
   opts: UseQuickAddOptions = {}
 ): UseQuickAdd {
   const router = useRouter();
+  const { projects } = useQuickAddContext();
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // The parse needs the project list to read `#groceries` as the project rather
+  // than a tag; without a provider (Storybook, tests) the list is empty and it
+  // stays a tag.
   const parsed = useMemo(
-    () => (input.trim() ? parseTaskInput(input) : null),
-    [input]
+    () => (input.trim() ? parseTaskInput(input, undefined, { projects }) : null),
+    [input, projects]
   );
 
   const reset = useCallback(() => {
@@ -71,7 +76,7 @@ export function useQuickAdd(
       setSubmitting(true);
       setError(null);
 
-      let finalInput = buildCreateInput(raw, seed);
+      let finalInput = buildCreateInput(raw, seed, undefined, projects);
       if (submitOpts.override)
         finalInput = applyOverride(finalInput, submitOpts.override);
 
@@ -89,7 +94,7 @@ export function useQuickAdd(
       if (!submitOpts.skipRefresh) startTransition(() => router.refresh());
       return data;
     },
-    [input, submitting, seed, opts.keepOpen, router]
+    [input, submitting, seed, projects, opts.keepOpen, router]
   );
 
   return { input, setInput, parsed, submitting, error, submit, reset };

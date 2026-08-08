@@ -48,6 +48,7 @@ import {
   resolveQuickSchedule,
   type CreateTaskInput,
   type Project,
+  type ProjectRef,
   type TaskPriority,
 } from '@do-done/shared';
 import {
@@ -106,7 +107,8 @@ export interface QuickAddFields {
   /**
    * Pull `#token` shortcuts out of the title as they're typed (same behavior as
    * the detailed editor) and return the text to keep. `#p1`…`#p4` set the
-   * priority and `#xs`…`#xxl` the estimate; anything else becomes a tag.
+   * priority, `#xs`…`#xxl` the estimate, a token naming one of the `projects`
+   * passed to the hook files it there; anything else becomes a tag.
    *
    * Pass `flushTrailing` from blur/submit, where end-of-input terminates the
    * last token — otherwise a trailing `#xs` never lands anywhere.
@@ -138,7 +140,15 @@ export interface QuickAddFields {
   ) => CreateTaskInput;
 }
 
-export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
+/**
+ * @param projects  The user's projects, so a typed `#name` files the task there
+ *   instead of tagging it. Surfaces that can't load them (the widget root has
+ *   no QueryClientProvider) omit the list and every `#token` stays a tag.
+ */
+export function useQuickAddFields(
+  seed: QuickAddSeed = {},
+  projects?: readonly ProjectRef[]
+): QuickAddFields {
   const seedProjectId = seed.projectId ?? null;
 
   const [tags, setTags] = useState<string[]>([]);
@@ -188,11 +198,13 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
       tags: extracted,
       priority: extractedPriority,
       durationMinutes: extractedDuration,
-    } = extractTitleShortcuts(value, flushTrailing);
+      projectId: extractedProjectId,
+    } = extractTitleShortcuts(value, flushTrailing, projects);
     if (
       extracted.length === 0 &&
       extractedPriority === undefined &&
-      extractedDuration === undefined
+      extractedDuration === undefined &&
+      extractedProjectId === undefined
     ) {
       return value;
     }
@@ -206,6 +218,7 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
     // A typed token fills the chip the same way tapping the chip would.
     if (extractedPriority) setPriority(extractedPriority);
     if (extractedDuration) setDuration(extractedDuration);
+    if (extractedProjectId) setProjectId(extractedProjectId);
     return stripped;
   };
 
@@ -220,16 +233,19 @@ export function useQuickAddFields(seed: QuickAddSeed = {}): QuickAddFields {
 
   const buildInput: QuickAddFields['buildInput'] = (raw, opts = {}) => {
     const trimmed = raw.trim();
-    const parsed = parseTaskInput(trimmed);
+    const parsed = parseTaskInput(trimmed, undefined, { projects });
     const mergedTags = Array.from(new Set([...tags, ...(parsed.tags ?? [])]));
     const finalPriority = priority ?? parsed.priority ?? undefined;
     const finalDuration = duration ?? parsed.duration_minutes ?? undefined;
     const finalScheduledDate = scheduledDate ?? parsed.scheduled_date ?? undefined;
+    // The chip already carries anything the absorber pulled out of the text;
+    // the parse is what catches a trailing `#name` typed without a space after.
+    const finalProjectId = projectId ?? parsed.project_id ?? undefined;
 
     return {
       title: parsed.title || trimmed,
       ...(opts.status && { status: opts.status }),
-      ...(projectId && { project_id: projectId }),
+      ...(finalProjectId && { project_id: finalProjectId }),
       ...(finalPriority && { priority: finalPriority }),
       ...(finalScheduledDate && { scheduled_date: finalScheduledDate }),
       // Only meaningful alongside a date, which `finalScheduledDate` guarantees

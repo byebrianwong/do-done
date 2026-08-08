@@ -362,7 +362,10 @@ export const ParsedTaskSchema = z.object({
   deadline_date: z.string().date().optional(),
   deadline_time: z.string().optional(),
   priority: TaskPriority.optional(),
+  /** The project's *name* as typed. Present for a `/name` that matched nothing. */
   project: z.string().optional(),
+  /** Set only when a typed `#name` / `/name` matched a real project. */
+  project_id: z.string().uuid().optional(),
   tags: z.array(z.string()).optional(),
   duration_minutes: z.number().optional(),
   recurrence_rule: z.string().optional(),

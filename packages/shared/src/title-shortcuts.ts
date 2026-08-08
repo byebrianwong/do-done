@@ -1,4 +1,5 @@
 import type { TaskPriority } from "./schemas.js";
+import { matchProject, type ProjectRef } from "./project-match.js";
 
 /**
  * `#token` shortcuts typed inline in a task title.
@@ -38,13 +39,21 @@ export interface TitleShortcuts {
   tags: string[];
   priority?: TaskPriority;
   durationMinutes?: number;
+  /** Set when a `#token` named one of the `projects` passed in. */
+  projectId?: string;
 }
 
 /**
  * Pull `#token` shortcuts out of `text`, classifying each one:
  *   - `#xs` `#s` `#m` `#l` `#xl` `#xxl` → `durationMinutes`
  *   - `#p1`…`#p4`                      → `priority`
+ *   - the name of a known project      → `projectId`
  *   - anything else                    → a tag
+ *
+ * Pass `projects` for that third case — without it (Storybook, a surface with
+ * no project list to hand) `#groceries` is simply a tag, which is what every
+ * `#token` was before. The size and priority codes are checked first, so a
+ * project named "M" or "P1" loses to the shortcut rather than shadowing it.
  *
  * By default only a *whitespace-terminated* token is consumed, so `#x` is left
  * alone while the user is still typing their way to `#xs`.
@@ -57,11 +66,13 @@ export interface TitleShortcuts {
  */
 export function extractTitleShortcuts(
   text: string,
-  flushTrailing = false
+  flushTrailing = false,
+  projects?: readonly ProjectRef[]
 ): TitleShortcuts {
   const tags: string[] = [];
   let priority: TaskPriority | undefined;
   let durationMinutes: number | undefined;
+  let projectId: string | undefined;
 
   const re = flushTrailing ? /#(\w+)(?:\s+|$)/g : /#(\w+)\s+/g;
   let m: RegExpExecArray | null;
@@ -69,17 +80,25 @@ export function extractTitleShortcuts(
     const token = m[1].toLowerCase();
     if (token in ESTIMATE_SHORTCUTS) {
       durationMinutes = ESTIMATE_SHORTCUTS[token];
-    } else if (token in PRIORITY_SHORTCUTS) {
-      priority = PRIORITY_SHORTCUTS[token];
-    } else {
-      tags.push(m[1]);
+      continue;
     }
+    if (token in PRIORITY_SHORTCUTS) {
+      priority = PRIORITY_SHORTCUTS[token];
+      continue;
+    }
+    const project = matchProject(m[1], projects);
+    if (project) {
+      projectId = project.id;
+      continue;
+    }
+    tags.push(m[1]);
   }
 
   if (
     tags.length === 0 &&
     priority === undefined &&
-    durationMinutes === undefined
+    durationMinutes === undefined &&
+    projectId === undefined
   ) {
     return { stripped: text, tags };
   }
@@ -89,5 +108,5 @@ export function extractTitleShortcuts(
     .replace(/\s{2,}/g, " ")
     .trimEnd();
 
-  return { stripped, tags, priority, durationMinutes };
+  return { stripped, tags, priority, durationMinutes, projectId };
 }

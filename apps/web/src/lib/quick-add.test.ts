@@ -48,8 +48,50 @@ describe("buildCreateInput — merge precedence", () => {
     expect(out.duration_minutes).toBe(120);
   });
 
-  it("drops a parsed project name (it is not a UUID)", () => {
+  it("drops a parsed project name that matches no real project", () => {
     expect(buildCreateInput("ship it /groceries", {}, REF).project_id).toBeUndefined();
+  });
+});
+
+describe("buildCreateInput — #project matching", () => {
+  const PROJECTS = [
+    { id: "proj-groceries", name: "Groceries" },
+    { id: "proj-work", name: "Work" },
+  ];
+
+  it("files a typed #project instead of tagging it", () => {
+    const out = buildCreateInput("buy milk #groceries", {}, REF, PROJECTS);
+    expect(out.project_id).toBe("proj-groceries");
+    expect(out.tags).toBeUndefined();
+    expect(out.title).toBe("buy milk");
+  });
+
+  it("beats the section's project — naming one is deliberate", () => {
+    const out = buildCreateInput(
+      "buy milk #groceries",
+      { project_id: "proj-work" },
+      REF,
+      PROJECTS
+    );
+    expect(out.project_id).toBe("proj-groceries");
+  });
+
+  it("falls back to the section's project when nothing was typed", () => {
+    const out = buildCreateInput("buy milk", { project_id: "proj-work" }, REF, PROJECTS);
+    expect(out.project_id).toBe("proj-work");
+  });
+
+  it("leaves an unmatched #token as a tag", () => {
+    const out = buildCreateInput("buy milk #errands", {}, REF, PROJECTS);
+    expect(out.project_id).toBeUndefined();
+    expect(out.tags).toEqual(["errands"]);
+  });
+
+  it("still loses to an explicit chip override", () => {
+    const built = buildCreateInput("buy milk #groceries", {}, REF, PROJECTS);
+    expect(applyOverride(built, { project_id: "proj-work" }).project_id).toBe(
+      "proj-work"
+    );
   });
 });
 
