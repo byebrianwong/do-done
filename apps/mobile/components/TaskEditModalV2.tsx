@@ -38,6 +38,9 @@ import {
   formatRelativeDay,
   formatScheduleHint,
   formatTimeOfDay,
+  hashString,
+  hexToRgb,
+  shiftHue,
   type Project,
   type Task,
   type TaskPriority,
@@ -93,14 +96,37 @@ import {
 // ─── Constants ──────────────────────────────────────────────
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+// Derived, not restated. This map used to be a hand-kept copy that had drifted
+// *ahead* of the shared constant — it already carried the CVD-safe ramp while
+// PRIORITY_CONFIG was still on red/orange/yellow, so the editor and the task
+// row beside it drew different colours for the same priority.
 export const PRIORITY_COLORS: Record<TaskPriority, string> = {
-  p1: "#ef4444",
-  p2: "#f59e0b",
-  p3: "#6366f1",
-  p4: "#9ca3af",
+  p1: PRIORITY_CONFIG.p1.color,
+  p2: PRIORITY_CONFIG.p2.color,
+  p3: PRIORITY_CONFIG.p3.color,
+  p4: PRIORITY_CONFIG.p4.color,
 };
 
+// Coloured by exception: red and amber mean something, and everything at or
+// below Medium is a hairline. Most tasks on a personal list never get a
+// priority, so a permanently lit stripe would stop being read.
+const PRIORITY_STRIPE_COLORS: Record<TaskPriority, string> = {
+  p1: PRIORITY_CONFIG.p1.color,
+  p2: PRIORITY_CONFIG.p2.color,
+  p3: "#e5e5e5",
+  p4: "#e5e5e5",
+};
+
+/** Fallback identity for a task with no project: the app's own accent. */
+const NO_PROJECT_COLOR = "#6366f1";
+
 export const ESTIMATE_BUCKETS = [30, 60, 120, 240, 480, 960];
+
+/** `formatRelativeDay` returns lowercase prose; the headline wants a sentence. */
+function capitalizeFirst(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
 
 export function estimateBarIndex(minutes: number | null): number {
   if (!minutes) return -1;
@@ -215,139 +241,201 @@ export const ESTIMATE_PICKER_OPTIONS: {
   { minutes: 960, code: "XL", label: "16 hrs or more" },
 ];
 
-// Hitbox tuning: column hitboxes are larger than the visible bar so a tap
-// anywhere in the vertical column (even above a short bar) selects that
-// value. Previously bars were 5×18 → ~90px² taps; now columns are 16×30 →
-// 480px².
-const PRI_COL_W = 16;
-const PRI_COL_H = 30;
-const PRI_BAR_HEIGHTS = [10, 16, 22, 28];
+// ─── Project identity: the cover ───────────────────────────
+//
+// Same idea as the web editor: the banner's colour, emoji and texture come
+// from the task's project, so a task says which part of your life it belongs
+// to before you've read its title. Nothing new is stored — `projects.color`
+// and `projects.icon` already exist.
+//
+// Built from plain Views on purpose. A real gradient would mean
+// `expo-linear-gradient` and a texture would mean `react-native-svg`; both are
+// native modules, and adding one turns every future change to this screen into
+// an EAS rebuild instead of an OTA update. A stack of flat bands is cheap,
+// ships over the air, and at this size is indistinguishable from the real
+// thing.
 
-const EST_COL_W = 14;
-const EST_COL_H = 30;
-const EST_BAR_HEIGHTS = [8, 13, 17, 21, 25, 28];
+const COVER_BANDS = 12;
+
+/** Interpolate a hex ramp into `COVER_BANDS` steps for the faux gradient. */
+function coverBands(base: string): string[] {
+  const from = hexToRgb(base) ?? hexToRgb(NO_PROJECT_COLOR)!;
+  const to = hexToRgb(shiftHue(base, 14, 0.16)) ?? from;
+  return Array.from({ length: COVER_BANDS }, (_, i) => {
+    const t = i / (COVER_BANDS - 1);
+    const [r, g, b] = from.map((c, j) => Math.round(c + (to[j] - c) * t));
+    return `rgb(${r}, ${g}, ${b})`;
+  });
+}
 
 /**
- * A row of bars that can be set either by tapping a bar or by dragging
- * left/right across the row (drag maps horizontal position → bar index).
- * Backs the priority and estimate selectors.
+ * Three translucent discs, positioned and sized from the project id. This is
+ * the mobile stand-in for the web's repeating textures: colour alone can't
+ * separate two projects that sit near each other on the wheel, and the discs
+ * give each project a layout of its own that survives at thumbnail size.
  */
-function BarSelector({
-  litCount,
-  barHeights,
-  colW,
-  colH,
-  litColor,
-  onSelectIndex,
+function coverBlobs(projectId: string | null): {
+  left: string;
+  top: number;
+  size: number;
+}[] {
+  const h = hashString(projectId ?? "none");
+  return [0, 1, 2].map((i) => {
+    const n = (h >> (i * 5)) & 31;
+    return {
+      left: `${8 + ((n * 11) % 78)}%`,
+      top: -18 + ((n * 7) % 46),
+      size: 44 + ((n * 13) % 58),
+    };
+  });
+}
+
+function TaskCover({
+  project,
+  priority,
+  estimateMinutes,
+  onPressProject,
+  onPressPriority,
+  onPressEstimate,
+  children,
 }: {
-  litCount: number;
-  barHeights: number[];
-  colW: number;
-  colH: number;
-  litColor: string;
-  onSelectIndex: (index: number, source: "tap" | "drag") => void;
+  project: Project | null;
+  priority: TaskPriority;
+  estimateMinutes: number | null;
+  onPressProject: () => void;
+  onPressPriority: () => void;
+  onPressEstimate: () => void;
+  /** The save dot, undo and menu, laid over the banner's top row. */
+  children: React.ReactNode;
 }) {
-  const widthRef = useRef(0);
-  const count = barHeights.length;
-
-  const selectFromX = (x: number, source: "tap" | "drag") => {
-    const w = widthRef.current;
-    if (w <= 0) return;
-    const idx = Math.min(count - 1, Math.max(0, Math.floor((x / w) * count)));
-    onSelectIndex(idx, source);
-  };
-
-  // Tap selects the bar under the finger; horizontal drag scrubs the value.
-  // activeOffsetX lets vertical scroll pass through to the parent ScrollView.
-  // `source` is passed on because a scrub fires repeatedly over the same bar —
-  // only a deliberate tap may read as "re-selected, so clear it".
-  const pan = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetX([-10, 10])
-    .onUpdate((e) => selectFromX(e.x, "drag"));
-  const tap = Gesture.Tap()
-    .runOnJS(true)
-    .onEnd((e) => selectFromX(e.x, "tap"));
-  const gesture = Gesture.Race(tap, pan);
+  const base = project?.color ?? NO_PROJECT_COLOR;
+  const bands = coverBands(base);
+  const blobs = coverBlobs(project?.id ?? null);
+  const showPriorityWord = priority === "p1" || priority === "p2";
 
   return (
-    <GestureDetector gesture={gesture}>
-      <View
-        style={styles.barsRow}
-        onLayout={(e) => {
-          widthRef.current = e.nativeEvent.layout.width;
-        }}
-      >
-        {barHeights.map((h, i) => (
+    <View style={styles.cover}>
+      {/* Faux gradient */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={styles.coverBandRow}>
+          {bands.map((c, i) => (
+            <View key={i} style={[styles.coverBand, { backgroundColor: c }]} />
+          ))}
+        </View>
+      </View>
+      {/* Texture */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {blobs.map((b, i) => (
           <View
             key={i}
-            style={{
-              width: colW,
-              height: colH,
-              alignItems: "center",
-              justifyContent: "flex-end",
-            }}
-          >
-            <View
-              style={{
-                width: 7,
-                borderRadius: 2,
-                height: h,
-                backgroundColor: i < litCount ? litColor : "#e5e7eb",
-              }}
-            />
-          </View>
+            style={[
+              styles.coverBlob,
+              {
+                left: b.left as never,
+                top: b.top,
+                width: b.size,
+                height: b.size,
+                borderRadius: b.size / 2,
+              },
+            ]}
+          />
         ))}
       </View>
-    </GestureDetector>
+      {/* Emoji watermark, bled off the top-right so it never sits under the
+          controls along the banner's bottom edge. */}
+      {project?.icon ? (
+        <Text style={styles.coverMark} pointerEvents="none">
+          {project.icon}
+        </Text>
+      ) : null}
+      {/* Darkens the bottom so the white pill and rail hold their contrast
+          over a pale project colour — amber and lime are the ones that would
+          otherwise wash out. */}
+      <View style={styles.coverScrim} pointerEvents="none" />
+
+      <View style={styles.coverTopRow}>{children}</View>
+
+      <View style={styles.coverBottomRow}>
+        <Pressable
+          onPress={onPressProject}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            project ? `Project: ${project.name}` : "Set project"
+          }
+          style={styles.coverPill}
+        >
+          <View
+            style={[
+              styles.coverPillDot,
+              !project && styles.coverPillDotNone,
+            ]}
+          />
+          <Text style={styles.coverPillText} numberOfLines={1}>
+            {project ? project.name : "No project"}
+          </Text>
+        </Pressable>
+        {showPriorityWord ? (
+          <Pressable
+            onPress={onPressPriority}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Priority: ${PRIORITY_CONFIG[priority].label}`}
+            style={[
+              styles.coverPriWord,
+              { backgroundColor: PRIORITY_COLORS[priority] },
+            ]}
+          >
+            <Text style={styles.coverPriWordText}>
+              {PRIORITY_CONFIG[priority].label.toUpperCase()}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <EstimateRail value={estimateMinutes} onPress={onPressEstimate} />
+    </View>
   );
 }
 
-function PrioritySignal({
+/**
+ * Six segments filling left to right along the banner's bottom edge. Length is
+ * the right metaphor for a duration — a longer task is a longer bar — and the
+ * whole strip is the tap target, not just the 4px of visible rail.
+ */
+function EstimateRail({
   value,
-  onChange,
-}: {
-  value: TaskPriority;
-  onChange: (p: TaskPriority) => void;
-}) {
-  const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[value];
-  // Bars run left→right short→tall: indices 0..3 map to p4..p1.
-  const barPriorities: TaskPriority[] = ["p4", "p3", "p2", "p1"];
-  return (
-    <BarSelector
-      litCount={litCount}
-      barHeights={PRI_BAR_HEIGHTS}
-      colW={PRI_COL_W}
-      colH={PRI_COL_H}
-      litColor={PRIORITY_COLORS[value]}
-      onSelectIndex={(i, source) => {
-        // Tapping the priority already set clears it to p4 ("no priority").
-        // A scrub must not — it fires on every frame over the same bar and
-        // would flip the value off mid-gesture.
-        const picked = barPriorities[i];
-        onChange(source === "tap" && picked === value ? "p4" : picked);
-      }}
-    />
-  );
-}
-
-function EstimateEqualizer({
-  value,
-  onChange,
+  onPress,
 }: {
   value: number | null;
-  onChange: (minutes: number) => void;
+  onPress: () => void;
 }) {
   const activeIdx = estimateBarIndex(value);
+  const label = value
+    ? value >= 60
+      ? `${Math.round(value / 60)}h`
+      : `${value}m`
+    : "—";
   return (
-    <BarSelector
-      litCount={activeIdx + 1}
-      barHeights={EST_BAR_HEIGHTS}
-      colW={EST_COL_W}
-      colH={EST_COL_H}
-      litColor="#6366f1"
-      onSelectIndex={(i) => onChange(ESTIMATE_BUCKETS[i])}
-    />
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={value ? `Estimate: ${label}` : "Set an estimate"}
+      style={styles.estRail}
+    >
+      <View style={styles.estRailTrack}>
+        {ESTIMATE_BUCKETS.map((m, i) => (
+          <View
+            key={m}
+            style={[
+              styles.estRailSeg,
+              i <= activeIdx && styles.estRailSegOn,
+            ]}
+          />
+        ))}
+      </View>
+      <Text style={styles.estRailLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -432,8 +520,17 @@ const SAVE_STATUS_COPY: Record<SaveStatus, { label: string; color: string }> = {
   error: { label: "Save failed", color: "#ef4444" },
 };
 
-function SaveStatusDot({ status }: { status: SaveStatus }) {
-  const { label, color } = SAVE_STATUS_COPY[status];
+function SaveStatusDot({
+  status,
+  onCover,
+}: {
+  status: SaveStatus;
+  /** Sitting on the project banner: the tones have to read against a colour
+   *  rather than white, so the dot goes white and the caption near-white. */
+  onCover?: boolean;
+}) {
+  const { label, color: statusColor } = SAVE_STATUS_COPY[status];
+  const color = onCover ? "#fff" : statusColor;
   const inFlight = status === "pending" || status === "saving";
 
   // Pulse while there's unsaved work. The colour change alone is a single
@@ -472,7 +569,15 @@ function SaveStatusDot({ status }: { status: SaveStatus }) {
       <Animated.View
         style={[styles.statusDot, { backgroundColor: color, opacity: pulse }]}
       />
-      <Text style={[styles.statusText, { color }]}>{label}</Text>
+      <Text
+        style={[
+          styles.statusText,
+          { color },
+          onCover && styles.statusTextOnCover,
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -2226,6 +2331,13 @@ function Inner({
   const selectedProject = current.project_id
     ? allProjects.find((p) => p.id === current.project_id) ?? null
     : null;
+  // The project colour, darkened enough to read as text on white. A hue that
+  // works as a 76px banner rarely works as 22px type on a light background.
+  const accentInk = shiftHue(
+    selectedProject?.color ?? NO_PROJECT_COLOR,
+    0,
+    0.26
+  );
 
   const handleProjectCreate = useCallback(
     async (name: string, color: string): Promise<Project | null> => {
@@ -2242,15 +2354,31 @@ function Inner({
 
   return (
     <View style={styles.sheetContent}>
-      <View style={styles.topBar}>
+      {/* Priority owns the top edge, the banner carries project and estimate.
+          The sheet's own chrome — save state, undo, menu — rides *on* the
+          banner rather than in a bar above it: on a phone that bar cost 46px
+          of height before the title, and the banner has room for it. */}
+      <View
+        style={[
+          styles.priorityStripe,
+          { backgroundColor: PRIORITY_STRIPE_COLORS[current.priority] },
+        ]}
+      />
+      <TaskCover
+        project={selectedProject}
+        priority={current.priority}
+        estimateMinutes={current.duration_minutes}
+        onPressProject={() => setProjectPickerOpen(true)}
+        onPressPriority={() => setPriPickerOpen(true)}
+        onPressEstimate={() => setEstPickerOpen(true)}
+      >
+        <SaveStatusDot status={saveStatus} onCover />
+        <View style={{ flex: 1 }} />
         {hasChanges ? (
-          <Pressable onPress={handleUndo} style={styles.cancelBtn}>
-            <Text style={styles.cancelBtnText}>↶ Cancel</Text>
+          <Pressable onPress={handleUndo} hitSlop={8} style={styles.coverUndo}>
+            <Text style={styles.coverUndoText}>↶ Undo</Text>
           </Pressable>
-        ) : (
-          <View style={{ width: 80 }} />
-        )}
-        <SaveStatusDot status={saveStatus} />
+        ) : null}
         <Pressable
           onPress={() => setMenuOpen(true)}
           hitSlop={8}
@@ -2258,11 +2386,11 @@ function Inner({
           accessibilityLabel="Task menu"
           style={styles.menuBtn}
         >
-          <View style={styles.menuDot} />
-          <View style={styles.menuDot} />
-          <View style={styles.menuDot} />
+          <View style={styles.menuDotOnCover} />
+          <View style={styles.menuDotOnCover} />
+          <View style={styles.menuDotOnCover} />
         </Pressable>
-      </View>
+      </TaskCover>
 
       {/* Above the scroll view, so a failure can't be scrolled out of sight
           while the user carries on editing. The dot alone can't carry this: it
@@ -2368,22 +2496,23 @@ function Inner({
           />
         </View>
 
-        {/* DATE */}
+        {/* DATE. Relative reading first and large: on a personal list
+            "tomorrow" is the answer and "Tuesday, August 5th" is the receipt,
+            so the receipt is the one set small. */}
         <View style={{ marginTop: 16 }}>
           <View style={styles.rowHead}>
-            <Text style={styles.sectionLabel}>Date</Text>
-            <Text style={styles.sectionValue}>
+            <Text style={[styles.whenBig, { color: accentInk }]}>
               {current.scheduled_date
-                ? formatFullDate(current.scheduled_date)
+                ? capitalizeFirst(formatRelativeDay(current.scheduled_date))
                 : "Not scheduled"}
             </Text>
             {current.scheduled_date ? (
               <Text style={styles.sectionValueHint}>
-                · {formatRelativeDay(current.scheduled_date)}
+                {formatFullDate(current.scheduled_date)}
               </Text>
             ) : null}
             {current.scheduled_date && current.scheduled_time ? (
-              <Text style={styles.sectionValueTime}>
+              <Text style={[styles.sectionValueTime, { color: accentInk }]}>
                 {formatTimeOfDay(current.scheduled_time)}
               </Text>
             ) : null}
@@ -2402,52 +2531,12 @@ function Inner({
           ) : null}
         </View>
 
-        {/* Inline meta */}
-        <View style={styles.metaCard}>
-          <View style={styles.metaRow}>
-            <View style={styles.metaGroup}>
-              <Pressable
-                onPress={() => setPriPickerOpen(true)}
-                hitSlop={6}
-                style={styles.metaLabelButton}
-              >
-                <Text style={styles.metaLabel}>Pri</Text>
-              </Pressable>
-              <PrioritySignal
-                value={current.priority}
-                onChange={(p) => setField("priority", p)}
-              />
-              <Text
-                style={[
-                  styles.metaValue,
-                  { color: PRIORITY_COLORS[current.priority] },
-                ]}
-              >
-                {PRIORITY_CONFIG[current.priority].label}
-              </Text>
-            </View>
-            <View style={styles.metaGroup}>
-              <Pressable
-                onPress={() => setEstPickerOpen(true)}
-                hitSlop={6}
-                style={styles.metaLabelButton}
-              >
-                <Text style={styles.metaLabel}>Est</Text>
-              </Pressable>
-              <EstimateEqualizer
-                value={current.duration_minutes}
-                onChange={(m) => setField("duration_minutes", m)}
-              />
-              <Text style={[styles.metaValue, { color: "#4338ca" }]}>
-                {current.duration_minutes
-                  ? current.duration_minutes >= 60
-                    ? `${Math.round(current.duration_minutes / 60)}h`
-                    : `${current.duration_minutes}m`
-                  : "—"}
-              </Text>
-            </View>
-          </View>
-        </View>
+        {/* Priority and estimate used to sit here as a two-up meter card.
+            They're on the banner now — the stripe and the rail — and neither
+            was left behind: a signal at the top plus a control further down is
+            worse than either alone, because you read the value in one place
+            and then have to hunt for where to change it. Tapping either mark
+            opens the same picker this card's labels opened. */}
 
         {/* Location reminders — folded like Repeat, since most tasks have none */}
         <View style={{ marginTop: 14 }}>
@@ -2514,58 +2603,26 @@ function Inner({
           />
         ) : null}
 
-        {/* Status + Project — side by side, one tap opens each picker */}
-        <View style={styles.fieldPairRow}>
-          <View style={{ flex: 1 }}>
-            <View style={styles.rowHead}>
-              <Text style={styles.sectionLabel}>Status</Text>
-            </View>
-            <Pressable
-              onPress={() => setStatusPickerOpen(true)}
-              style={styles.projectField}
-            >
-              <View
-                style={[
-                  styles.projectFieldDot,
-                  { backgroundColor: STATUS_CONFIG[current.status].color },
-                ]}
-              />
-              <Text style={styles.projectFieldText} numberOfLines={1}>
-                {STATUS_CONFIG[current.status].label}
-              </Text>
-              <Text style={styles.projectFieldChevron}>▾</Text>
-            </Pressable>
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={styles.rowHead}>
-              <Text style={styles.sectionLabel}>Project</Text>
-            </View>
-            <Pressable
-              onPress={() => setProjectPickerOpen(true)}
-              style={styles.projectField}
-            >
-              <View
-                style={[
-                  styles.projectFieldDot,
-                  selectedProject
-                    ? { backgroundColor: selectedProject.color }
-                    : styles.projectFieldDotNone,
-                ]}
-              />
-              <Text
-                style={[
-                  styles.projectFieldText,
-                  !selectedProject && styles.projectFieldTextMuted,
-                ]}
-                numberOfLines={1}
-              >
-                {selectedProject
-                  ? `${selectedProject.icon ? `${selectedProject.icon} ` : ""}${selectedProject.name}`
-                  : "No project"}
-              </Text>
-              <Text style={styles.projectFieldChevron}>▾</Text>
-            </Pressable>
-          </View>
+        {/* Status is what's left of the old field pair — Project moved to the
+            banner's pill, where it's also the thing giving the sheet its
+            colour. */}
+        <View style={styles.statusFieldRow}>
+          <Text style={styles.sectionLabel}>Status</Text>
+          <Pressable
+            onPress={() => setStatusPickerOpen(true)}
+            style={styles.projectField}
+          >
+            <View
+              style={[
+                styles.projectFieldDot,
+                { backgroundColor: STATUS_CONFIG[current.status].color },
+              ]}
+            />
+            <Text style={styles.projectFieldText} numberOfLines={1}>
+              {STATUS_CONFIG[current.status].label}
+            </Text>
+            <Text style={styles.projectFieldChevron}>▾</Text>
+          </Pressable>
         </View>
 
         {statusPickerOpen ? (
@@ -2740,24 +2797,6 @@ const styles = StyleSheet.create({
   },
   sheetContent: { flex: 1, backgroundColor: "#fff" },
 
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-  },
-  cancelBtn: {
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  cancelBtnText: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
   menuBtn: {
     width: 30,
     height: 30,
@@ -2766,12 +2805,139 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 3,
   },
-  menuDot: {
+  projectField: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  projectFieldChevron: { fontSize: 12, color: "#9ca3af" },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(17,24,39,0.45)",
+    justifyContent: "flex-end",
+  },
+  // ── Project banner ────────────────────────────────────
+  priorityStripe: { height: 4, width: "100%" },
+  cover: { height: 84, overflow: "hidden", justifyContent: "flex-end" },
+  // Horizontal bands standing in for a gradient — see TaskCover for why this
+  // isn't expo-linear-gradient.
+  coverBandRow: { flex: 1, flexDirection: "row" },
+  coverBand: { flex: 1, height: "100%" },
+  coverBlob: {
+    position: "absolute",
+    backgroundColor: "rgba(255,255,255,0.13)",
+  },
+  coverMark: {
+    position: "absolute",
+    right: -8,
+    top: -14,
+    fontSize: 72,
+    lineHeight: 82,
+    opacity: 0.3,
+    transform: [{ rotate: "-13deg" }],
+  },
+  coverScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 46,
+    backgroundColor: "rgba(0,0,0,0.18)",
+  },
+  coverTopRow: {
+    position: "absolute",
+    top: 8,
+    left: 14,
+    right: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  coverUndo: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.22)",
+  },
+  coverUndoText: { fontSize: 11.5, fontWeight: "700", color: "#fff" },
+  coverBottomRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+  },
+  coverPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "70%",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.24)",
+  },
+  coverPillDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#fff",
+  },
+  coverPillDotNone: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.8)",
+  },
+  coverPillText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  coverPriWord: {
+    marginLeft: "auto",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  coverPriWordText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#fff",
+  },
+  // The whole strip is the tap target, not just the 4px of visible rail.
+  estRail: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 8,
+  },
+  estRailTrack: { flex: 1, flexDirection: "row", gap: 3 },
+  estRailSeg: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  estRailSegOn: { backgroundColor: "#fff" },
+  estRailLabel: { fontSize: 11, fontWeight: "700", color: "#fff" },
+  menuDotOnCover: {
     width: 3.5,
     height: 3.5,
     borderRadius: 2,
-    backgroundColor: "#6b7280",
+    backgroundColor: "#fff",
   },
+  statusTextOnCover: { color: "rgba(255,255,255,0.92)" },
+  whenBig: { fontSize: 23, fontWeight: "800", letterSpacing: -0.6 },
+  statusFieldRow: {
+    marginTop: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
   menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
   menuRowDestructive: { fontSize: 15, fontWeight: "600", color: "#dc2626" },
 
@@ -2906,11 +3072,6 @@ const styles = StyleSheet.create({
     color: "#4338ca",
   },
 
-  fieldPairRow: {
-    marginTop: 18,
-    flexDirection: "row",
-    gap: 10,
-  },
 
   subtaskCard: {
     backgroundColor: "#f9fafb",
@@ -3213,65 +3374,12 @@ const styles = StyleSheet.create({
   repeatChipText: { fontSize: 12, color: "#374151", fontWeight: "600" },
   repeatChipTextActive: { color: "#4338ca", fontWeight: "700" },
 
-  metaCard: {
-    marginTop: 18,
-    backgroundColor: "#f9fafb",
-    borderRadius: 12,
-    padding: 14,
-  },
-  metaRow: { flexDirection: "row", gap: 14, alignItems: "center" },
-  metaGroup: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  metaLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#9ca3af",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    minWidth: 22,
-  },
-  metaLabelButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    borderRadius: 6,
-  },
-  metaValue: { fontSize: 12, fontWeight: "700" },
-
-  projectField: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#f9fafb",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
   projectFieldDot: { width: 12, height: 12, borderRadius: 6 },
-  projectFieldDotNone: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#9ca3af",
-    borderStyle: "dashed",
-  },
   projectFieldText: {
     flex: 1,
     fontSize: 14,
     fontWeight: "600",
     color: "#111827",
-  },
-  projectFieldTextMuted: { color: "#9ca3af", fontWeight: "500" },
-  projectFieldChevron: { fontSize: 12, color: "#9ca3af" },
-
-  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
-
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(17,24,39,0.45)",
-    justifyContent: "flex-end",
   },
   pickerSheet: {
     backgroundColor: "#fff",

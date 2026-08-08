@@ -1,5 +1,6 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import type { Project } from "@do-done/shared";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 import { makeTask } from "./__stories__/mocks";
 
@@ -32,6 +33,44 @@ const nextWeek = (() => {
   return d.toISOString().split("T")[0];
 })();
 
+/**
+ * Projects that actually carry an icon, so the cover has a watermark to draw.
+ * `SAMPLE_PROJECTS` leaves `icon` null, which is the other case worth seeing —
+ * `NoProjectIcon` below covers it.
+ */
+function project(over: Partial<Project> & { id: string }): Project {
+  return {
+    user_id: "user-1",
+    name: "Project",
+    color: "#6366f1",
+    icon: null,
+    parent_project_id: null,
+    sort_order: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...over,
+  };
+}
+
+const MOBILE = project({
+  id: "proj-mobile",
+  name: "Mobile",
+  color: "#6366f1",
+  icon: "📱",
+});
+const HEALTH = project({
+  id: "proj-health",
+  name: "Health",
+  color: "#10b981",
+  icon: "🏃",
+});
+const HOME = project({
+  id: "proj-home",
+  name: "Home",
+  color: "#f59e0b",
+  icon: "🏠",
+});
+
 export const Default: Story = {
   args: {
     task: makeTask({
@@ -40,7 +79,65 @@ export const Default: Story = {
       scheduled_date: tomorrow,
       duration_minutes: 120,
       tags: ["web", "design"],
+      project_id: MOBILE.id,
     }),
+    projects: [MOBILE, HEALTH, HOME],
+    open: true,
+    onClose: () => {},
+  },
+};
+
+/**
+ * The cover takes its colour, emoji and texture from the project — so the same
+ * editor announces which part of your life the task belongs to before you've
+ * read the title. Texture is hashed off the project id, which is what keeps two
+ * projects on neighbouring hues apart.
+ */
+export const CoverHealth: Story = {
+  args: {
+    task: makeTask({
+      title: "Long run — 10k at easy pace",
+      priority: "p3",
+      scheduled_date: tomorrow,
+      duration_minutes: 60,
+      project_id: HEALTH.id,
+      tags: ["training"],
+    }),
+    projects: [MOBILE, HEALTH, HOME],
+    open: true,
+    onClose: () => {},
+  },
+};
+
+/** A pale project colour — the cover's bottom scrim is what keeps the white
+ *  pill, rail and estimate legible over amber. */
+export const CoverPaleProject: Story = {
+  args: {
+    task: makeTask({
+      title: "Book the boiler service",
+      priority: "p1",
+      scheduled_date: nextWeek,
+      duration_minutes: 30,
+      project_id: HOME.id,
+    }),
+    projects: [MOBILE, HEALTH, HOME],
+    open: true,
+    onClose: () => {},
+  },
+};
+
+/** No project: the app's own indigo rather than a hole where the banner goes,
+ *  and the pill becomes the way to file the task. */
+export const NoProjectIcon: Story = {
+  args: {
+    task: makeTask({
+      title: "Something I haven't filed yet",
+      priority: "p4",
+      scheduled_date: null,
+      duration_minutes: null,
+      project_id: null,
+    }),
+    projects: [MOBILE, HEALTH, HOME],
     open: true,
     onClose: () => {},
   },

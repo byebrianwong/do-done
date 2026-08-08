@@ -1,0 +1,523 @@
+<title>Round 11 · A glyph for estimate + priority</title>
+<style>
+  :root {
+    --page: #edeff4; --page-2: #e3e6ec;
+    --ink: #1b1f2b; --muted: #5a6278; --faint: #8b93a7;
+    --line: #d3d8e3; --card: #ffffff; --sunken: #f6f7fa;
+    --p1: #ef4444; --p2: #f59e0b; --p3: #6366f1; --p4: #a3a3a3;
+    --good: #16a34a; --warn: #b45309; --bad: #dc2626;
+    --shadow: 0 4px 14px rgba(17,24,39,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0e1117; --page-2: #161a22;
+      --ink: #e9edf5; --muted: #98a1b5; --faint: #6b7488;
+      --line: #2a3140; --card: #171b24; --sunken: #12161e;
+      --p4: #6b7280;
+      --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
+      --shadow: 0 4px 14px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0e1117; --page-2: #161a22;
+    --ink: #e9edf5; --muted: #98a1b5; --faint: #6b7488;
+    --line: #2a3140; --card: #171b24; --sunken: #12161e;
+    --p4: #6b7280; --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
+    --shadow: 0 4px 14px rgba(0,0,0,.4);
+  }
+  :root[data-theme="light"] {
+    --page: #edeff4; --page-2: #e3e6ec;
+    --ink: #1b1f2b; --muted: #5a6278; --faint: #8b93a7;
+    --line: #d3d8e3; --card: #fff; --sunken: #f6f7fa;
+    --p4: #a3a3a3; --good: #16a34a; --warn: #b45309; --bad: #dc2626;
+    --shadow: 0 4px 14px rgba(17,24,39,.06);
+  }
+
+  * { box-sizing: border-box }
+  body {
+    margin: 0;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(1100px 560px at 50% -10%, var(--page-2), var(--page));
+    color: var(--ink); -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px }
+
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px }
+  h1 { margin: 0 0 12px; font-size: clamp(26px,3.4vw,36px); font-weight: 800; letter-spacing: -.025em; line-height: 1.1; text-wrap: balance }
+  .lede { max-width: 62ch; font-size: 15px; line-height: 1.62; color: var(--muted); margin: 0 }
+  .lede + .lede { margin-top: 10px }
+  .lede b { color: var(--ink); font-weight: 600 }
+
+  h2.sec {
+    margin: 52px 0 6px; font-size: 21px; font-weight: 750; letter-spacing: -.02em;
+    padding-top: 22px; border-top: 1px solid var(--line);
+  }
+  h2.sec .n { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--faint); display: block; margin-bottom: 5px }
+  p.sub { margin: 0 0 22px; max-width: 62ch; font-size: 14px; line-height: 1.6; color: var(--muted) }
+  p.sub b { color: var(--ink); font-weight: 600 }
+  code { font: 500 12.5px ui-monospace, Menlo, monospace; background: var(--page-2); padding: 1px 5px; border-radius: 4px }
+
+  /* ── Found-it callout ── */
+  .found {
+    margin-top: 28px; padding: 20px 22px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--line);
+    box-shadow: var(--shadow); display: grid; gap: 16px;
+    grid-template-columns: 1fr auto; align-items: center;
+  }
+  @media (max-width: 760px) { .found { grid-template-columns: 1fr } }
+  .found h3 { margin: 0 0 7px; font-size: 15px; font-weight: 700; letter-spacing: -.012em }
+  .found p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted) }
+  .found p + p { margin-top: 7px }
+  .found b { color: var(--ink); font-weight: 620 }
+  .found-demo {
+    display: flex; flex-direction: column; gap: 7px; padding: 14px 16px;
+    background: var(--sunken); border-radius: 11px; border: 1px solid var(--line);
+  }
+  .found-demo .cap { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px }
+  .found-demo .rowline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted) }
+
+  /* ── Matrix ── */
+  .matrix { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card); box-shadow: var(--shadow) }
+  .mrow { display: grid; grid-template-columns: 190px 1fr; align-items: stretch }
+  .mrow + .mrow { border-top: 1px solid var(--line) }
+  .mrow.head { background: var(--sunken) }
+  .mname { padding: 15px 16px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; justify-content: center }
+  .mname .t { font-size: 13.5px; font-weight: 680; letter-spacing: -.01em }
+  .mname .d { font-size: 11.5px; line-height: 1.45; color: var(--muted) }
+  .mcells { display: grid; grid-template-columns: repeat(6, 1fr) }
+  .mcell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+    padding: 15px 4px; min-height: 74px;
+  }
+  .mcell + .mcell { border-left: 1px solid var(--line) }
+  .mcell .lab { font-size: 10.5px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums }
+  .mrow.head .mcell { min-height: 0; padding: 9px 4px }
+  .mrow.head .mcell .lab { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+  .mrow.head .mcell.common .lab { color: var(--ink) }
+  .mcell.common { background: color-mix(in srgb, var(--p3) 5%, transparent) }
+
+  .verdictline { padding: 11px 16px; font-size: 12.5px; line-height: 1.5; display: flex; gap: 9px; align-items: flex-start; grid-column: 1 / -1; border-top: 1px dashed var(--line); background: var(--sunken) }
+  .tick { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex-shrink: 0; margin-top: 1px }
+  .tick.yes { background: color-mix(in srgb, var(--good) 16%, var(--card)); color: var(--good) }
+  .tick.mid { background: color-mix(in srgb, var(--warn) 16%, var(--card)); color: var(--warn) }
+  .tick.no { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad) }
+
+  /* ═══ The glyphs themselves ═══ */
+  .g { display: inline-flex; align-items: center; justify-content: center; color: var(--pri) }
+
+  /* A · duration bar (width = time) */
+  .g-bar { height: 7px; border-radius: 3.5px; background: currentColor }
+  /* P4 = "not set". A 1px ring over a faint wash rather than a pure outline —
+     at the 30m width a hollow bar collapses into a ring with no middle. */
+  .g-bar.open {
+    background: color-mix(in srgb, currentColor 24%, transparent);
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  .g-bar.beyond {
+    background: linear-gradient(90deg, currentColor 0 72%, transparent 72% 79%, currentColor 79% 100%);
+  }
+
+  /* B · segmented capsule */
+  .g-cap { display: inline-flex; gap: 2px; width: 34px }
+  .g-cap i { flex: 1; height: 8px; border-radius: 2px; background: color-mix(in srgb, currentColor 22%, transparent) }
+  .g-cap i.on { background: currentColor }
+
+  /* C · clock wedge */
+  .g-clock { position: relative; width: 17px; height: 17px; border-radius: 50% }
+  .g-clock .face { position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor }
+  .g-clock .wedge {
+    position: absolute; inset: 2px; border-radius: 50%;
+    background: conic-gradient(from -90deg, currentColor var(--turn), transparent 0);
+  }
+  .g-clock .over {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 8px; font-weight: 800; color: var(--card); letter-spacing: -.03em;
+  }
+
+  /* D · blocks */
+  .g-blocks { display: inline-flex; gap: 2.5px; align-items: center }
+  .g-blocks i { width: 5px; height: 5px; border-radius: 1.5px; background: currentColor }
+  .g-blocks i.half { width: 2.5px }
+
+  /* E · numeral chip */
+  .g-num {
+    font-size: 11px; font-weight: 750; letter-spacing: -.01em; line-height: 1;
+    padding: 4px 6px; border-radius: 5px; font-variant-numeric: tabular-nums;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    color: color-mix(in srgb, currentColor 78%, var(--ink));
+  }
+
+  /* F · equalizer (what ships today) */
+  .g-eq { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 16px }
+  .g-eq i { width: 4px; border-radius: 1.5px; background: color-mix(in srgb, currentColor 22%, transparent) }
+  .g-eq i.on { background: currentColor }
+
+  /* ── Priority palette section ── */
+  .ramps { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) }
+  .ramp { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 17px 19px; box-shadow: var(--shadow) }
+  .ramp h3 { margin: 0 0 3px; font-size: 14px; font-weight: 700; letter-spacing: -.012em }
+  .ramp .who { margin: 0 0 14px; font-size: 11.5px; color: var(--faint) }
+  .swrow { display: flex; gap: 10px; margin-bottom: 6px }
+  .swcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px }
+  .swcol .chip { width: 100%; height: 30px; border-radius: 7px }
+  .swcol .n { font-size: 10.5px; font-weight: 650; color: var(--muted) }
+  .swrow.glyphs { align-items: center; margin: 12px 0 6px }
+  .simcap { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 14px 0 7px }
+  .sim { filter: url(#deuter) }
+  .ramp .note { margin: 13px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--muted) }
+  .ramp .note b { color: var(--ink); font-weight: 620 }
+  .ramp .note.bad b { color: var(--bad) }
+
+  /* ── In-situ ── */
+  .situ { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)) }
+  .situcard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow) }
+  .situcard .h { padding: 11px 15px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: var(--sunken) }
+  .situcard .b { padding: 14px 15px }
+
+  .trow { display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 13.5px }
+  .trow + .trow { border-top: 1px solid var(--line) }
+  .trow .circ { width: 17px; height: 17px; border-radius: 50%; border: 2px solid var(--p3); flex-shrink: 0 }
+  .trow .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .trow .when { font-size: 11.5px; color: var(--faint); flex-shrink: 0 }
+
+  .daycell {
+    width: 74px; height: 74px; border-radius: 11px; background: var(--sunken);
+    border: 1.5px solid transparent; display: flex; flex-direction: column;
+    align-items: center; padding: 9px 3px 6px;
+  }
+  .daycell.today { border-color: color-mix(in srgb, var(--p3) 40%, transparent); background: color-mix(in srgb, var(--p3) 8%, transparent) }
+  .daycell .n { font-size: 15px; font-weight: 680; line-height: 1 }
+  .daycell .tag { margin-top: 4px; font-size: 9px; color: var(--faint) }
+  .daycell .dots { margin-top: auto; display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; width: 100% }
+  .dayrow { display: flex; gap: 7px; flex-wrap: wrap }
+
+  .coverstrip {
+    height: 66px; border-radius: 11px; position: relative; overflow: hidden;
+    background-image: radial-gradient(circle, rgba(255,255,255,.26) 1.6px, transparent 1.7px),
+                      linear-gradient(118deg, #6366f1, #8b5cf6);
+    background-size: 15px 15px, auto;
+    display: flex; align-items: flex-end; padding: 0 12px 10px;
+  }
+  .coverstrip .pillp {
+    font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,.2);
+    padding: 4px 9px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.24);
+  }
+  .coverstrip .right { margin-left: auto; display: flex; align-items: center; gap: 7px }
+  .coverstrip .lab { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.4) }
+
+  /* ── Verdict ── */
+  .verdict { margin-top: 26px; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) }
+  .verdict section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 17px 19px; box-shadow: var(--shadow) }
+  .verdict h3 { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted) }
+  .verdict p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.6 }
+  .verdict p:last-child { margin-bottom: 0 }
+  .verdict ul { margin: 0; padding-left: 17px }
+  .verdict li { font-size: 13.5px; line-height: 1.55; margin-bottom: 8px }
+  .verdict li:last-child { margin-bottom: 0 }
+  .verdict b { font-weight: 650 }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Viénot deuteranope approximation — the most common form of red-green
+         colour blindness, roughly 1 in 16 men. -->
+    <filter id="deuter" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.625 0.375 0 0 0
+        0.700 0.300 0 0 0
+        0     0.300 0.700 0 0
+        0 0 0 1 0" />
+    </filter>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <p class="eyebrow">Task editor · Round 11</p>
+  <h1>One mark for how long and how much it matters</h1>
+  <p class="lede">
+    You're right to be suspicious of the clock. A dial reads as <i>a fraction of an
+    hour</i> — which is perfect for 30 minutes and useless for four hours, because
+    there's no honest way to draw "four turns of the same face".
+  </p>
+  <p class="lede">
+    <b>The better news is that this glyph already exists in your codebase.</b> The busyness
+    dots inside the week strip encode duration as <i>width</i> and priority as <i>colour</i>,
+    which is exactly the mark you're describing.
+  </p>
+
+  <div class="found">
+    <div>
+      <h3>It's already shipping — in the calendar</h3>
+      <p><code>busyDotWidthClass()</code> maps minutes to a bar width (5 / 9 / 14 / 20 / 28&nbsp;px), and
+      <code>busyDotClass()</code> colours it by priority — red, amber, indigo, neutral.</p>
+      <p>So the mark is proven at the smallest size you'll ever need it, and promoting it means
+      <b>a task looks the same in the list, in the editor, and on the calendar.</b> The dots stop
+      needing a legend, because you'd have already learned the glyph on the task itself.</p>
+    </div>
+    <div class="found-demo">
+      <span class="cap">Thursday's load, today</span>
+      <span class="rowline"><span class="g" style="--pri: var(--p1)"><span class="g-bar" style="width:9px"></span></span> Renew the passport · 1h</span>
+      <span class="rowline"><span class="g" style="--pri: var(--p3)"><span class="g-bar" style="width:20px"></span></span> Draft the deck · 4h</span>
+      <span class="rowline"><span class="g" style="--pri: var(--p4)"><span class="g-bar" style="width:5px"></span></span> Water the plants · 30m</span>
+    </div>
+  </div>
+
+  <h2 class="sec"><span class="n">01</span> Six ways to draw the duration</h2>
+  <p class="sub">
+    All at true size, all at P2. The tinted columns are the four buckets you said carry
+    most of the data — <b>a glyph is only as good as its ability to separate those four.</b>
+    Whatever it does at 8h and 16h matters much less.
+  </p>
+  <div class="matrix" id="matrix"></div>
+
+  <h2 class="sec"><span class="n">02</span> The colour question</h2>
+  <p class="sub">
+    Your proposal was red / orange / yellow / grey. It's the intuitive ramp, and it has two
+    specific problems — one of contrast, one of vision. Both are visible below.
+  </p>
+  <div class="ramps" id="ramps"></div>
+
+  <h2 class="sec"><span class="n">03</span> The same mark, three places</h2>
+  <p class="sub">
+    The duration bar at 100%, in the three surfaces it would appear on. Nothing is
+    re-drawn between them — same widths, same colours, same component.
+  </p>
+  <div class="situ">
+    <div class="situcard">
+      <div class="h">Task row</div>
+      <div class="b" id="situ-rows"></div>
+    </div>
+    <div class="situcard">
+      <div class="h">Week strip (today)</div>
+      <div class="b"><div class="dayrow" id="situ-days"></div></div>
+    </div>
+    <div class="situcard">
+      <div class="h">Editor header</div>
+      <div class="b">
+        <div class="coverstrip">
+          <span class="pillp">📱 Mobile</span>
+          <span class="right">
+            <span class="g" style="--pri:#fff"><span class="g-bar" style="width:20px"></span></span>
+            <span class="lab">4h</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <section>
+      <h3>What I'd build</h3>
+      <p><b>The duration bar (A), with the priority ramp you already ship.</b> Width says how
+      long, fill colour says how much it matters, and it's the only candidate that's already
+      been proven at 5&nbsp;px inside a calendar cell.</p>
+      <p>Three refinements over what's in the code today:</p>
+      <ul>
+        <li><b>Re-tune the width ramp.</b> Today's 5/9/14/20/28 spreads evenly across a range
+        where your data isn't. Give the common four bigger steps (6/11/17/24) and let 8h and
+        16h+ compress (29/33) — spend the resolution where the tasks are.</li>
+        <li><b>Mark P4 as unset, not as grey.</b> A solid grey fill still reads as a value
+        someone picked. A 1px ring over a faint wash reads as "nothing here". Note it can't be
+        a <i>pure</i> outline — at the 30m width the hollow collapses to a ring with no middle,
+        so the wash is load-bearing, not decoration.</li>
+        <li><b>Give 16h+ an open right edge.</b> The top bucket is unbounded, so a solid cap
+        lies about it — a broken end says "and beyond" at a glance.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>On the clock</h3>
+      <p>Worth keeping for one job: <b>time of day</b>, not duration. A dial is genuinely the
+      right shape for "9:30&nbsp;AM" and genuinely the wrong one for "4 hours".</p>
+      <p>The specimen shows exactly where it breaks — 30m and 1h are lovely, and from 2h on it
+      has to give up and print a numeral, at which point you've built a worse version of
+      candidate&nbsp;E.</p>
+      <p>If you want a shape rather than a bar, <b>candidate B (the segmented capsule)</b> is the
+      one to take: constant footprint, so it never disturbs row alignment, and counting
+      segments is easier than judging length. It costs you the direct time-is-length metaphor
+      and the reuse of the calendar dots.</p>
+    </section>
+    <section>
+      <h3>Colour can't work alone</h3>
+      <p>Whatever ramp wins, <b>priority needs a second channel</b> — roughly 1 in 16 men can't
+      separate a red-orange-yellow ramp, and no ramp survives a greyscale screenshot.</p>
+      <p>The cheapest redundancy you have is the one already in the editor: the <b>four-bar
+      priority meter</b>. Colour carries it in the list where space is tight; the meter carries
+      it in the editor where there's room for both.</p>
+      <p>Add a <code>title</code> of "High priority · about 4 hours" on the glyph and the whole thing
+      degrades gracefully to text — which is also what a screen reader gets.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+  const SIZES = [
+    { k: 1, min: 30,  label: "30m",  common: true },
+    { k: 2, min: 60,  label: "1h",   common: true },
+    { k: 3, min: 120, label: "2h",   common: true },
+    { k: 4, min: 240, label: "4h",   common: true },
+    { k: 5, min: 480, label: "8h",   common: false },
+    { k: 6, min: 960, label: "16h+", common: false },
+  ];
+
+  // Re-tuned ramp: big steps across the four common buckets, compressed above.
+  const BAR_W = { 1: 6, 2: 11, 3: 17, 4: 24, 5: 29, 6: 33 };
+
+  const GLYPHS = [
+    {
+      id: "bar",
+      name: "A · Duration bar",
+      desc: "Width is the time. The calendar dot, promoted.",
+      verdict: ["yes", "Time reads as length, which is the one metaphor nobody has to be taught. Already proven at 5px. Its only real cost is a variable footprint, so it needs a fixed-width slot in a list row."],
+      render: (s, pri) => {
+        const cls = pri === "p4" ? "g-bar open" : s.k === 6 ? "g-bar beyond" : "g-bar";
+        return `<span class="g" style="--pri: var(--${pri})"><span class="${cls}" style="width:${BAR_W[s.k]}px"></span></span>`;
+      },
+    },
+    {
+      id: "cap",
+      name: "B · Segmented capsule",
+      desc: "Six slots, n filled. Constant width.",
+      verdict: ["yes", "Counting beats judging: 2h vs 4h is unmistakable because it's three pips against four. Fixed footprint keeps rows aligned. Reads as “n of a budget” rather than a duration, which is a slightly wrong idea."],
+      render: (s, pri) =>
+        `<span class="g" style="--pri: var(--${pri})"><span class="g-cap">${
+          [1,2,3,4,5,6].map((i) => `<i class="${i <= s.k ? "on" : ""}"></i>`).join("")
+        }</span></span>`,
+    },
+    {
+      id: "clock",
+      name: "C · Clock wedge",
+      desc: "Pie fill of one hour. Falls back to a numeral.",
+      verdict: ["no", "Perfect at 30m and 1h — and then it has nothing left to say. Above an hour it prints a number, so four of your six buckets are just text wearing a circle. Keep the dial for time of day instead."],
+      render: (s, pri) => {
+        const turn = Math.min(s.min / 60, 1) * 360;
+        const over = s.min > 60 ? `<span class="over">${s.label.replace("+", "")}</span>` : "";
+        return `<span class="g" style="--pri: var(--${pri})"><span class="g-clock" style="--turn:${turn}deg"><span class="wedge"></span><span class="face"></span>${over}</span></span>`;
+      },
+    },
+    {
+      id: "blocks",
+      name: "D · Time blocks",
+      desc: "One block per bucket, half-block for 30m.",
+      verdict: ["mid", "The most literal — “this is four chunks of my day”. Countable and charming, but six blocks is 40px of row, and the half-block for 30m needs explaining."],
+      render: (s, pri) =>
+        `<span class="g" style="--pri: var(--${pri})"><span class="g-blocks">${
+          s.k === 1 ? `<i class="half"></i>` : Array.from({length: s.k}, () => "<i></i>").join("")
+        }</span></span>`,
+    },
+    {
+      id: "num",
+      name: "E · Just the number",
+      desc: "Tinted chip, priority-coloured text.",
+      verdict: ["mid", "Unbeatable for precision and the only one that survives greyscale, a screenshot or a screen reader untouched. But two characters read slower than a length at a glance, and it can't shrink into a calendar cell."],
+      render: (s, pri) => `<span class="g" style="--pri: var(--${pri})"><span class="g-num">${s.label}</span></span>`,
+    },
+    {
+      id: "eq",
+      name: "F · Equalizer",
+      desc: "Ascending bars, n lit. Ships today.",
+      verdict: ["mid", "What the editor already uses, and it's fine there at full size. At row scale the ascending heights encode the same thing twice (height and count) while eating vertical space the row hasn't got."],
+      render: (s, pri) =>
+        `<span class="g" style="--pri: var(--${pri})"><span class="g-eq">${
+          [1,2,3,4,5,6].map((i) => `<i class="${i <= s.k ? "on" : ""}" style="height:${4 + i * 2}px"></i>`).join("")
+        }</span></span>`,
+    },
+  ];
+
+  // ── Matrix ──
+  const matrix = document.getElementById("matrix");
+  matrix.innerHTML =
+    `<div class="mrow head">
+      <div class="mname"><span class="t">Estimate bucket</span><span class="d">tinted = where the data is</span></div>
+      <div class="mcells">${SIZES.map((s) => `<div class="mcell ${s.common ? "common" : ""}"><span class="lab">${s.label}</span></div>`).join("")}</div>
+    </div>` +
+    GLYPHS.map((g) => `
+      <div class="mrow">
+        <div class="mname"><span class="t">${g.name}</span><span class="d">${g.desc}</span></div>
+        <div class="mcells">${SIZES.map((s) => `
+          <div class="mcell ${s.common ? "common" : ""}">${g.render(s, "p2")}<span class="lab">${s.label}</span></div>
+        `).join("")}</div>
+        <div class="verdictline"><span class="tick ${g.verdict[0]}">${
+          { yes: "Strong", mid: "Workable", no: "Avoid" }[g.verdict[0]]
+        }</span><span>${g.verdict[1]}</span></div>
+      </div>
+    `).join("");
+
+  // ── Priority ramps, plain and simulated ──
+  const RAMPS = [
+    {
+      title: "Red · orange · yellow · grey",
+      who: "Your proposal",
+      colors: ["#ef4444", "#f97316", "#eab308", "#a3a3a3"],
+      note: `<b>Yellow fails on white</b> — #eab308 lands near 1.9:1, well under the 3:1 a
+             non-text indicator needs. And under deuteranopia the first three collapse into
+             one warm smear, because red, orange and yellow are the same hue family.`,
+      bad: true,
+    },
+    {
+      title: "Red · amber · indigo · grey",
+      who: "What the app ships today",
+      colors: ["#ef4444", "#f59e0b", "#6366f1", "#a3a3a3"],
+      note: `Indigo at P3 breaks the warm family, so the ramp stays separable under
+             deuteranopia and in greyscale — the three stay light, mid and dark rather than
+             all mid. <b>Amber also clears 3:1 where yellow doesn't.</b>`,
+      bad: false,
+    },
+  ];
+  const LABELS = ["P1 Urgent", "P2 High", "P3 Medium", "P4 None"];
+
+  document.getElementById("ramps").innerHTML = RAMPS.map((r) => {
+    const chips = r.colors.map((c, i) =>
+      `<div class="swcol"><div class="chip" style="background:${c}"></div><span class="n">${LABELS[i]}</span></div>`
+    ).join("");
+    const glyphs = r.colors.map((c) =>
+      `<div class="swcol"><span class="g" style="--pri:${c}"><span class="g-bar" style="width:17px"></span></span></div>`
+    ).join("");
+    return `<div class="ramp">
+      <h3>${r.title}</h3>
+      <p class="who">${r.who}</p>
+      <div class="swrow">${chips}</div>
+      <div class="swrow glyphs">${glyphs}</div>
+      <p class="simcap">Seen with deuteranopia</p>
+      <div class="sim">
+        <div class="swrow">${chips}</div>
+        <div class="swrow glyphs">${glyphs}</div>
+      </div>
+      <p class="note ${r.bad ? "bad" : ""}">${r.note}</p>
+    </div>`;
+  }).join("");
+
+  // ── In-situ ──
+  const ROWS = [
+    { t: "Renew the passport", pri: "p1", k: 2, when: "Today" },
+    { t: "Draft the offsite deck", pri: "p3", k: 4, when: "Tue" },
+    { t: "Water the plants", pri: "p4", k: 1, when: "Tue" },
+    { t: "Rebuild the widget bundle", pri: "p2", k: 6, when: "Thu" },
+  ];
+  document.getElementById("situ-rows").innerHTML = ROWS.map((r) => {
+    const cls = r.pri === "p4" ? "g-bar open" : r.k === 6 ? "g-bar beyond" : "g-bar";
+    return `<div class="trow">
+      <span class="circ"></span>
+      <span class="tt">${r.t}</span>
+      <span class="g" style="--pri: var(--${r.pri}); width: 34px; justify-content: flex-start">
+        <span class="${cls}" style="width:${BAR_W[r.k]}px"></span>
+      </span>
+      <span class="when">${r.when}</span>
+    </div>`;
+  }).join("");
+
+  const DAYS = [
+    { n: 4, tag: "today", today: true, items: [["p1", 2], ["p3", 4]] },
+    { n: 5, tag: "", today: false, items: [["p4", 1], ["p2", 3]] },
+    { n: 6, tag: "", today: false, items: [["p3", 6]] },
+  ];
+  document.getElementById("situ-days").innerHTML = DAYS.map((d) => `
+    <div class="daycell ${d.today ? "today" : ""}">
+      <span class="n">${d.n}</span>
+      <span class="tag">${d.tag}</span>
+      <span class="dots">${d.items.map(([pri, k]) => {
+        const cls = pri === "p4" ? "g-bar open" : k === 6 ? "g-bar beyond" : "g-bar";
+        return `<span class="g" style="--pri: var(--${pri})"><span class="${cls}" style="width:${BAR_W[k]}px;height:5px"></span></span>`;
+      }).join("")}</span>
+    </div>
+  `).join("");
+</script>

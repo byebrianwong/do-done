@@ -134,22 +134,91 @@ describe("TaskEditModalV2 — fits and scrolls on small screens", () => {
 });
 
 describe("Priority bars", () => {
-  function renderAt(priority: "p1" | "p2" | "p3" | "p4") {
+  // The meter moved out of the body grid and behind the top-edge stripe, so
+  // reaching it costs one click. The stripe is the control, not a read-only
+  // signal — these assert that it opens the same meter with the same rules.
+  function openMeterAt(priority: "p1" | "p2" | "p3" | "p4") {
     render(
       <TaskEditModalV2 task={makeTask({ priority })} open onClose={vi.fn()} />
     );
+    const label = { p1: "Urgent", p2: "High", p3: "Medium", p4: "Low" }[
+      priority
+    ];
+    fireEvent.click(screen.getByLabelText(`Priority: ${label}`));
   }
 
+  it("the stripe reports the task's current priority", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ priority: "p1" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByLabelText("Priority: Urgent")).toBeInTheDocument();
+  });
+
   it("clicking the priority the task already has clears it to p4", () => {
-    renderAt("p2");
+    openMeterAt("p2");
     fireEvent.click(screen.getByLabelText("Set priority High"));
     expect(setFieldSpy).toHaveBeenCalledWith("priority", "p4");
   });
 
   it("clicking a different bar sets that priority", () => {
-    renderAt("p2");
+    openMeterAt("p2");
     fireEvent.click(screen.getByLabelText("Set priority Urgent"));
     expect(setFieldSpy).toHaveBeenCalledWith("priority", "p1");
+  });
+});
+
+describe("Estimate rail", () => {
+  function openRail(minutes: number | null) {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ duration_minutes: minutes })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.click(
+      screen.getByLabelText(minutes ? /^Estimate: / : "Set an estimate")
+    );
+  }
+
+  it("names the estimate it's showing, and says so when there isn't one", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ duration_minutes: 120 })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByLabelText("Estimate: 2h")).toBeInTheDocument();
+  });
+
+  it("picking a bucket writes it", () => {
+    openRail(null);
+    fireEvent.click(screen.getByLabelText(/^Set estimate to M /));
+    expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 120);
+  });
+
+  it("picking the current bucket clears the estimate", () => {
+    openRail(120);
+    fireEvent.click(screen.getByLabelText(/^Set estimate to M /));
+    expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", null);
+  });
+});
+
+describe("Project cover", () => {
+  it("offers a way to file an unfiled task rather than hiding the banner", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ project_id: null })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByLabelText("Set project")).toBeInTheDocument();
   });
 });
 

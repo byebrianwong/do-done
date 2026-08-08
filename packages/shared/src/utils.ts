@@ -514,3 +514,86 @@ export function linkifyText(text: string): LinkSegment[] {
   }
   return segments;
 }
+
+// ─── Colour ─────────────────────────────────────────────────
+
+/**
+ * Rotate a hex colour's hue and optionally darken it, returning hex.
+ *
+ * Both task editors derive their project banner from `projects.color`, which
+ * is a single stored hex. A flat fill of that colour reads as a swatch; a
+ * two-stop gradient reads as a designed surface, and this produces the second
+ * stop.
+ *
+ * The rotation is deliberately small. Warm hues are bunched — amber sits near
+ * 38° and lime near 64° — so a rotation big enough to look like a gradient on
+ * an indigo project turns an amber one into a highlighter. Most of the depth
+ * comes from `darken`, which behaves the same at every hue.
+ *
+ * Returns the input unchanged if it isn't a 6-digit hex.
+ */
+export function shiftHue(hex: string, degrees: number, darken = 0): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const int = parseInt(m[1], 16);
+  const r = ((int >> 16) & 255) / 255;
+  const g = ((int >> 8) & 255) / 255;
+  const b = (int & 255) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  // Saturation is derived from the *original* lightness — darkening before
+  // this point would compute it against a lightness the colour never had.
+  const l0 = (max + min) / 2;
+  const d = max - min;
+  let h = 0;
+  let s = 0;
+  if (d !== 0) {
+    s = l0 > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  const l = l0 * (1 - darken);
+  h = ((((h * 360 + degrees) % 360) + 360) / 360) % 1;
+
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const to255 = (v: number) =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return s === 0
+    ? `#${to255(l)}${to255(l)}${to255(l)}`
+    : `#${to255(hue2rgb(p, q, h + 1 / 3))}${to255(hue2rgb(p, q, h))}${to255(
+        hue2rgb(p, q, h - 1 / 3)
+      )}`;
+}
+
+/** `[r, g, b]` from a 6-digit hex, or null. */
+export function hexToRgb(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const int = parseInt(m[1], 16);
+  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+}
+
+/**
+ * Stable small integer from a string. Used to pick a cover texture per
+ * project: the pattern is derived rather than stored, so two projects on
+ * neighbouring hues still read apart without a new column.
+ */
+export function hashString(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return hash;
+}

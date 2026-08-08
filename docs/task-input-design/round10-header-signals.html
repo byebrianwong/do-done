@@ -1,0 +1,657 @@
+<title>Round 10 · Priority + estimate in the header</title>
+<style>
+  /* ─── Tokens ─────────────────────────────────────────────
+     Same product palette as round 9. What's new here is that three
+     variables now want the same 92px band, so each specimen has to claim
+     a different *channel*: hue, texture, edge, size, arc or words. */
+  :root {
+    --page: #edeff4; --page-2: #e2e5ec;
+    --bench-ink: #1c2030; --bench-muted: #59617a; --bench-line: #d2d7e3; --bench-card: #fff;
+    --surface: #fff; --sunken: #fafafa; --sunken-2: #f5f5f5;
+    --line: #f2f2f2; --line-2: #e5e5e5;
+    --ink: #171717; --ink-2: #404040; --muted: #737373; --faint: #a3a3a3; --fainter: #d4d4d4;
+    --amber: #f59e0b; --amber-ink: #b45309; --amber-soft: #fffbeb; --amber-line: #fde68a;
+    --red: #ef4444; --green: #22c55e; --slate: #94a3b8;
+    --shadow-modal: 0 20px 46px rgba(17,24,39,.12), 0 3px 10px rgba(17,24,39,.05);
+    --veil: rgba(255,255,255,.26);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0e1117; --page-2: #151922;
+      --bench-ink: #e9edf5; --bench-muted: #98a1b5; --bench-line: #29303f; --bench-card: #171b24;
+      --surface: #0a0a0a; --sunken: #151515; --sunken-2: #1c1c1c;
+      --line: #1c1c1c; --line-2: #2a2a2a;
+      --ink: #fafafa; --ink-2: #d4d4d4; --muted: #a3a3a3; --faint: #737373; --fainter: #3f3f3f;
+      --amber-soft: #2a1e05; --amber-ink: #fcd34d; --amber-line: #5a4210;
+      --shadow-modal: 0 20px 46px rgba(0,0,0,.6), 0 3px 10px rgba(0,0,0,.45);
+      --veil: rgba(255,255,255,.16);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0e1117; --page-2: #151922;
+    --bench-ink: #e9edf5; --bench-muted: #98a1b5; --bench-line: #29303f; --bench-card: #171b24;
+    --surface: #0a0a0a; --sunken: #151515; --sunken-2: #1c1c1c;
+    --line: #1c1c1c; --line-2: #2a2a2a;
+    --ink: #fafafa; --ink-2: #d4d4d4; --muted: #a3a3a3; --faint: #737373; --fainter: #3f3f3f;
+    --amber-soft: #2a1e05; --amber-ink: #fcd34d; --amber-line: #5a4210;
+    --shadow-modal: 0 20px 46px rgba(0,0,0,.6), 0 3px 10px rgba(0,0,0,.45);
+    --veil: rgba(255,255,255,.16);
+  }
+  :root[data-theme="light"] {
+    --page: #edeff4; --page-2: #e2e5ec;
+    --bench-ink: #1c2030; --bench-muted: #59617a; --bench-line: #d2d7e3; --bench-card: #fff;
+    --surface: #fff; --sunken: #fafafa; --sunken-2: #f5f5f5;
+    --line: #f2f2f2; --line-2: #e5e5e5;
+    --ink: #171717; --ink-2: #404040; --muted: #737373; --faint: #a3a3a3; --fainter: #d4d4d4;
+    --amber-soft: #fffbeb; --amber-ink: #b45309; --amber-line: #fde68a;
+    --shadow-modal: 0 20px 46px rgba(17,24,39,.12), 0 3px 10px rgba(17,24,39,.05);
+    --veil: rgba(255,255,255,.26);
+  }
+
+  /* Project palettes */
+  #bench {
+    --proj-soft: color-mix(in srgb, var(--proj) 11%, var(--surface));
+    --proj-ink: color-mix(in srgb, var(--proj) 72%, var(--ink));
+    --proj-line: color-mix(in srgb, var(--proj) 34%, var(--surface));
+  }
+  #bench[data-proj="mobile"] { --proj:#6366f1; --proj-2:#8b5cf6;
+    --tex: radial-gradient(circle, var(--veil) 1.6px, transparent 1.7px); --tex-size: 15px 15px; }
+  #bench[data-proj="health"] { --proj:#10b981; --proj-2:#0d9488;
+    --tex: repeating-radial-gradient(circle at 12% 118%, transparent 0 17px, var(--veil) 17px 19px); --tex-size: auto; }
+  #bench[data-proj="home"] { --proj:#f59e0b; --proj-2:#f97316;
+    --tex: repeating-linear-gradient(58deg, var(--veil) 0 2px, transparent 2px 13px); --tex-size: auto; }
+  #bench[data-proj="music"] { --proj:#f43f5e; --proj-2:#c026d3;
+    --tex: repeating-linear-gradient(0deg, var(--veil) 0 1.5px, transparent 1.5px 16px),
+           repeating-linear-gradient(90deg, var(--veil) 0 1.5px, transparent 1.5px 16px); --tex-size: auto; }
+
+  /* Priority — deliberately NOT derived from the project. A deadline or an
+     urgent flag has to mean the same thing in Health as it does in Home. */
+  #bench[data-pri="p1"] { --pri: #ef4444; --pri-n: 4; }
+  #bench[data-pri="p2"] { --pri: #f59e0b; --pri-n: 3; }
+  #bench[data-pri="p3"] { --pri: #6366f1; --pri-n: 2; }
+  #bench[data-pri="p4"] { --pri: #a3a3a3; --pri-n: 1; }
+  #bench[data-est="1"] { --est-n: 1 } #bench[data-est="2"] { --est-n: 2 }
+  #bench[data-est="3"] { --est-n: 3 } #bench[data-est="4"] { --est-n: 4 }
+  #bench[data-est="5"] { --est-n: 5 } #bench[data-est="6"] { --est-n: 6 }
+
+  * { box-sizing: border-box }
+  body {
+    margin: 0;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(1200px 620px at 50% -12%, var(--page-2), var(--page));
+    color: var(--bench-ink); -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+
+  /* ─── Bench ──────────────────────────────────────────── */
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 40px 24px 80px }
+  header.intro { max-width: 62ch }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--bench-muted); margin: 0 0 10px }
+  h1 { margin: 0 0 12px; font-size: clamp(26px,3.4vw,36px); font-weight: 800; letter-spacing: -.025em; line-height: 1.1; text-wrap: balance }
+  header.intro p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--bench-muted) }
+  header.intro p + p { margin-top: 10px }
+  header.intro b { color: var(--bench-ink); font-weight: 600 }
+
+  .channels {
+    margin: 26px 0 0; padding: 16px 20px; border-radius: 14px;
+    background: var(--bench-card); border: 1px solid var(--bench-line);
+    display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  }
+  .ch { display: flex; flex-direction: column; gap: 3px }
+  .ch .k { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--bench-muted) }
+  .ch .v { font-size: 13.5px; line-height: 1.45 }
+  .ch.taken .v { color: var(--bench-muted) }
+  .ch .v b { font-weight: 650 }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-end;
+    position: sticky; top: 0; z-index: 40;
+    margin: 26px -24px 0; padding: 16px 24px 16px;
+    background: color-mix(in srgb, var(--page) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--bench-line);
+  }
+  .ctl { display: flex; flex-direction: column; gap: 8px }
+  .ctl > .cap { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--bench-muted) }
+  .ctl-row { display: flex; flex-wrap: wrap; gap: 6px }
+  .opt {
+    appearance: none; cursor: pointer; font: 600 12.5px Inter, system-ui, sans-serif;
+    background: var(--bench-card); border: 1px solid var(--bench-line);
+    border-radius: 9px; padding: 7px 11px; color: var(--bench-ink);
+    display: inline-flex; align-items: center; gap: 6px; transition: box-shadow .14s, border-color .14s;
+  }
+  .opt .sw { width: 9px; height: 9px; border-radius: 50% }
+  .opt:hover { border-color: var(--bench-muted) }
+  .opt:focus-visible { outline: 2px solid var(--proj); outline-offset: 2px }
+  .opt[aria-pressed="true"] { border-color: transparent; box-shadow: 0 0 0 2px var(--sw-color, var(--proj)) }
+
+  /* ─── Specimen layout ────────────────────────────────── */
+  .spec {
+    margin-top: 34px; display: grid; gap: 26px;
+    grid-template-columns: minmax(0, 640px) minmax(240px, 1fr);
+    align-items: start;
+  }
+  @media (max-width: 1000px) { .spec { grid-template-columns: 1fr } }
+  .spec-note h2 {
+    margin: 0 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -.017em;
+    display: flex; align-items: baseline; gap: 9px;
+  }
+  .spec-note h2 .num {
+    font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    color: var(--bench-muted); font-variant-numeric: tabular-nums;
+  }
+  .spec-note .chan {
+    display: inline-block; margin: 0 0 10px; font-size: 11px; font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase; color: var(--proj-ink);
+    background: var(--proj-soft); padding: 3px 8px; border-radius: 5px;
+  }
+  .spec-note p { margin: 0 0 9px; font-size: 13.5px; line-height: 1.6; color: var(--bench-ink) }
+  .spec-note p:last-child { margin-bottom: 0 }
+  .spec-note p.snag { color: var(--amber-ink) }
+  .spec-note p.snag::before { content: "Snag — "; font-weight: 700 }
+  .spec-note b { font-weight: 650 }
+
+  /* ─── Modal fragment ─────────────────────────────────── */
+  .frag {
+    background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-modal);
+    overflow: hidden; color: var(--ink); font-size: 13px;
+  }
+  .cover {
+    position: relative; height: 92px; overflow: hidden;
+    background-image: var(--tex), linear-gradient(118deg, var(--proj), var(--proj-2));
+    background-size: var(--tex-size), auto;
+    display: flex; align-items: flex-end; padding: 0 16px 12px;
+  }
+  .cover::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to top, rgba(0,0,0,.22), transparent 62%);
+  }
+  .mark {
+    position: absolute; right: -14px; top: -18px; font-size: 86px; line-height: 1;
+    opacity: .32; rotate: -13deg; filter: drop-shadow(0 4px 10px rgba(0,0,0,.2));
+    user-select: none; pointer-events: none;
+  }
+  .pill-proj {
+    position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em; color: #fff;
+    background: rgba(0,0,0,.2); backdrop-filter: blur(6px);
+    padding: 5px 11px 5px 9px; border-radius: 999px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.24);
+  }
+  .pill-proj .sw { width: 8px; height: 8px; border-radius: 50%; background: #fff }
+  .cover-right { position: relative; z-index: 1; margin-left: auto; display: flex; align-items: center; gap: 12px }
+
+  .titlerow { display: flex; align-items: flex-start; gap: 12px; padding: 13px 16px 14px }
+  .circle { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; border: 2px solid var(--proj) }
+  .title { font-size: 19px; font-weight: 680; letter-spacing: -.021em; line-height: 1.28; min-width: 0; flex: 1 }
+  .whenrow { display: flex; align-items: baseline; gap: 10px; padding: 0 16px 16px }
+  .when-big { font-size: 24px; font-weight: 750; letter-spacing: -.032em; color: var(--proj-ink) }
+  .when-sub { font-size: 13px; font-weight: 500; color: var(--muted) }
+  .when-time { font-size: 12px; font-weight: 700; color: var(--proj-ink); background: var(--proj-soft); padding: 3px 8px; border-radius: 6px }
+  .fade { height: 22px; background: linear-gradient(var(--surface), color-mix(in srgb, var(--surface) 30%, transparent)) }
+
+  /* ── 1 · Meters, reversed out ── */
+  .meter { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px }
+  .meter i { width: 5px; border-radius: 2px; background: rgba(255,255,255,.3); display: block }
+  .meter .b1 { height: 7px } .meter .b2 { height: 12px } .meter .b3 { height: 17px } .meter .b4 { height: 22px }
+  .meter .e1 { height: 5px } .meter .e2 { height: 9px } .meter .e3 { height: 12px }
+  .meter .e4 { height: 16px } .meter .e5 { height: 19px } .meter .e6 { height: 22px }
+  #bench[data-pri="p1"] .meter.prio i { background: #fff }
+  #bench[data-pri="p2"] .meter.prio i:nth-child(-n+3) { background: #fff }
+  #bench[data-pri="p3"] .meter.prio i:nth-child(-n+2) { background: #fff }
+  #bench[data-pri="p4"] .meter.prio i:nth-child(-n+1) { background: #fff }
+  #bench[data-est="1"] .meter.est i:nth-child(-n+1) { background: #fff }
+  #bench[data-est="2"] .meter.est i:nth-child(-n+2) { background: #fff }
+  #bench[data-est="3"] .meter.est i:nth-child(-n+3) { background: #fff }
+  #bench[data-est="4"] .meter.est i:nth-child(-n+4) { background: #fff }
+  #bench[data-est="5"] .meter.est i:nth-child(-n+5) { background: #fff }
+  #bench[data-est="6"] .meter.est i { background: #fff }
+  .metergroup { display: flex; align-items: center; gap: 7px }
+  .metergroup .cap {
+    font-size: 11px; font-weight: 700; color: #fff; letter-spacing: .02em;
+    text-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+
+  /* ── 2 · Severity stripe + estimate rail ── */
+  .stripe { height: 5px; background: var(--pri); transition: background .18s }
+  #bench[data-pri="p4"] .stripe { background: var(--line-2) }
+  /* Rail stops short of the right edge so its own caption sits on the same
+     line rather than under the priority word above it. */
+  .estrail {
+    position: absolute; left: 16px; right: 54px; bottom: 9px; z-index: 1;
+    display: flex; gap: 3px; align-items: center;
+  }
+  .estrail i { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.26); display: block }
+  #bench[data-est="1"] .estrail i:nth-child(-n+1) { background: #fff }
+  #bench[data-est="2"] .estrail i:nth-child(-n+2) { background: #fff }
+  #bench[data-est="3"] .estrail i:nth-child(-n+3) { background: #fff }
+  #bench[data-est="4"] .estrail i:nth-child(-n+4) { background: #fff }
+  #bench[data-est="5"] .estrail i:nth-child(-n+5) { background: #fff }
+  #bench[data-est="6"] .estrail i { background: #fff }
+  .estrail-cap {
+    position: absolute; right: 16px; bottom: 4px; z-index: 1;
+    font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.4);
+    font-variant-numeric: tabular-nums;
+  }
+  .pri-word {
+    position: relative; z-index: 1; margin-left: auto;
+    font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+    color: #fff; background: var(--pri); padding: 4px 9px; border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  #bench[data-pri="p4"] .pri-word, #bench[data-pri="p3"] .pri-word { display: none }
+
+  /* ── 3 · Gauge ring around the emoji ── */
+  .gaugewrap { position: absolute; right: 18px; top: 50%; translate: 0 -50%; z-index: 1; width: 74px; height: 74px }
+  .gauge {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from -90deg, var(--pri) calc(var(--est-n) / 6 * 360deg), rgba(255,255,255,.28) 0);
+    mask: radial-gradient(circle, transparent 0 29px, #000 30px);
+    -webkit-mask: radial-gradient(circle, transparent 0 29px, #000 30px);
+    transition: background .18s;
+  }
+  .gauge-emoji {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 30px; line-height: 1; user-select: none;
+  }
+
+  /* ── 4 · Estimate as cover height ── */
+  .cover.sized { height: calc(48px + var(--est-n) * 15px); transition: height .22s ease }
+  .corner {
+    position: absolute; top: 0; left: 0; z-index: 1; width: 0; height: 0;
+    border-top: 46px solid var(--pri); border-right: 46px solid transparent;
+    transition: border-top-color .18s;
+  }
+  .corner-glyph {
+    position: absolute; top: 5px; left: 6px; z-index: 2;
+    font-size: 11px; font-weight: 800; color: #fff; letter-spacing: .02em;
+  }
+  .grip {
+    position: absolute; left: 50%; bottom: 5px; translate: -50% 0; z-index: 2;
+    width: 42px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.45);
+    box-shadow: 0 0 0 4px rgba(0,0,0,.06);
+  }
+  .durlabel {
+    position: absolute; right: 14px; bottom: 11px; z-index: 1;
+    font-size: 11px; font-weight: 700; color: rgba(255,255,255,.92);
+    text-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+
+  /* ── 5 · Plain language ── */
+  .sentence {
+    position: relative; z-index: 1; margin-left: 10px;
+    font-size: 12.5px; font-weight: 550; color: rgba(255,255,255,.94);
+    text-shadow: 0 1px 4px rgba(0,0,0,.4);
+  }
+  .sentence b { font-weight: 750 }
+
+  /* ── 6 · Urgency atmosphere ── */
+  .cover.mood { filter: saturate(var(--mood-sat, 1)) }
+  #bench[data-pri="p1"] .cover.mood { --mood-sat: 1.18 }
+  #bench[data-pri="p2"] .cover.mood { --mood-sat: 1.06 }
+  #bench[data-pri="p3"] .cover.mood { --mood-sat: .88 }
+  #bench[data-pri="p4"] .cover.mood { --mood-sat: .42 }
+  .mood-glow {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    box-shadow: inset 0 0 0 3px var(--pri), inset 0 0 34px color-mix(in srgb, var(--pri) 70%, transparent);
+    opacity: var(--mood-op, 0); transition: opacity .2s;
+  }
+  #bench[data-pri="p1"] .mood-glow { --mood-op: .95 }
+  #bench[data-pri="p2"] .mood-glow { --mood-op: .5 }
+  .estchip {
+    position: relative; z-index: 2; margin-left: auto;
+    font-size: 12px; font-weight: 700; color: #fff;
+    background: rgba(0,0,0,.24); backdrop-filter: blur(6px);
+    padding: 5px 10px; border-radius: 999px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.22);
+  }
+
+  /* ─── Verdict ────────────────────────────────────────── */
+  .verdict { margin-top: 48px; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) }
+  .verdict section { background: var(--bench-card); border: 1px solid var(--bench-line); border-radius: 14px; padding: 17px 19px }
+  .verdict h3 { margin: 0 0 9px; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--bench-muted) }
+  .verdict p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.6 }
+  .verdict p:last-child { margin-bottom: 0 }
+  .verdict ul { margin: 0; padding-left: 17px }
+  .verdict li { font-size: 13.5px; line-height: 1.55; margin-bottom: 7px }
+  .verdict li:last-child { margin-bottom: 0 }
+  .verdict b { font-weight: 650 }
+  .verdict code { font: 500 12px ui-monospace, Menlo, monospace; background: var(--page-2); padding: 1px 5px; border-radius: 4px }
+  .rank { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px }
+  .rank .badge {
+    font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 5px; flex-shrink: 0;
+  }
+  .badge.yes { background: color-mix(in srgb, var(--green) 16%, var(--bench-card)); color: color-mix(in srgb, var(--green) 74%, var(--bench-ink)) }
+  .badge.maybe { background: var(--amber-soft); color: var(--amber-ink) }
+  .badge.no { background: color-mix(in srgb, var(--red) 14%, var(--bench-card)); color: color-mix(in srgb, var(--red) 72%, var(--bench-ink)) }
+  .rank .t { font-size: 13.5px; font-weight: 650 }
+  .rank + p { margin-top: -4px }
+</style>
+
+<div id="bench" data-proj="mobile" data-pri="p2" data-est="3">
+<div class="wrap">
+  <header class="intro">
+    <p class="eyebrow">Task editor · Round 10</p>
+    <h1>Two more variables, one band</h1>
+    <p>
+      The cover already encodes the project, and it spends <b>two channels</b> doing it —
+      hue and texture. Priority and estimate can't have either without muddying whose
+      task this is. So each specimen below claims a different channel: an edge, a size,
+      an arc, or plain words.
+    </p>
+    <p>
+      Change priority and estimate in the sticky bar and watch which encodings actually
+      <i>move</i> enough to notice. That's the whole test — a signal you have to hunt for
+      isn't worth the pixels.
+    </p>
+  </header>
+
+  <div class="channels">
+    <div class="ch taken">
+      <span class="k">Hue</span>
+      <span class="v"><b>Taken</b> — the project owns it</span>
+    </div>
+    <div class="ch taken">
+      <span class="k">Texture</span>
+      <span class="v"><b>Taken</b> — separates same-hue projects</span>
+    </div>
+    <div class="ch"><span class="k">Edge</span><span class="v">Free — top stripe, bottom rail</span></div>
+    <div class="ch"><span class="k">Size</span><span class="v">Free — band height, mark scale</span></div>
+    <div class="ch"><span class="k">Arc</span><span class="v">Free — a ring around the mark</span></div>
+    <div class="ch"><span class="k">Words</span><span class="v">Free — and always legible</span></div>
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <span class="cap">Priority</span>
+      <div class="ctl-row" role="group" aria-label="Priority">
+        <button class="opt" data-pri="p1" aria-pressed="false" style="--sw-color:#ef4444"><span class="sw" style="background:#ef4444"></span>P1 Urgent</button>
+        <button class="opt" data-pri="p2" aria-pressed="true" style="--sw-color:#f59e0b"><span class="sw" style="background:#f59e0b"></span>P2 High</button>
+        <button class="opt" data-pri="p3" aria-pressed="false" style="--sw-color:#6366f1"><span class="sw" style="background:#6366f1"></span>P3 Medium</button>
+        <button class="opt" data-pri="p4" aria-pressed="false" style="--sw-color:#a3a3a3"><span class="sw" style="background:#a3a3a3"></span>P4 None</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span class="cap">Estimate</span>
+      <div class="ctl-row" role="group" aria-label="Estimate">
+        <button class="opt" data-est="1" aria-pressed="false">30m</button>
+        <button class="opt" data-est="2" aria-pressed="false">1h</button>
+        <button class="opt" data-est="3" aria-pressed="true">2h</button>
+        <button class="opt" data-est="4" aria-pressed="false">4h</button>
+        <button class="opt" data-est="5" aria-pressed="false">8h</button>
+        <button class="opt" data-est="6" aria-pressed="false">16h+</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span class="cap">Project</span>
+      <div class="ctl-row" role="group" aria-label="Project">
+        <button class="opt" data-proj="mobile" aria-pressed="true" style="--sw-color:#6366f1"><span class="sw" style="background:#6366f1"></span>📱</button>
+        <button class="opt" data-proj="health" aria-pressed="false" style="--sw-color:#10b981"><span class="sw" style="background:#10b981"></span>🏃</button>
+        <button class="opt" data-proj="home" aria-pressed="false" style="--sw-color:#f59e0b"><span class="sw" style="background:#f59e0b"></span>🏠</button>
+        <button class="opt" data-proj="music" aria-pressed="false" style="--sw-color:#f43f5e"><span class="sw" style="background:#f43f5e"></span>🎸</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 1 · Meters, reversed out ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="cover">
+        <span class="mark" data-emoji>📱</span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+        <span class="cover-right">
+          <span class="metergroup">
+            <span class="meter prio"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i></span>
+            <span class="cap" data-pri-label>High</span>
+          </span>
+          <span class="metergroup">
+            <span class="meter est"><i class="e1"></i><i class="e2"></i><i class="e3"></i><i class="e4"></i><i class="e5"></i><i class="e6"></i></span>
+            <span class="cap" data-est-label>2h</span>
+          </span>
+        </span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">01</span> Meters, reversed out</h2>
+      <span class="chan">Channel · existing vocabulary</span>
+      <p>The bar meters you already ship, in white on the cover. Nothing new to learn, and both stay clickable exactly as they are today.</p>
+      <p>It's the honest baseline — everything below has to beat this.</p>
+      <p class="snag">the cover now carries four things, and the tags have to leave. White-on-light-amber loses the unlit bars entirely; try the Home project.</p>
+    </div>
+  </div>
+
+  <!-- ═══ 2 · Severity stripe + estimate rail ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="stripe"></div>
+      <div class="cover" style="padding-bottom: 22px;">
+        <span class="mark" data-emoji>📱</span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+        <span class="pri-word" data-pri-word>High</span>
+        <span class="estrail-cap" data-est-label>2h</span>
+        <span class="estrail"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">02</span> Severity stripe + length rail</h2>
+      <span class="chan">Channel · edges</span>
+      <p>Priority takes the modal's top edge as a 5px severity stripe; estimate takes the cover's bottom edge as a six-segment rail that fills left to right.</p>
+      <p>Edges are free real estate — neither touches the artwork, and both read from across the room. <b>The rail's metaphor is right too:</b> a longer task is a longer bar, which is what "estimate" means.</p>
+      <p>Priority <b>encodes by exception</b> — drop to P3 or P4 and the word disappears, leaving a neutral hairline. Most personal tasks have no meaningful priority, so most covers stay quiet.</p>
+    </div>
+  </div>
+
+  <!-- ═══ 3 · Gauge ring ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="cover">
+        <span class="gaugewrap">
+          <span class="gauge"></span>
+          <span class="gauge-emoji" data-emoji>📱</span>
+        </span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">03</span> Gauge around the mark</h2>
+      <span class="chan">Channel · arc</span>
+      <p>The project emoji sits inside a ring. The arc's <b>length</b> is the estimate, its <b>colour</b> is the priority — two variables in one object, and the object is already there.</p>
+      <p>The most compact of the six, and the most obviously designed.</p>
+      <p class="snag">a partial ring reads as <i>progress</i>. Every other product on your phone uses that shape for "43% done", and a task editor is exactly where someone would believe it. That's a hard misread to design around.</p>
+    </div>
+  </div>
+
+  <!-- ═══ 4 · Estimate as height ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="cover sized">
+        <span class="mark" data-emoji>📱</span>
+        <span class="corner"></span>
+        <span class="corner-glyph" data-pri-code>P2</span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+        <span class="durlabel" data-est-long>about 2 hours</span>
+        <span class="grip"></span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">04</span> The band is the estimate</h2>
+      <span class="chan">Channel · size</span>
+      <p>Cover height <i>is</i> the estimate — 30 minutes gets a thin strip, a full day gets a deep band. Drag the grip to change it. Priority folds into the top-left corner.</p>
+      <p>The one you'd remember. Duration becomes something you feel rather than read, and the drag makes the control and the display the same object.</p>
+      <p class="snag">the modal changes height when you change a field, which is the thing every other part of this editor works hard to avoid. And a 16h task spends 140px of a 660px modal on decoration.</p>
+    </div>
+  </div>
+
+  <!-- ═══ 5 · Plain language ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="cover">
+        <span class="mark" data-emoji>📱</span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+        <span class="sentence" data-sentence><b>High priority</b> · about 2 hours</span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">05</span> Just say it</h2>
+      <span class="chan">Channel · words</span>
+      <p>One line next to the project: <i>High priority · about 2 hours</i>. No encoding, no legend, no ramp-up. At P4 the priority clause drops and it reads <i>about 2 hours</i>.</p>
+      <p>Zero ambiguity, and it's the only option that works for someone who's never seen the app before. It also survives being screenshotted, narrated by a screen reader, or read at 200% zoom.</p>
+      <p class="snag">it's a sentence on a piece of artwork. Nothing about it is delightful, and it competes with the title for the "read me" slot.</p>
+    </div>
+  </div>
+
+  <!-- ═══ 6 · Urgency atmosphere ═══ -->
+  <div class="spec">
+    <div class="frag">
+      <div class="cover mood">
+        <span class="mark" data-emoji>📱</span>
+        <span class="mood-glow"></span>
+        <span class="pill-proj"><span class="sw"></span><span data-proj-name>Mobile</span></span>
+        <span class="estchip" data-est-long>about 2 hours</span>
+      </div>
+      <div class="titlerow">
+        <span class="circle"></span>
+        <span class="title" data-title>Ship the quick-add widget to preview</span>
+      </div>
+      <div class="whenrow">
+        <span class="when-big">Tomorrow</span><span class="when-sub">Tuesday, 5 August</span><span class="when-time">9:30 AM</span>
+      </div>
+      <div class="fade"></div>
+    </div>
+    <div class="spec-note">
+      <h2><span class="num">06</span> Priority as weather</h2>
+      <span class="chan">Channel · saturation (borrowed)</span>
+      <p>Priority modulates the whole cover: P1 lights an inner rim and pushes the saturation up, P4 drains it to near-grey. Estimate stays a plain chip.</p>
+      <p>Included because it's the obvious idea, and because it's worth seeing it fail.</p>
+      <p class="snag">this borrows the channel the project already owns. Flip between P1 and P4 — the project doesn't look <i>lower priority</i>, it looks <b>disabled</b>, or like the app failed to load its colour. Saturation reads as "is this thing on", not "how much does it matter".</p>
+    </div>
+  </div>
+
+  <!-- ═══ Verdict ═══ -->
+  <div class="verdict">
+    <section>
+      <h3>Where I'd land</h3>
+      <div class="rank"><span class="badge yes">Build</span><span class="t">02 · Stripe + rail</span></div>
+      <p>The only one that gets both variables into the header without borrowing a channel or inviting a misread. The rail's length metaphor matches what an estimate <i>is</i>, and encoding priority by exception means the ordinary task stays calm.</p>
+      <div class="rank"><span class="badge maybe">Keep in reserve</span><span class="t">01 · Meters &nbsp;·&nbsp; 05 · Words</span></div>
+      <p>01 is the fallback if the stripe reads as chrome rather than signal. 05 is the accessible layer underneath whichever visual encoding wins — it should exist as the <code>title</code> and <code>aria-label</code> regardless.</p>
+      <div class="rank"><span class="badge no">Don't</span><span class="t">03 · Gauge &nbsp;·&nbsp; 06 · Saturation</span></div>
+      <p>Both are prettier than 02 and both mean the wrong thing. An arc says progress; a drained colour says broken.</p>
+    </section>
+    <section>
+      <h3>The rule underneath</h3>
+      <p><b>One variable, one channel.</b> The project already spends hue and texture. Any signal that reaches for those two is going to read as "something about the project", not "something about the task".</p>
+      <p>That's also why priority must <b>not</b> take its colour from the project. Red has to mean urgent in Health exactly as it does in Home — the specimens all keep the priority ramp fixed at red / amber / indigo / grey for that reason.</p>
+      <p>Which surfaces the collision from round 9 again: with the Home project active, the amber P2 stripe and the amber project cover are the same colour. Either priority drops amber for a distinct ramp, or the stripe needs a hue-distance check against the cover.</p>
+    </section>
+    <section>
+      <h3>Worth asking first</h3>
+      <p><b>Does priority belong up here at all?</b> On a personal list the questions are "when" and "how long". Priority is the field most likely to sit at its default forever — which is precisely the argument for encoding it by exception rather than giving it permanent furniture.</p>
+      <p>Estimate is the stronger candidate of the two: it's the number that decides whether a task fits in the gap before dinner, and it's the one the week strip's busyness dots are already sized by. <b>Putting estimate in the header and leaving priority in the body is a legitimate fourth answer</b> — specimen 02 degrades to exactly that at P3 and P4.</p>
+    </section>
+  </div>
+</div>
+</div>
+
+<script>
+  const PROJECTS = {
+    mobile: { name: "Mobile", emoji: "📱", title: "Ship the quick-add widget to preview" },
+    health: { name: "Health", emoji: "🏃", title: "Long run — 10k at easy pace" },
+    home:   { name: "Home",   emoji: "🏠", title: "Book the boiler service" },
+    music:  { name: "Music",  emoji: "🎸", title: "Learn the bridge to Pyramid Song" },
+  };
+  const PRI = {
+    p1: { label: "Urgent", code: "P1", clause: "Urgent" },
+    p2: { label: "High",   code: "P2", clause: "High priority" },
+    p3: { label: "Medium", code: "P3", clause: "Medium priority" },
+    p4: { label: "—",      code: "",   clause: "" },
+  };
+  const EST = {
+    "1": { short: "30m", long: "30 minutes or less" },
+    "2": { short: "1h",  long: "about an hour" },
+    "3": { short: "2h",  long: "about 2 hours" },
+    "4": { short: "4h",  long: "about half a day" },
+    "5": { short: "8h",  long: "about a full day" },
+    "6": { short: "16h+", long: "more than two days" },
+  };
+
+  const bench = document.getElementById("bench");
+  const setAll = (sel, text) => document.querySelectorAll(sel).forEach((el) => { el.textContent = text; });
+
+  function render() {
+    const p = PROJECTS[bench.dataset.proj];
+    const pri = PRI[bench.dataset.pri];
+    const est = EST[bench.dataset.est];
+
+    setAll("[data-emoji]", p.emoji);
+    setAll("[data-proj-name]", p.name);
+    setAll("[data-title]", p.title);
+    setAll("[data-pri-label]", pri.label);
+    setAll("[data-pri-word]", pri.label);
+    setAll("[data-pri-code]", pri.code);
+    setAll("[data-est-label]", est.short);
+    setAll("[data-est-long]", est.long);
+
+    // Specimen 5 drops the priority clause entirely at P4, so the line never
+    // reads "No priority · about 2 hours".
+    document.querySelectorAll("[data-sentence]").forEach((el) => {
+      el.innerHTML = pri.clause
+        ? `<b>${pri.clause}</b> · ${est.long}`
+        : est.long;
+    });
+  }
+
+  document.querySelectorAll(".opt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const group = btn.dataset.pri ? "pri" : btn.dataset.est ? "est" : "proj";
+      const value = btn.dataset[group];
+      bench.dataset[group] = value;
+      btn.parentElement.querySelectorAll(".opt").forEach((sib) => {
+        sib.setAttribute("aria-pressed", String(sib === btn));
+      });
+      render();
+    });
+  });
+
+  render();
+</script>

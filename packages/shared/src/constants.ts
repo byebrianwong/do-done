@@ -21,14 +21,44 @@ import type { TaskPriority, TaskStatus } from "./schemas.js";
  */
 export const TASK_DESCRIPTION_MAX_LENGTH = 50_000;
 
+/**
+ * Priority.
+ *
+ * The ramp used to be red → orange → yellow → grey, which is the one an
+ * English speaker reaches for and the one that fails hardest in practice:
+ *
+ * - **Yellow can't be seen on white.** `#eab308` lands near 1.9:1 against a
+ *   white surface, well under the 3:1 a non-text indicator needs — and every
+ *   surface that draws priority (the row's bar meter, the calendar's busyness
+ *   dots, the flag in the context menu) draws it small and on white.
+ * - **Red, orange and yellow are one hue family.** Under deuteranopia, the
+ *   most common form of red-green colour blindness, the first three collapse
+ *   into a single warm smear, so the ramp carries no information at all for
+ *   roughly one man in sixteen.
+ *
+ * Indigo at P3 breaks the warm family: the ramp now separates by lightness as
+ * well as hue, so it survives both colour blindness and a greyscale
+ * screenshot. Amber clears 3:1 where yellow doesn't.
+ *
+ * These four are also what the editor's bar meters and the calendar's
+ * busyness dots already drew from their own local maps — this constant was
+ * the odd one out, so anything reading it (the task row, week view, command
+ * palette, bulk actions, the Android widget) was quietly on a different ramp
+ * from the editor beside it.
+ *
+ * Colour is never the only channel: every surface pairs it with lit-bar count
+ * or a label, because no ramp survives being screenshotted in greyscale.
+ */
 export const PRIORITY_CONFIG: Record<
   TaskPriority,
   { label: string; color: string; score: number }
 > = {
   p1: { label: "Urgent", color: "#ef4444", score: 40 },
-  p2: { label: "High", color: "#f97316", score: 30 },
-  p3: { label: "Medium", color: "#eab308", score: 20 },
-  p4: { label: "Low", color: "#6b7280", score: 10 },
+  p2: { label: "High", color: "#f59e0b", score: 30 },
+  p3: { label: "Medium", color: "#6366f1", score: 20 },
+  // Deliberately the quietest of the four: p4 is "no priority set", not a
+  // priority someone chose, so it reads as one dim bar next to the unlit ones.
+  p4: { label: "Low", color: "#a3a3a3", score: 10 },
 };
 
 export const STATUS_CONFIG: Record<
