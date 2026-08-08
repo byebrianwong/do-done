@@ -31,6 +31,45 @@ and does *not* follow a column rename. Display configs persisted under the old
 `packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
 well as the DB, so SQL alone could not have reached them.
 
+## Status ↔ schedule auto-sync
+
+An opt-in rule (two independent halves, both off by default) that keeps a
+task's status and its `scheduled_date` from drifting apart. Settings live on
+`user_preferences` (`status_sync_*`); the rules are pure functions in
+`packages/shared/src/status-sync.ts`.
+
+- **promote** — a task scheduled on or before the *horizon* moves up to
+  `status_sync_status`. Never moves a task backwards, so `in_progress`, `done`
+  and `cancelled` are untouched. Overdue counts as inside the horizon.
+- **backfill** — a task set to `status_sync_status` *or past it* gets its
+  `scheduled_date` set to the horizon, when it had none or had one further out.
+
+The horizon is stored in both representations at once — `_horizon_days` and
+`_horizon_key` — with `_horizon_kind` selecting the live one, so switching
+modes in the settings UI remembers the other and neither column is ever null.
+
+**Both halves are applied in `TasksApi.create`/`update`**, not in the apps —
+that's the one door web, mobile and MCP all write through, and it folds the
+rule into the *same* UPDATE rather than chasing it with a second write. The
+settings are read once per instance and cached for a minute
+(`invalidateStatusSyncCache()` after saving them).
+
+The promote half also has to fire when *no write happens* — a task whose
+scheduled day simply arrived. `TasksApi.syncScheduledToStatus()` is that sweep:
+one filtered UPDATE, idempotent, a no-op when the feature is off. It's driven
+from `StatusSyncRunner` (web app layout), `startStatusSyncSweeps()` (mobile
+`_layout`, on resume), and ahead of the MCP read tools.
+
+Two precedence rules that look arbitrary but aren't: an explicit
+`scheduled_date` in the same write always beats backfill, and an explicit
+`status` does **not** exempt a row from promote. Demoting a near-scheduled task
+snaps straight back, which reads as the rule enforcing itself — letting the
+write through would only defer it to the next sweep, minutes later and with no
+visible cause.
+
+"Today" is resolved through `user_preferences.timezone`, never the process
+clock — see the timezone note under Dates above.
+
 ## Architecture
 
 ```
@@ -142,6 +181,59 @@ check so it can round-trip through `/login?next=…`).
 > v1.22209.3 — the app rewrites that file and strips `mcpServers`. Its Chat tab
 > sees remote connectors only. Use the hosted endpoint for Chat, and the Claude
 > Code tab for the local stdio server.
+
+## The public front (web)
+
+Two routes are reachable without a session, and they're listed in
+`PUBLIC_PATHS` in `proxy-helper.ts` — `/` by an **exact** match, since every
+other entry there is a `startsWith` test and `"/"` prefixes everything.
+
+| URL | What it is |
+| --- | --- |
+| `/` | The landing page. Marketing plus the sign-in form; a signed-in visitor gets "Open DoDone" instead. It used to `redirect("/inbox")`, which meant the app's front door was a bare login form. |
+| `/demo` | The whole app, running against an in-memory sandbox. |
+
+### The demo sandbox
+
+`tasks.user_id` is a foreign key onto `auth.users`, so anything DB-backed needs
+a real user per visitor: either one shared login that any passer-by can wreck
+for everyone, or anonymous sign-ins — disabled on the project, and a row per
+drive-by crawler. The sandbox has neither problem, needs no env vars, and works
+on every preview deploy. It also gives **Claude a way to drive the real UI**,
+which the login wall previously made impossible.
+
+- **`lib/demo/mode.ts`** decides demo-ness **from the URL**, not a cookie or a
+  context. `getClientTasksApi()` is called from deep inside components that
+  know nothing about where they're mounted; the path is the one thing always
+  available to them.
+- **`lib/demo/api.ts`** holds structural doubles of `TasksApi` / `ProjectsApi` /
+  `UserPrefsApi` over a plain array. They are *not* a fake `SupabaseClient`:
+  faking the client would mean reimplementing PostgREST — `.or()` filter
+  grammar and all — to arrive back at the same array operations. They reach
+  callers through a cast, so nothing type-checks them at the call sites;
+  `api.test.ts` sweeps both prototypes instead, and a method missing there is a
+  runtime `undefined is not a function` that only ever fires in the demo.
+- **The seam is `tasks-client.ts` / `projects-client.ts` / `user-prefs-client.ts`.**
+  Every web mutation already went through those, so swapping the object out is
+  all it takes — not one component knows it might be in a demo. Three
+  components used to build `new TasksApi(createClientSupabase(), …)` inline and
+  now go through `getTasksApiFor(userId)` / `getProjectsApiFor(userId)`; a
+  fourth doing that again would silently bypass the demo.
+- **`lib/demo/store.ts`** is the database: one immutable object, mirrored into
+  **sessionStorage** (per tab, so a link handed to a room full of people gives
+  each of them their own copy) and re-seeded when its `seededFor` day goes
+  stale. Replacing the whole object on every write is what stands in for the
+  `router.refresh()` the real app leans on — a refresh here re-runs a server
+  component with nothing to say.
+- **Demo screens render nothing until `useDemoData().ready`.** The seed is
+  dated from the reader's calendar day and the server's day is UTC, so anything
+  date-shaped rendered server-side is a hydration mismatch waiting to happen.
+- `SidebarNav`, `SortableProjectList` and `taskPath()` prefix their links with
+  `/demo` when they're inside it. Derived from `usePathname()` rather than
+  passed down — a bare `/today` would bounce the visitor to the login wall the
+  demo exists to get around. Settings is dropped from the demo nav (there is no
+  account behind it), and `AppShell` takes `userEmail={null}`, which is what
+  suppresses the Pip panel — Pip reads its state from the database.
 
 ## Linking to a task (web)
 

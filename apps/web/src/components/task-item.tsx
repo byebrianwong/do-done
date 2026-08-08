@@ -31,6 +31,7 @@ import { useCompletionExit } from "@/lib/use-completion-exit";
 import { useIsCompact, useKeepsCompleted } from "@/lib/task-row-behavior";
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
+import { taskPath } from "@/lib/task-link";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
@@ -951,7 +952,7 @@ export function TaskItem({
           <div className="flex min-w-0 flex-col gap-0.5">
             {isSubtask ? (
               <Link
-                href={`/task/${task.parent_task_id}`}
+                href={taskPath(task.parent_task_id ?? "")}
                 onClick={(e) => e.stopPropagation()}
                 title={
                   parentTitle ? `Subtask of “${parentTitle}”` : "Subtask"

@@ -21,6 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Project } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
+import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
 import { NavPendingDot } from "./nav-pending-dot";
 
 export interface SortableProjectListProps {
@@ -76,13 +77,15 @@ function ProjectRowContent({ project }: { project: Project }) {
 // on once mounted (see below).
 function StaticProjectRow({
   project,
+  href,
   isActive,
 }: {
   project: Project;
+  href: string;
   isActive: boolean;
 }) {
   return (
-    <Link href={`/projects/${project.id}`} className={rowClassName(isActive)}>
+    <Link href={href} className={rowClassName(isActive)}>
       <ProjectRowContent project={project} />
     </Link>
   );
@@ -90,9 +93,11 @@ function StaticProjectRow({
 
 function SortableProjectRow({
   project,
+  href,
   isActive,
 }: {
   project: Project;
+  href: string;
   isActive: boolean;
 }) {
   // Only `listeners` (pointer activators) and `setNodeRef` are spread — not
@@ -114,7 +119,7 @@ function SortableProjectRow({
   return (
     <Link
       ref={setNodeRef}
-      href={`/projects/${project.id}`}
+      href={href}
       draggable={false}
       style={style}
       suppressHydrationWarning
@@ -152,7 +157,11 @@ export function SortableProjectList({ projects }: SortableProjectListProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
-  const isActive = (p: Project) => pathname === `/projects/${p.id}`;
+  // Demo routes mirror the app one level down, so project links have to stay
+  // inside `/demo` too. See `SidebarNav`.
+  const base = isDemoPath(pathname) ? DEMO_BASE : "";
+  const hrefFor = (p: Project) => `${base}/projects/${p.id}`;
+  const isActive = (p: Project) => pathname === hrefFor(p);
 
   async function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
@@ -179,7 +188,12 @@ export function SortableProjectList({ projects }: SortableProjectListProps) {
     return (
       <div className="space-y-0.5">
         {items.map((p) => (
-          <StaticProjectRow key={p.id} project={p} isActive={isActive(p)} />
+          <StaticProjectRow
+            key={p.id}
+            project={p}
+            href={hrefFor(p)}
+            isActive={isActive(p)}
+          />
         ))}
       </div>
     );
@@ -198,7 +212,12 @@ export function SortableProjectList({ projects }: SortableProjectListProps) {
       >
         <div className="space-y-0.5">
           {items.map((p) => (
-            <SortableProjectRow key={p.id} project={p} isActive={isActive(p)} />
+            <SortableProjectRow
+              key={p.id}
+              project={p}
+              href={hrefFor(p)}
+              isActive={isActive(p)}
+            />
           ))}
         </div>
       </SortableContext>

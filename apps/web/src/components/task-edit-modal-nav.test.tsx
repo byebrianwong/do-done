@@ -29,6 +29,9 @@ vi.mock("@do-done/api-client", () => ({
     isSaving: false,
     status: "idle",
     lastError: null,
+    fieldErrors: {},
+    hasUnsavedWork: false,
+    retry: vi.fn(),
   }),
   // The editor's attachments section loads its own rows; an empty list keeps
   // it out of the way of what these tests are actually about.

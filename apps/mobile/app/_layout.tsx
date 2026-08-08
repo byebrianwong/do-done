@@ -24,6 +24,7 @@ import { queryClient } from '@/lib/query-client';
 import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
+import { startStatusSyncSweeps } from '@/lib/status-sync';
 
 // NOTE: the widget task handler is registered in `index.js`, the bundle entry —
 // deliberately not here. The launcher's widget update runs headlessly, with no
@@ -127,6 +128,13 @@ function RootLayoutNav() {
     void repaintQuickAddWidget();
   }, []);
 
+  // Catch tasks whose scheduled day arrived while the app was closed. No-op
+  // unless the user has switched the rule on, and only ever once per day.
+  useEffect(() => {
+    if (!session?.user) return;
+    return startStatusSyncSweeps();
+  }, [session?.user?.id]);
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
@@ -139,6 +147,10 @@ function RootLayoutNav() {
         <Stack.Screen
           name="calendars"
           options={{ title: 'Calendars to show' }}
+        />
+        <Stack.Screen
+          name="status-sync"
+          options={{ title: 'Status and schedule' }}
         />
         <Stack.Screen name="search" options={{ headerShown: false }} />
         <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />

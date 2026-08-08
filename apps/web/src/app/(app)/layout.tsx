@@ -5,6 +5,7 @@ import { QuickAddModal } from "@/components/quick-add-modal";
 import { UndoToastProvider } from "@/components/undo-toast";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { TaskEditorProvider } from "@/components/task-editor-provider";
+import { StatusSyncRunner } from "@/components/status-sync-runner";
 import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
@@ -54,6 +55,7 @@ export default async function AppLayout({
           </QuickAddProvider>
         </TaskEditingHoldProvider>
         <BulkActionBar projects={projects} />
+        <StatusSyncRunner />
       </TaskSelectionProvider>
     </UndoToastProvider>
   );

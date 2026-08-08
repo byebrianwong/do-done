@@ -1,6 +1,8 @@
+import { parseStatusSyncSettings } from "@do-done/shared";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { CalendarSection } from "./calendar-section";
 import { TimezoneSection } from "./timezone-section";
+import { StatusSyncSection } from "./status-sync-section";
 
 export default async function SettingsPage({
   searchParams,
@@ -31,6 +33,9 @@ export default async function SettingsPage({
     .maybeSingle();
   const timezone = prefs?.timezone ?? "America/New_York";
   const showEvents = prefs?.show_calendar_events ?? true;
+  // Tolerates a prefs row from before the sync migration: missing columns fall
+  // back to the defaults, which have both halves off.
+  const statusSync = parseStatusSyncSettings(prefs);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -54,7 +59,10 @@ export default async function SettingsPage({
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400">
           Preferences
         </h2>
-        <TimezoneSection timezone={timezone} />
+        <div className="space-y-4">
+          <TimezoneSection timezone={timezone} />
+          <StatusSyncSection settings={statusSync} />
+        </div>
       </section>
 
       <section className="mb-8">

@@ -22,8 +22,17 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 //     handle that themselves so they can bounce through /login?next=… and come
 //     back to the same authorization request. A blind proxy redirect would
 //     drop the OAuth parameters and strand the user on /inbox.
+//
+// `/demo` is the app itself, running against an in-memory sandbox — see
+// `lib/demo/mode.ts`. It reaches Supabase for nothing, so there is no session
+// for it to need, and bouncing it to /login would defeat the entire point of
+// having it.
+//
+// The landing page at `/` is listed separately below: every entry here is a
+// `startsWith` test, and "/" is a prefix of every path there is.
 const PUBLIC_PATHS = [
   "/login",
+  "/demo",
   "/auth/callback",
   "/auth/signout",
   "/api/calendar/worker",
@@ -64,7 +73,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
+  const isPublic =
+    path === "/" || PUBLIC_PATHS.some((p) => path.startsWith(p));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

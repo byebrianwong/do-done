@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIORITY_CONFIG } from "@do-done/shared";
 import type { Project, Task } from "@do-done/shared";
-import { TasksApi } from "@do-done/api-client";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { openQuickAdd } from "@/lib/quick-add-events";
 import { togglePipPanel } from "@/lib/pip-visibility";
 import { useOpenTask } from "@/lib/open-task";
@@ -145,12 +144,7 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
     let cancelled = false;
     setSearching(true);
     const timeout = setTimeout(async () => {
-      const supabase = createClientSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const tasks = new TasksApi(supabase, user.id);
+      const tasks = await getClientTasksApi();
       const { data } = await tasks.search(q);
       if (!cancelled) {
         setTaskResults(data.slice(0, 8));

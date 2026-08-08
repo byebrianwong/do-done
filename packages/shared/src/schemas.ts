@@ -1,4 +1,7 @@
 import { z } from "zod";
+// Type-only in the other direction (constants.ts imports types from here), so
+// this pair doesn't form a runtime cycle.
+import { TASK_DESCRIPTION_MAX_LENGTH } from "./constants.js";
 
 // ── Enums ──────────────────────────────────────────────
 
@@ -41,7 +44,7 @@ export const TaskSchema = z
     id: z.string().uuid(),
     user_id: z.string().uuid(),
     title: z.string().min(1).max(500),
-    description: z.string().max(5000).nullable(),
+    description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable(),
     status: TaskStatus.default("inbox"),
     priority: TaskPriority.default("p4"),
     project_id: z.string().uuid().nullable(),
@@ -161,6 +164,65 @@ export const CalendarEventSchema = z.object({
 });
 export type CalendarEvent = z.infer<typeof CalendarEventSchema>;
 
+// ── Status ↔ schedule auto-sync ────────────────────────
+//
+// The settings half of the feature whose rules live in status-sync.ts (which
+// imports this module, so the schema has to sit on this side of the edge).
+// See that file's header for what the two halves do.
+
+/**
+ * Statuses that can be the sync target. `inbox` is excluded because promoting
+ * *into* the inbox is backwards — it's the untriaged pile, not a commitment.
+ * The terminal statuses are excluded because "done in 3 days" is nonsense.
+ */
+export const SyncTargetStatus = z.enum([
+  "later",
+  "not_started",
+  "next",
+  "in_progress",
+]);
+export type SyncTargetStatus = z.infer<typeof SyncTargetStatus>;
+
+/** Quick-schedule keys usable as a horizon. Mirrors `QUICK_SCHEDULE`. */
+export const StatusSyncHorizonKey = z.enum([
+  "today",
+  "tomorrow",
+  "this_week",
+  "this_weekend",
+  "next_week",
+]);
+export type StatusSyncHorizonKey = z.infer<typeof StatusSyncHorizonKey>;
+
+/** An unbounded horizon degenerates into "move everything", so cap it. */
+export const MAX_STATUS_SYNC_HORIZON_DAYS = 90;
+
+/**
+ * The horizon is stored as *both* representations with a `kind` selecting the
+ * live one, rather than one nullable column per shape. Flipping between "in 3
+ * days" and "this weekend" in the settings UI then remembers what the other
+ * mode was set to, and neither column is ever null.
+ */
+export const StatusSyncSettingsSchema = z.object({
+  /** Date → status: pull near-term tasks up to `status_sync_status`. */
+  status_sync_promote: z.boolean().default(false),
+  /** Status → date: date a task at/past `status_sync_status`. */
+  status_sync_backfill: z.boolean().default(false),
+  status_sync_status: SyncTargetStatus.default("next"),
+  status_sync_horizon_kind: z.enum(["days", "quick"]).default("days"),
+  status_sync_horizon_days: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_STATUS_SYNC_HORIZON_DAYS)
+    .default(3),
+  status_sync_horizon_key: StatusSyncHorizonKey.default("this_week"),
+});
+export type StatusSyncSettings = z.infer<typeof StatusSyncSettingsSchema>;
+
+/** Writable subset of the sync settings — every field optional. */
+export const UpdateStatusSyncInput = StatusSyncSettingsSchema.partial();
+export type UpdateStatusSyncInput = z.infer<typeof UpdateStatusSyncInput>;
+
 export const UserPreferencesSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
@@ -191,7 +253,7 @@ export const UserPreferencesSchema = z.object({
   hidden_calendar_ids: z.array(z.string()).nullable().default(null),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
-});
+}).extend(StatusSyncSettingsSchema.shape);
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
 // Pure decay-settings projection used by pet-decay.ts. Decouples the math
@@ -214,7 +276,7 @@ export const DEFAULT_DECAY_PREFERENCES: PetDecayPreferences = {
 
 export const CreateTaskInput = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().max(5000).optional(),
+  description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).optional(),
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().optional(),
@@ -231,7 +293,7 @@ export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = z.object({
   title: z.string().min(1).max(500).optional(),
-  description: z.string().max(5000).nullable().optional(),
+  description: z.string().max(TASK_DESCRIPTION_MAX_LENGTH).nullable().optional(),
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   project_id: z.string().uuid().nullable().optional(),
