@@ -303,7 +303,7 @@ export default function TodayScreen() {
         />
       )}
 
-      <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
+      <QuickAddBar onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}

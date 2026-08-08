@@ -70,6 +70,12 @@ if (!IS_EXPO_GO) {
 const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 
 interface QuickAddBarProps {
+  /**
+   * Status for the created task. Defaults to `inbox` — a task typed into a bar
+   * on Today / Upcoming / All is capture, not a commitment, and the screen it
+   * was typed on implies nothing about triage. A project screen passes
+   * `not_started`, since filing into a project *is* the triage.
+   */
   defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
   /** Assign created tasks to this project (e.g. on the project detail screen). */
@@ -82,7 +88,7 @@ interface QuickAddBarProps {
 }
 
 export default function QuickAddBar({
-  defaultStatus = 'not_started',
+  defaultStatus = 'inbox',
   onCreated,
   projectId,
   autoFocus = false,
