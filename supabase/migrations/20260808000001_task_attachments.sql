@@ -16,7 +16,10 @@
 -- an attachment can't leak by URL-guessing the way a public bucket allows.
 
 create table if not exists task_attachments (
-  id uuid primary key default uuid_generate_v4(),
+  -- gen_random_uuid(), not uuid_generate_v4(): the latter comes from uuid-ossp
+  -- and is not on the search path a migration runs under, which is why every
+  -- table added since the original 2026-04 schema uses the built-in.
+  id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   -- Object key inside the `task-attachments` bucket. Unique so a retried
