@@ -7,11 +7,18 @@ import type {
   Project,
   Task,
   TaskFilterInput,
+  TaskAttachment,
   UpdateProjectInput,
   UpdateTaskInput,
 } from "@do-done/shared";
 import { todayLocalISO, addDaysLocalISO } from "@do-done/shared";
-import type { BulkUpdateResult, ProjectsApi, TasksApi, UserPrefsApi } from "@do-done/api-client";
+import type {
+  AttachmentsApi,
+  BulkUpdateResult,
+  ProjectsApi,
+  TasksApi,
+  UserPrefsApi,
+} from "@do-done/api-client";
 import { DEMO_USER_ID } from "./mode";
 import { getDemoState, setDemoState } from "./store";
 
@@ -402,7 +409,41 @@ class DemoUserPrefsApiImpl {
   }
 }
 
+/**
+ * The sandbox has no Storage bucket and no session to sign a URL with, so it
+ * reports an empty attachment set — a state the real section already renders
+ * (a task nobody has attached anything to). Uploads are refused rather than
+ * faked: a file that appeared and then vanished on reload would read as a bug.
+ */
+class DemoAttachmentsApiImpl {
+  async list() {
+    return ok([] as TaskAttachment[]);
+  }
+  async signedUrls() {
+    return ok(new Map<string, string>());
+  }
+  async fetchText() {
+    return ok(null);
+  }
+  async downloadUrl() {
+    return ok(null);
+  }
+  async upload() {
+    return {
+      data: null,
+      error: new Error("Attachments are read-only in the demo."),
+    };
+  }
+  async remove() {
+    return { error: null };
+  }
+  async removeForTasks() {
+    return { error: null };
+  }
+}
+
 const demoTasks = new DemoTasksApiImpl();
+const demoAttachments = new DemoAttachmentsApiImpl();
 const demoProjects = new DemoProjectsApiImpl();
 const demoPrefs = new DemoUserPrefsApiImpl();
 
@@ -410,5 +451,6 @@ const demoPrefs = new DemoUserPrefsApiImpl();
 // asserted against the real classes in `api.test.ts`: every method a caller
 // reaches for has to exist on both.
 export const demoTasksApi = demoTasks as unknown as TasksApi;
+export const demoAttachmentsApi = demoAttachments as unknown as AttachmentsApi;
 export const demoProjectsApi = demoProjects as unknown as ProjectsApi;
 export const demoUserPrefsApi = demoPrefs as unknown as UserPrefsApi;

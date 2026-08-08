@@ -39,6 +39,16 @@ vi.mock("@do-done/api-client", () => ({
     retry: retrySpy,
     ...saveState.current,
   }),
+  // The editor's attachments section loads its own rows; an empty list keeps
+  // it out of the way of what these tests are actually about.
+  AttachmentsApi: class {
+    async list() {
+      return { data: [], error: null };
+    }
+    async signedUrls() {
+      return { data: new Map<string, string>(), error: null };
+    }
+  },
   TasksApi: class {
     async listSubtasks() {
       return { data: subtasks.current };

@@ -2,6 +2,8 @@ export * from "./schemas.js";
 export * from "./constants.js";
 export * from "./task-validation.js";
 export * from "./calendar-selection.js";
+export * from "./attachments.js";
+export * from "./markdown.js";
 export * from "./utils.js";
 export * from "./timezone.js";
 export * from "./display.js";

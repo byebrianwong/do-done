@@ -2,6 +2,12 @@ export { createServiceClient, createAnonClient } from "./supabase.js";
 export type { SupabaseClient } from "./supabase.js";
 export { TasksApi, taskDate } from "./tasks.js";
 export type { BulkUpdateResult } from "./tasks.js";
+export {
+  AttachmentsApi,
+  AttachmentTooLargeError,
+  ATTACHMENTS_BUCKET,
+} from "./attachments.js";
+export type { AttachmentUpload } from "./attachments.js";
 export { ProjectsApi } from "./projects.js";
 export { LocationsApi } from "./locations.js";
 export type { LocationWithPending } from "./locations.js";

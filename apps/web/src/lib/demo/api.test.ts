@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { ProjectsApi, TasksApi } from "@do-done/api-client";
-import { demoProjectsApi, demoTasksApi } from "./api";
+import { AttachmentsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
+import { demoAttachmentsApi, demoProjectsApi, demoTasksApi } from "./api";
 import { buildDemoSeed } from "./seed";
 import { resetDemoStore, getDemoState } from "./store";
 import { DEMO_BASE, isDemoPath } from "./mode";
@@ -17,7 +17,15 @@ import { DEMO_BASE, isDemoPath } from "./mode";
  * like any other — so internal helpers have to be named to be skipped. Only
  * add to this list something a caller genuinely cannot reach.
  */
-const INTERNAL = new Set(["nextSortOrder", "statusSyncContext"]);
+const INTERNAL = new Set([
+  "nextSortOrder",
+  "statusSyncContext",
+  // Walks a task's children before a delete so their attachment bytes can be
+  // cleared; nothing outside TasksApi.delete calls it.
+  "subtreeIds",
+  // Resolves the owning user id for the Storage key.
+  "ownerId",
+]);
 
 function methodsOf(proto: object): string[] {
   return Object.getOwnPropertyNames(proto)
@@ -40,6 +48,15 @@ describe("demo api surface", () => {
       expect(
         typeof (demoProjectsApi as unknown as Record<string, unknown>)[name],
         `ProjectsApi.${name} is missing from the demo`
+      ).toBe("function");
+    }
+  });
+
+  it("implements every AttachmentsApi method", () => {
+    for (const name of methodsOf(AttachmentsApi.prototype)) {
+      expect(
+        typeof (demoAttachmentsApi as unknown as Record<string, unknown>)[name],
+        `AttachmentsApi.${name} is missing from the demo`
       ).toBe("function");
     }
   });

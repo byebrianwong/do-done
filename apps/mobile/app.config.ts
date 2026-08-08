@@ -79,6 +79,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-router",
     "expo-speech-recognition",
     [
+      // Attaching a photo to a task. The picker itself is the only surface
+      // that reaches for the library, and only when the user taps "Photo".
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Allow DoDone to attach photos from your library to a task.",
+        cameraPermission: "Allow DoDone to attach a photo you take to a task.",
+      },
+    ],
+    [
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
