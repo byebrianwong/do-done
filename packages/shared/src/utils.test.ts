@@ -4,6 +4,7 @@ import {
   calendarEventsOnDay,
   datesBetweenLocalISO,
   daysUntilLocalISO,
+  formatCompletedDate,
   formatFullDate,
   formatRelativeDay,
   formatScheduleHint,
@@ -183,10 +184,9 @@ describe("resolveQuickSchedule", () => {
 });
 
 describe("formatScheduleHint", () => {
-  // 2026-06-17 is a Wednesday. Assertions recompute the expected label with the
-  // same locale APIs so the test stays correct regardless of the CI locale —
-  // what's under test is the today/tomorrow vs. full-date branching.
-  const wed = new Date(2026, 5, 17);
+  // Assertions recompute the expected label with the same locale APIs so the
+  // test stays correct regardless of the CI locale — what's under test is that
+  // every day carries the weekday *and* the month/day, near ones included.
   const weekday = (iso: string) =>
     new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
       weekday: "short",
@@ -197,18 +197,43 @@ describe("formatScheduleHint", () => {
       day: "numeric",
     })}`;
 
-  it("shows the weekday alone for today and tomorrow", () => {
-    expect(formatScheduleHint("2026-06-17", wed)).toBe(weekday("2026-06-17"));
-    expect(formatScheduleHint("2026-06-18", wed)).toBe(weekday("2026-06-18"));
-  });
-
-  it("adds month + day for dates beyond tomorrow", () => {
-    expect(formatScheduleHint("2026-06-19", wed)).toBe(full("2026-06-19")); // Fri
-    expect(formatScheduleHint("2026-06-24", wed)).toBe(full("2026-06-24")); // +7
+  it("names the date, not just the weekday, however near it is", () => {
+    // 2026-06-17 is a Wednesday: today, tomorrow, +2 and +7 from it.
+    expect(formatScheduleHint("2026-06-17")).toBe(full("2026-06-17"));
+    expect(formatScheduleHint("2026-06-18")).toBe(full("2026-06-18"));
+    expect(formatScheduleHint("2026-06-19")).toBe(full("2026-06-19"));
+    expect(formatScheduleHint("2026-06-24")).toBe(full("2026-06-24"));
   });
 
   it("returns the input unchanged when it isn't a parseable date", () => {
-    expect(formatScheduleHint("not a date", wed)).toBe("not a date");
+    expect(formatScheduleHint("not a date")).toBe("not a date");
+  });
+});
+
+describe("formatCompletedDate", () => {
+  // 2026-06-17, a Wednesday, at midday local — so the local calendar day is
+  // unambiguous whatever the CI timezone.
+  const wed = new Date(2026, 5, 17, 12);
+  const at = (y: number, m: number, d: number) =>
+    new Date(y, m, d, 12).toISOString();
+
+  it("names the near days in words", () => {
+    expect(formatCompletedDate(at(2026, 5, 17), wed)).toBe("Today");
+    expect(formatCompletedDate(at(2026, 5, 16), wed)).toBe("Yesterday");
+  });
+
+  it("carries the weekday and the date within the past week", () => {
+    expect(formatCompletedDate(at(2026, 5, 13), wed)).toBe("Sat, Jun 13");
+    expect(formatCompletedDate(at(2026, 5, 12), wed)).toBe("Fri, Jun 12");
+  });
+
+  it("drops the weekday once the date is a week or more old", () => {
+    expect(formatCompletedDate(at(2026, 5, 10), wed)).toBe("Jun 10");
+    expect(formatCompletedDate(at(2025, 11, 25), wed)).toBe("Dec 25, 2025");
+  });
+
+  it("returns an empty label for an unparseable timestamp", () => {
+    expect(formatCompletedDate("not a date", wed)).toBe("");
   });
 });
 

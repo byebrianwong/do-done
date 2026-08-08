@@ -238,20 +238,16 @@ export function resolveQuickSchedule(
  * shorthand (e.g. "Tomorrow") so the concrete day is always visible — the way
  * Todoist annotates its date-picker shortcuts.
  *
- *   today / tomorrow → weekday only ("Sun", "Mon")
- *   anything else    → weekday + month + day ("Sun Jul 5")
- *
- * `from` is injectable so tests can pin "now". Returns the input unchanged if
- * it isn't a parseable date.
+ * Always weekday + month + day ("Sun Jul 5"). Today and tomorrow used to get
+ * the weekday alone, which withheld the one thing the hint exists to supply:
+ * "Sat" beside "Today" repeats what the label already said, and the reader
+ * still has to work out the date. Returns the input unchanged if it isn't a
+ * parseable date.
  */
-export function formatScheduleHint(date: string, from: Date = new Date()): string {
+export function formatScheduleHint(date: string): string {
   const target = new Date(date + "T00:00:00");
   if (Number.isNaN(target.getTime())) return date;
-  const today = new Date(from);
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.round((target.getTime() - today.getTime()) / 86_400_000);
   const weekday = target.toLocaleDateString(undefined, { weekday: "short" });
-  if (diff === 0 || diff === 1) return weekday;
   const monthDay = target.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -366,8 +362,10 @@ export function formatTimeOfDay(time: string): string {
 
 /**
  * Format a `completed_at` ISO datetime as a short label of the LOCAL calendar
- * day the task was finished: "Today", "Yesterday", a weekday name within the
- * past week, then "Mon D" (gaining a year once it's a prior year).
+ * day the task was finished: "Today", "Yesterday", "Sat Aug 8" within the past
+ * week, then "Mon D" (gaining a year once it's a prior year). The recent days
+ * carry the weekday *and* the date — a bare "Sat" reads as a day of the week
+ * with no way to tell which one from a list that spans several.
  *
  * The Completed view shows this in place of the scheduled-date / deadline chip: a finished
  * task's scheduled date is no longer actionable, and rendering it would label
@@ -386,7 +384,11 @@ export function formatCompletedDate(
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays > 1 && diffDays < 7) {
-    return day.toLocaleDateString("en-US", { weekday: "short" });
+    return day.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
   }
   const sameYear = day.getFullYear() === today.getFullYear();
   return day.toLocaleDateString("en-US", {
