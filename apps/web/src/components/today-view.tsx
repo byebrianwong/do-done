@@ -69,7 +69,9 @@ export function TodayView({
       beforeContent={
         <>
           <TodaySchedule events={events} />
-          <QuickAddBar seed={{ status: "not_started" }} />
+          {/* No status seed: Today isn't a status axis, so a task typed here
+              takes the default — inbox. */}
+          <QuickAddBar />
         </>
       }
       curatedWhen={(c) => c.group === "none" && isManualSort(c)}

@@ -43,6 +43,24 @@ and does *not* follow a column rename. Display configs persisted under the old
 `packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
 well as the DB, so SQL alone could not have reached them.
 
+## A new task starts in the inbox
+
+`inbox` is the default status — in the Zod schema, in the `tasks.status` column
+default, and now at every capture surface. Capture is not triage: the Android
+quick-add widget, `dodone://quick-add`, the launcher shortcut and the bars on
+Today / Upcoming / All all have *no* view context to infer a status from, and
+seeding `not_started` there quietly declared the task triaged, so it never
+appeared in the Inbox anyone actually reviews.
+
+**Only a surface whose context genuinely implies triage passes a status**:
+the Inbox screens (`inbox`, redundant but self-documenting), the project
+screens (`not_started` — filing into a project *is* the triage), and the
+group/date composers, which seed whatever axis their section is grouped by
+(`seedFromDrop`, `seedFromUpcomingDate`). Everything else omits it and inherits
+the default. On mobile that default lives in one place per component —
+`defaultStatus` in `QuickAddBar.tsx` and `QuickAddComposer.tsx`; on web,
+omitting `status` from the `QuickAddSeed` is what reaches it.
+
 ## Status ↔ schedule auto-sync
 
 An opt-in rule (two independent halves, both off by default) that keeps a

@@ -93,7 +93,7 @@ export default function AllTasksScreen() {
           contentContainerStyle={styles.listContent}
         />
       )}
-      <QuickAddBar defaultStatus="not_started" onCreated={invalidateTasks} />
+      <QuickAddBar onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}

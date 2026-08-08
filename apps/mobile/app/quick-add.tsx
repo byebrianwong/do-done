@@ -32,7 +32,6 @@ export default function QuickAddModal() {
     <View style={styles.root}>
       <Pressable style={styles.backdrop} onPress={close} />
       <QuickAddComposer
-        defaultStatus="not_started"
         autoFocus
         projects={projects}
         onCreateProject={createProjectOrNull}

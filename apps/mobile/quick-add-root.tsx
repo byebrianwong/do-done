@@ -101,7 +101,6 @@ export default function QuickAddRoot() {
           <Pressable style={styles.backdrop} onPress={dismiss} />
           {session === undefined ? null : session ? (
             <QuickAddComposer
-              defaultStatus="not_started"
               autoFocus
               projects={projects}
               onCreateProject={createProject}

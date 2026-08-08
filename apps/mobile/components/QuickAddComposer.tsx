@@ -62,6 +62,13 @@ import {
 } from './QuickAddFields';
 
 interface QuickAddComposerProps {
+  /**
+   * Status for the created task. Defaults to `inbox`: this composer is capture,
+   * not planning — the home-screen widget and the `dodone://quick-add` deep link
+   * both open it with no view context at all, so the task belongs in the
+   * untriaged pile until the user says otherwise. A surface whose context
+   * already implies triage (a project screen) passes `not_started`.
+   */
   defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
   /** Focus the input as soon as the composer mounts. */
@@ -81,7 +88,7 @@ const CARD_PADDING_H = 14;
 const WRAPPER_PADDING_H = 12;
 
 export default function QuickAddComposer({
-  defaultStatus = 'not_started',
+  defaultStatus = 'inbox',
   onCreated,
   autoFocus = false,
   projects,
