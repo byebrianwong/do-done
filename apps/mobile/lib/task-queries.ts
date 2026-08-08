@@ -228,6 +228,38 @@ function patchCachedTasks(patches: Map<string, UpdateTaskInput>) {
   );
 }
 
+/** The `sort_order` a drag assigns to the nth id it hands back. */
+function rankFor(index: number): number {
+  return (index + 1) * 1000;
+}
+
+/**
+ * Apply a drag's new order to every cached list, so the order the finger chose
+ * is the order the cache holds for the whole round trip.
+ *
+ * Without this the cache kept the *pre-drag* order until the write came back,
+ * and anything that re-read the cache in between — an optimistic field patch,
+ * a background refetch — re-seeded the list into that stale order and then out
+ * of it again a moment later. Every list is ordered by `sort_order` alone
+ * (`TasksApi.list`) and `generateFocusList` breaks its ties the same way, so
+ * re-sorting here reproduces exactly what the refetch will return. Sort is
+ * stable, so rows the drag didn't touch keep their relative places.
+ */
+function patchCachedOrder(orderedIds: string[]) {
+  if (orderedIds.length === 0) return;
+  const ranks = new Map(orderedIds.map((id, i) => [id, rankFor(i)]));
+  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+    old
+      ? old
+          .map((t) => {
+            const rank = ranks.get(t.id);
+            return rank === undefined ? t : ({ ...t, sort_order: rank } as Task);
+          })
+          .sort((a, b) => a.sort_order - b.sort_order)
+      : old
+  );
+}
+
 /** Put the pre-write copy back for `ids` only; every other row keeps its patch. */
 function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   if (ids.size === 0) return;
@@ -510,16 +542,66 @@ export async function reorderProjects(orderedIds: string[]) {
   if (error) throw error;
 }
 
+/** The `sort_order` patches a drag's id list turns into. */
+function orderPatches(orderedIds: string[]) {
+  return orderedIds.map((id, i) => ({ id, input: { sort_order: rankFor(i) } }));
+}
+
 /**
- * Persist a reordered set of task ids (drag-to-reorder). The caller owns the
- * optimistic local order; here we just write sort_order and reconcile.
+ * Persist a reordered set of task ids (drag-to-reorder).
+ *
+ * The dropped order goes into the cache *before* the write, not after it. The
+ * drag list keeps a local copy too, but it re-seeds itself from the cache
+ * whenever the cache changes — so a cache still holding the pre-drag order is
+ * one background refetch away from yanking the row back out from under the
+ * finger.
  */
 export async function reorderTasks(orderedIds: string[]) {
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const prev = snapshotTaskLists();
+  patchCachedOrder(orderedIds);
   const api = await getTasksApi();
-  const { error } = await api.bulkUpdate(
-    orderedIds.map((id, i) => ({ id, input: { sort_order: (i + 1) * 1000 } }))
-  );
+  const { error } = await api.bulkUpdate(orderPatches(orderedIds));
+  if (error) restoreTaskLists(prev);
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   refreshTaskWidgets();
   if (error) throw error;
+}
+
+/**
+ * A drag that both re-files a task and re-orders its destination section: the
+ * field patch and the new order land together, as one optimistic update and
+ * one reconciling invalidate.
+ *
+ * This was `updateTask(id, input).then(() => reorderTasks(ids))`, and that
+ * sequence is what made a move flash the whole list. `updateTask` patched the
+ * cache and invalidated on its own, so the list re-seeded twice — both times
+ * from a cache carrying the new *section* but the pre-drag `sort_order`, which
+ * is the only thing that decides a row's position within it. The row landed in
+ * the wrong slot, the list re-laid-out around it, and only the second write's
+ * refetch put it where the finger had left it a second earlier.
+ */
+export async function moveTask(
+  id: string,
+  input: UpdateTaskInput,
+  orderedIds: string[]
+) {
+  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  const prev = snapshotTaskLists();
+  patchCachedTasks(new Map([[id, input]]));
+  patchCachedOrder(orderedIds);
+  try {
+    const api = await getTasksApi();
+    const { error } = await api.update(id, input);
+    if (error) throw error;
+    // The move landed; the order is a separate write because `sort_order` has
+    // to be stamped across the whole destination section, not just this row.
+    const { error: orderError } = await api.bulkUpdate(orderPatches(orderedIds));
+    if (orderError) throw orderError;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
+  } finally {
+    invalidateTasks();
+  }
 }
