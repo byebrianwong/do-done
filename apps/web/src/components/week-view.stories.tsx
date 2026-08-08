@@ -160,6 +160,56 @@ export const AllDayHeavy: Story = {
   },
 };
 
+// The all-day band is one row across the week, so a day stacked with chips
+// must not push its own hour grid down. Three identical 9:00 standups sit
+// under wildly different chip counts: they have to land on the same line as
+// each other and as the 9 AM label. Before the band was shared they didn't —
+// Thursday's rendered four hours low.
+export const AllDayBandAlignment: Story = {
+  name: "All-day band (uneven chips, aligned hour grids)",
+  args: {
+    weekStart: todayLocalISO(monday),
+    tasks: [
+      ...["Renew passport", "Email inbox", "Pay rent", "Call dentist", "Book flights", "Weekly review"].map(
+        (title, i) =>
+          makeTask({
+            title,
+            priority: "p3",
+            scheduled_date: dayOffset(3),
+            project_id: i % 2 ? "proj-1" : "proj-2",
+          })
+      ),
+      makeTask({
+        title: "Groceries",
+        priority: "p3",
+        scheduled_date: dayOffset(4),
+      }),
+      makeTask({
+        title: "Water plants",
+        priority: "p3",
+        scheduled_date: dayOffset(4),
+      }),
+      makeTask({
+        title: "Tidy desk",
+        priority: "p3",
+        scheduled_date: dayOffset(5),
+      }),
+      // Identical times, three different chip counts above them.
+      ...[0, 3, 4].map((day) =>
+        makeTask({
+          title: "Standup",
+          priority: "p2",
+          deadline_date: dayOffset(day),
+          deadline_time: "09:00",
+          duration_minutes: 30,
+          project_id: "proj-1",
+        })
+      ),
+    ],
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
 // Both chip kinds — the all-day chip and the timed block — carry links, and
 // both stay draggable: the link only follows on a click, never on a drop.
 export const UrlInTitle: Story = {

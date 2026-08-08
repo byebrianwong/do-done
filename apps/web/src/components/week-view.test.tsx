@@ -21,6 +21,53 @@ describe("WeekView — mobile calendar", () => {
     expect(container.innerHTML).toContain("min-w-[640px]");
   });
 
+  it("hangs every day column off the same two grid rows as the hour gutter", () => {
+    // The all-day chips are one band across the week, not a per-column strip
+    // that grows: a day with six chips must not push its own hour grid down
+    // relative to the hour labels, or its 9 AM block renders at 1 PM.
+    const { container } = render(
+      <WeekView
+        weekStart={MONDAY}
+        tasks={[
+          makeTask({ title: "a", scheduled_date: MONDAY }),
+          makeTask({ title: "b", scheduled_date: MONDAY }),
+          makeTask({ title: "c", scheduled_date: MONDAY }),
+        ]}
+        projects={SAMPLE_PROJECTS}
+      />
+    );
+    const grid = container.querySelector<HTMLElement>(
+      ".grid-rows-\\[auto_auto\\]"
+    );
+    expect(grid).not.toBeNull();
+
+    // The hour-label gutter starts on row 2 — level with the hour grids.
+    const gutter = Array.from(grid!.children).find(
+      (el) => (el as HTMLElement).style.gridRow === "2"
+    ) as HTMLElement | undefined;
+    expect(gutter).toBeDefined();
+    expect(gutter!.style.gridColumn).toBe("1");
+
+    // Each of the seven day columns spans both rows and subdivides them, so
+    // the band is sized once for the week rather than once per day.
+    const columns = Array.from(grid!.children).filter(
+      (el) => (el as HTMLElement).style.gridRow === "1 / span 2"
+    ) as HTMLElement[];
+    expect(columns).toHaveLength(7);
+    expect(columns.map((el) => el.style.gridColumn)).toEqual([
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+    ]);
+    for (const col of columns) {
+      expect(col.className).toContain("grid-rows-subgrid");
+    }
+  });
+
   it("still renders all seven weekday columns (functionality preserved)", () => {
     render(
       <WeekView

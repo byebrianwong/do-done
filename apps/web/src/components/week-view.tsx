@@ -240,8 +240,21 @@ export function WeekView({
           })}
         </div>
 
-        <div className="grid grid-cols-[60px_repeat(7,minmax(0,1fr))]">
-          <div>
+        {/* Two rows, and the day columns span both of them via `subgrid` (see
+            DayColumn). Row 1 is the all-day band: one row across all seven
+            days, so it is as tall as the busiest day and every column's hour
+            grid — row 2 — starts at the same y as the hour-label gutter.
+            Sizing the strip per column instead pushed a busy day's grid down
+            by a chip's height per chip, and its 9 AM block landed next to the
+            1 PM label. */}
+        <div className="grid grid-cols-[60px_repeat(7,minmax(0,1fr))] grid-rows-[auto_auto]">
+          {/* The gutter's share of the all-day band: no labels, just the two
+              rules that have to carry across it. */}
+          <div
+            style={{ gridColumn: 1, gridRow: 1 }}
+            className="border-b border-r border-neutral-200 dark:border-neutral-800"
+          />
+          <div style={{ gridColumn: 1, gridRow: 2 }}>
             {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => {
               const hour = HOUR_START + i;
               return (
@@ -264,9 +277,10 @@ export function WeekView({
             })}
           </div>
 
-          {days.map((d) => (
+          {days.map((d, i) => (
             <DayColumn
               key={d.toISOString()}
+              column={i + 2}
               day={d}
               tasks={localTasks}
               events={eventsByDay.get(todayLocalISO(d)) ?? []}
@@ -326,7 +340,21 @@ function NowLine() {
   );
 }
 
+/**
+ * One day of the week grid: its all-day cell and its hour grid.
+ *
+ * The column spans both of the parent grid's rows and lays its two children
+ * out on them with `grid-rows-subgrid` — so the all-day cell is sized by the
+ * *week's* busiest day rather than its own contents, and the hour grid below
+ * it starts at the parent's row-2 line no matter how many chips this day
+ * holds. That shared origin is what `EventBlock`/`TaskBlock`'s absolute
+ * positions are measured from.
+ *
+ * Keeping the column a single element is also what keeps it a single drop
+ * target: `useDroppable` still covers the whole day, all-day band included.
+ */
 function DayColumn({
+  column,
   day,
   tasks,
   events,
@@ -334,6 +362,8 @@ function DayColumn({
   isToday,
   inDragSpan,
 }: {
+  /** 1-based grid column in the parent (the hour gutter is column 1). */
+  column: number;
   day: Date;
   tasks: Task[];
   events: CalendarEvent[];
@@ -363,7 +393,8 @@ function DayColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`relative border-r border-neutral-200 transition-colors dark:border-neutral-800 ${
+      style={{ gridColumn: column, gridRow: "1 / span 2" }}
+      className={`relative grid grid-rows-subgrid border-r border-neutral-200 transition-colors dark:border-neutral-800 ${
         isOver
           ? "bg-indigo-50/40 dark:bg-indigo-950/30"
           : isToday
@@ -375,6 +406,8 @@ function DayColumn({
               : ""
       }`}
     >
+      {/* This day's cell in the shared all-day band. It stretches to the
+          band's height, so its bottom rule lines up with every other day's. */}
       <div className="min-h-[28px] space-y-0.5 border-b border-neutral-200 bg-neutral-50/60 px-1 py-1 dark:border-neutral-800 dark:bg-neutral-900/40">
         {allDayEvents.map((event) => (
           <AllDayEventChip key={event.id} event={event} />
