@@ -270,7 +270,9 @@ export const SpanWrappedToNextRow: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => expect(canvas.getByText("today")).toBeInTheDocument());
-    await expect(canvas.getByText(/in 1 week/)).toBeInTheDocument();
+    // The headline leads with the relative reading now, and capitalises it —
+    // "In 1 week" as the heading, the full date beside it as the receipt.
+    await expect(canvas.getByText(/^In 1 week$/)).toBeInTheDocument();
   },
 };
 
