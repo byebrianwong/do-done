@@ -587,6 +587,24 @@ export async function createProject(
 }
 
 /**
+ * The quick-add surfaces' inline "New project" action. Same write as
+ * {@link createProject}, but it reports failure by returning null instead of
+ * throwing: the caller is a popover floating over a half-typed task, and an
+ * unhandled rejection there would take the capture down with it.
+ */
+export async function createProjectOrNull(
+  name: string,
+  color: string
+): Promise<Project | null> {
+  try {
+    return await createProject({ name, color });
+  } catch (err) {
+    console.error("Create project failed:", err);
+    return null;
+  }
+}
+
+/**
  * Persist a reordered set of project ids (drag-to-reorder). The caller owns the
  * optimistic local order; here we just write sort_order and reconcile. The new
  * order flows to every project list (this tab, the picker, the web sidebar).

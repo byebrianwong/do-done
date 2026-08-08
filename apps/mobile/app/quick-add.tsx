@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import type { Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
-import { useProjects } from '@/lib/task-queries';
+import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import { createProjectOrNull, useProjects } from '@/lib/task-queries';
 
 /**
  * In-app deep-link target (`dodone://quick-add`). Presents the same
@@ -12,11 +14,14 @@ import { useProjects } from '@/lib/task-queries';
  * tab on a cold launch where there's no back stack.
  *
  * Unlike the widget's root, this one lives inside the QueryClientProvider, so
- * it can hand the composer the project list its Project chip needs.
+ * the project list its Project chip needs — and the invalidation behind
+ * creating one — come for free. The expand button opens the full editor right
+ * here rather than deep-linking, since the router is already mounted.
  */
 export default function QuickAddModal() {
   const router = useRouter();
   const { data: projects } = useProjects();
+  const [expandedTask, setExpandedTask] = useState<Task | null>(null);
 
   const close = () => {
     if (router.canGoBack()) router.back();
@@ -30,8 +35,19 @@ export default function QuickAddModal() {
         defaultStatus="not_started"
         autoFocus
         projects={projects}
+        onCreateProject={createProjectOrNull}
+        onExpand={setExpandedTask}
         onCreated={close}
       />
+      {expandedTask ? (
+        <TaskEditModalV2
+          task={expandedTask}
+          visible
+          // The task is already created; closing the editor finishes the
+          // capture, so this surface goes with it.
+          onClose={close}
+        />
+      ) : null}
     </View>
   );
 }

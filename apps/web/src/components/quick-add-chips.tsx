@@ -11,10 +11,13 @@ import {
   type TaskPriority,
 } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
+import type { DayBusyness } from "@do-done/api-client";
 import {
   ESTIMATE_OPTIONS,
+  MonthGrid,
   PRIORITY_OPTIONS,
   PickerPopover,
+  WEEKDAYS,
   useClickOutside,
 } from "./task-edit-modal-v2";
 import { ProjectPickerPopover } from "./project-picker";
@@ -79,6 +82,86 @@ export function ChipButton({
   );
 }
 
+/**
+ * The arbitrary-date half of the Date chip: a scrolling run of month grids,
+ * reusing the full editor's own `MonthGrid` so a date picked here looks and
+ * behaves exactly like one picked there. No busyness — quick-add has no task
+ * to fetch it for, and the chip is a capture affordance, not a planning one.
+ */
+function MonthScroller({
+  selectedDate,
+  onPick,
+}: {
+  selectedDate: string | null;
+  onPick: (date: string) => void;
+}) {
+  const [monthsAhead, setMonthsAhead] = useState(5);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const todayStr = useMemo(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(
+      t.getDate()
+    ).padStart(2, "0")}`;
+  }, []);
+
+  const months = useMemo(() => {
+    const now = new Date();
+    const out: { year: number; month: number }[] = [];
+    for (let i = 0; i <= monthsAhead; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      out.push({ year: d.getFullYear(), month: d.getMonth() });
+    }
+    return out;
+  }, [monthsAhead]);
+
+  const noSpan = useMemo(() => new Set<string>(), []);
+  const noSpanList = useMemo<string[]>(() => [], []);
+  const noBusy = useMemo(() => new Map<string, DayBusyness>(), []);
+
+  return (
+    <div className="w-[252px] pb-2">
+      <div className="grid grid-cols-7 gap-0.5 px-2 pb-1">
+        {WEEKDAYS.map((w) => (
+          <div
+            key={w}
+            className="text-center text-[9px] font-bold uppercase tracking-wider text-neutral-400"
+          >
+            {w.slice(0, 1)}
+          </div>
+        ))}
+      </div>
+      {/* The px-2 lives here, not on the wrapper: MonthGrid's sticky month
+          label is `-mx-2`, so it needs this element's padding to cancel
+          against — otherwise it overhangs and the popover scrolls sideways. */}
+      <div
+        ref={scrollRef}
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120)
+            setMonthsAhead((n) => n + 3);
+        }}
+        className="max-h-[260px] overflow-y-auto px-2"
+      >
+        {months.map((m) => (
+          <MonthGrid
+            key={`${m.year}-${m.month}`}
+            year={m.year}
+            month={m.month}
+            todayStr={todayStr}
+            selectedDate={selectedDate}
+            spanDates={noSpan}
+            spanList={noSpanList}
+            busyByDate={noBusy}
+            onPick={onPick}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ScheduleChip({
   scheduledDate,
   onChange,
@@ -87,8 +170,14 @@ export function ScheduleChip({
   onChange: (date: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // The quick options and the month grid share one popover; "Pick a date…"
+  // swaps the body rather than opening a second layer over the first.
+  const [picking, setPicking] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useClickOutside(ref, () => setOpen(false));
+  useClickOutside(ref, () => {
+    setOpen(false);
+    setPicking(false);
+  });
 
   // Every quick option resolves to a concrete local date — DoDone has no soft
   // buckets. Resolved once when the chip opens.
@@ -101,19 +190,68 @@ export function ScheduleChip({
     ? options.find((o) => o.date === scheduledDate)?.label ?? formatScheduleHint(scheduledDate)
     : "Date";
 
+  function close() {
+    setOpen(false);
+    setPicking(false);
+  }
+
   return (
     <div className="relative" ref={ref}>
       <ChipButton
         active={scheduledDate != null}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setPicking(false);
+          setOpen((o) => !o);
+        }}
         icon={<ChipIcon d={ICON.calendar} />}
       >
         {label}
       </ChipButton>
-      {open ? (
+      {open && picking ? (
+        <div
+          role="dialog"
+          aria-label="Pick a date"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setPicking(false);
+            }
+          }}
+          className="absolute left-0 top-full z-20 mt-2 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
+        >
+          <div className="flex items-center justify-between px-3 pt-2 pb-1">
+            <button
+              type="button"
+              onClick={() => setPicking(false)}
+              className="text-[11px] font-medium text-neutral-500 transition-colors hover:text-indigo-600 dark:hover:text-indigo-400"
+            >
+              ← Back
+            </button>
+            {scheduledDate ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(null);
+                  close();
+                }}
+                className="text-[11px] font-medium text-neutral-400 transition-colors hover:text-neutral-700 dark:hover:text-neutral-200"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          <MonthScroller
+            selectedDate={scheduledDate}
+            onPick={(date) => {
+              onChange(date);
+              close();
+            }}
+          />
+        </div>
+      ) : open ? (
         <PickerPopover
           ariaLabel="Date"
-          onClose={() => setOpen(false)}
+          onClose={close}
           options={[
             ...options.map((o) => ({
               key: o.key,
@@ -123,10 +261,22 @@ export function ScheduleChip({
               selected: scheduledDate === o.date,
               onSelect: () => {
                 onChange(scheduledDate === o.date ? null : o.date);
-                setOpen(false);
+                close();
               },
               accentClass: "bg-indigo-500",
             })),
+            {
+              key: "custom",
+              code: "",
+              label: "Pick a date…",
+              // A date none of the shortcuts cover still reads as chosen here,
+              // which is the only row that can be showing it.
+              selected:
+                scheduledDate != null &&
+                !options.some((o) => o.date === scheduledDate),
+              onSelect: () => setPicking(true),
+              accentClass: "bg-indigo-500",
+            },
             {
               key: "none",
               code: "",
@@ -134,7 +284,7 @@ export function ScheduleChip({
               selected: scheduledDate == null,
               onSelect: () => {
                 onChange(null);
-                setOpen(false);
+                close();
               },
               accentClass: "bg-neutral-400",
             },
