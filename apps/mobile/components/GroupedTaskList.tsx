@@ -7,7 +7,7 @@ import TaskItem from '@/components/TaskItem';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
-import { invalidateTasks, reorderTasks, updateTask } from '@/lib/task-queries';
+import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
 import {
   applyDisplay,
   isCollapsed,
@@ -141,9 +141,7 @@ export default function GroupedTaskList({
         return;
       }
       if (manualRef.current) {
-        void updateTask(taskId, patchForDrop(drop))
-          .then(() => reorderTasks(destIds))
-          .catch(() => {});
+        void moveTask(taskId, patchForDrop(drop), destIds).catch(() => {});
         return;
       }
       // Sorted view: apply the field change AND freeze the full displayed order
@@ -159,8 +157,7 @@ export default function GroupedTaskList({
           ? destIds
           : s.data.map((t) => t.id).filter((id) => id !== taskId)
       );
-      void updateTask(taskId, patchForDrop(drop))
-        .then(() => reorderTasks(allIds))
+      void moveTask(taskId, patchForDrop(drop), allIds)
         .then(() => convert(withSort(configRef.current, 'manual')))
         .catch(() => {});
     },

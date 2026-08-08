@@ -28,8 +28,8 @@ import {
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   invalidateTasks,
+  moveTask,
   reorderTasks,
-  updateTask,
   useProjectsWithCounts,
   useTodayTasks,
 } from '@/lib/task-queries';
@@ -173,9 +173,7 @@ export default function TodayScreen() {
         return;
       }
       const focus_override = toKey === FOCUS ? 'include' : 'exclude';
-      void updateTask(taskId, { focus_override })
-        .then(() => reorderTasks(destIds))
-        .catch(() => {});
+      void moveTask(taskId, { focus_override }, destIds).catch(() => {});
     },
     [config]
   );

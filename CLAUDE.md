@@ -396,6 +396,42 @@ lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
 event resolve independently, so clearing after the fact is a race the previous
 user's rows can win.
 
+## Dragging a row (mobile)
+
+**The query cache has to agree with the finger before the write goes out, not
+after it.** `SectionedDraggableList` keeps a local copy of the order so a drop
+lands instantly, but it re-seeds that copy from `sections` — i.e. from the
+cache — on any change to any task in view. So for as long as the cache holds
+the pre-drag order, the list is one cache write away from re-laying itself out
+into it and back out again.
+
+A cross-section move used to guarantee exactly that. It was
+`updateTask(id, patch).then(() => reorderTasks(ids))`, two writes each with
+their own optimistic patch and their own `invalidateTasks()`, and only the
+second one carried the order. The first patch landed a cache that agreed the
+task had moved section and still carried its old `sort_order` — the only thing
+that decides a row's place *within* a section (`TasksApi.list` orders by it
+alone, and `generateFocusList` breaks its ties by it). So the row appeared in
+the wrong slot, the list re-rendered around it, then did it twice more as the
+two refetches came back. Three full re-layouts inside about a second, which is
+what read as the whole screen flashing.
+
+- **`moveTask(id, input, orderedIds)`** in `lib/task-queries.ts` is the one
+  door for a drag that both re-files a task and re-orders its destination: one
+  optimistic apply of *both* halves, both writes, one invalidate. All four
+  cross-section drag handlers (Today, Upcoming, and both branches of
+  `GroupedTaskList`) go through it.
+- **`reorderTasks` patches the cache too**, via `patchCachedOrder`, which
+  stamps `sort_order` and re-sorts. That reproduces what the refetch will
+  return, so the reconcile is a no-op rather than a second opinion.
+
+`lib/task-move.test.ts` asserts on the cache *mid-flight*, with the writes held
+open, because the settled state was never the problem.
+
+The other half of a drag's aftermath is the refresh spinner, and that's fixed
+one section up: every one of these invalidates used to drop `RefreshControl`'s
+circle over the list, landing it on the row the finger had just let go of.
+
 ## The task editor sheet (mobile)
 
 **Everything under the finger runs on the UI thread.** The sheet's rise, its

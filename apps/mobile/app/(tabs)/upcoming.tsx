@@ -27,8 +27,8 @@ import {
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   invalidateTasks,
+  moveTask,
   reorderTasks,
-  updateTask,
   useAllTasks,
   useProjectsWithCounts,
 } from '@/lib/task-queries';
@@ -188,9 +188,7 @@ export default function UpcomingScreen() {
         invalidateTasks();
         return;
       }
-      void updateTask(taskId, sectionTarget(toKey))
-        .then(() => reorderTasks(destIds))
-        .catch(() => {});
+      void moveTask(taskId, sectionTarget(toKey), destIds).catch(() => {});
     },
     [config]
   );
