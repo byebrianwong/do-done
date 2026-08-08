@@ -2,6 +2,7 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import {
+  AttachmentsApi,
   TasksApi,
   ProjectsApi,
   UserPrefsApi,
@@ -95,6 +96,26 @@ export async function getLocationsApi(): Promise<LocationsApi> {
     locationsApiUserId = userId;
   }
   return locationsApi;
+}
+
+let attachmentsApi: AttachmentsApi | undefined;
+let attachmentsApiUserId: string | undefined;
+
+/**
+ * Attachments for the *signed-in* user.
+ *
+ * The task editor builds its own instance from `task.user_id`, which is what a
+ * surface holding a loaded task should do. This one is for the surfaces that
+ * have no task yet — the quick-add bar and the widget composer, which upload a
+ * voice note the moment the task they just created comes back.
+ */
+export async function getAttachmentsApi(): Promise<AttachmentsApi> {
+  const userId = await getUserId();
+  if (!attachmentsApi || attachmentsApiUserId !== userId) {
+    attachmentsApi = new AttachmentsApi(supabase, userId);
+    attachmentsApiUserId = userId;
+  }
+  return attachmentsApi;
 }
 
 let userPrefsApi: UserPrefsApi | undefined;

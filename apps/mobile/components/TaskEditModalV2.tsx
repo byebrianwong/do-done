@@ -32,6 +32,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
+  appendTranscript,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -2015,6 +2016,26 @@ function Inner({
     onSaved: invalidateTasks,
   });
 
+  // Where a voice note's words land. The task already has a title by the time
+  // the editor is open, so a dictation is an addition to Notes rather than a
+  // new task's text — which is the one place the split from `splitTranscript`
+  // deliberately doesn't apply.
+  //
+  // The description is read through a ref rather than closed over: `current`
+  // changes on every keystroke, and a callback that changed with it would
+  // defeat the memo on `AttachmentsSection` that exists to sit those renders
+  // out.
+  const descriptionRef = useRef(current.description);
+  descriptionRef.current = current.description;
+  const appendVoiceTranscript = useCallback(
+    (transcript: string) =>
+      setField(
+        "description",
+        appendTranscript(descriptionRef.current, transcript)
+      ),
+    [setField]
+  );
+
   // Busyness dots, keyed by date so ranges from different months merge cleanly.
   // The calendar starts with the default two-week window; the full-month picker
   // requests additional ranges via onRangeChange (see fetchRange below).
@@ -2614,8 +2635,13 @@ function Inner({
           />
         </View>
 
-        {/* Attachments */}
-        <AttachmentsSection taskId={current.id} api={attachmentsApiMemo} />
+        {/* Attachments — including the mic, since a recording lands here as a
+            file and only its transcript belongs to Notes above. */}
+        <AttachmentsSection
+          taskId={current.id}
+          api={attachmentsApiMemo}
+          onTranscript={appendVoiceTranscript}
+        />
 
         {/* Repeat — rare, so it stays folded behind a one-line toggle */}
         <View style={{ marginTop: 14 }}>

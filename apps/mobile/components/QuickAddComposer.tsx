@@ -53,6 +53,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Project, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
+import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
+import VoiceRecorder, { DictatedNote } from './VoiceRecorder';
 import { TagRow } from './TaskEditModalV2';
 import {
   QuickAddChipRow,
@@ -73,6 +75,12 @@ interface QuickAddComposerProps {
   onCreated?: () => void;
   /** Focus the input as soon as the composer mounts. */
   autoFocus?: boolean;
+  /**
+   * Open recording the moment the composer mounts, instead of the keyboard.
+   * This is what the launcher's "Voice task" quick action is: the same
+   * composer, entered through the microphone rather than the text field.
+   */
+  autoRecord?: boolean;
   /** Projects for the Project chip. Omit and the chip hides. */
   projects?: Project[];
   /** Provision a project from the Project chip. Omit and the row hides. */
@@ -91,6 +99,7 @@ export default function QuickAddComposer({
   defaultStatus = 'inbox',
   onCreated,
   autoFocus = false,
+  autoRecord = false,
   projects,
   onCreateProject,
   onExpand,
@@ -99,6 +108,15 @@ export default function QuickAddComposer({
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fields = useQuickAddFields({}, projects);
+
+  // Dictation extends the line rather than replacing it, matching what typing
+  // after the existing text would have done.
+  const voiceQuickAdd = useVoiceQuickAdd({
+    onTitle: (spoken) =>
+      setText((prev) =>
+        fields.absorbTags(prev.trim() ? `${prev.trim()} ${spoken}` : spoken)
+      ),
+  });
 
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard({
@@ -119,12 +137,24 @@ export default function QuickAddComposer({
 
   // Focus after mount rather than via `autoFocus`: the widget's activity is
   // still settling when the root first renders, and an immediate focus there
-  // sometimes never brings the IME up.
+  // sometimes never brings the IME up. Recording is deferred for the same
+  // reason — the permission dialog and the activity transition arriving
+  // together is what leaves the composer behind a dialog it can't be seen
+  // under.
+  // `begin` is rebuilt on every render of the hook, and the effect below must
+  // fire exactly once — reading it through a ref is what keeps a re-render
+  // from starting a second recording.
+  const beginRef = useRef(voiceQuickAdd.begin);
+  beginRef.current = voiceQuickAdd.begin;
+
   useEffect(() => {
-    if (!autoFocus) return;
-    const t = setTimeout(() => inputRef.current?.focus(), 150);
+    if (!autoFocus && !autoRecord) return;
+    const t = setTimeout(() => {
+      if (autoRecord) void beginRef.current();
+      else inputRef.current?.focus();
+    }, 150);
     return () => clearTimeout(t);
-  }, [autoFocus]);
+  }, [autoFocus, autoRecord]);
 
   /** Persist what's in the composer. Returns the created task, or null. */
   async function create(): Promise<Task | null> {
@@ -134,13 +164,20 @@ export default function QuickAddComposer({
 
     const tasks = await getTasksApi();
     const { data, error } = await tasks.create(
-      fields.buildInput(trimmed, { status: defaultStatus })
+      fields.buildInput(trimmed, {
+        status: defaultStatus,
+        description: voiceQuickAdd.description,
+      })
     );
+    // Nothing to attach a recording to until the task exists.
+    if (!error && data) await voiceQuickAdd.flush(data.id);
+
     setSubmitting(false);
     if (error || !data) return null;
     hapticSuccess();
     setText('');
     fields.reset();
+    voiceQuickAdd.reset();
     return data;
   }
 
@@ -171,6 +208,12 @@ export default function QuickAddComposer({
         onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
       />
 
+      {voiceQuickAdd.open ? (
+        <View style={styles.recorderSlot}>
+          <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
+        </View>
+      ) : null}
+
       <View style={styles.card}>
         {/* Title row */}
         <View style={styles.titleRow}>
@@ -186,6 +229,24 @@ export default function QuickAddComposer({
             blurOnSubmit={false}
             editable={!submitting}
           />
+          {voiceQuickAdd.supported ? (
+            <Pressable
+              accessibilityLabel="Record a voice note"
+              style={({ pressed }) => [
+                styles.micBtn,
+                (pressed || voiceQuickAdd.voice.recording) && styles.micBtnActive,
+              ]}
+              onPress={() => void voiceQuickAdd.begin()}
+              disabled={submitting || voiceQuickAdd.voice.recording}
+              hitSlop={4}
+            >
+              <Ionicons
+                name={voiceQuickAdd.voice.recording ? 'mic' : 'mic-outline'}
+                size={20}
+                color={voiceQuickAdd.voice.recording ? '#6366f1' : '#6b7280'}
+              />
+            </Pressable>
+          ) : null}
           {onExpand ? (
             <Pressable
               style={({ pressed }) => [
@@ -221,6 +282,13 @@ export default function QuickAddComposer({
             )}
           </Pressable>
         </View>
+
+        <DictatedNote
+          description={voiceQuickAdd.description}
+          pending={voiceQuickAdd.pending}
+          error={voiceQuickAdd.error}
+          onClear={voiceQuickAdd.reset}
+        />
 
         <TagRow
           tags={fields.tags}
@@ -289,4 +357,16 @@ const styles = StyleSheet.create({
   expandBtnPressed: {
     backgroundColor: '#f3f4f6',
   },
+  micBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micBtnActive: { backgroundColor: '#eef2ff' },
+  // Above the card, not in place of it: the chips and anything already typed
+  // stay visible, so a dictation reads as adding to this task rather than
+  // starting a different one.
+  recorderSlot: { marginBottom: 8 },
 });

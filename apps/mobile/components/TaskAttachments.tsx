@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -12,16 +12,22 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import {
   ATTACHMENT_MAX_BYTES,
   attachmentKind,
   formatFileSize,
+  formatRecordingTime,
   isTextKind,
+  isVoiceNoteFileName,
   type AttachmentKind,
   type TaskAttachment,
 } from "@do-done/shared";
 import type { AttachmentsApi } from "@do-done/api-client";
+import { useVoiceCapture, type VoiceRecording } from "@/lib/voice-capture";
+import { attachVoiceNote } from "@/lib/voice-note";
 import { MarkdownView } from "./MarkdownView";
+import VoiceRecorder from "./VoiceRecorder";
 
 /**
  * Attachments in the mobile task editor.
@@ -38,6 +44,17 @@ import { MarkdownView } from "./MarkdownView";
 
 /** How tall a text preview grows before it folds. */
 const PREVIEW_MAX_HEIGHT = 220;
+
+/**
+ * Kinds that render from the bytes themselves and so need a signed URL up
+ * front. Text kinds are excluded deliberately — they fetch their own content
+ * through `api.fetchText`, and signing them here would open a second request
+ * for every one of them.
+ */
+function needsSignedUrl(attachment: TaskAttachment): boolean {
+  const kind = attachmentKind(attachment.mime_type, attachment.file_name);
+  return kind === "image" || kind === "audio";
+}
 
 interface PendingUpload {
   key: string;
@@ -99,6 +116,70 @@ function TextPreview({
   );
 }
 
+/**
+ * Playback for an audio attachment — in practice, for a voice note.
+ *
+ * It plays in place rather than handing off to the system player, because a
+ * recording made in the app is the one attachment the user is most likely to
+ * want to check *against* the transcript sitting a few pixels above it.
+ * Bouncing out to another app to hear it would break exactly that comparison.
+ *
+ * The source is a signed URL with an hour on it, so the player is given the
+ * URL the parent already fetched rather than fetching its own.
+ */
+function AudioPlayerCard({ url }: { url: string | undefined }) {
+  // `useAudioPlayer` accepts null and simply stays unloaded, which is what
+  // holds the row's shape steady while the signed URL is still in flight.
+  const player = useAudioPlayer(url ? { uri: url } : null);
+  const status = useAudioPlayerStatus(player);
+
+  const durationMs = (status.duration || 0) * 1000;
+  const positionMs = (status.currentTime || 0) * 1000;
+  const progress = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
+
+  const toggle = () => {
+    if (status.playing) {
+      player.pause();
+      return;
+    }
+    // A finished player sits at the end, so playing again would return
+    // instantly with nothing audible. Rewinding first is what makes the
+    // second tap behave like the first.
+    if (status.didJustFinish || (durationMs > 0 && positionMs >= durationMs)) {
+      player.seekTo(0);
+    }
+    player.play();
+  };
+
+  return (
+    <View style={styles.audioRow}>
+      <Pressable
+        onPress={toggle}
+        disabled={!status.isLoaded}
+        hitSlop={8}
+        accessibilityLabel={status.playing ? "Pause" : "Play"}
+        style={[styles.playButton, !status.isLoaded && styles.playButtonMuted]}
+      >
+        {status.isLoaded ? (
+          <Text style={styles.playGlyph}>{status.playing ? "❚❚" : "▶"}</Text>
+        ) : (
+          <ActivityIndicator size="small" color="#fff" />
+        )}
+      </Pressable>
+
+      <View style={styles.audioTrack}>
+        <View style={[styles.audioFill, { width: `${progress * 100}%` }]} />
+      </View>
+
+      <Text style={styles.audioTime}>
+        {/* Counts up while playing and shows the total at rest, which is the
+            reading that answers "how long is this?" before you commit to it. */}
+        {formatRecordingTime(status.playing || positionMs > 0 ? positionMs : durationMs)}
+      </Text>
+    </View>
+  );
+}
+
 function AttachmentCard({
   attachment,
   url,
@@ -122,7 +203,11 @@ function AttachmentCard({
   const meta = (
     <View style={styles.metaRow}>
       <Text style={styles.fileName} numberOfLines={1}>
-        {attachment.file_name}
+        {/* A recording's stored name is a timestamp, which tells the reader
+            nothing they can't see from the row's position. Say what it is. */}
+        {kind === "audio" && isVoiceNoteFileName(attachment.file_name)
+          ? "🎙  Voice note"
+          : attachment.file_name}
       </Text>
       <Text style={styles.fileSize}>{formatFileSize(attachment.size_bytes)}</Text>
       <Pressable
@@ -161,6 +246,15 @@ function AttachmentCard({
     );
   }
 
+  if (kind === "audio") {
+    return (
+      <View style={styles.card}>
+        {meta}
+        <AudioPlayerCard url={url} />
+      </View>
+    );
+  }
+
   if (isTextKind(kind)) {
     return (
       <View style={styles.card}>
@@ -180,16 +274,29 @@ function AttachmentCard({
 function AttachmentsSectionImpl({
   taskId,
   api,
+  onTranscript,
 }: {
   taskId: string;
   /** Constructed by the caller, already bound to the signed-in user. */
   api: AttachmentsApi;
+  /**
+   * Where a recording's words go. The audio lands here as an attachment, but
+   * the text belongs to the task's description, which this section doesn't
+   * own — so it hands the transcript up. Omit it and the mic still records;
+   * only the transcript is dropped.
+   *
+   * Must be stable, like every other prop here: the section is memoized
+   * against the editor's per-keystroke re-render.
+   */
+  onTranscript?: (transcript: string) => void;
 }) {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const [urls, setUrls] = useState<Map<string, string>>(() => new Map());
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [recorderOpen, setRecorderOpen] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,9 +304,7 @@ function AttachmentsSectionImpl({
       const { data } = await api.list(taskId);
       if (cancelled) return;
       setAttachments(data);
-      const { data: signed } = await api.signedUrls(
-        data.filter((a) => attachmentKind(a.mime_type, a.file_name) === "image")
-      );
+      const { data: signed } = await api.signedUrls(data.filter(needsSignedUrl));
       if (!cancelled) setUrls(signed);
     })();
     return () => {
@@ -236,7 +341,7 @@ function AttachmentsSectionImpl({
             setError(err?.message ?? `Couldn't attach ${file.name}.`);
           } else {
             setAttachments((prev) => [...prev, data]);
-            if (attachmentKind(data.mime_type, data.file_name) === "image") {
+            if (needsSignedUrl(data)) {
               const { data: signed } = await api.signedUrls([data]);
               setUrls((prev) => new Map([...prev, ...signed]));
             }
@@ -296,6 +401,47 @@ function AttachmentsSectionImpl({
     );
   }, [uploadPicked]);
 
+  // Unlike quick-add, the task already exists here, so a recording can be
+  // filed the moment it stops rather than waiting on a submit.
+  const onRecordingDone = useCallback(
+    async (recording: VoiceRecording) => {
+      setRecorderOpen(false);
+      // The words go up first: they're what the user will see land in the
+      // description, and they shouldn't have to wait on an upload for it.
+      if (recording.transcript) onTranscriptRef.current?.(recording.transcript);
+      if (!recording.audioUri) return;
+
+      setSavingNote(true);
+      const { data, error: err } = await attachVoiceNote(api, taskId, recording);
+      setSavingNote(false);
+
+      if (err || !data) {
+        setError(err?.message ?? "Couldn't attach that recording.");
+        return;
+      }
+      setAttachments((prev) => [...prev, data]);
+      const { data: signed } = await api.signedUrls([data]);
+      setUrls((prev) => new Map([...prev, ...signed]));
+    },
+    [api, taskId]
+  );
+
+  // Read through a ref so `onRecordingDone` — and with it the native event
+  // subscriptions inside `useVoiceCapture` — survives a parent that passes a
+  // fresh closure.
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
+
+  const voice = useVoiceCapture({ onDone: (r) => void onRecordingDone(r) });
+
+  const startRecording = useCallback(async () => {
+    setError(null);
+    // Only open the card once the microphone is actually running: a refused
+    // permission should leave the section as it was, not showing a recorder
+    // that will never hear anything.
+    if (await voice.start()) setRecorderOpen(true);
+  }, [voice]);
+
   const handleRemove = useCallback(
     async (attachment: TaskAttachment) => {
       setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
@@ -343,7 +489,31 @@ function AttachmentsSectionImpl({
           </View>
         ))}
 
+        {savingNote ? (
+          <View style={styles.pendingRow}>
+            <ActivityIndicator size="small" color="#9ca3af" />
+            <Text style={styles.pendingName}>Voice note</Text>
+            <Text style={styles.fileSize}>Uploading…</Text>
+          </View>
+        ) : null}
+
+        {recorderOpen ? (
+          <VoiceRecorder voice={voice} onCancel={() => {
+            voice.cancel();
+            setRecorderOpen(false);
+          }} />
+        ) : null}
+
         <View style={styles.addRow}>
+          {voice.supported ? (
+            <Pressable
+              style={styles.addButton}
+              onPress={() => void startRecording()}
+              disabled={recorderOpen}
+            >
+              <Text style={styles.addButtonText}>🎙  Record</Text>
+            </Pressable>
+          ) : null}
           <Pressable style={styles.addButton} onPress={() => void pickPhoto()}>
             <Text style={styles.addButtonText}>🖼  Photo</Text>
           </Pressable>
@@ -449,6 +619,41 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   moreText: { fontSize: 11.5, fontWeight: "600", color: "#4f46e5" },
+
+  audioRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  playButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#6366f1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playButtonMuted: { backgroundColor: "#c7d2fe" },
+  // The glyphs are text, not icons: ▶ and ❚❚ need no font the app would
+  // otherwise have to ship, and both sit on the baseline the same way.
+  playGlyph: { color: "#fff", fontSize: 12, lineHeight: 14 },
+  audioTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e5e7eb",
+    overflow: "hidden",
+  },
+  audioFill: { height: 4, borderRadius: 2, backgroundColor: "#6366f1" },
+  audioTime: {
+    fontSize: 12,
+    color: "#6b7280",
+    fontVariant: ["tabular-nums"],
+    minWidth: 34,
+    textAlign: "right",
+  },
 
   pendingRow: {
     flexDirection: "row",

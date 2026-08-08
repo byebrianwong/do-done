@@ -587,6 +587,93 @@ would inflate a 10 MB file by a third in memory). **All three are new native
 modules, so mobile attachments need a fresh `eas build`; they will not arrive
 over OTA.**
 
+`attachmentKind()` also classifies **audio**, which is what every voice note
+comes back as. Playback is `expo-audio` on mobile and a plain `<audio controls>`
+on web — the browser's transport is keyboard-accessible and already has a
+scrubber, so a hand-rolled one would be a worse version of it. Both surfaces
+sign a URL for audio the same way they do for images (`needsSignedUrl`), and
+both label a file matching `isVoiceNoteFileName()` as "Voice note" rather than
+showing its timestamped storage name.
+
+## Voice notes
+
+**A recording produces two artefacts and DoDone keeps both**: the audio, as an
+ordinary attachment, and the transcript, as the task's text. Keeping the audio
+is the feature rather than a nicety — a recogniser mishears names and numbers
+constantly, so the recording is the record of what was said and the transcript
+is a convenience over it.
+
+**One microphone session produces both.** `expo-speech-recognition` will persist
+the audio it is already listening to (`recordingOptions: { persist: true }`),
+which is why there is no recorder module alongside the recogniser: two things
+contending for the mic means one of them silently gets nothing on Android. It
+was already a dependency, so the *capture* half needed no new native module.
+
+| Where | What |
+| --- | --- |
+| `packages/shared/src/voice.ts` | `splitTranscript`, `appendTranscript`, the file naming, the duration cap. Shared so a sentence can't become the title on the phone and the description on the web. |
+| `apps/mobile/lib/voice-session.ts` | Pure decisions: transcript accumulation, level normalisation, the completion gate, error copy. |
+| `apps/mobile/lib/voice-capture.ts` | `useVoiceCapture` — the native module, lazily required so Expo Go degrades to `supported: false` rather than crashing. |
+| `apps/mobile/lib/voice-note.ts` | `attachVoiceNote` — bytes out of the cache, up to Storage, cache file deleted. |
+| `apps/mobile/lib/use-voice-quick-add.ts` | The create-then-attach flow both quick-add surfaces share. |
+| `apps/mobile/components/VoiceRecorder.tsx` | The card: level meter, clock, live transcript. |
+
+Rules that look arbitrary and aren't:
+
+- **The transcript splits into a title and a description, but only where there
+  is no title yet.** Quick-add takes the first believable sentence as the title
+  (falling back to a word-boundary cut at `VOICE_TITLE_MAX_CHARS` when the
+  recogniser returned no punctuation, which is Android's default); the task
+  editor *appends* the whole thing to Notes, because the task already has a
+  title. A sentence boundary is only believed after three words — dictation
+  punctuates abbreviations too, and "Call Dr." would otherwise title the task
+  with half a name.
+- **A final result is folded in by prefix, not by appending.** Android's
+  continuous mode emits one result per utterance; iOS re-sends everything said
+  so far. Appending blindly stutters on iOS, replacing blindly loses every
+  Android segment but the last, and the prefix test needs no platform check.
+- **A session hands over only once `end` *and* `audioend` have both fired.**
+  The file is explicitly unsafe to read before `audioend`, so completing on
+  `end` alone ships a truncated WAV — a bug that reproduces on one phone and
+  not another. A grace timer covers a recogniser that dies mid-session.
+- **The recording is uploaded after the task is created, never before.** An
+  attachment row points at a `task_id`, so there is nothing to attach to until
+  then; the file waits in the cache across the gap between speaking and
+  submitting. A failed upload says so and keeps the task — and keeps the local
+  file, since destroying the only copy of what someone said over a transient
+  network error is the one unrecoverable outcome here.
+- **The name and MIME type come from the URI the recogniser wrote**, not from
+  an assumption: Android writes WAV, iOS may write CAF, and neither announces
+  which. `attachmentKind` reads the extension before the MIME type, so guessing
+  wrong renders the app's own recording as an anonymous download chip.
+- **`VOICE_MAX_DURATION_MS` is the attachment size limit wearing a clock's
+  face.** 16 kHz mono PCM is ~32 KB/s, so the 10 MB bucket ceiling is a little
+  over five minutes; four leaves headroom, and a counter the user can watch is
+  kinder than rejecting a five-minute upload after the fact.
+- **The recorder is a plain card, not a `Modal`.** Every surface it appears on
+  is keyboard-anchored, and an Android `Modal` opens a new window and drops the
+  IME — the same reason `QuickAddFields`' chip popovers are inline.
+
+### Getting to it
+
+Four doors, all reaching the same composer:
+
+| Entry | How |
+| --- | --- |
+| Quick-add bar (above the tab bar) | Mic button |
+| `dodone://quick-add?voice=1` | In-app deep link, opens straight into recording |
+| `dodoneadd://voice` | The **"Voice task"** launcher shortcut — `QuickAddActivity`, floating over the live home screen |
+| Task editor | 🎙 Record, beside Photo and File; transcript appends to Notes |
+
+`QuickAddActivity` answers `dodoneadd://open` and `dodoneadd://voice`, and the
+launch URI is the *only* thing that tells them apart — `quick-add-root.tsx`
+reads it via `getInitialURL` and `isVoiceLaunch` (`lib/quick-add-launch.ts`)
+matches it. That match and the shortcut's `data` URI must stay in step, which
+is what `withAndroidShortcuts.test.ts` asserts; a mismatch is silent on the
+device, opening the wrong door with no error. The composer does not mount until
+the URI has been read, since mounting on the default and correcting afterwards
+races a permission dialog over a keyboard that shouldn't have come up.
+
 ## Design System
 
 - Accent: indigo-500 (#6366f1)
@@ -801,8 +888,8 @@ quick-add sheet over the live home screen without launching the main app.
   caching) that have already burned three install cycles.
 
 ### Launcher quick actions (app shortcuts)
-Long-pressing the DoDone icon offers **Add task / Search / Today / Upcoming**,
-each pinnable to the home screen with the "+" beside it. These are *not* widgets:
+Long-pressing the DoDone icon offers **Add task / Voice task / Search / Today /
+Upcoming**, each pinnable to the home screen with the "+" beside it. These are *not* widgets:
 the launcher draws them itself, so a pinned one takes exactly one cell and sits
 flush with the app icons around it — which is the point of having them alongside
 the 1×1 quick-add widget rather than instead of it.
@@ -814,9 +901,10 @@ the 1×1 quick-add widget rather than instead of it.
   label is a literal, silently — no build error, the row just isn't there.
 - **Intents must be explicit** (`targetPackage` + `targetClass`); an implicit
   one never launches. The deep link rides along as the intent's `data`, which is
-  what `expo-linking`'s `getInitialURL` reads. Add task targets
-  `QuickAddActivity` directly, so it floats the composer over the home screen
-  exactly as the widget does; the rest target MainActivity.
+  what `expo-linking`'s `getInitialURL` reads. Add task and Voice task both
+  target `QuickAddActivity` directly, so the composer floats over the home
+  screen exactly as the widget does; the rest target MainActivity. Those two
+  differ *only* in their `data` URI — see Voice notes → Getting to it.
 - Each icon ships twice: an `<adaptive-icon>` in `drawable-anydpi-v26` so the
   launcher masks it to the same shape as the app icons, and a plain circle
   vector in `drawable/` for API 24-25, which has no mask. The glyph is scaled

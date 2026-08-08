@@ -312,6 +312,41 @@ export const SAMPLE_IMAGE_DATA_URL =
     `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a5b4fc"/></linearGradient></defs><rect width="480" height="300" fill="url(#g)"/><text x="50%" y="52%" text-anchor="middle" font-family="Inter,sans-serif" font-size="26" fill="white">screenshot.png</text></svg>`
   );
 
+/**
+ * A one-second silent WAV, inline.
+ *
+ * Real enough for the browser to load, report a duration for, and enable its
+ * transport on — which is the whole of what the audio card's story needs to
+ * show. Built rather than checked in as a binary: a 44-byte header plus zeroed
+ * samples is smaller written out than committed.
+ */
+export const SAMPLE_AUDIO_DATA_URL = (() => {
+  const sampleRate = 8000;
+  const samples = sampleRate; // one second, 8-bit mono
+  const bytes = new Uint8Array(44 + samples);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + samples, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true); // PCM header length
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true); // byte rate
+  view.setUint16(32, 1, true); // block align
+  view.setUint16(34, 8, true); // bits per sample
+  ascii(36, "data");
+  view.setUint32(40, samples, true);
+  // 8-bit PCM is unsigned, so silence is 128 rather than 0.
+  bytes.fill(128, 44);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `data:audio/wav;base64,${btoa(binary)}`;
+})();
+
 export const SAMPLE_MARKDOWN = `# Launch checklist
 
 Ship **DoDone** attachments once every box below is ticked.

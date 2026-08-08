@@ -39,10 +39,17 @@ const BACKGROUND_DRAWABLE = 'dodone_shortcut_background';
  * The quick actions, in the order the launcher lists them.
  *
  * `activity` names the component the shortcut launches:
- *   - 'quick-add' — the translucent QuickAddActivity, so the composer floats
- *     over the live home screen exactly as the 1x1 widget does. It is targeted
- *     by class here, so the dedicated `dodoneadd` scheme is belt-and-braces.
+ *   - 'quick-add' and 'voice-add' — the translucent QuickAddActivity, so the
+ *     composer floats over the live home screen exactly as the 1x1 widget
+ *     does. It is targeted by class here, so the dedicated `dodoneadd` scheme
+ *     is belt-and-braces.
  *   - everything else — MainActivity, which hands the URI to expo-router.
+ *
+ * The two QuickAddActivity entries differ only in their `data` URI, which is
+ * the sole thing the activity can tell them apart by — `quick-add-root.tsx`
+ * reads it back through `getInitialURL` and decides between the keyboard and
+ * the microphone. Both must therefore stay in step with `isVoiceLaunch` in
+ * `lib/quick-add-launch.ts`.
  *
  * `glyph` is a Material icon path in a 24x24 space; drawGlyph scales it into
  * the 108x108 adaptive-icon viewport.
@@ -55,6 +62,16 @@ const SHORTCUTS = [
     activity: 'QuickAddActivity',
     data: 'dodoneadd://open',
     glyph: 'M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  },
+  {
+    id: 'voice-add',
+    shortLabel: 'Voice task',
+    longLabel: 'Say a task and DoDone writes it down',
+    activity: 'QuickAddActivity',
+    data: 'dodoneadd://voice',
+    // Material "mic".
+    glyph:
+      'M12,14c1.66,0 2.99,-1.34 2.99,-3L15,5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11L5,11c0,3.41 2.72,6.23 6,6.72L11,21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z',
   },
   {
     id: 'search',
