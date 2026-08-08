@@ -283,4 +283,103 @@ describe("parseTaskInput", () => {
       expect(result.title).toBe("order https://shop.example.com/item");
     });
   });
+
+  describe("#project matching", () => {
+    const PROJECTS = [
+      { id: "p-home", name: "Home" },
+      { id: "p-side", name: "Side Project" },
+      { id: "p-work", name: "work" },
+    ];
+
+    it("files a #token that names a project, instead of tagging it", () => {
+      const result = parseTaskInput("fix the sink #home", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project_id).toBe("p-home");
+      expect(result.project).toBe("Home");
+      expect(result.tags).toBeUndefined();
+      expect(result.title).toBe("fix the sink");
+    });
+
+    it("leaves a #token matching no project as a tag", () => {
+      const result = parseTaskInput("fix the sink #plumbing", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project_id).toBeUndefined();
+      expect(result.tags).toEqual(["plumbing"]);
+    });
+
+    it("is case- and punctuation-insensitive, so multi-word names are reachable", () => {
+      expect(
+        parseTaskInput("ship it #SideProject", REF_DATE, { projects: PROJECTS })
+          .project_id
+      ).toBe("p-side");
+      expect(
+        parseTaskInput("ship it #side_project", REF_DATE, { projects: PROJECTS })
+          .project_id
+      ).toBe("p-side");
+    });
+
+    it("keeps tags and a project apart in one string", () => {
+      const result = parseTaskInput("call bob #work #urgent", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project_id).toBe("p-work");
+      expect(result.tags).toEqual(["urgent"]);
+      expect(result.title).toBe("call bob");
+    });
+
+    it("takes the first project token and tags the rest", () => {
+      const result = parseTaskInput("plan #home #work", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project_id).toBe("p-home");
+      expect(result.tags).toEqual(["work"]);
+    });
+
+    it("lets the size and priority codes keep their meaning", () => {
+      const result = parseTaskInput("ship it #m #p1", REF_DATE, {
+        projects: [{ id: "p-m", name: "M" }, ...PROJECTS],
+      });
+      expect(result.duration_minutes).toBe(120);
+      expect(result.priority).toBe("p1");
+      expect(result.project_id).toBeUndefined();
+    });
+
+    it("resolves a /name against the project list too", () => {
+      const result = parseTaskInput("review PR #home", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project_id).toBe("p-home");
+      const slash = parseTaskInput("review PR /home", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(slash.project_id).toBe("p-home");
+      expect(slash.project).toBe("Home");
+    });
+
+    it("keeps a /name that matches nothing as a bare name", () => {
+      const result = parseTaskInput("review PR /engineering", REF_DATE, {
+        projects: PROJECTS,
+      });
+      expect(result.project).toBe("engineering");
+      expect(result.project_id).toBeUndefined();
+    });
+
+    it("tags everything when no project list is supplied", () => {
+      const result = parseTaskInput("fix the sink #home", REF_DATE);
+      expect(result.tags).toEqual(["home"]);
+      expect(result.project_id).toBeUndefined();
+    });
+
+    it("does not read a #fragment inside a URL as a project", () => {
+      const result = parseTaskInput(
+        "read https://example.com/a#home today",
+        REF_DATE,
+        { projects: PROJECTS }
+      );
+      expect(result.project_id).toBeUndefined();
+      expect(result.title).toBe("read https://example.com/a#home");
+    });
+  });
 });

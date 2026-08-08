@@ -79,7 +79,7 @@ export default function QuickAddComposer({
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const fields = useQuickAddFields();
+  const fields = useQuickAddFields({}, projects);
 
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard({

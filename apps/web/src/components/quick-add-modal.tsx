@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "@do-done/shared";
 import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
+import { useQuickAddContext } from "@/lib/quick-add-context";
 import type { QuickAddSeed } from "@/lib/quick-add";
 import {
   OPEN_QUICK_ADD_EVENT,
@@ -43,6 +44,7 @@ export function QuickAddModal({
   const [seed, setSeed] = useState<QuickAddSeed>({});
   const composer = useQuickAddComposer(seed, { keepOpen: false });
   const { resetAll, reset, handoffTask } = composer;
+  const { addProject } = useQuickAddContext();
 
   const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -177,9 +179,13 @@ export function QuickAddModal({
                 setProjectId={composer.setProjectId}
                 projects={allProjects}
                 userId={userId}
-                onCreatedProject={(p) =>
-                  setCreatedProjects((prev) => [...prev, p])
-                }
+                onCreatedProject={(p) => {
+                  setCreatedProjects((prev) => [...prev, p]);
+                  // Also register it with the provider, whose list is what the
+                  // parse matches `#name` against — otherwise a project created
+                  // here can't be typed by name until the next page load.
+                  addProject(p);
+                }}
               />
             </div>
 
