@@ -13,7 +13,7 @@
  * this only finishes this surface and never the main app.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Pressable,
@@ -25,8 +25,9 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
+import type { Project, Task } from '@do-done/shared';
 
-import { supabase } from '@/lib/supabase';
+import { getProjectsApi, supabase } from '@/lib/supabase';
 import QuickAddComposer from '@/components/QuickAddComposer';
 
 function dismiss() {
@@ -36,6 +37,7 @@ function dismiss() {
 export default function QuickAddRoot() {
   // undefined = still loading the session, null = signed out, Session = signed in
   const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [projects, setProjects] = useState<Project[] | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +49,51 @@ export default function QuickAddRoot() {
     };
   }, []);
 
+  /**
+   * The Project chip's list. There is no QueryClientProvider in this root, so
+   * it comes straight off ProjectsApi — which is all `useProjects` would have
+   * done here anyway. Without this the chip was simply absent from the widget,
+   * and a typed `#groceries` silently became a tag on the one surface where it
+   * couldn't be a project.
+   *
+   * The composer renders before this lands; the chip appears when it does,
+   * rather than holding the input hostage to a round trip. Capture comes first.
+   */
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      const api = await getProjectsApi();
+      const { data, error } = await api.list();
+      if (!cancelled && !error) setProjects(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  const createProject = useCallback(
+    async (name: string, color: string): Promise<Project | null> => {
+      const api = await getProjectsApi();
+      const { data, error } = await api.create({ name, color });
+      if (error || !data) return null;
+      setProjects((prev) => [...(prev ?? []), data]);
+      return data;
+    },
+    []
+  );
+
+  /**
+   * "More options" from the home screen. The full editor doesn't belong in a
+   * translucent activity floating over the launcher — it's a full-screen sheet
+   * that wants the router, the query cache and a back stack — so hand the task
+   * to the app proper and step out of the way.
+   */
+  const openInApp = useCallback((task: Task) => {
+    Linking.openURL(`dodone://task/${task.id}`).catch(() => {});
+    dismiss();
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
@@ -56,6 +103,9 @@ export default function QuickAddRoot() {
             <QuickAddComposer
               defaultStatus="not_started"
               autoFocus
+              projects={projects}
+              onCreateProject={createProject}
+              onExpand={openInApp}
               onCreated={dismiss}
             />
           ) : (

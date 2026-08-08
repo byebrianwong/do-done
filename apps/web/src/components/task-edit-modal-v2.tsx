@@ -52,7 +52,7 @@ export function estimateBarIndex(minutes: number | null): number {
   return 5;
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -1050,7 +1050,7 @@ function SpanWaveOverlay({ wave }: { wave: SpanWave }) {
 
 // ── Month grid for the "See more dates" scroll view ──
 
-function MonthGrid({
+export function MonthGrid({
   year,
   month,
   todayStr,

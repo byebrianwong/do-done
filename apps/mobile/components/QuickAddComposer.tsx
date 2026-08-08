@@ -25,9 +25,15 @@
  *
  * Used by both the home-screen widget activity (quick-add-root.tsx) and the
  * in-app `dodone://quick-add` modal (app/quick-add.tsx). Each host renders its
- * own backdrop for cancel and supplies onCreated for the after-add dismissal;
- * only the in-app host passes `projects` — the widget's React root has no query
- * provider to read them from.
+ * own backdrop for cancel and supplies onCreated for the after-add dismissal.
+ * Both pass `projects` — the widget's root has no query provider, so it loads
+ * the list straight off ProjectsApi and hands it in the same way.
+ *
+ * `onExpand` is the door to the full editor: the composer creates the task
+ * first and hands the *persisted* task over, so the editor never has to open on
+ * unsaved state. Where that editor is differs by host — the in-app modal opens
+ * it in place, the widget deep-links into the app, since a translucent
+ * home-screen activity is no place for a 3000-line editor.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -44,7 +50,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { Project } from '@do-done/shared';
+import type { Project, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { TagRow } from './TaskEditModalV2';
@@ -60,11 +66,15 @@ interface QuickAddComposerProps {
   onCreated?: () => void;
   /** Focus the input as soon as the composer mounts. */
   autoFocus?: boolean;
-  /**
-   * Projects for the Project chip. Omit on surfaces that can't load them (the
-   * widget root has no QueryClientProvider) and the chip hides.
-   */
+  /** Projects for the Project chip. Omit and the chip hides. */
   projects?: Project[];
+  /** Provision a project from the Project chip. Omit and the row hides. */
+  onCreateProject?: (name: string, color: string) => Promise<Project | null>;
+  /**
+   * Hand the just-created task to the full editor — notes, subtasks, the
+   * calendar, everything the chips don't cover. Omit and the button hides.
+   */
+  onExpand?: (task: Task) => void;
 }
 
 const CARD_PADDING_H = 14;
@@ -75,6 +85,8 @@ export default function QuickAddComposer({
   onCreated,
   autoFocus = false,
   projects,
+  onCreateProject,
+  onExpand,
 }: QuickAddComposerProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -107,22 +119,34 @@ export default function QuickAddComposer({
     return () => clearTimeout(t);
   }, [autoFocus]);
 
-  async function handleSubmit() {
+  /** Persist what's in the composer. Returns the created task, or null. */
+  async function create(): Promise<Task | null> {
     const trimmed = text.trim();
-    if (!trimmed || submitting) return;
+    if (!trimmed || submitting) return null;
     setSubmitting(true);
 
     const tasks = await getTasksApi();
-    const { error } = await tasks.create(
+    const { data, error } = await tasks.create(
       fields.buildInput(trimmed, { status: defaultStatus })
     );
     setSubmitting(false);
-    if (!error) {
-      hapticSuccess();
-      setText('');
-      fields.reset();
-      onCreated?.();
-    }
+    if (error || !data) return null;
+    hapticSuccess();
+    setText('');
+    fields.reset();
+    return data;
+  }
+
+  async function handleSubmit() {
+    if (await create()) onCreated?.();
+  }
+
+  async function handleExpand() {
+    // Create first, then hand the persisted task over: the full editor
+    // autosaves against a real row, so there is no draft state for it to open
+    // on. This is why the button needs a title — see the disabled state below.
+    const created = await create();
+    if (created) onExpand?.(created);
   }
 
   return (
@@ -136,8 +160,8 @@ export default function QuickAddComposer({
 
       <QuickAddPickers
         fields={fields}
-        projects={projects}
-        onCalendarClosed={() => setTimeout(() => inputRef.current?.focus(), 50)}
+        onCreateProject={onCreateProject}
+        onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
       />
 
       <View style={styles.card}>
@@ -155,6 +179,25 @@ export default function QuickAddComposer({
             blurOnSubmit={false}
             editable={!submitting}
           />
+          {onExpand ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.expandBtn,
+                pressed && styles.expandBtnPressed,
+              ]}
+              onPress={handleExpand}
+              disabled={submitting || !text.trim()}
+              hitSlop={4}
+              accessibilityRole="button"
+              accessibilityLabel="Open full editor"
+            >
+              <Ionicons
+                name="open-outline"
+                size={20}
+                color={text.trim() ? '#6b7280' : '#d1d5db'}
+              />
+            </Pressable>
+          ) : null}
           <Pressable
             style={({ pressed }) => [
               styles.sendBtn,
@@ -178,7 +221,7 @@ export default function QuickAddComposer({
           onRemove={fields.removeTag}
         />
 
-        <QuickAddChipRow fields={fields} projects={projects} />
+        <QuickAddChipRow fields={fields} />
       </View>
     </Animated.View>
   );
@@ -226,5 +269,17 @@ const styles = StyleSheet.create({
   },
   sendBtnMuted: {
     backgroundColor: '#c7d2fe',
+  },
+  // Ghost, beside the filled send button: "add" is the primary act here, and
+  // the full editor is the way out of quick-add rather than a rival to it.
+  expandBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandBtnPressed: {
+    backgroundColor: '#f3f4f6',
   },
 });

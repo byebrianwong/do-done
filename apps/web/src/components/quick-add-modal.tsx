@@ -113,12 +113,12 @@ export function QuickAddModal({
   }
 
   async function handleMoreOptions() {
-    if (!composer.input.trim()) {
-      inputRef.current?.focus();
-      return;
-    }
-    // Create now, then open the full editor on the persisted task.
-    const created = await composer.openEditor();
+    // Create now, then open the full editor on the persisted task. `allowEmpty`
+    // makes this a real door to the full editor rather than a reward for having
+    // typed something: with nothing in the box it creates a throwaway "New task"
+    // and the editor drops it again if closed untouched (see TaskEditModalV2's
+    // `draft`), which is how the bar and the inline composer already behave.
+    const created = await composer.openEditor({ allowEmpty: true });
     if (created) setOpen(false);
   }
 
@@ -227,6 +227,7 @@ export function QuickAddModal({
           task={handoffTask}
           projects={allProjects}
           open
+          draft={composer.handoffIsDraft}
           onClose={() => {
             composer.clearHandoff();
             reset();

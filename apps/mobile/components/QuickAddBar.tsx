@@ -9,6 +9,10 @@
  * editor. Typed natural-language syntax keeps working and merges on submit;
  * explicit chip picks win. The slim preview above the card echoes only what
  * the chips don't cover (deadline, tags, recurrence).
+ *
+ * For everything the chips *can't* reach — notes, subtasks, attachments, the
+ * month calendar — the ⇱ button creates the task and opens the full editor on
+ * it, mirroring the web bar's "Open full editor".
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -22,12 +26,13 @@ import {
   Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { Project, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { IS_EXPO_GO } from '@/lib/runtime';
-import { useProjects } from '@/lib/task-queries';
+import { createProjectOrNull, useProjects } from '@/lib/task-queries';
 import ParsePreview from './ParsePreview';
-import { TagRow } from './TaskEditModalV2';
+import TaskEditModalV2, { TagRow } from './TaskEditModalV2';
 import {
   QuickAddChipRow,
   QuickAddMenuScrim,
@@ -88,6 +93,8 @@ export default function QuickAddBar({
   const [focused, setFocused] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
+  /** The task handed off to the full editor by the expand button, if any. */
+  const [expandedTask, setExpandedTask] = useState<Task | null>(null);
 
   // The screen's project seeds the chip, so the project page's bar shows where
   // the task is going — and lets the user redirect it without leaving.
@@ -152,23 +159,39 @@ export default function QuickAddBar({
     };
   }, [listening]);
 
-  async function handleSubmit() {
+  /** Persist what's in the bar. Returns the created task, or null. */
+  async function create(): Promise<Task | null> {
     const trimmed = text.trim();
-    if (!trimmed || submitting) return;
+    if (!trimmed || submitting) return null;
     setSubmitting(true);
 
     const tasks = await getTasksApi();
-    const { error } = await tasks.create(
+    const { data, error } = await tasks.create(
       fields.buildInput(trimmed, { status: defaultStatus })
     );
 
     setSubmitting(false);
-    if (!error) {
-      hapticSuccess();
-      setText('');
-      fields.reset();
-      onCreated?.();
-    }
+    if (error || !data) return null;
+    hapticSuccess();
+    setText('');
+    fields.reset();
+    return data;
+  }
+
+  async function handleSubmit() {
+    if (await create()) onCreated?.();
+  }
+
+  /**
+   * Everything the chips can't reach. Create first, then open the editor on the
+   * persisted row — it autosaves, so it has nowhere to put unsaved state — and
+   * dismiss the keyboard, since the sheet brings its own fields.
+   */
+  async function handleExpand() {
+    const created = await create();
+    if (!created) return;
+    Keyboard.dismiss();
+    setExpandedTask(created);
   }
 
   async function toggleListening() {
@@ -217,12 +240,14 @@ export default function QuickAddBar({
 
       <QuickAddPickers
         fields={fields}
-        projects={projects}
-        onCalendarClosed={() => setTimeout(() => inputRef.current?.focus(), 50)}
+        onCreateProject={createProjectOrNull}
+        onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
       />
 
-      {/* Deadline / tags / recurrence only — the chips below own the rest. */}
-      <ParsePreview text={text} omitChipFields projects={projects} />
+      {/* Deadline / tags / recurrence only — the chips below own the rest.
+          Reads the list off `fields` rather than the query, so a project
+          created from the chip is matchable by name straight away. */}
+      <ParsePreview text={text} omitChipFields projects={fields.projects} />
 
       <View style={styles.card}>
         <View style={styles.titleRow}>
@@ -241,6 +266,25 @@ export default function QuickAddBar({
             blurOnSubmit={false}
             editable={!submitting}
           />
+          {expanded ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonActive,
+              ]}
+              onPress={handleExpand}
+              disabled={submitting || !text.trim()}
+              hitSlop={4}
+              accessibilityRole="button"
+              accessibilityLabel="Open full editor"
+            >
+              <Ionicons
+                name="open-outline"
+                size={19}
+                color={text.trim() ? '#6b7280' : '#d1d5db'}
+              />
+            </Pressable>
+          ) : null}
           {VOICE_ENABLED ? (
             <Pressable
               style={({ pressed }) => [
@@ -279,14 +323,22 @@ export default function QuickAddBar({
               onAdd={fields.addTag}
               onRemove={fields.removeTag}
             />
-            <QuickAddChipRow
-              fields={fields}
-              projects={projects}
-              style={styles.chipRow}
-            />
+            <QuickAddChipRow fields={fields} style={styles.chipRow} />
           </>
         ) : null}
       </View>
+
+      {/* The full editor, opened on the task the expand button just created.
+          Mounted only while it's up: it carries a Modal host and six pickers,
+          and every list screen in the app renders one of these bars. */}
+      {expandedTask ? (
+        <TaskEditModalV2
+          task={expandedTask}
+          visible
+          onClose={() => setExpandedTask(null)}
+          onSaved={onCreated}
+        />
+      ) : null}
     </View>
   );
 }

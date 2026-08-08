@@ -21,9 +21,11 @@
  * float over the keyboard — takes over the screen, and the host hands focus
  * back to its input when it closes.
  *
- * Nothing here may call a TanStack Query hook: the widget mounts its own React
- * root with no QueryClientProvider (see lib/task-queries.ts). Hosts that have a
- * provider pass `projects` in; the widget omits it and the Project chip hides.
+ * Nothing here may call a TanStack Query hook, and nothing here may reach for
+ * the API directly: the widget mounts its own React root with no
+ * QueryClientProvider (see lib/task-queries.ts). Both the project list and the
+ * "create a project" action are handed in by the host, which is the only piece
+ * that knows whether there's a query cache behind it to keep in step.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -34,6 +36,8 @@ import {
   ScrollView,
   StyleSheet,
   BackHandler,
+  TextInput,
+  ActivityIndicator,
   type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
@@ -41,6 +45,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
 import {
+  DEFAULT_PROJECT_COLORS,
   PRIORITY_CONFIG,
   QUICK_SCHEDULE,
   extractTitleShortcuts,
@@ -48,7 +53,6 @@ import {
   resolveQuickSchedule,
   type CreateTaskInput,
   type Project,
-  type ProjectRef,
   type TaskPriority,
 } from '@do-done/shared';
 import {
@@ -98,6 +102,14 @@ export interface QuickAddFields {
   scheduledDate: string | null;
   duration: number | null;
   projectId: string | null;
+  /**
+   * The list the Project chip renders and a typed `#name` matches against: the
+   * host's projects plus anything created from the chip since. Undefined on a
+   * surface that can't supply one, which is what hides the chip.
+   */
+  projects?: Project[];
+  /** Fold a just-created project into {@link projects} without a refetch. */
+  addProject: (project: Project) => void;
   setPriority: (p: TaskPriority | null) => void;
   setScheduledDate: (d: string | null) => void;
   setDuration: (m: number | null) => void;
@@ -141,15 +153,26 @@ export interface QuickAddFields {
 }
 
 /**
- * @param projects  The user's projects, so a typed `#name` files the task there
- *   instead of tagging it. Surfaces that can't load them (the widget root has
- *   no QueryClientProvider) omit the list and every `#token` stays a tag.
+ * @param hostProjects  The user's projects, so a typed `#name` files the task
+ *   there instead of tagging it. Omit and the Project chip hides and every
+ *   `#token` stays a tag — which is what a surface still loading its list
+ *   looks like for the first frame, not a permanent state of any surface.
  */
 export function useQuickAddFields(
   seed: QuickAddSeed = {},
-  projects?: readonly ProjectRef[]
+  hostProjects?: Project[]
 ): QuickAddFields {
   const seedProjectId = seed.projectId ?? null;
+
+  // Projects created from the chip. Merged over the host's list rather than
+  // replacing it, and deduped by id, because a query-backed host refetches and
+  // will hand the same project back a moment later.
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const projects = useMemo(() => {
+    if (!hostProjects || !createdProjects.length) return hostProjects;
+    const seen = new Set(hostProjects.map((p) => p.id));
+    return [...hostProjects, ...createdProjects.filter((p) => !seen.has(p.id))];
+  }, [hostProjects, createdProjects]);
 
   const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
@@ -186,6 +209,11 @@ export function useQuickAddFields(
 
   const toggleMenu = (next: ChipKey) =>
     setMenu((current) => (current === next ? null : next));
+
+  const addProject = (project: Project) =>
+    setCreatedProjects((prev) =>
+      prev.some((p) => p.id === project.id) ? prev : [...prev, project]
+    );
 
   const addTag = (tag: string) =>
     setTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
@@ -274,6 +302,8 @@ export function useQuickAddFields(
     scheduledDate,
     duration,
     projectId,
+    projects,
+    addProject,
     setPriority,
     setScheduledDate,
     setDuration,
@@ -343,6 +373,94 @@ function Popover({
   );
 }
 
+/**
+ * Name + colour, in the Project popover's own footprint. Deliberately not the
+ * app's `ProjectPickerSheet`: that's a `Modal`, which on Android opens a second
+ * window and drops the IME — the one thing every surface here is built to
+ * avoid. Filing a task under a project that doesn't exist yet is a capture
+ * problem, so it has to be solvable without leaving capture.
+ */
+function NewProjectForm({
+  left,
+  onCancel,
+  onSubmit,
+}: {
+  left: number;
+  onCancel: () => void;
+  /** Returns true once the project exists; false leaves the form up. */
+  onSubmit: (name: string, color: string) => Promise<boolean>;
+}) {
+  const [name, setName] = useState('');
+  const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setFailed(false);
+    const ok = await onSubmit(trimmed, color);
+    setSaving(false);
+    if (!ok) setFailed(true);
+  };
+
+  return (
+    <View style={[styles.popover, styles.newProject, { marginLeft: left }]}>
+      <TextInput
+        style={styles.newProjectInput}
+        value={name}
+        onChangeText={setName}
+        placeholder="Project name"
+        placeholderTextColor="#9ca3af"
+        autoFocus
+        returnKeyType="done"
+        blurOnSubmit={false}
+        onSubmitEditing={submit}
+        editable={!saving}
+      />
+      <View style={styles.swatchRow}>
+        {DEFAULT_PROJECT_COLORS.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => setColor(c)}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel={`Colour ${c}`}
+            style={[
+              styles.swatch,
+              { backgroundColor: c },
+              c === color && styles.swatchSelected,
+            ]}
+          />
+        ))}
+      </View>
+      {failed ? (
+        <Text style={styles.newProjectError}>Couldn’t create that project.</Text>
+      ) : null}
+      <View style={styles.newProjectActions}>
+        <Pressable onPress={onCancel} hitSlop={6}>
+          <Text style={styles.newProjectCancel}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={submit}
+          disabled={!name.trim() || saving}
+          style={[
+            styles.newProjectSubmit,
+            (!name.trim() || saving) && styles.newProjectSubmitMuted,
+          ]}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.newProjectSubmitText}>Create</Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 /** A single chip: icon + label, tinted once the field carries a value. */
 function Chip({
   icon,
@@ -390,18 +508,24 @@ function Chip({
 
 /**
  * The chip row itself. Goes inside the card, under the title input. The
- * Project chip appears only when the host passed a project list.
+ * Project chip appears only once `fields.projects` has a list to show.
  */
 export function QuickAddChipRow({
   fields,
-  projects,
   style,
 }: {
   fields: QuickAddFields;
-  projects?: Project[];
   style?: StyleProp<ViewStyle>;
 }) {
-  const { priority, scheduledDate, duration, projectId, menu, setRowOffset } = fields;
+  const {
+    priority,
+    scheduledDate,
+    duration,
+    projectId,
+    projects,
+    menu,
+    setRowOffset,
+  } = fields;
   const project = projects?.find((p) => p.id === projectId) ?? null;
 
   return (
@@ -460,16 +584,35 @@ export function QuickAddChipRow({
  */
 export function QuickAddPickers({
   fields,
-  projects,
-  /** Called after the month grid closes, so the host can refocus its input. */
-  onCalendarClosed,
+  /**
+   * Hand focus back to the host's title input. Fired by the two pickers that
+   * take focus away from it — the month grid (a Modal, which takes the keyboard
+   * with it) and the inline New project form (its own TextInput) — so the user
+   * carries on typing the task where they left off.
+   */
+  onReturnFocus,
+  onCreateProject,
 }: {
   fields: QuickAddFields;
-  projects?: Project[];
-  onCalendarClosed?: () => void;
+  onReturnFocus?: () => void;
+  /**
+   * Provision a project from inside the Project popover; returns it on success,
+   * null on failure. Supplied by the host because only it knows what else has
+   * to hear about the new project — a query cache to invalidate, or, on the
+   * widget root, nothing at all. Omit and the "New project" row doesn't appear.
+   */
+  onCreateProject?: (name: string, color: string) => Promise<Project | null>;
 }) {
-  const { menu, scheduledDate, priority, duration, projectId } = fields;
+  const { menu, scheduledDate, priority, duration, projectId, projects } = fields;
   const [width, setWidth] = useState(0);
+  /** The Project popover's inline create form, when it's showing one. */
+  const [creatingProject, setCreatingProject] = useState(false);
+
+  // A popover that closes takes its create form with it, so reopening the chip
+  // always lands on the list rather than on a half-typed name.
+  useEffect(() => {
+    if (menu !== 'project') setCreatingProject(false);
+  }, [menu]);
 
   // Resolve the shortcuts once per render so the label, the hint and the
   // selected checkmark all agree on what "This weekend" means today.
@@ -560,6 +703,16 @@ export function QuickAddPickers({
       color: p.color,
       selected: projectId === p.id,
     })),
+    ...(onCreateProject
+      ? [
+          {
+            key: '__new',
+            label: 'New project…',
+            icon: 'add-circle-outline' as const,
+            color: '#6366f1',
+          },
+        ]
+      : []),
     ...(projectId
       ? [
           {
@@ -600,15 +753,38 @@ export function QuickAddPickers({
   };
 
   const selectProject = (key: string) => {
+    if (key === '__new') {
+      setCreatingProject(true);
+      return;
+    }
     fields.setProjectId(key === 'none' ? null : key);
     fields.setMenu(null);
+  };
+
+  /** Back to the project list. The form owned the focus; give it back. */
+  const cancelNewProject = () => {
+    setCreatingProject(false);
+    onReturnFocus?.();
+  };
+
+  const submitNewProject = async (name: string, color: string) => {
+    const created = await onCreateProject?.(name, color);
+    if (!created) return false;
+    // Into the local list first: the host may be refetching, and the chip has
+    // to be able to name the project it is already showing as selected.
+    fields.addProject(created);
+    fields.setProjectId(created.id);
+    setCreatingProject(false);
+    fields.setMenu(null);
+    onReturnFocus?.();
+    return true;
   };
 
   const closeCalendar = () => {
     fields.setCalendarOpen(false);
     // The month grid is a Modal, so it took the keyboard with it. Hand focus
     // back so the user carries on typing where they left off.
-    onCalendarClosed?.();
+    onReturnFocus?.();
   };
 
   const anchorLeft = (chip: ChipKey) =>
@@ -640,13 +816,20 @@ export function QuickAddPickers({
           onSelect={selectPriority}
         />
       )}
-      {menu === 'project' && (
-        <Popover
-          left={anchorLeft('project')}
-          items={projectItems}
-          onSelect={selectProject}
-        />
-      )}
+      {menu === 'project' &&
+        (creatingProject ? (
+          <NewProjectForm
+            left={anchorLeft('project')}
+            onCancel={cancelNewProject}
+            onSubmit={submitNewProject}
+          />
+        ) : (
+          <Popover
+            left={anchorLeft('project')}
+            items={projectItems}
+            onSelect={selectProject}
+          />
+        ))}
       {menu === 'estimate' && (
         <Popover
           left={anchorLeft('estimate')}
@@ -743,6 +926,65 @@ const styles = StyleSheet.create({
   popoverScroll: {
     // Tall enough for every menu we show, short enough to never crowd the card.
     maxHeight: 320,
+  },
+  newProject: {
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  newProjectInput: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '500',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingVertical: 6,
+  },
+  swatchRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  swatch: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  swatchSelected: {
+    borderWidth: 2,
+    borderColor: '#111827',
+  },
+  newProjectError: {
+    fontSize: 12,
+    color: '#dc2626',
+    fontWeight: '500',
+  },
+  newProjectActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 14,
+  },
+  newProjectCancel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  newProjectSubmit: {
+    minWidth: 66,
+    alignItems: 'center',
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
+  newProjectSubmitMuted: {
+    backgroundColor: '#c7d2fe',
+  },
+  newProjectSubmitText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
   },
   menuRow: {
     flexDirection: 'row',

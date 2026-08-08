@@ -651,8 +651,30 @@ quick-add sheet over the live home screen without launching the main app.
   Every mobile capture surface shares them: this widget composer, the in-app
   `dodone://quick-add` modal, and `QuickAddBar` above the tab bar (which expands from
   one line to the full chip card on focus, matching the web bar). Nothing in that
-  module may call a TanStack Query hook — the widget root has no QueryClientProvider,
-  so hosts that have one pass `projects` in and the widget's Project chip hides.
+  module may call a TanStack Query hook, or reach for an API — the widget root has no
+  QueryClientProvider. Both the project list (`projects`) and the inline "New
+  project" action (`onCreateProject`) are therefore **handed in by the host**, which
+  is the only piece that knows what else has to hear about a new project: the in-app
+  hosts pass `createProjectOrNull` from `lib/task-queries` and let it invalidate the
+  cache, and the widget root reads `ProjectsApi` directly and keeps its own array.
+  The widget used to pass neither, which is why its Project chip was simply missing
+  and `#groceries` silently became a tag on the one surface where it couldn't be a
+  project. A surface that still omits the list gets the old behaviour, which now
+  only ever describes the first frame while a list is loading.
+- **Every quick-add surface has a door to the full editor**, because the chips will
+  never cover notes, subtasks, attachments or the month calendar and a capture
+  surface that dead-ends there is one you have to abandon. The rule is the same on
+  both platforms: **create the task first, then open the editor on the persisted
+  row** — both editors autosave, so neither has anywhere to keep unsaved state. Web
+  has "More options →" (modal) and an expand icon (bar, inline composer), all via
+  `openEditor` in `use-quick-add-composer.ts`; `allowEmpty` there creates a
+  throwaway "New task" that `TaskEditModalV2`'s `draft` prop deletes again if the
+  editor closes untouched. Mobile passes `onExpand` to `QuickAddComposer` /
+  `QuickAddBar` and **requires a title** — it has no `draft` equivalent, so the
+  alternative would be orphan "New task" rows. Where the editor opens is the host's
+  call: in place for `QuickAddBar` and `app/quick-add.tsx`, but the widget root
+  deep-links `dodone://task/<id>` and dismisses, since a 3400-line sheet wanting the
+  router and the query cache has no business in a translucent launcher activity.
 - Two composer rules keep the surface from jumping around, both matching Todoist:
   the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
   not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
