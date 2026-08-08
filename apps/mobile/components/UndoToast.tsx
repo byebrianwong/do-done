@@ -17,7 +17,12 @@ import {
 type Toast = {
   id: number;
   message: string;
-  undo: () => void | Promise<void>;
+  /**
+   * Omitted for a toast that only reports something (an undo that failed).
+   * A dead "Undo" is worse than none: the user taps it, nothing happens, and
+   * the app has told them twice that it did something it didn't.
+   */
+  undo?: () => void | Promise<void>;
 };
 
 type Ctx = { show: (t: Omit<Toast, 'id'>) => void };
@@ -85,17 +90,19 @@ export function UndoToastProvider({
             <Text style={styles.message} numberOfLines={2}>
               {toast.message}
             </Text>
-            <Pressable
-              onPress={async () => {
-                const fn = toast.undo;
-                dismiss();
-                await fn();
-              }}
-              hitSlop={8}
-              style={styles.undoBtn}
-            >
-              <Text style={styles.undoLabel}>Undo</Text>
-            </Pressable>
+            {toast.undo && (
+              <Pressable
+                onPress={async () => {
+                  const fn = toast.undo;
+                  dismiss();
+                  await fn?.();
+                }}
+                hitSlop={8}
+                style={styles.undoBtn}
+              >
+                <Text style={styles.undoLabel}>Undo</Text>
+              </Pressable>
+            )}
           </View>
         </Animated.View>
       )}

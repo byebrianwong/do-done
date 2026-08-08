@@ -23,6 +23,7 @@ import {
 } from '@do-done/shared';
 import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
+import { panelForSwipe } from '@/lib/swipe-actions';
 import {
   createProject,
   deleteTask,
@@ -189,17 +190,42 @@ function TaskItem({
     // The write goes out now regardless; only the row's disappearance waits for
     // the animation.
     const holdMs = leaving ? TASK_COMPLETE_EXIT_MS : 0;
-    void toggleComplete(task.id, nextCompleted, { holdMs }).catch(() => {
-      // Write failed and the row is staying — put it back where it was.
-      setCompleted(!nextCompleted);
-      exit.setChecked(!nextCompleted);
-      exit.cancel();
-    });
+    void toggleComplete(task.id, nextCompleted, { holdMs })
+      .then(() => {
+        // The toast is the row's receipt, so it waits for the write to land.
+        // Announcing the completion up front meant an offline tap put
+        // "Completed" on screen beside a row that had just snapped back — and
+        // handed the user an Undo for something that never happened. Nothing is
+        // lost by waiting: the hold keeps the row on screen until this resolves,
+        // so the toast still arrives as the row leaves.
+        if (nextCompleted) {
+          toast.show({ message: `Completed “${task.title}”`, undo: undoComplete });
+        }
+      })
+      .catch(() => {
+        // Write failed and the row is staying — put it back where it was.
+        setCompleted(!nextCompleted);
+        exit.setChecked(!nextCompleted);
+        exit.cancel();
+      });
+  }
 
-    if (nextCompleted) {
+  /**
+   * Undo for the completion toast. The reopen is queued behind the completion
+   * it undoes (see `toggleComplete`), so tapping this the instant the toast
+   * appears can't have the two writes land out of order.
+   */
+  async function undoComplete() {
+    try {
+      await toggleComplete(task.id, false);
+      setCompleted(false);
+      exit.setChecked(false);
+      exit.cancel();
+    } catch {
+      // Say so. A silent failure here reads as a dead button — the user taps
+      // Undo, the task stays gone, and nothing tells them why.
       toast.show({
-        message: `Completed “${task.title}”`,
-        undo: () => void toggleComplete(task.id, false).catch(() => {}),
+        message: `Couldn't undo — “${task.title}” is still completed.`,
       });
     }
   }
@@ -315,8 +341,11 @@ function TaskItem({
       renderLeftActions={renderLeftActions}
       renderRightActions={renderRightActions}
       onSwipeableWillOpen={(direction) => {
-        if (direction === 'left') {
-          // Full swipe to the right toggles completion, then snaps closed.
+        // `direction` is the direction of the *gesture*, not the panel that
+        // opened — see lib/swipe-actions. Swiping right reveals the single
+        // Done/Reopen action, which fires and snaps closed; swiping left opens
+        // the Today / Tomorrow / Delete buttons and waits to be tapped.
+        if (panelForSwipe(direction) === 'complete') {
           swipeRef.current?.close();
           handleToggle();
         }

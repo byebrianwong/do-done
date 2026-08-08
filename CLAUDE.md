@@ -483,6 +483,38 @@ on every keystroke in the title** — autosave holds the task in React state:
   permanently inside every open editor, each rebuilding its option rows per
   keystroke and holding a host view it never showed.
 
+## Swiping a task row (mobile)
+
+Swipe **right** for the single Done/Reopen action, which fires as it opens and
+snaps shut. Swipe **left** for Today / Tomorrow / Delete, which are buttons and
+wait to be tapped.
+
+**`ReanimatedSwipeable` reports the direction of the *gesture*, not the panel
+that opened** — the reverse of the `Swipeable` it replaces, and of how
+`onSwipeableWillOpen('left')` reads. `panelForSwipe()` in
+`apps/mobile/lib/swipe-actions.ts` is the one place that mapping is written
+down, with the library source quoted. Reading it backwards is silent and total:
+the row completed the task on the delete gesture, showed "Completed …", and did
+nothing at all on the complete gesture — with the Today/Tomorrow/Delete buttons
+snapping closed before they could be reached.
+
+**Completion writes are serialized per task id** (`completionChains` in
+`lib/task-queries.ts`). Undo is a second write to the same row while the first
+is still in the air — the toast goes up as the completion is sent, and the row
+is still being held for its collapse animation — so fired concurrently the two
+UPDATEs race and the row keeps whichever reached Postgres second. Chaining makes
+the last *intent* the last write; the sequence number a call claims before
+joining the queue also tells a superseded write to leave the cache alone, or its
+`dropFromLists()` fires mid-undo and takes back the row the user just recovered.
+
+The toast waits for the write to land, and a failed undo says so instead of
+leaving a button that visibly does nothing. `Toast.undo` is therefore optional:
+a message-only toast renders without the button.
+
+Delete is the exception to all of it — a hard delete behind a confirm dialog,
+with no undo. `TasksApi.delete()` clears Storage bytes and cascades subtasks;
+there is no row left to restore.
+
 ## Attachments
 
 A task can carry files. Two halves that have to stay in agreement:
