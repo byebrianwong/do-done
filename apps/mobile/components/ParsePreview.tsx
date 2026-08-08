@@ -50,7 +50,7 @@ export default function ParsePreview({
       out.push({
         key: 'scheduled',
         icon: 'calendar-outline',
-        label: dateLabel(parsed.scheduled_date),
+        label: `${dateLabel(parsed.scheduled_date)}${parsed.scheduled_time ? ` ${parsed.scheduled_time}` : ''}`,
         color: '#4338ca',
       });
     }

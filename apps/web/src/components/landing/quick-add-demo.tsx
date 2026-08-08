@@ -18,9 +18,10 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Verified against `parseTaskInput` — every chip below is a field the parser
- * actually returns for this exact string. `/tomorrow` is what *schedules* a
- * task; a bare "tomorrow" sets a deadline instead, which is the distinction
- * the rest of the page is about, so the demo must not blur it.
+ * actually returns for this exact string. Both `/tomorrow` and a bare
+ * "tomorrow" *schedule* the task; only "due"/"deadline" produces a deadline,
+ * which is the distinction the rest of the page is about, so the demo must not
+ * blur it by showing a plain date as one.
  */
 const PHRASE = "/tomorrow Email Priya the Q3 numbers ~30m #finance p1";
 

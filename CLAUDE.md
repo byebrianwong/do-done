@@ -23,6 +23,18 @@ clients most of all — read the rarely-set deadline as the schedule and reporte
 fully planned week as empty. The names now carry the meaning unaided, so nothing
 has to be disambiguated in prose. `overdue` is a different word and stays.
 
+**The quick-add parser is the one place that word is heard rather than
+spoken.** `parseTaskInput` sends every date chrono finds to `scheduled_date`
+— "buy milk tomorrow", "ship it friday 9am" — and produces a `deadline_date`
+only when "due" or "deadline" introduces the date ("submit report due friday").
+That's the same ratio argument as above, applied to input: reading "tomorrow"
+as a deadline left the task unscheduled and out of every day-based view.
+Deliberately narrow — "by friday" is a schedule, because it is also how people
+say the day they'll get to something. `DEADLINE_MARKER_PATTERN` in
+`packages/task-engine/src/parser.ts` is the rule. Copy that teaches the keyword
+(the landing page's "'due friday' — a hard deadline instead") is the sanctioned
+exception to the ban: it is quoting an input token, not naming a field.
+
 These were `when_date` / `when_time` / `due_date` / `due_time` until
 `supabase/migrations/20260804000001_rename_task_date_fields.sql`. That migration
 also recreates both calendar functions, since a plpgsql body is stored as text

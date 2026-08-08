@@ -66,6 +66,26 @@ const ESTIMATE_PREFIX_PATTERN = /~\s*(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|mi
 const TAG_PATTERN = /#(\w+)/g;
 const PROJECT_PATTERN = /(?:\/|project:)(\S+)/i;
 
+// What makes a date a *deadline* instead of a schedule.
+//
+// Everything chrono finds is `scheduled_date` — the day the user plans to DO
+// the task — unless the words "due" or "deadline" introduce it. That's the way
+// round the ratio demands: nearly every dated task has a scheduled date and
+// almost none has a deadline, so reading "buy milk tomorrow" as a deadline left
+// the task unscheduled and invisible to every view that schedules by day.
+//
+// Matched against the text immediately *before* the date chrono found, so:
+//   "submit report friday"        → scheduled_date = friday
+//   "submit report due friday"    → deadline_date  = friday
+//   "submit report due by friday" → deadline_date  = friday
+// The optional tail absorbs the connector chrono leaves behind ("due by",
+// "deadline: ", "due date"), so the marker comes out of the title whole.
+// Deliberately narrow: "by friday" alone is NOT a deadline. It reads like one
+// in English, but it's also how people say the day they'll get to something,
+// and the cost of guessing wrong is a task nobody sees.
+const DEADLINE_MARKER_PATTERN =
+  /\b(?:due|deadline)\b[\s:,-]*(?:date\b[\s:,-]*)?(?:by|on|before|at|is|for)?[\s:,-]*$/i;
+
 // URLs must survive parsing verbatim. A raw link like
 // "https://example.com/a/b#c" is full of characters the extractors below claim:
 // the scheme's `//` reads as a `/project` delimiter (truncating the title at
@@ -195,34 +215,67 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     text = text.replace(recMatch.matched, "").trim();
   }
 
-  // Extract dates using chrono — produces deadline_date / deadline_time.
-  // The new /today, /tomorrow slash commands above produce scheduled_date instead,
-  // so both can coexist (e.g. "/today review PR by friday" → scheduled_date=today,
-  // deadline_date=friday).
+  // Extract dates using chrono. A plain date is the day the user plans to do
+  // the task (scheduled_date); only one introduced by "due"/"deadline" becomes
+  // deadline_date. The /today, /tomorrow slash commands above already produced
+  // a scheduled_date, so both can coexist (e.g. "/today review PR due friday"
+  // → scheduled_date=today, deadline_date=friday).
+  let scheduledTime: string | undefined;
   let deadlineDate: string | undefined;
   let deadlineTime: string | undefined;
-  const chronoResults = chrono.parse(text, ref, { forwardDate: true });
-  if (chronoResults.length > 0) {
-    const result = chronoResults[0];
+  let tookScheduledFromText = false;
+  // [start, end) spans to cut out of the title once every result is classified;
+  // splicing as we go would invalidate the indexes of the results after it.
+  const dateCuts: [number, number][] = [];
+
+  for (const result of chrono.parse(text, ref, { forwardDate: true })) {
+    const marker = DEADLINE_MARKER_PATTERN.exec(text.slice(0, result.index));
+    // One date per field. A second date of the same kind stays in the title
+    // rather than being swallowed by a field that can't hold it.
+    if (marker ? deadlineDate !== undefined : tookScheduledFromText) continue;
+
     const start = result.start;
-
     const d = start.date();
-    deadlineDate = toISODate(d);
-
+    let time: string | undefined;
     if (start.isCertain("hour")) {
       const hours = String(d.getHours()).padStart(2, "0");
       const minutes = String(d.getMinutes()).padStart(2, "0");
-      deadlineTime = `${hours}:${minutes}`;
+      time = `${hours}:${minutes}`;
     }
 
-    text = text.replace(result.text, "").trim();
+    if (marker) {
+      deadlineDate = toISODate(d);
+      deadlineTime = time;
+    } else {
+      tookScheduledFromText = true;
+      // A /slash command is the more deliberate statement of the day, so it
+      // keeps it — but a time typed in prose ("/today call mum at 3pm") has
+      // nothing to collide with and still applies.
+      scheduledDate ??= toISODate(d);
+      scheduledTime = time;
+    }
+
+    dateCuts.push([
+      marker ? marker.index : result.index,
+      result.index + result.text.length,
+    ]);
   }
+
+  for (const [start, end] of dateCuts.reverse()) {
+    text = `${text.slice(0, start)} ${text.slice(end)}`;
+  }
+  text = text.trim();
 
   // Clean up extra whitespace and orphan `#` chars left over when a
   // shortcut consumed only the body of a `#token` (e.g. priority match
   // `\bp2\b` strips "p2" out of "#p2" but leaves the leading `#`).
+  // A cut date takes its own spacing with it but not the punctuation around it
+  // ("draft memo tomorrow, due friday" → "draft memo ,"), so close the gap in
+  // front of any punctuation the cut orphaned. URLs are still masked here, so
+  // this can't touch one.
   const cleaned = text
     .replace(/(^|\s)#(?=\s|$)/g, "$1")
+    .replace(/\s+([,.;:])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -232,6 +285,7 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
   return {
     title: title || raw.trim(),
     ...(scheduledDate && { scheduled_date: scheduledDate }),
+    ...(scheduledTime && { scheduled_time: scheduledTime }),
     ...(deadlineDate && { deadline_date: deadlineDate }),
     ...(deadlineTime && { deadline_time: deadlineTime }),
     ...(priority && { priority }),

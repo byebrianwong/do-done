@@ -37,9 +37,15 @@ describe("buildCreateInput — merge precedence", () => {
   });
 
   it("lets a seeded scheduled_date coexist with a parsed deadline_date", () => {
+    const out = buildCreateInput("submit report due friday", { scheduled_date: "2026-06-20" }, REF);
+    expect(out.scheduled_date).toBe("2026-06-20");
+    expect(typeof out.deadline_date).toBe("string"); // "due friday" → a deadline
+  });
+
+  it("lets a seeded scheduled_date win over a typed one (a bare date schedules)", () => {
     const out = buildCreateInput("submit report friday", { scheduled_date: "2026-06-20" }, REF);
     expect(out.scheduled_date).toBe("2026-06-20");
-    expect(typeof out.deadline_date).toBe("string"); // "friday" → a deadline
+    expect(out.deadline_date).toBeUndefined();
   });
 
   it("passes parsed tags and estimate through untouched", () => {
