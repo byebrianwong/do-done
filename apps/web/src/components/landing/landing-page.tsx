@@ -286,8 +286,8 @@ function QuickAddSection() {
             </p>
             <ul className="mt-6 space-y-2.5">
               {[
-                "“/tomorrow”, “/week”, “/weekend” — the day you’ll do it",
-                "“friday”, “next monday” — read as a hard deadline",
+                "“tomorrow”, “friday 9am”, “/week” — the day you’ll do it",
+                "“due friday”, “deadline the 30th” — a hard deadline instead",
                 "“~30m” estimates, “p1” prioritises, “#finance” tags",
               ].map((line) => (
                 <li

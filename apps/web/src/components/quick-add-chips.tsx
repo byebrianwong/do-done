@@ -374,6 +374,7 @@ export function ParsedPreview({
         className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
       >
         {parsed.scheduled_date}
+        {parsed.scheduled_time ? ` ${parsed.scheduled_time}` : ""}
       </span>
     );
   // Only present when a typed `#name` / `/name` matched a real project, and
