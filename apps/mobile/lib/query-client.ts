@@ -1,5 +1,5 @@
 import { AppState, Platform } from 'react-native';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { QueryClient, focusManager } from '@tanstack/react-query';
 
@@ -51,4 +51,33 @@ export function useRefreshOnFocus(refetch: () => void) {
       refetch();
     }, [refetch])
   );
+}
+
+/**
+ * Pull-to-refresh state that belongs to the **gesture**, not to the query.
+ *
+ * `<RefreshControl refreshing={isRefetching} />` reads as obviously right and
+ * isn't: `useRefreshOnFocus` above refires every query on every tab switch, so
+ * that binding made the platform draw its pull-to-refresh spinner — a control
+ * the user is meant to have dragged into view — unprompted at the top of every
+ * list, on every tap of the tab bar. A circle appearing out of a gesture nobody
+ * made reads as a glitch, and it fired even when the refetch resolved from
+ * cache in a few milliseconds.
+ *
+ * A background refresh already has its own, quieter signal: `UpdatingBar`,
+ * which self-delays ~350ms so a fast one shows nothing at all. This spinner is
+ * reserved for the drag that asked for it, and stays up for as long as that
+ * drag's refetch actually takes.
+ */
+export function usePullToRefresh(refetch: () => Promise<unknown> | unknown) {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    // refetch() settles when the request does, whatever its outcome — a failed
+    // refresh has to release the spinner too, or the list is stuck spinning.
+    Promise.resolve(refetch()).finally(() => setRefreshing(false));
+  }, [refetch]);
+
+  return { refreshing, onRefresh };
 }

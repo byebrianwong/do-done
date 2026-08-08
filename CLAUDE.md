@@ -383,6 +383,14 @@ Three pieces, all under `apps/mobile`:
   on every tab switch, so a bar bound straight to `isFetching` strobes), and
   `ListError` — without which an offline first launch pulses a skeleton forever.
 
+That bar is the **only** signal a background refresh gets. `RefreshControl`'s
+spinner is the *gesture's*, and every list drives it from `usePullToRefresh`
+(`lib/query-client.ts`) rather than from the query's `isRefetching`. The
+obvious-looking `refreshing={isRefetching}` was the same `useRefreshOnFocus`
+trap one line up: a refetch fires on every tab switch, so the platform drew its
+pull-to-refresh circle — a control the user is meant to have *dragged* into
+view — unprompted at the top of every list on every tap of the tab bar.
+
 The cache is restored **only for the account that wrote it**, and that check
 lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
 event resolve independently, so clearing after the fact is a race the previous

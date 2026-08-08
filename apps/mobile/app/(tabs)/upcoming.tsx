@@ -33,7 +33,7 @@ import {
   useProjectsWithCounts,
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
@@ -129,13 +129,14 @@ export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tasksQuery = useAllTasks();
-  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('upcoming');
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
@@ -253,7 +254,7 @@ export default function UpcomingScreen() {
   );
 
   const refreshControl = (
-    <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
   );
 
   return (

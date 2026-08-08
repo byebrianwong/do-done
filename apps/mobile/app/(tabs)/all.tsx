@@ -18,7 +18,7 @@ import {
   useAllTasks,
   useProjectsWithCounts,
 } from '@/lib/task-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
@@ -27,13 +27,14 @@ export default function AllTasksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tasksQuery = useAllTasks();
-  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('all');
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
@@ -87,7 +88,7 @@ export default function AllTasksScreen() {
           onConfigChange={setConfig}
           onTaskPress={handlePress}
           refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
           }
           contentContainerStyle={styles.listContent}
         />

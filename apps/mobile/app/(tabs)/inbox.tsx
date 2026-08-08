@@ -16,7 +16,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { invalidateTasks, reorderTasks, useInboxTasks } from '@/lib/task-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
@@ -24,12 +24,13 @@ export default function InboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const inboxQuery = useInboxTasks();
-  const { data: tasks = [], isRefetching, refetch } = inboxQuery;
+  const { data: tasks = [], refetch } = inboxQuery;
   const loadState = useListLoadState(inboxQuery);
   const [order, setOrder] = useState<Task[]>([]);
   const [editing, setEditing] = useState<Task | null>(null);
 
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   // Mirror the server-derived list into a drag-reorderable copy. Key the
   // re-sync on task *content*, not just ids: a field edit (e.g. priority) keeps
@@ -80,8 +81,8 @@ export default function InboxScreen() {
         onDragEnd={({ data }) => persistOrder(data)}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             tintColor="#6366f1"
           />
         }
