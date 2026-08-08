@@ -34,7 +34,7 @@ import {
   useTodayTasks,
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
@@ -89,7 +89,7 @@ export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const todayQuery = useTodayTasks();
-  const { data: allTasks = [], isRefetching, refetch } = todayQuery;
+  const { data: allTasks = [], refetch } = todayQuery;
   // Whether we have an answer at all — "Nothing scheduled today" is only ever
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.
@@ -107,6 +107,7 @@ export default function TodayScreen() {
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
@@ -279,7 +280,7 @@ export default function TodayScreen() {
             onReorder={onReorder}
             onMove={onMove}
             refreshControl={
-              <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
             }
             ListHeaderComponent={
               <>
@@ -298,7 +299,7 @@ export default function TodayScreen() {
           onConfigChange={setConfig}
           onTaskPress={handlePress}
           refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#6366f1" />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
           }
           contentContainerStyle={styles.listContent}
         />

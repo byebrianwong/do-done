@@ -17,7 +17,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { invalidateTasks, useProject, useProjectTasks } from '@/lib/task-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
@@ -29,9 +29,10 @@ export default function ProjectDetailScreen() {
 
   const { data: project } = useProject(projectId);
   const tasksQuery = useProjectTasks(projectId);
-  const { data: tasks = [], isRefetching, refetch } = tasksQuery;
+  const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const [editing, setEditing] = useState<Task | null>(null);
   const handlePress = useCallback((t: Task) => setEditing(t), []);
@@ -99,8 +100,8 @@ export default function ProjectDetailScreen() {
         }
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             tintColor="#6366f1"
           />
         }

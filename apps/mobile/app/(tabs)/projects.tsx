@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Project } from '@do-done/shared';
 
 import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import { ProjectFormSheet } from '@/components/ProjectFormSheet';
 import {
@@ -25,9 +25,10 @@ export default function ProjectsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const projectsQuery = useProjectsWithCounts();
-  const { data: projects = [], isRefetching, refetch } = projectsQuery;
+  const { data: projects = [], refetch } = projectsQuery;
   const loadState = useListLoadState(projectsQuery);
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   // Local copy so a drag reorders instantly; re-seeded whenever the server list
   // changes (a create, a reconcile after reorder, another device's edit).
@@ -104,8 +105,8 @@ export default function ProjectsScreen() {
         onDragEnd={handleDragEnd}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             tintColor="#6366f1"
           />
         }

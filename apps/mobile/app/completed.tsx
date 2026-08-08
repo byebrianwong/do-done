@@ -14,7 +14,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useCompletedTasks } from '@/lib/task-queries';
-import { useRefreshOnFocus } from '@/lib/query-client';
+import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
@@ -58,9 +58,10 @@ function groupByDay(tasks: Task[]): Section[] {
 
 export default function CompletedScreen() {
   const completedQuery = useCompletedTasks();
-  const { data: tasks = [], isRefetching, refetch } = completedQuery;
+  const { data: tasks = [], refetch } = completedQuery;
   const loadState = useListLoadState(completedQuery);
   useRefreshOnFocus(refetch);
+  const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const sections = groupByDay(tasks);
 
@@ -94,8 +95,8 @@ export default function CompletedScreen() {
         }
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             tintColor="#6366f1"
           />
         }
