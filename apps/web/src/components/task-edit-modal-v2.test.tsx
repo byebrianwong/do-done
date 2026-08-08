@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { TASK_DESCRIPTION_MAX_LENGTH } from "@do-done/shared";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
-import { makeTask } from "./__stories__/mocks";
+import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -456,6 +456,36 @@ describe("Title `#token` shortcuts", () => {
     fireEvent.blur(input, { target: { value: "email bob #work" } });
     expect(setFieldSpy).toHaveBeenCalledWith("tags", ["work"]);
     expect(setFieldSpy).toHaveBeenCalledWith("title", "email bob");
+  });
+
+  it("files a #token naming one of the modal's projects, instead of tagging it", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ title: "" })}
+        open
+        onClose={vi.fn()}
+        projects={SAMPLE_PROJECTS}
+      />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value: "email bob #engineering " } });
+    expect(setFieldSpy).toHaveBeenCalledWith("project_id", "proj-1");
+    expect(setFieldSpy).not.toHaveBeenCalledWith("tags", ["engineering"]);
+    expect(setFieldSpy).toHaveBeenCalledWith("title", "email bob");
+  });
+
+  it("still tags a #token that names no project", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ title: "" })}
+        open
+        onClose={vi.fn()}
+        projects={SAMPLE_PROJECTS}
+      />
+    );
+    const input = screen.getByPlaceholderText("Task title or /command…");
+    fireEvent.change(input, { target: { value: "email bob #work " } });
+    expect(setFieldSpy).toHaveBeenCalledWith("tags", ["work"]);
   });
 
   it("absorbs a trailing token when Esc closes the modal", async () => {

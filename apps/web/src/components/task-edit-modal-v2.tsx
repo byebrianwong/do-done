@@ -2421,6 +2421,16 @@ function TaskEditModalBody({
     setTitleDraft(current.title);
   }, [current.title]);
 
+  // Projects created via the inline picker are merged locally so the Project
+  // field can show them immediately; router.refresh on close reconciles.
+  // Declared above `absorbTitle` because a typed `#name` is matched against
+  // this list, inline-created projects included.
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const allProjects = useMemo(
+    () => [...(projects ?? []), ...createdProjects],
+    [projects, createdProjects]
+  );
+
   /**
    * Pull `#token` shortcuts out of the title and into their real fields.
    * Returns true when something was consumed.
@@ -2433,11 +2443,13 @@ function TaskEditModalBody({
       tags: extracted,
       priority: extractedPriority,
       durationMinutes: extractedDuration,
-    } = extractTitleShortcuts(v, flushTrailing);
+      projectId: extractedProjectId,
+    } = extractTitleShortcuts(v, flushTrailing, allProjects);
     const consumed =
       extracted.length > 0 ||
       extractedPriority !== undefined ||
-      extractedDuration !== undefined;
+      extractedDuration !== undefined ||
+      extractedProjectId !== undefined;
     if (consumed) {
       if (extracted.length > 0) {
         const existing = new Set(current.tags);
@@ -2446,6 +2458,7 @@ function TaskEditModalBody({
       }
       if (extractedPriority) setField("priority", extractedPriority);
       if (extractedDuration) setField("duration_minutes", extractedDuration);
+      if (extractedProjectId) setField("project_id", extractedProjectId);
       setTitleDraft(stripped);
       if (stripped !== current.title) setField("title", stripped);
     } else if (v !== current.title) {
@@ -2474,14 +2487,6 @@ function TaskEditModalBody({
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Projects created via the inline picker are merged locally so the Project
-  // field can show them immediately; router.refresh on close reconciles.
-  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
-  const allProjects = useMemo(
-    () => [...(projects ?? []), ...createdProjects],
-    [projects, createdProjects]
-  );
 
   const [busyness, setBusyness] = useState<DayBusyness[]>([]);
   useEffect(() => {

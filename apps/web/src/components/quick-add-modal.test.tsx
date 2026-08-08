@@ -3,14 +3,19 @@ import { act } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QuickAddModal } from "./quick-add-modal";
 import { OPEN_QUICK_ADD_EVENT } from "@/lib/quick-add-events";
-import { makeTask } from "./__stories__/mocks";
+import { QuickAddProvider } from "@/lib/quick-add-context";
+import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
+import type { CreateTaskInput, Task } from "@do-done/shared";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
 const createdTask = makeTask({ id: "new-1", title: "Buy milk", user_id: "user-1" });
-const createMock = vi.fn(async () => ({ data: createdTask, error: null }));
+// Typed on its input so a test can inspect what quick-add actually sent.
+const createMock = vi.fn<
+  (input: CreateTaskInput) => Promise<{ data: Task; error: null }>
+>(async () => ({ data: createdTask, error: null }));
 
 // The submit path goes through getClientTasksApi; stub it so we don't need a
 // real Supabase session (the shared mock's getUser() resolves to null).
@@ -149,5 +154,49 @@ describe("QuickAddModal", () => {
     // The lightweight quick-add closed and the full editor took over.
     expect(screen.queryByLabelText("Quick add task")).toBeNull();
     expect(await screen.findByText(/auto-save/i)).toBeInTheDocument();
+  });
+});
+
+describe("QuickAddModal — typing #project", () => {
+  // The parse gets its project list from QuickAddProvider, not from the modal's
+  // own prop, so the wiring only holds inside the provider the app layout mounts.
+  function renderInProvider() {
+    render(
+      <QuickAddProvider projects={SAMPLE_PROJECTS} userId="user-1">
+        <QuickAddModal projects={SAMPLE_PROJECTS} userId="user-1" />
+      </QuickAddProvider>
+    );
+    openViaEvent();
+    return screen.getByLabelText("Task title");
+  }
+
+  it("previews the matched project instead of a tag", () => {
+    const input = renderInProvider();
+    fireEvent.change(input, { target: { value: "buy milk #engineering" } });
+    expect(screen.getByText("#Engineering")).toBeInTheDocument();
+  });
+
+  it("creates the task in that project, with the token out of the title", async () => {
+    const input = renderInProvider();
+    fireEvent.change(input, { target: { value: "buy milk #engineering" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^add task$/i }));
+    });
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "buy milk", project_id: "proj-1" })
+    );
+    expect(createMock.mock.calls[0][0]).not.toHaveProperty("tags");
+  });
+
+  it("still tags a token naming no project", async () => {
+    const input = renderInProvider();
+    fireEvent.change(input, { target: { value: "buy milk #errands" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^add task$/i }));
+    });
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "buy milk", tags: ["errands"] })
+    );
+    expect(createMock.mock.calls[0][0]).not.toHaveProperty("project_id");
   });
 });

@@ -123,4 +123,58 @@ describe("extractTitleShortcuts", () => {
       expect(r.stripped).toBe("read s notes");
     });
   });
+
+  describe("project matching", () => {
+    const PROJECTS = [
+      { id: "p-home", name: "Home" },
+      { id: "p-side", name: "Side Project" },
+    ];
+
+    it("routes a #token naming a project to projectId, not tags", () => {
+      const r = extractTitleShortcuts("fix the sink #home ", false, PROJECTS);
+      expect(r.projectId).toBe("p-home");
+      expect(r.tags).toEqual([]);
+      expect(r.stripped).toBe("fix the sink");
+    });
+
+    it("matches a multi-word name through its normalised key", () => {
+      expect(
+        extractTitleShortcuts("ship #sideproject ", false, PROJECTS).projectId
+      ).toBe("p-side");
+      expect(
+        extractTitleShortcuts("ship #Side_Project ", false, PROJECTS).projectId
+      ).toBe("p-side");
+    });
+
+    it("still tags a token that names no project", () => {
+      const r = extractTitleShortcuts("fix the sink #plumbing ", false, PROJECTS);
+      expect(r.projectId).toBeUndefined();
+      expect(r.tags).toEqual(["plumbing"]);
+    });
+
+    it("tags every token when no project list is passed", () => {
+      const r = extractTitleShortcuts("fix the sink #home ");
+      expect(r.projectId).toBeUndefined();
+      expect(r.tags).toEqual(["home"]);
+    });
+
+    it("lets size and priority codes win over a same-named project", () => {
+      const r = extractTitleShortcuts("ship #m #p1 ", false, [
+        { id: "p-m", name: "M" },
+        { id: "p-p1", name: "p1" },
+      ]);
+      expect(r.durationMinutes).toBe(120);
+      expect(r.priority).toBe("p1");
+      expect(r.projectId).toBeUndefined();
+    });
+
+    it("waits for a terminator like every other token", () => {
+      expect(
+        extractTitleShortcuts("fix the sink #home", false, PROJECTS).projectId
+      ).toBeUndefined();
+      expect(
+        extractTitleShortcuts("fix the sink #home", true, PROJECTS).projectId
+      ).toBe("p-home");
+    });
+  });
 });

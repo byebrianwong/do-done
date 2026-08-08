@@ -376,6 +376,18 @@ export function ParsedPreview({
         {parsed.scheduled_date}
       </span>
     );
+  // Only present when a typed `#name` / `/name` matched a real project, and
+  // `parsed.project` is then that project's own name — so this echoes what will
+  // actually be set, not the token as typed.
+  if (parsed.project_id && parsed.project)
+    chips.push(
+      <span
+        key="project"
+        className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+      >
+        #{parsed.project}
+      </span>
+    );
   if (parsed.deadline_date)
     chips.push(
       <span

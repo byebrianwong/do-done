@@ -91,8 +91,8 @@ export default function QuickAddBar({
 
   // The screen's project seeds the chip, so the project page's bar shows where
   // the task is going — and lets the user redirect it without leaving.
-  const fields = useQuickAddFields({ projectId: projectId ?? null });
   const { data: projects } = useProjects();
+  const fields = useQuickAddFields({ projectId: projectId ?? null }, projects);
 
   // Collapse back to one line only once the bar is truly idle: still-focused,
   // half-typed, or chip-carrying states all stay open (matches the web bar).
@@ -222,7 +222,7 @@ export default function QuickAddBar({
       />
 
       {/* Deadline / tags / recurrence only — the chips below own the rest. */}
-      <ParsePreview text={text} omitChipFields />
+      <ParsePreview text={text} omitChipFields projects={projects} />
 
       <View style={styles.card}>
         <View style={styles.titleRow}>

@@ -235,6 +235,45 @@ which the login wall previously made impossible.
   account behind it), and `AppShell` takes `userEmail={null}`, which is what
   suppresses the Pip panel — Pip reads its state from the database.
 
+## `#` in a title: project first, tag otherwise
+
+A `#token` is classified against the user's own project list, Todoist-style:
+`#groceries` files the task into **Groceries** when that project exists, and is
+a tag when it doesn't. Precedence inside a token is fixed —
+`#xs`…`#xxl` (estimate) → `#p1`…`#p4` (priority) → project → tag — so a project
+named "M" loses to the size code rather than shadowing it.
+
+Two pieces do the work and **must agree**, since the same text is read by both:
+`parseTaskInput` (`packages/task-engine`) parses a whole quick-add string at
+submit, and `extractTitleShortcuts` (`packages/shared`) is the live absorber the
+title fields run on every keystroke. Both take the project list as an *optional*
+argument and both delegate the match to `matchProject` in
+`packages/shared/src/project-match.ts`. Omit the list — Storybook, the mobile
+widget root, any surface with no projects to hand — and every token is a tag,
+exactly as before.
+
+- **Matching is on a normalised key** (lowercase, alphanumerics only). A token
+  is `\w+`, so it can never carry a space; without normalising both sides,
+  every multi-word project would be unreachable by typing. `#sideproject` and
+  `#side_project` both reach "Side Project". A name that normalises to nothing
+  (emoji-only) matches nothing rather than matching everything.
+- **The surfaces differ in where the match lands, and each is internally
+  consistent.** Mobile's absorber fills the Project *chip*, the same way it
+  already fills Priority and Estimate. Web has no absorber in quick-add, so the
+  match shows in `ParsedPreview` — an honest echo that updates as the text
+  changes — and the chip stays the explicit override, exactly as typed `p1` has
+  always behaved there.
+- **A typed project beats the section's**, on the same rule as priority: adding
+  inside "Work" and typing `#home` means Home. An explicit chip still wins over
+  both.
+- **The parse needs a project list, so it reads `QuickAddProvider`** on web
+  (`useQuickAdd` → `useQuickAddContext`), not a prop — which is why a project
+  created inline from the quick-add modal is registered with the provider too,
+  or it couldn't be typed by name until the next page load.
+
+`/name` resolves against the same list; unmatched, it stays the bare name it
+always was (`parsed.project`), and only `parsed.project_id` ever reaches a task.
+
 ## Linking to a task (web)
 
 Every task has an address, and the editor keeps the address bar honest:

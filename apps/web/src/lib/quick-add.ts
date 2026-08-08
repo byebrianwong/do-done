@@ -2,6 +2,7 @@ import { parseTaskInput } from "@do-done/task-engine";
 import type {
   CreateTaskInput,
   GroupDropTarget,
+  ProjectRef,
   TaskPriority,
   TaskStatus,
 } from "@do-done/shared";
@@ -28,18 +29,21 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  *  - scheduled_date   ← seed wins when set (the column IS the date), else parsed
  *  - status      ← seed wins when set, else default
  *  - priority    ← parsed wins over seed (the one genuine collision)
- *  - project_id  ← seed wins (the parser yields a name, never a UUID)
+ *  - project_id  ← parsed wins when a typed `#name` matched, else seed
  *  - tags / due_* / duration / recurrence ← parsed only
  *
- * `parsed.project` is a *name* (`/groceries`), not a UUID, so it cannot become
- * `project_id` — it is intentionally dropped (the chips set `project_id`).
+ * A `#name` or `/name` that matches one of `projects` resolves to a real
+ * `project_id` and beats the section's, on the same rule as priority: naming a
+ * project is deliberate. `parsed.project` on its own is only a *name* (a
+ * `/typo` matching nothing), so it stays dropped — the chips set `project_id`.
  */
 export function buildCreateInput(
   raw: string,
   seed: QuickAddSeed = {},
-  referenceDate?: Date
+  referenceDate?: Date,
+  projects?: readonly ProjectRef[]
 ): CreateTaskInput {
-  const parsed = parseTaskInput(raw, referenceDate);
+  const parsed = parseTaskInput(raw, referenceDate, { projects });
 
   const input: CreateTaskInput = {
     title: parsed.title,
@@ -48,6 +52,7 @@ export function buildCreateInput(
     ...(parsed.scheduled_time && { scheduled_time: parsed.scheduled_time }),
     ...(parsed.deadline_date && { deadline_date: parsed.deadline_date }),
     ...(parsed.deadline_time && { deadline_time: parsed.deadline_time }),
+    ...(parsed.project_id && { project_id: parsed.project_id }),
     ...(parsed.duration_minutes && { duration_minutes: parsed.duration_minutes }),
     ...(parsed.tags && parsed.tags.length > 0 && { tags: parsed.tags }),
     ...(parsed.recurrence_rule && { recurrence_rule: parsed.recurrence_rule }),
@@ -59,8 +64,8 @@ export function buildCreateInput(
   // Typed priority wins; otherwise inherit the section's priority.
   if (!input.priority && seed.priority) input.priority = seed.priority;
 
-  // The parser can't produce a project_id, so the section's project applies.
-  if (seed.project_id) input.project_id = seed.project_id;
+  // A typed `#project` wins; otherwise inherit the section's project.
+  if (!input.project_id && seed.project_id) input.project_id = seed.project_id;
 
   // The column IS the date: a seeded scheduled_date wins over a typed one.
   if (seed.scheduled_date) input.scheduled_date = seed.scheduled_date;

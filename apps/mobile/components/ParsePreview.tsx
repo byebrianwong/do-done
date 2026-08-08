@@ -9,7 +9,11 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
-import { PRIORITY_CONFIG, formatDuration } from '@do-done/shared';
+import {
+  PRIORITY_CONFIG,
+  formatDuration,
+  type ProjectRef,
+} from '@do-done/shared';
 import { PRIORITY_COLORS } from './TaskEditModalV2';
 
 function dateLabel(iso: string): string {
@@ -31,6 +35,7 @@ type ChipSpec = {
 export default function ParsePreview({
   text,
   omitChipFields = false,
+  projects,
 }: {
   text: string;
   /**
@@ -39,12 +44,27 @@ export default function ParsePreview({
    * don't cover (deadline, tags, recurrence).
    */
   omitChipFields?: boolean;
+  /**
+   * The same list the host's absorber matches `#name` against — without it the
+   * preview would call a project token a tag while the create files it as a
+   * project.
+   */
+  projects?: readonly ProjectRef[];
 }) {
   const chips = useMemo<ChipSpec[]>(() => {
     const trimmed = text.trim();
     if (!trimmed) return [];
-    const parsed = parseTaskInput(trimmed);
+    const parsed = parseTaskInput(trimmed, undefined, { projects });
     const out: ChipSpec[] = [];
+
+    if (parsed.project_id && parsed.project) {
+      out.push({
+        key: 'project',
+        icon: 'folder-outline',
+        label: parsed.project,
+        color: '#4338ca',
+      });
+    }
 
     if (!omitChipFields && parsed.scheduled_date) {
       out.push({
@@ -95,7 +115,7 @@ export default function ParsePreview({
       });
     }
     return out;
-  }, [text, omitChipFields]);
+  }, [text, omitChipFields, projects]);
 
   if (chips.length === 0) return null;
 

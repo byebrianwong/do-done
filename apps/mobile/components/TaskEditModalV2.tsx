@@ -2074,6 +2074,17 @@ function Inner({
     [setField]
   );
 
+  // Projects created via the picker are merged locally so the field reflects
+  // them immediately; the query invalidate in createProject reconciles.
+  // Declared above `absorbTitle` because a typed `#name` is matched against
+  // this list, inline-created projects included.
+  const { data: projectsData } = useProjects();
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const allProjects = useMemo(
+    () => [...(projectsData ?? []), ...createdProjects],
+    [projectsData, createdProjects]
+  );
+
   /**
    * Absorb `#token` shortcuts out of the title into their real fields.
    *
@@ -2090,11 +2101,13 @@ function Inner({
       tags: extracted,
       priority: extractedPriority,
       durationMinutes: extractedDuration,
-    } = extractTitleShortcuts(v, flushTrailing);
+      projectId: extractedProjectId,
+    } = extractTitleShortcuts(v, flushTrailing, allProjects);
     const consumed =
       extracted.length > 0 ||
       extractedPriority !== undefined ||
-      extractedDuration !== undefined;
+      extractedDuration !== undefined ||
+      extractedProjectId !== undefined;
     if (consumed) {
       if (extracted.length > 0) {
         const existing = new Set(current.tags);
@@ -2103,6 +2116,7 @@ function Inner({
       }
       if (extractedPriority) setField("priority", extractedPriority);
       if (extractedDuration) setField("duration_minutes", extractedDuration);
+      if (extractedProjectId) setField("project_id", extractedProjectId);
       if (stripped !== current.title) setField("title", stripped);
     } else if (v !== current.title) {
       // Only write on a real change. Blur runs this on every focus loss, and an
@@ -2209,14 +2223,6 @@ function Inner({
 
   const { data: taskLocations = [] } = useTaskLocations(task.id);
 
-  // Projects created via the picker are merged locally so the field reflects
-  // them immediately; the query invalidate in createProject reconciles.
-  const { data: projectsData } = useProjects();
-  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
-  const allProjects = useMemo(
-    () => [...(projectsData ?? []), ...createdProjects],
-    [projectsData, createdProjects]
-  );
   const selectedProject = current.project_id
     ? allProjects.find((p) => p.id === current.project_id) ?? null
     : null;

@@ -1,6 +1,11 @@
 import * as chrono from "chrono-node";
-import type { ParsedTask, TaskPriority } from "@do-done/shared";
-import { addDaysLocalISO, nextWeekdayLocalISO, todayLocalISO } from "@do-done/shared";
+import type { ParsedTask, ProjectRef, TaskPriority } from "@do-done/shared";
+import {
+  addDaysLocalISO,
+  matchProject,
+  nextWeekdayLocalISO,
+  todayLocalISO,
+} from "@do-done/shared";
 import { detectRecurrence } from "./recurrence.js";
 
 const PRIORITY_PATTERNS: [RegExp, TaskPriority][] = [
@@ -102,9 +107,25 @@ function toISODate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
+export interface ParseTaskOptions {
+  /**
+   * The user's projects, for matching a typed `#name` / `/name` to a real one.
+   *
+   * Omit them and a `#token` is a tag and `/token` a bare project *name*, which
+   * is all this parser could produce before — so every existing caller keeps
+   * its old behaviour, and only the surfaces that pass a list gain `project_id`.
+   */
+  projects?: readonly ProjectRef[];
+}
+
+export function parseTaskInput(
+  raw: string,
+  referenceDate?: Date,
+  options: ParseTaskOptions = {}
+): ParsedTask {
   let text = raw.trim();
   const ref = referenceDate ?? new Date();
+  const knownProjects = options.projects;
 
   // Mask URLs first so the token extractors below can't chew through the
   // characters that are legal inside a link (`//`, `:`, `#`, `1h` path bits).
@@ -145,22 +166,36 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     }
   }
 
-  // Extract tags
+  // Extract tags — except that a `#token` naming one of the user's projects is
+  // that project, not a tag (Todoist's `#project`). Only when a project list
+  // was supplied: with nothing to match against, every token is a tag as before.
   const tags: string[] = [];
+  let project: string | undefined;
+  let projectId: string | undefined;
   let tagMatch: RegExpExecArray | null;
   const tagRegex = new RegExp(TAG_PATTERN.source, "g");
   while ((tagMatch = tagRegex.exec(text)) !== null) {
-    tags.push(tagMatch[1]);
+    const hit = projectId ? undefined : matchProject(tagMatch[1], knownProjects);
+    if (hit) {
+      projectId = hit.id;
+      project = hit.name;
+    } else {
+      tags.push(tagMatch[1]);
+    }
   }
   text = text.replace(TAG_PATTERN, "").trim();
 
   // Extract project — skip reserved slash tokens (since /today etc. have
   // already been pulled out above, but a stray slash-command alias the
   // user mis-typed shouldn't accidentally become a project name).
-  let project: string | undefined;
   const projectMatch = PROJECT_PATTERN.exec(text);
   if (projectMatch && !RESERVED_SLASH_TOKENS.has(projectMatch[1].toLowerCase())) {
-    project = projectMatch[1];
+    // A `#name` already resolved to a real project outranks a `/name` guess.
+    if (!projectId) {
+      const hit = matchProject(projectMatch[1], knownProjects);
+      project = hit ? hit.name : projectMatch[1];
+      projectId = hit?.id;
+    }
     text = text.replace(PROJECT_PATTERN, "").trim();
   }
 
@@ -236,6 +271,7 @@ export function parseTaskInput(raw: string, referenceDate?: Date): ParsedTask {
     ...(deadlineTime && { deadline_time: deadlineTime }),
     ...(priority && { priority }),
     ...(project && { project }),
+    ...(projectId && { project_id: projectId }),
     ...(tags.length > 0 && { tags }),
     ...(durationMinutes && { duration_minutes: durationMinutes }),
     ...(recurrenceRule && { recurrence_rule: recurrenceRule }),
