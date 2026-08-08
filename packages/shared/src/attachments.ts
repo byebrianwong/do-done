@@ -32,12 +32,19 @@ export const ATTACHMENT_TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
  * How an attachment renders.
  *
  * - `image`    — shown inline as a picture.
+ * - `audio`    — played inline; this is what a voice note comes back as.
  * - `markdown` — parsed and rendered as formatted text.
  * - `text`     — shown inline as monospaced plain text.
  * - `pdf`      — offered as a download; neither app embeds a PDF viewer.
  * - `file`     — anything else: a name, a size, and a download.
  */
-export type AttachmentKind = "image" | "markdown" | "text" | "pdf" | "file";
+export type AttachmentKind =
+  | "image"
+  | "audio"
+  | "markdown"
+  | "text"
+  | "pdf"
+  | "file";
 
 /** Extensions we treat as Markdown regardless of what the OS claimed. */
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd", "mdx"]);
@@ -79,6 +86,31 @@ const TEXT_EXTENSIONS = new Set([
   "kt",
 ]);
 
+/**
+ * Extensions that play as audio.
+ *
+ * `wav` earns its place at the front: it's what the speech recogniser persists
+ * on both platforms, so every voice note in the app arrives as one — and both
+ * Android's document picker and iOS hand a .wav over as
+ * `application/octet-stream` often enough that the MIME fallback alone would
+ * render the app's own recordings as anonymous download chips.
+ */
+const AUDIO_EXTENSIONS = new Set([
+  "wav",
+  "m4a",
+  "mp3",
+  "aac",
+  "caf",
+  "ogg",
+  "oga",
+  "opus",
+  "flac",
+  "amr",
+  "3gp",
+  "3gpp",
+  "weba",
+]);
+
 const IMAGE_EXTENSIONS = new Set([
   "png",
   "jpg",
@@ -118,6 +150,7 @@ export function attachmentKind(
   const ext = fileExtension(fileName);
   if (MARKDOWN_EXTENSIONS.has(ext)) return "markdown";
   if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
   if (ext === "pdf") return "pdf";
   if (TEXT_EXTENSIONS.has(ext)) return "text";
 
@@ -127,6 +160,10 @@ export function attachmentKind(
   // whatever <script> the file carries, in the app's own origin — so it stays a
   // download, and is excluded from IMAGE_EXTENSIONS above for the same reason.
   if (mime.startsWith("image/") && mime !== "image/svg+xml") return "image";
+  // Catches the containers not worth naming by extension — `audio/webm` above
+  // all, since a bare .webm could equally be video and the type is the only
+  // thing that says which.
+  if (mime.startsWith("audio/")) return "audio";
   if (mime === "application/pdf") return "pdf";
   if (mime.startsWith("text/")) return "text";
   return "file";

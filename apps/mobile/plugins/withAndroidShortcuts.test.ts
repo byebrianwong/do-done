@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { isVoiceLaunch } from '../lib/quick-add-launch';
 
 const require = createRequire(import.meta.url);
 const plugin = require('./withAndroidShortcuts.js');
@@ -18,9 +19,10 @@ const xml: string = shortcutsXml(PKG);
  * app on whatever screen it was already showing.
  */
 describe('withAndroidShortcuts', () => {
-  it('declares the four quick actions in launcher order', () => {
+  it('declares the five quick actions in launcher order', () => {
     expect(SHORTCUTS.map((s: { id: string }) => s.id)).toEqual([
       'quick-add',
+      'voice-add',
       'search',
       'today',
       'upcoming',
@@ -44,12 +46,27 @@ describe('withAndroidShortcuts', () => {
     );
     expect(quickAdd.activity).toBe('QuickAddActivity');
     expect(quickAdd.data).toBe('dodoneadd://open');
-    // Every other action wants the full app.
+    // Every action that isn't a capture surface wants the full app.
     for (const s of SHORTCUTS.filter(
-      (s: { id: string }) => s.id !== 'quick-add'
+      (s: { id: string }) => s.id !== 'quick-add' && s.id !== 'voice-add'
     )) {
       expect(s.activity).toBe('MainActivity');
     }
+  });
+
+  it('sends Voice task to the same activity, distinguished only by its URI', () => {
+    // The activity has no other way to tell the two entries apart — it reads
+    // this URI back through getInitialURL. Both halves are asserted here
+    // because a mismatch is silent: the composer just opens on the wrong one.
+    const voice = SHORTCUTS.find((s: { id: string }) => s.id === 'voice-add');
+    expect(voice.activity).toBe('QuickAddActivity');
+    expect(voice.data).toBe('dodoneadd://voice');
+    expect(isVoiceLaunch(voice.data)).toBe(true);
+
+    const quickAdd = SHORTCUTS.find(
+      (s: { id: string }) => s.id === 'quick-add'
+    );
+    expect(isVoiceLaunch(quickAdd.data)).toBe(false);
   });
 
   it('labels every shortcut with string resources, never literals', () => {

@@ -8,6 +8,7 @@ import {
   attachmentKind,
   formatFileSize,
   isTextKind,
+  isVoiceNoteFileName,
   type AttachmentKind,
   type TaskAttachment,
 } from "@do-done/shared";
@@ -43,6 +44,28 @@ function DocumentIcon({ className }: { className?: string }) {
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden>
+      <rect
+        x="6"
+        y="1.6"
+        width="4"
+        height="7.5"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path
+        d="M3.6 7.2a4.4 4.4 0 0 0 8.8 0M8 11.6v2.8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
       />
     </svg>
   );
@@ -267,6 +290,17 @@ function ImageLightbox({
   );
 }
 
+/**
+ * Kinds that render from the bytes themselves and so need a signed URL up
+ * front. Text kinds are excluded deliberately — they fetch their own content
+ * through `api.fetchText`, and signing them here would open a second request
+ * for each one.
+ */
+function needsSignedUrl(attachment: TaskAttachment): boolean {
+  const kind = attachmentKind(attachment.mime_type, attachment.file_name);
+  return kind === "image" || kind === "audio";
+}
+
 // ─── One attachment ────────────────────────────────────────
 
 function AttachmentCard({
@@ -362,6 +396,52 @@ function AttachmentCard({
     );
   }
 
+  if (kind === "audio") {
+    return (
+      <div className="overflow-hidden rounded-lg border border-neutral-100 bg-white dark:border-neutral-900 dark:bg-neutral-950">
+        <div className="flex items-center gap-2 px-3 pt-2">
+          <span className="shrink-0 text-neutral-400" aria-hidden>
+            <MicIcon className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-neutral-700 dark:text-neutral-300">
+            {/* A recording's stored name is a timestamp, which tells the
+                reader nothing the row's position doesn't. Say what it is. */}
+            {isVoiceNoteFileName(attachment.file_name)
+              ? "Voice note"
+              : attachment.file_name}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">
+            {formatFileSize(attachment.size_bytes)}
+          </span>
+          <RemoveButton
+            label={`Remove ${attachment.file_name}`}
+            busy={removing}
+            onClick={() => {
+              setRemoving(true);
+              onRemove();
+            }}
+          />
+        </div>
+        {url ? (
+          // The browser's own transport. It is keyboard-accessible, it has a
+          // scrubber and a speed control already, and a hand-rolled one would
+          // be a worse version of all three — the point here is only that a
+          // note recorded on the phone can be *heard* on the desktop.
+          <audio
+            src={url}
+            controls
+            preload="metadata"
+            className="w-full px-3 pb-2 pt-1.5"
+          />
+        ) : (
+          <div className="px-3 pb-3 pt-1.5 text-[12px] text-neutral-400">
+            Loading…
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (isTextKind(kind)) {
     return (
       <div className="overflow-hidden rounded-lg border border-neutral-100 bg-white dark:border-neutral-900 dark:bg-neutral-950">
@@ -446,9 +526,7 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
       const { data } = await api.list(taskId);
       if (cancelled) return;
       setAttachments(data);
-      const { data: signed } = await api.signedUrls(
-        data.filter((a) => attachmentKind(a.mime_type, a.file_name) === "image")
-      );
+      const { data: signed } = await api.signedUrls(data.filter(needsSignedUrl));
       if (!cancelled) setUrls(signed);
     })();
     return () => {
@@ -496,7 +574,7 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
           continue;
         }
         setAttachments((prev) => [...prev, data]);
-        if (attachmentKind(data.mime_type, data.file_name) === "image") {
+        if (needsSignedUrl(data)) {
           const { data: signed } = await api.signedUrls([data]);
           setUrls((prev) => new Map([...prev, ...signed]));
         }

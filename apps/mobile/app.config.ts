@@ -45,10 +45,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Domains capability onto the Apple app ID at build time.
     associatedDomains: ["webcredentials:dodone.byebrianwong.com"],
     infoPlist: {
+      // Both prompts have to say that the recording is *kept*, not just heard:
+      // a voice note is attached to the task alongside its transcript.
       NSMicrophoneUsageDescription:
-        "Allow DoDone to use the microphone for voice task entry.",
+        "Allow DoDone to record voice notes and attach them to your tasks.",
       NSSpeechRecognitionUsageDescription:
-        "Allow DoDone to recognize speech for voice task entry.",
+        "Allow DoDone to transcribe your voice notes into task titles and notes.",
       NSLocationWhenInUseUsageDescription:
         "Allow DoDone to remind you of tasks based on your location.",
       NSLocationAlwaysAndWhenInUseUsageDescription:

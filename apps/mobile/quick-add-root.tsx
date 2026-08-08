@@ -11,6 +11,12 @@
  * default back behavior → finishes QuickAddActivity and returns to the launcher.
  * Because the activity runs in its own task (taskAffinity="" in the manifest),
  * this only finishes this surface and never the main app.
+ *
+ * The activity answers two URIs, and the one it was launched with is the only
+ * thing that distinguishes them: `dodoneadd://open` (the 1x1 widget and the
+ * "Add task" shortcut) puts the keyboard up, `dodoneadd://voice` (the "Voice
+ * task" shortcut) starts recording. Same composer either way — a dictated task
+ * gets the same chips, the same parser and the same project as a typed one.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -28,22 +34,36 @@ import type { Session } from '@supabase/supabase-js';
 import type { Project, Task } from '@do-done/shared';
 
 import { getProjectsApi, supabase } from '@/lib/supabase';
+import { isVoiceLaunch } from '@/lib/quick-add-launch';
 import QuickAddComposer from '@/components/QuickAddComposer';
 
 function dismiss() {
   BackHandler.exitApp();
 }
 
+
 export default function QuickAddRoot() {
   // undefined = still loading the session, null = signed out, Session = signed in
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [projects, setProjects] = useState<Project[] | undefined>(undefined);
+  // undefined until the launch URL has been read. The composer must not mount
+  // before then: mounting with the default and correcting afterwards would put
+  // the keyboard up and then race a permission dialog over it.
+  const [voiceLaunch, setVoiceLaunch] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
     supabase.auth.getSession().then(({ data }) => {
       if (!cancelled) setSession(data.session);
     });
+    Linking.getInitialURL()
+      .then((url) => {
+        if (!cancelled) setVoiceLaunch(isVoiceLaunch(url));
+      })
+      // No URL is the ordinary "Add task" case, not a failure.
+      .catch(() => {
+        if (!cancelled) setVoiceLaunch(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -94,14 +114,17 @@ export default function QuickAddRoot() {
     dismiss();
   }, []);
 
+  const ready = session !== undefined && voiceLaunch !== undefined;
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <View style={styles.fill}>
           <Pressable style={styles.backdrop} onPress={dismiss} />
-          {session === undefined ? null : session ? (
+          {!ready ? null : session ? (
             <QuickAddComposer
-              autoFocus
+              autoFocus={!voiceLaunch}
+              autoRecord={voiceLaunch}
               projects={projects}
               onCreateProject={createProject}
               onExpand={openInApp}

@@ -29,9 +29,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Project, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
-import { IS_EXPO_GO } from '@/lib/runtime';
 import { createProjectOrNull, useProjects } from '@/lib/task-queries';
+import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
 import ParsePreview from './ParsePreview';
+import VoiceRecorder, { DictatedNote } from './VoiceRecorder';
 import TaskEditModalV2, { TagRow } from './TaskEditModalV2';
 import {
   QuickAddChipRow,
@@ -39,35 +40,6 @@ import {
   QuickAddPickers,
   useQuickAddFields,
 } from './QuickAddFields';
-
-// expo-speech-recognition has custom native code, not in Expo Go's bundled
-// runtime. Lazy-load it only when we have a dev client / standalone build,
-// and stub out the API in Expo Go so the mic button can hide gracefully.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let ExpoSpeechRecognitionModule: any = {
-  start: () => {},
-  stop: () => {},
-  requestPermissionsAsync: async () => ({ granted: false }),
-};
-type SpeechEventName = 'result' | 'end' | 'error';
-let useSpeechRecognitionEvent: (
-  name: SpeechEventName,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cb: (e: any) => void
-) => void = () => {};
-
-if (!IS_EXPO_GO) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('expo-speech-recognition');
-    ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule;
-    useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
-  } catch {
-    // module not available — mic stays hidden
-  }
-}
-
-const VOICE_ENABLED = !IS_EXPO_GO && Platform.OS !== 'web';
 
 interface QuickAddBarProps {
   /**
@@ -95,7 +67,6 @@ export default function QuickAddBar({
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [listening, setListening] = useState(false);
   const [focused, setFocused] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
@@ -107,6 +78,15 @@ export default function QuickAddBar({
   const { data: projects } = useProjects();
   const fields = useQuickAddFields({ projectId: projectId ?? null }, projects);
 
+  // Dictation appends rather than replaces, so speaking into a half-typed line
+  // extends it — the same thing typing would have done.
+  const voiceQuickAdd = useVoiceQuickAdd({
+    onTitle: (spoken) =>
+      setText((prev) =>
+        fields.absorbTags(prev.trim() ? `${prev.trim()} ${spoken}` : spoken)
+      ),
+  });
+
   // Collapse back to one line only once the bar is truly idle: still-focused,
   // half-typed, or chip-carrying states all stay open (matches the web bar).
   // An open picker counts too — otherwise a chip tapped on an empty bar could
@@ -116,7 +96,10 @@ export default function QuickAddBar({
     text.trim().length > 0 ||
     fields.anySet ||
     fields.menu !== null ||
-    fields.calendarOpen;
+    fields.calendarOpen ||
+    // A dictated description isn't visible in the collapsed line, so leaving
+    // the bar shut would hide the fact that there is anything to submit.
+    voiceQuickAdd.description.length > 0;
 
   // edgeToEdgeEnabled in app.config.ts disables Android adjustResize, so the
   // absolute-positioned bar would stay behind the keyboard. Track keyboard
@@ -142,29 +125,6 @@ export default function QuickAddBar({
     return () => clearTimeout(t);
   }, [autoFocus]);
 
-  // Speech recognition events
-  useSpeechRecognitionEvent('result', (e) => {
-    const transcript = e.results?.[0]?.transcript;
-    if (transcript) {
-      setText(transcript);
-    }
-  });
-  useSpeechRecognitionEvent('end', () => setListening(false));
-  useSpeechRecognitionEvent('error', () => setListening(false));
-
-  useEffect(() => {
-    return () => {
-      // Stop listening if component unmounts
-      if (listening) {
-        try {
-          ExpoSpeechRecognitionModule.stop();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, [listening]);
-
   /** Persist what's in the bar. Returns the created task, or null. */
   async function create(): Promise<Task | null> {
     const trimmed = text.trim();
@@ -173,14 +133,22 @@ export default function QuickAddBar({
 
     const tasks = await getTasksApi();
     const { data, error } = await tasks.create(
-      fields.buildInput(trimmed, { status: defaultStatus })
+      fields.buildInput(trimmed, {
+        status: defaultStatus,
+        description: voiceQuickAdd.description,
+      })
     );
+
+    // The recording can only be filed once the task it belongs to exists, so
+    // this is the first moment there is anything to attach it to.
+    if (!error && data) await voiceQuickAdd.flush(data.id);
 
     setSubmitting(false);
     if (error || !data) return null;
     hapticSuccess();
     setText('');
     fields.reset();
+    voiceQuickAdd.reset();
     return data;
   }
 
@@ -198,37 +166,6 @@ export default function QuickAddBar({
     if (!created) return;
     Keyboard.dismiss();
     setExpandedTask(created);
-  }
-
-  async function toggleListening() {
-    if (listening) {
-      try {
-        ExpoSpeechRecognitionModule.stop();
-      } catch {
-        // ignore
-      }
-      setListening(false);
-      return;
-    }
-
-    if (Platform.OS === 'web') {
-      // Web Speech API isn't reliable cross-browser; tell the user.
-      return;
-    }
-
-    const result =
-      await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!result.granted) {
-      return;
-    }
-
-    setListening(true);
-    setText('');
-    ExpoSpeechRecognitionModule.start({
-      lang: 'en-US',
-      interimResults: true,
-      continuous: false,
-    });
   }
 
   return (
@@ -255,13 +192,19 @@ export default function QuickAddBar({
           created from the chip is matchable by name straight away. */}
       <ParsePreview text={text} omitChipFields projects={fields.projects} />
 
+      {voiceQuickAdd.open ? (
+        <View style={styles.recorderSlot}>
+          <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
+        </View>
+      ) : null}
+
       <View style={styles.card}>
         <View style={styles.titleRow}>
           <TextInput
             ref={inputRef}
             testID="quick-add-input"
             style={styles.input}
-            placeholder={listening ? 'Listening...' : 'Add a task...'}
+            placeholder="Add a task..."
             placeholderTextColor="#9ca3af"
             value={text}
             onChangeText={(v) => setText(fields.absorbTags(v))}
@@ -291,20 +234,22 @@ export default function QuickAddBar({
               />
             </Pressable>
           ) : null}
-          {VOICE_ENABLED ? (
+          {voiceQuickAdd.supported ? (
             <Pressable
+              testID="quick-add-mic"
+              accessibilityLabel="Record a voice note"
               style={({ pressed }) => [
                 styles.iconButton,
-                (pressed || listening) && styles.iconButtonActive,
+                (pressed || voiceQuickAdd.voice.recording) && styles.iconButtonActive,
               ]}
-              onPress={toggleListening}
-              disabled={submitting}
+              onPress={() => void voiceQuickAdd.begin()}
+              disabled={submitting || voiceQuickAdd.voice.recording}
               hitSlop={4}
             >
               <Ionicons
-                name={listening ? 'mic' : 'mic-outline'}
+                name={voiceQuickAdd.voice.recording ? 'mic' : 'mic-outline'}
                 size={20}
-                color={listening ? '#6366f1' : '#6b7280'}
+                color={voiceQuickAdd.voice.recording ? '#6366f1' : '#6b7280'}
               />
             </Pressable>
           ) : null}
@@ -324,6 +269,12 @@ export default function QuickAddBar({
 
         {expanded ? (
           <>
+            <DictatedNote
+              description={voiceQuickAdd.description}
+              pending={voiceQuickAdd.pending}
+              error={voiceQuickAdd.error}
+              onClear={voiceQuickAdd.reset}
+            />
             <TagRow
               tags={fields.tags}
               onAdd={fields.addTag}
@@ -363,6 +314,10 @@ const styles = StyleSheet.create({
   wrapperFull: {
     top: 0,
   },
+  // The recorder sits above the card rather than replacing it: the chips and
+  // whatever was already typed stay put, so a dictation adds to the task being
+  // composed instead of looking like it started a new one.
+  recorderSlot: { marginBottom: 8 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,

@@ -64,6 +64,19 @@ describe("attachmentKind", () => {
     expect(attachmentKind("application/octet-stream", "doc.pdf")).toBe("pdf");
   });
 
+  it("classifies a voice note as audio however it is labelled", () => {
+    // The recogniser writes WAV, and both platforms hand one back as
+    // octet-stream often enough that the extension has to be what decides —
+    // otherwise the app's own recordings render as anonymous download chips.
+    expect(attachmentKind("application/octet-stream", "voice-note-2026-08-08-090403.wav")).toBe("audio");
+    expect(attachmentKind("", "memo.m4a")).toBe("audio");
+    expect(attachmentKind(null, "clip.caf")).toBe("audio");
+    // A bare .webm could equally be video, so there the type is the only
+    // signal that says which — and it is trusted.
+    expect(attachmentKind("audio/webm", "clip.webm")).toBe("audio");
+    expect(attachmentKind("audio/mpeg", "recording")).toBe("audio");
+  });
+
   it("defaults to a plain file", () => {
     expect(attachmentKind("application/octet-stream", "design.sketch")).toBe("file");
     expect(attachmentKind(undefined, "unknown")).toBe("file");
@@ -75,6 +88,7 @@ describe("isTextKind", () => {
     expect(isTextKind("markdown")).toBe(true);
     expect(isTextKind("text")).toBe(true);
     expect(isTextKind("image")).toBe(false);
+    expect(isTextKind("audio")).toBe(false);
     expect(isTextKind("pdf")).toBe(false);
     expect(isTextKind("file")).toBe(false);
   });

@@ -3,6 +3,7 @@ import { AttachmentsSection } from "./task-attachments";
 import {
   makeAttachment,
   makeAttachmentsApi,
+  SAMPLE_AUDIO_DATA_URL,
   SAMPLE_IMAGE_DATA_URL,
   SAMPLE_MARKDOWN,
 } from "./__stories__/mocks";
@@ -43,6 +44,52 @@ export const WithImage: Story = {
       api: makeAttachmentsApi({
         attachments: [image],
         urls: { "att-image": SAMPLE_IMAGE_DATA_URL },
+      }),
+    };
+  })(),
+};
+
+/**
+ * A voice note recorded on the phone, played back at the desk.
+ *
+ * The name is a timestamp, so the card says "Voice note" instead — the point
+ * being that a recording is identified by what it is, not by when it was
+ * written.
+ */
+export const WithVoiceNote: Story = {
+  args: (() => {
+    const note = makeAttachment({
+      id: "att-voice",
+      file_name: "voice-note-2026-08-08-090403.wav",
+      mime_type: "audio/wav",
+      size_bytes: 268_444,
+      storage_path: "user-1/task-1/abc.wav",
+    });
+    return {
+      taskId: "task-1",
+      api: makeAttachmentsApi({
+        attachments: [note],
+        urls: { "att-voice": SAMPLE_AUDIO_DATA_URL },
+      }),
+    };
+  })(),
+};
+
+/** An audio file that isn't one of ours keeps its own name. */
+export const WithAudioFile: Story = {
+  args: (() => {
+    const clip = makeAttachment({
+      id: "att-audio",
+      file_name: "standup-recap.m4a",
+      mime_type: "audio/mp4",
+      size_bytes: 1_048_576,
+      storage_path: "user-1/task-1/pqr.m4a",
+    });
+    return {
+      taskId: "task-1",
+      api: makeAttachmentsApi({
+        attachments: [clip],
+        urls: { "att-audio": SAMPLE_AUDIO_DATA_URL },
       }),
     };
   })(),

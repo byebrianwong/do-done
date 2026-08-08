@@ -148,7 +148,15 @@ export interface QuickAddFields {
    */
   buildInput: (
     raw: string,
-    opts?: { status?: 'inbox' | 'not_started' }
+    opts?: {
+      status?: 'inbox' | 'not_started';
+      /**
+       * Body text the typed line can't express. Only dictation produces one
+       * today: a spoken task longer than a title keeps its remainder here
+       * rather than being truncated away.
+       */
+      description?: string;
+    }
   ) => CreateTaskInput;
 }
 
@@ -273,6 +281,7 @@ export function useQuickAddFields(
     return {
       title: parsed.title || trimmed,
       ...(opts.status && { status: opts.status }),
+      ...(opts.description?.trim() && { description: opts.description.trim() }),
       ...(finalProjectId && { project_id: finalProjectId }),
       ...(finalPriority && { priority: finalPriority }),
       ...(finalScheduledDate && { scheduled_date: finalScheduledDate }),

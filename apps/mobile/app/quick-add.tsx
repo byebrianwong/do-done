@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
@@ -13,6 +13,10 @@ import { createProjectOrNull, useProjects } from '@/lib/task-queries';
  * the input pre-focused. Closing returns to wherever you were — or the Today
  * tab on a cold launch where there's no back stack.
  *
+ * `dodone://quick-add?voice=1` opens the same surface straight into recording
+ * instead — one composer with two doors, so a dictated task and a typed one
+ * are the same task with the same chips.
+ *
  * Unlike the widget's root, this one lives inside the QueryClientProvider, so
  * the project list its Project chip needs — and the invalidation behind
  * creating one — come for free. The expand button opens the full editor right
@@ -22,6 +26,8 @@ export default function QuickAddModal() {
   const router = useRouter();
   const { data: projects } = useProjects();
   const [expandedTask, setExpandedTask] = useState<Task | null>(null);
+  const { voice } = useLocalSearchParams<{ voice?: string }>();
+  const autoRecord = voice === '1';
 
   const close = () => {
     if (router.canGoBack()) router.back();
@@ -32,7 +38,8 @@ export default function QuickAddModal() {
     <View style={styles.root}>
       <Pressable style={styles.backdrop} onPress={close} />
       <QuickAddComposer
-        autoFocus
+        autoFocus={!autoRecord}
+        autoRecord={autoRecord}
         projects={projects}
         onCreateProject={createProjectOrNull}
         onExpand={setExpandedTask}
