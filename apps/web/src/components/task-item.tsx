@@ -47,6 +47,7 @@ import {
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { taskPath } from "@/lib/task-link";
+import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
@@ -661,6 +662,7 @@ export function TaskItem({
   // no such notion, which simply means those rules can't fire there.
   const sectionOpen = useSectionOpenCount();
   const projectOpen = useProjectOpenCount();
+  const streak = useCompletionStreak();
   // Parent title for the "↳ parent" subtask reference. Prefer the prop the
   // caller supplied; otherwise fall back to a lazily-resolved title so any list
   // view flags a subtask without every caller having to thread the parent
@@ -791,10 +793,16 @@ export function TaskItem({
     // has already told the list it is done.
     if (next) {
       exit.pulse();
+      // Claimed unconditionally, and only on the way in: *any* completion
+      // starts today, including one that would have sparked for some other
+      // reason. Asking only when the other rules missed would let a second
+      // completion moments later claim the same day again.
+      const streakDay = streak.claimStreakDay();
       if (
         shouldSpark(task, {
           openInSection: sectionOpen,
           openInProject: projectOpen,
+          streakDay,
         })
       ) {
         exit.spark();

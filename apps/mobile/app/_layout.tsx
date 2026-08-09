@@ -25,6 +25,10 @@ import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
+import {
+  loadCompletionStreak,
+  resetCompletionStreak,
+} from '@/lib/completion-streak';
 
 // NOTE: the widget task handler is registered in `index.js`, the bundle entry —
 // deliberately not here. The launcher's widget update runs headlessly, with no
@@ -127,6 +131,19 @@ function RootLayoutNav() {
   useEffect(() => {
     void repaintQuickAddWidget();
   }, []);
+
+  // Read the recent completion history once per signed-in session, so a row
+  // can answer "does ticking this off keep my streak alive?" on the frame of
+  // the tap rather than after a round-trip. Keyed on the account, and cleared
+  // on the way out — the next user must not inherit the last one's streak.
+  useEffect(() => {
+    if (!session?.user) {
+      resetCompletionStreak();
+      return;
+    }
+    void loadCompletionStreak();
+    return resetCompletionStreak;
+  }, [session?.user?.id]);
 
   // Catch tasks whose scheduled day arrived while the app was closed. No-op
   // unless the user has switched the rule on, and only ever once per day.

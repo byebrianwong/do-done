@@ -555,6 +555,102 @@ on every keystroke in the title** — autosave holds the task in React state:
   permanently inside every open editor, each rebuilding its option rows per
   keystroke and holding a host view it never showed.
 
+## Ticking a task off
+
+The most repeated gesture in the app, and one shape on both surfaces. Timings
+and rules live in `@do-done/shared` — the two implementations have nothing else
+in common (CSS plus inline styles on web, Reanimated worklets on mobile), so
+the constants are the only thing keeping them from drifting.
+
+```
+-90 →   0   the ring flinches under the press          anticipation
+  0 → 220   the check springs and the ring fills
+ 20 → 360   a hairline halo rings out and dissolves    anticipation
+ 40 → 230   the strike-through is drawn, left to right
+  0 → 400   sparks, on a completion that earned one    gated
+420 → 680   the row slides right as its height closes  exit
+```
+
+**Nothing may outlive the 680ms envelope**, which is what keeps
+`TASK_COMPLETE_EXIT_MS` governing every list drop and leaves the write path, the
+hold, the per-id chaining and the undo window untouched.
+`completion-motion.test.ts` asserts the relationships rather than the numbers:
+the line finishes with the check (230 against 220 — one is the control
+acknowledging the tap, the other the text, and the eye may be on either), and
+everything inbound lands before the hold ends.
+
+**The burst has to finish inside the *hold*, not just the envelope.** The row
+turns on `overflow: hidden` the moment it starts collapsing, so a particle still
+in the air then is sliced off at the row's edge as it shrinks. `SPARK_MS` is 400
+against a 420ms hold. The stagger is spent *within* that, never added to it — a
+particle that starts late flies for less time — so all ten land on the same
+frame; web varies each particle's `animation-duration`, mobile re-bases each one
+off the single shared progress value.
+
+**Two platform differences that look like drift and aren't.** Web hangs the
+squash off `:active`, so it really is the press, firing on pointer-down ahead of
+React; mobile folds it into the completion, because a 22px ring is under the
+thumb at exactly the moment a press-driven squash would be visible and
+swipe-to-complete has no press at all. And React Native cannot animate
+`textDecorationLine`, so `StruckText` draws the rule itself from `onTextLayout`
+line rects behind one widening clip, while web uses an inline background
+gradient that fragments per line so each rule ends where its line's text does.
+
+**The halo and the burst mark a *moment*, not a state**, and are rendered only
+for the frames they run in. Keying either off "is completed" would set every row
+in a Completed list going the instant the page painted.
+
+### When the sparks fire
+
+Celebrating every completion is how a delight becomes a tax — by the fortieth
+task of the week it is something you wait out, and the next thing anyone asks
+for is a switch to turn it off. `sparkReason` is the whole gate, returning
+*why* rather than a boolean so tests assert the reason:
+
+| Reason | Fires when |
+| --- | --- |
+| `project-finished` | the last open task in the project |
+| `last-in-section` | the last open task in this list's section |
+| `streak` | the first completion of a day whose predecessor also had one |
+| `effort` | estimated at two hours or more |
+| `priority` | P1 or P2 — `p2`'s label is literally "High" |
+
+Finishing outranks what finished it: the last task in a project being a two-hour
+P1 makes the moment the project ending, not the task's size.
+
+**A row cannot know it emptied a section, so its surroundings tell it.** Web
+publishes counts through two contexts in `task-row-behavior.tsx` — section and
+project are provided at different depths (a project page groups by status, so
+the project's last open task is not the last in any group), and one context
+would have the inner erase the outer. Mobile passes props, matching the split
+already documented on `keepsCompleted`. **A missing count means "this surface
+can't tell" and is deliberately distinct from zero**, so the inbox, search and
+the drag overlay never fire those rules rather than firing them wrongly. Counts
+are read at the tap, not at render: by then the row has already told its list
+it is done.
+
+**Streak needed a data model that did not exist** — `tasks.completed_at` is the
+only substrate and nothing aggregated it. `packages/shared/src/streak.ts`
+buckets timestamps into the reader's *local* days (a task finished at 11pm
+belongs to the day the user was living in), and `claimStreakDay()` both answers
+and records in one call. One call rather than a read plus a note, because *any*
+completion starts the day — splitting them would let a second completion moments
+later claim it again. It is claimed only when completing; reopening is a
+correction and must not mark a day nobody worked. The history is fetched once
+per session — a provider on web, a module singleton on mobile — and read
+synchronously, because the row decides inside the tap handler where an `await`
+would cost the frame the animation exists to use. Not loaded means `false`: an
+unknown history costs a burst rather than inventing one.
+
+**Reduced motion lands on the end state and drops the decorative layers** on
+both surfaces. It never simply plays slower.
+
+One trap already paid for: putting the drawn rule on the text means axe stops
+measuring that text's contrast (`color-contrast` skips anything with a
+background-image), so five pre-existing findings on completed titles went quiet
+without the rendering changing. Noted in `globals.css` — that contrast is ours
+to watch now, not axe's.
+
 ## Swiping a task row (mobile)
 
 Swipe **right** for the single Done/Reopen action, which fires as it opens and
