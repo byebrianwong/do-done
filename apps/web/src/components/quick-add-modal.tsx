@@ -9,6 +9,7 @@ import {
   OPEN_QUICK_ADD_EVENT,
   type OpenQuickAddDetail,
 } from "@/lib/quick-add-events";
+import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
@@ -107,6 +108,8 @@ export function QuickAddModal({
     requestAnimationFrame(() => restoreFocusRef.current?.focus?.());
   }
 
+  const backdrop = useBackdropDismiss<HTMLDivElement>(() => close());
+
   async function handleAdd() {
     const created = await composer.add();
     if (created) close();
@@ -137,7 +140,7 @@ export function QuickAddModal({
       {open ? (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[15vh]"
-          onClick={close}
+          {...backdrop}
         >
           <div
             role="dialog"

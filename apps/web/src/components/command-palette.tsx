@@ -9,6 +9,7 @@ import { openQuickAdd } from "@/lib/quick-add-events";
 import { togglePipPanel } from "@/lib/pip-visibility";
 import { useOpenTask } from "@/lib/open-task";
 import { taskPath } from "@/lib/task-link";
+import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 
 // Window event other components (e.g. the mobile top-bar search button) can
 // dispatch to open the palette without a physical keyboard.
@@ -295,6 +296,8 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
     }
   }
 
+  const backdrop = useBackdropDismiss<HTMLDivElement>(() => setOpen(false));
+
   if (!open) return null;
 
   let runningIndex = 0;
@@ -302,7 +305,7 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[15vh]"
-      onClick={() => setOpen(false)}
+      {...backdrop}
     >
       <div
         className="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-neutral-900"
