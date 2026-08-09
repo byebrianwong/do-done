@@ -17,6 +17,7 @@ import { getUserPrefsApi, supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { calendarKeys } from '@/lib/calendar-queries';
+import { describeNoUpdate } from '@/lib/update-check';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -149,7 +150,9 @@ export default function SettingsScreen() {
           ]
         );
       } else {
-        Alert.alert('Up to date', "You're running the latest published version.");
+        // Not every "no update" means you have the latest — see describeNoUpdate.
+        const { title, body } = describeNoUpdate(result.reason, channel);
+        Alert.alert(title, body);
       }
     } catch (e) {
       Alert.alert(

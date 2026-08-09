@@ -784,6 +784,25 @@ Build profiles in `apps/mobile/eas.json`:
 
 After the dev client is installed, you can iterate on native code without rebuilding — only adding new native modules requires a fresh build.
 
+### An install that's too old to update
+
+**A build stops taking OTAs the moment a published bundle imports a native
+module that build doesn't have.** The update downloads, throws on launch,
+expo-updates rolls back to the last bundle that started, and — because
+`CheckForUpdateProcedure` will not re-offer an update with
+`failedLaunchCount > 0` — every check from then on comes back "no update
+available". The app sits on an old bundle insisting it is current, and the only
+signal is the sha in Settings → App version not moving. Adding
+`expo-document-picker` / `expo-image-picker` / `expo-file-system` (attachments)
+and `expo-audio` (voice) each drew that line; installs older than them need a
+new APK, not an update.
+
+`describeNoUpdate()` in `apps/mobile/lib/update-check.ts` is why that is now
+legible: `Updates.checkForUpdateAsync()` returns a `reason` alongside
+`isAvailable: false`, and only `noUpdateAvailableOnServer` means you are
+current. Reporting all of them as "Up to date" is what hid the above — and an
+unrecognised reason deliberately doesn't claim currency either.
+
 ### Android widget setup
 - Widgets are declared in `apps/mobile/app.config.ts` under the `react-native-android-widget` plugin
 - Widget JSX components live in `apps/mobile/widgets/`
