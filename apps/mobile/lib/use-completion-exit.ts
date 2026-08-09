@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, type LayoutChangeEvent } from 'react-native';
 import {
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -10,6 +11,7 @@ import {
   Easing,
 } from 'react-native-reanimated';
 import {
+  SPARK_MS,
   TASK_COMPLETE_ANTICIPATE_MS,
   TASK_COMPLETE_ANTICIPATE_SCALE,
   TASK_COMPLETE_CHECK_MS,
@@ -96,6 +98,19 @@ export interface CompletionExit {
    * Only on the way in: reopening a task is a correction, not an achievement.
    */
   punch: () => void;
+  /**
+   * True while the celebratory burst is in the air, so the row can mount the
+   * particles for exactly those frames and drop them afterwards.
+   *
+   * Separate from {@link CompletionExit.punch} because the burst is *gated*:
+   * the halo rings on every completion, this one only on a completion that
+   * earned it. See `sparkReason` in `@do-done/shared`.
+   */
+  sparking: boolean;
+  /** 0 → 1 across the burst. The particles derive their own arcs from it. */
+  sparkProgress: SharedValue<number>;
+  /** Throw the burst. */
+  spark: () => void;
 }
 
 export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
@@ -104,7 +119,17 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   const checkScale = useSharedValue(initiallyChecked ? 1 : 0);
   const ringScale = useSharedValue(1);
   const halo = useSharedValue(0);
+  const sparkProgress = useSharedValue(0);
   const [collapsing, setCollapsing] = useState(false);
+  const [sparking, setSparking] = useState(false);
+  const sparkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (sparkTimer.current) clearTimeout(sparkTimer.current);
+    },
+    []
+  );
 
   const style = useAnimatedStyle(() => ({
     opacity: 1 - progress.value,
@@ -183,7 +208,26 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
     // A write that failed gets no celebration.
     halo.value = 0;
     ringScale.value = withTiming(1, { duration: TASK_COMPLETE_ANTICIPATE_MS });
-  }, [progress, halo, ringScale]);
+    if (sparkTimer.current) clearTimeout(sparkTimer.current);
+    sparkProgress.value = 0;
+    setSparking(false);
+  }, [progress, halo, ringScale, sparkProgress]);
+
+  const spark = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    if (sparkTimer.current) clearTimeout(sparkTimer.current);
+    // Reset without animating, or a second burst sweeps the particles backwards
+    // from wherever the last one had got to.
+    sparkProgress.value = 0;
+    setSparking(true);
+    sparkProgress.value = withTiming(1, {
+      duration: SPARK_MS,
+      easing: Easing.bezier(0.18, 0.7, 0.35, 1),
+    });
+    // Unmounted once it has run: ten views per row is cheap for half a second
+    // and pure waste for the rest of the row's life.
+    sparkTimer.current = setTimeout(() => setSparking(false), SPARK_MS);
+  }, [sparkProgress]);
 
   const punch = useCallback(() => {
     if (prefersReducedMotion()) return;
@@ -215,6 +259,9 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
     ringStyle,
     haloStyle,
     punch,
+    sparking,
+    sparkProgress,
+    spark,
   };
 }
 

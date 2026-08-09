@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { Project } from "@do-done/shared";
+import { SPARK_COUNT } from "@do-done/shared";
+import { SectionOpenProvider } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
@@ -168,5 +170,100 @@ describe("TaskItem — the strike-through is drawn, not switched on", () => {
       <TaskItem task={makeTask({ title: "Ship it", status: "done" })} />
     );
     expect(container.querySelector(".dd-check-halo")).toBeNull();
+  });
+});
+
+describe("TaskItem — the celebratory burst is gated", () => {
+  /**
+   * The burst fires on a completion that earned it, and the gate lives in
+   * `sparkReason` (unit-tested in `@do-done/shared`). What matters here is that
+   * the row asks the right question: it must read the counts its *surroundings*
+   * publish, since a row on its own cannot know it just emptied a section.
+   */
+  async function completeFirstRow(container: HTMLElement) {
+    const box = screen.getAllByRole("button", { name: /mark complete/i })[0];
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    return container.querySelectorAll(".dd-spark").length;
+  }
+
+  it("stays quiet for an ordinary task in a section with work left", async () => {
+    const task = makeTask({ title: "Buy milk", priority: "p3" });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task, makeTask({ title: "And eggs" })]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    expect(await completeFirstRow(container)).toBe(0);
+  });
+
+  it("fires when the completion empties its section", async () => {
+    const task = makeTask({ title: "The last one", priority: "p3" });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    expect(await completeFirstRow(container)).toBe(SPARK_COUNT);
+  });
+
+  it("fires for a high-priority task even mid-section", async () => {
+    const task = makeTask({ title: "Urgent thing", priority: "p1" });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task, makeTask({ title: "Other" })]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    expect(await completeFirstRow(container)).toBe(SPARK_COUNT);
+  });
+
+  it("fires for two hours of work", async () => {
+    const task = makeTask({
+      title: "Long haul",
+      priority: "p3",
+      duration_minutes: 120,
+    });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task, makeTask({ title: "Other" })]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    expect(await completeFirstRow(container)).toBe(SPARK_COUNT);
+  });
+
+  it("counts the section as it stood before the tap, not after", async () => {
+    // The row's completed state is optimistic and local; the section's array
+    // still comes from the props the list rendered with. So the task being
+    // ticked off is still among the open ones, and one means "this is the last".
+    const task = makeTask({ title: "Solo", priority: "p3" });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    expect(await completeFirstRow(container)).toBe(SPARK_COUNT);
+  });
+
+  it("never fires where no surface published a count", async () => {
+    // The inbox, search and the drag overlay have no sections. Absence must
+    // read as "can't tell", never as an empty one.
+    const task = makeTask({ title: "Loose task", priority: "p3" });
+    const { container } = render(<TaskItem task={task} />);
+    expect(await completeFirstRow(container)).toBe(0);
+  });
+
+  it("never fires on reopening a completed task", async () => {
+    const task = makeTask({ title: "Back again", priority: "p1", status: "done" });
+    const { container } = render(
+      <SectionOpenProvider tasks={[task]}>
+        <TaskItem task={task} />
+      </SectionOpenProvider>
+    );
+    const box = screen.getByRole("button", { name: /mark incomplete/i });
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(container.querySelectorAll(".dd-spark")).toHaveLength(0);
   });
 });

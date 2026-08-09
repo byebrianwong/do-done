@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { SPARK_MS, sparkParticles } from "./spark.js";
 import {
   TASK_COMPLETE_ANTICIPATE_MS,
   TASK_COMPLETE_ANTICIPATE_SCALE,
@@ -76,6 +77,16 @@ describe("task completion motion", () => {
     expect(TASK_COMPLETE_ANTICIPATE_MS).toBeLessThan(TASK_COMPLETE_CHECK_MS);
     expect(TASK_COMPLETE_ANTICIPATE_SCALE).toBeGreaterThan(0.8);
     expect(TASK_COMPLETE_ANTICIPATE_SCALE).toBeLessThan(1);
+  });
+
+  it("gets the burst out of the air before the row starts clipping itself", () => {
+    // The row turns on `overflow: hidden` the moment it begins collapsing, so a
+    // particle still flying then is sliced off at the row's edge as it shrinks.
+    // Every particle — stagger included — has to be gone inside the hold.
+    expect(SPARK_MS).toBeLessThanOrEqual(TASK_COMPLETE_HOLD_MS);
+    for (const p of sparkParticles()) {
+      expect(p.delay).toBeLessThan(SPARK_MS);
+    }
   });
 
   it("keeps the exit's travel a nudge rather than a throw", () => {

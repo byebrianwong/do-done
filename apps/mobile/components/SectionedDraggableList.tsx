@@ -56,7 +56,13 @@ interface Props {
   renderTask: (
     task: Task,
     drag: () => void,
-    isActive: boolean
+    isActive: boolean,
+    /**
+     * The section this row is in. The row itself can't tell, and a completion
+     * that empties its section earns a celebratory burst — see `sparkReason`
+     * in `@do-done/shared`.
+     */
+    section: DraggableSection
   ) => React.ReactElement;
   /** Reorder within one section: the section's new id order. */
   onReorder: (sectionKey: string, orderedIds: string[]) => void;
@@ -132,6 +138,15 @@ export default function SectionedDraggableList({
     else onMove(moved.key, oldKey, newKey, destIds);
   }
 
+  // The authoritative section data is the `sections` prop, not the local `rows`
+  // copy the drag mutates: `rows` tracks which section a row is *in* mid-gesture,
+  // while this is asking what is *in* the section.
+  function sectionOf(key: string): DraggableSection {
+    return (
+      sections.find((s) => s.key === key) ?? { key, title: '', data: [] }
+    );
+  }
+
   return (
     <DraggableFlatList
       data={rows}
@@ -140,7 +155,7 @@ export default function SectionedDraggableList({
       renderItem={({ item, drag, isActive }: RenderItemParams<Row>) =>
         item.kind === 'header'
           ? renderHeader(item.section)
-          : renderTask(item.task, drag, isActive)
+          : renderTask(item.task, drag, isActive, sectionOf(item.sectionKey))
       }
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}

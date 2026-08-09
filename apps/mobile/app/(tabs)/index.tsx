@@ -85,6 +85,12 @@ const scheduleStyles = StyleSheet.create({
   },
 });
 
+/** Tasks in this list that still count as work. Feeds the spark gate. */
+function openCount(tasks: Task[]): number {
+  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+    .length;
+}
+
 export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -207,13 +213,19 @@ export default function TodayScreen() {
   );
 
   const renderTask = useCallback(
-    (task: Task, drag: () => void, isActive: boolean) => (
+    (
+      task: Task,
+      drag: () => void,
+      isActive: boolean,
+      section: DraggableSection
+    ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
           task={task}
           onPress={handlePress}
           onDragHandle={drag}
           focused={focusIdsRef.current.has(task.id)}
+          openInSection={openCount(section.data)}
         />
       </View>
     ),

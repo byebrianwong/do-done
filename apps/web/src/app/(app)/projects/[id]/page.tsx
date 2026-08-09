@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TaskDisplayView } from "@/components/task-display-view";
+import { ProjectOpenProvider } from "@/lib/task-row-behavior";
 import { QuickAddBar } from "@/components/quick-add-bar";
 import { ProjectActions } from "./project-actions";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -60,12 +61,18 @@ export default async function ProjectDetailPage({
       <QuickAddBar seed={{ status: "not_started", project_id: id }} />
 
       <div className="mt-4">
-        <TaskDisplayView
-          viewKey="project"
-          tasks={tasks}
-          projects={allProjects}
-          emptyText="No tasks yet. Add one above."
-        />
+        {/* Publishes "how much of this project is left" to the rows inside, so
+            the completion that finishes it can say so. It has to wrap the whole
+            view rather than a section: this page groups by status by default,
+            so the project's last open task is not the last one in any group. */}
+        <ProjectOpenProvider tasks={tasks}>
+          <TaskDisplayView
+            viewKey="project"
+            tasks={tasks}
+            projects={allProjects}
+            emptyText="No tasks yet. Add one above."
+          />
+        </ProjectOpenProvider>
       </div>
     </div>
   );

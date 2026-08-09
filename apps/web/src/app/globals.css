@@ -246,6 +246,58 @@ body {
 }
 
 /*
+ * The celebratory burst, for the completions that earned one.
+ *
+ * Sparks rather than confetti: no rectangles, no rotation, nothing that lands
+ * and then sits on the page waiting to be cleaned up. Each particle is thrown
+ * out of the checkbox, pulled back down by a constant, and gone — the whole
+ * thing runs under the hold, so it adds nothing to the 680ms envelope.
+ *
+ * They take the ring's own colour rather than a fixed festive palette. The ring
+ * is the project's colour now, and a fixed indigo-amber-green burst would clash
+ * with half the projects a user can make; scattering the ring's own hue can't.
+ *
+ * `--tx`/`--ty`/`--dl`/`--sz` come from `sparkParticles()` in
+ * `@do-done/shared`, so the fan has the same shape here as on mobile.
+ */
+@keyframes dd-spark {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--tx), var(--ty)) scale(0.35);
+    opacity: 0;
+  }
+}
+
+.dd-spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--sz, 3px);
+  height: var(--sz, 3px);
+  margin-left: calc(var(--sz, 3px) / -2);
+  margin-top: calc(var(--sz, 3px) / -2);
+  border-radius: 9999px;
+  background: currentColor;
+  pointer-events: none;
+  opacity: 0;
+  animation: dd-spark var(--dd-spark-ms, 520ms) cubic-bezier(0.18, 0.7, 0.35, 1)
+    var(--dl, 0ms) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Pure decoration — it goes, rather than playing slowly. */
+  .dd-spark {
+    display: none;
+  }
+}
+
+/*
  * The drawn strike-through.
  *
  * `text-decoration-line` can't be animated — it is on or off — so the rule is

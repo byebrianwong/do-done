@@ -62,6 +62,12 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
  * Cross-section drag maps the target group's drop target to a task patch;
  * reorder persists only under manual sort (else the engine owns the order).
  */
+/** Tasks in this list that still count as work. Feeds the spark gate. */
+function openCount(tasks: Task[]): number {
+  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+    .length;
+}
+
 export default function GroupedTaskList({
   tasks,
   projects,
@@ -196,13 +202,19 @@ export default function GroupedTaskList({
   // must not play the collapse-and-vanish completion exit.
   const keepsCompleted = config.showCompleted;
   const renderTask = useCallback(
-    (task: Task, drag: () => void, isActive: boolean) => (
+    (
+      task: Task,
+      drag: () => void,
+      isActive: boolean,
+      section: DraggableSection
+    ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
           task={task}
           onPress={onTaskPress}
           onDragHandle={drag}
           keepsCompleted={keepsCompleted}
+          openInSection={openCount(section.data)}
         />
       </View>
     ),

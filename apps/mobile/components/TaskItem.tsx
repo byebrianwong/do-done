@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   TASK_COMPLETE_EXIT_MS,
   addDaysLocalISO,
+  shouldSpark,
   rowEstimate,
   rowGutter,
   rowSubline,
@@ -35,6 +36,7 @@ import {
   useCompletionExit,
   useOptimisticCompleted,
 } from '@/lib/use-completion-exit';
+import { CompletionSpark } from './CompletionSpark';
 import { StruckText } from './StruckText';
 import { useUndoToast } from './UndoToast';
 
@@ -91,6 +93,15 @@ interface TaskItemProps {
    * where the header has just said it.
    */
   hideProject?: boolean;
+  /**
+   * Open tasks in this row's section, **including this one**, as it stood
+   * before the tap. One means completing this empties the section, which earns
+   * the celebratory burst. Omitted on surfaces with no sections (the inbox,
+   * search), where that rule simply can't fire.
+   */
+  openInSection?: number | null;
+  /** The same for the row's project. One means this completion finishes it. */
+  openInProject?: number | null;
 }
 
 function buildReschedule(
@@ -118,6 +129,8 @@ function TaskItem({
   focused,
   keepsCompleted = false,
   hideProject = false,
+  openInSection = null,
+  openInProject = null,
 }: TaskItemProps) {
   // Optimistic, because the list deliberately holds the row for the length of
   // the completion animation — the cache still says "not done" while the row is
@@ -192,7 +205,13 @@ function TaskItem({
     setCompleted(nextCompleted);
     exit.setChecked(nextCompleted);
     // Only on the way in. Reopening is a correction, not an achievement.
-    if (nextCompleted) exit.punch();
+    if (nextCompleted) {
+      exit.punch();
+      // …and the burst on top of that, for the completions that earned one.
+      // Read now, not at render time: by the time the write lands the row has
+      // already told its list it is done.
+      if (shouldSpark(task, { openInSection, openInProject })) exit.spark();
+    }
 
     // In a list that keeps completed tasks there is nothing to leave: the row
     // stays put wearing its completed styling, and the cache can drop it (from
@@ -396,6 +415,10 @@ function TaskItem({
             style={[styles.halo, { borderColor: ringColor }, exit.haloStyle]}
             pointerEvents="none"
           />
+        ) : null}
+        {/* Mounted only for the frames it is in the air — see `exit.spark`. */}
+        {exit.sparking ? (
+          <CompletionSpark progress={exit.sparkProgress} color={ringColor} />
         ) : null}
         <Animated.View
           style={[

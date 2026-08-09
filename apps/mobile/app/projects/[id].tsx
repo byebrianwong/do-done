@@ -51,6 +51,15 @@ export default function ProjectDetailScreen() {
     return out;
   }, [tasks]);
 
+  // The whole project is on this screen, so "is this the last one" is just the
+  // size of the Open section.
+  const openInProject = useMemo(
+    () =>
+      tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+        .length,
+    [tasks]
+  );
+
   const title = project?.name ?? 'Project';
 
   return (
@@ -79,7 +88,15 @@ export default function ProjectDetailScreen() {
         renderItem={({ item }) => (
           // Every row here belongs to the project in the title bar, so the
           // subline saying so on all of them would be pure repetition.
-          <TaskItem task={item} onPress={handlePress} hideProject />
+          <TaskItem
+            task={item}
+            onPress={handlePress}
+            hideProject
+            // The Open section on this screen *is* the project's remaining
+            // work, so one count answers both rules.
+            openInSection={openInProject}
+            openInProject={openInProject}
+          />
         )}
         renderSectionHeader={({ section: { title: t, data } }) => (
           <View style={styles.sectionHeader}>

@@ -32,7 +32,7 @@ import {
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
-import { useIsCompact } from "@/lib/task-row-behavior";
+import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -289,11 +289,20 @@ function DateGroup({
                   {emptyHint ?? "Drop here"}
                 </div>
               )}
-              {taskIds.map((id) => {
-                const t = tasks.get(id);
-                if (!t) return null;
-                return <SortableRow key={id} task={t} projects={projects} />;
-              })}
+              {/* A day column is a section: clearing tomorrow is a moment.
+                  The provider publishes a number, so rebuilding this array each
+                  render costs a filter and re-renders nothing. */}
+              <SectionOpenProvider
+                tasks={taskIds
+                  .map((id) => tasks.get(id))
+                  .filter((t): t is Task => !!t)}
+              >
+                {taskIds.map((id) => {
+                  const t = tasks.get(id);
+                  if (!t) return null;
+                  return <SortableRow key={id} task={t} projects={projects} />;
+                })}
+              </SectionOpenProvider>
             </div>
           </SortableContext>
           {/* Overdue is a read-only bucket — no composer (can't add into the

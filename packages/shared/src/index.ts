@@ -14,3 +14,4 @@ export * from "./project-match.js";
 export * from "./project-icons.js";
 export * from "./voice.js";
 export * from "./task-row.js";
+export * from "./spark.js";

@@ -125,6 +125,12 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   return out;
 }
 
+/** Tasks in this list that still count as work. Feeds the spark gate. */
+function openCount(tasks: Task[]): number {
+  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+    .length;
+}
+
 export default function UpcomingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -238,13 +244,19 @@ export default function UpcomingScreen() {
   // must not play the collapse-and-vanish completion exit.
   const keepsCompleted = config.showCompleted;
   const renderTask = useCallback(
-    (task: Task, drag: () => void, isActive: boolean) => (
+    (
+      task: Task,
+      drag: () => void,
+      isActive: boolean,
+      section: DraggableSection
+    ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
           task={task}
           onPress={handlePress}
           onDragHandle={drag}
           keepsCompleted={keepsCompleted}
+          openInSection={openCount(section.data)}
         />
       </View>
     ),
