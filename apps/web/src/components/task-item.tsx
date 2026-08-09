@@ -70,6 +70,49 @@ export interface TaskItemProps {
   hideParentRef?: boolean;
 }
 
+/* Everything in a wide row hangs off the title's FIRST line, not the middle of
+   however many lines the title ends up taking. A long title wraps to two lines
+   and centring floated the circle, the priority bars, the chips and the date
+   into the gap between them — a row whose furniture sat lower than its
+   neighbours' and lined up with nothing.
+
+   The line is expressed as a 28px band (`h-7`) at the top of the row: the
+   controls are boxes of exactly that height with their contents centred, and
+   the chips — which are text-sized and can't take a height without stretching
+   their own pill — are nudged into the same band with a top margin instead. 28
+   rather than one line's 19.25 because that is already the row's natural
+   content height (the priority button sets it), so the fix moves things
+   sideways in the layout without changing a single row's height.
+
+   The title itself carries the matching pad: its first line has to land in the
+   centre of the band the rest of the row is centred in. */
+function firstLineAlignment(isSubtask: boolean, compact: boolean) {
+  // A subtask row stacks the "↳ parent" breadcrumb above its title, so the
+  // block's first line belongs to the parent, not to this task — hanging the
+  // circle and the chips off it would point them at the wrong thing. Those
+  // rows keep the centred treatment, which reads correctly because the two
+  // stacked lines are the row's subject together.
+  if (isSubtask) {
+    return {
+      row: "@lg:items-center",
+      band: "@lg:h-auto",
+      cross: "@lg:items-center",
+      title: "",
+      meta: "",
+    };
+  }
+  return {
+    row: "",
+    band: "@lg:h-7",
+    cross: "@lg:items-start",
+    // Half the slack the band leaves around one line of title, so the line
+    // lands dead centre in it. Compact's title is smaller, so its slack is
+    // larger.
+    title: compact ? "@lg:pt-1.5" : "@lg:pt-1",
+    meta: "@lg:mt-1",
+  };
+}
+
 /**
  * A subtask breadcrumb marker: a corner arrow (↳) that both flags the row as a
  * subtask and points at its parent. Matches the app's hand-drawn icon style.
@@ -189,9 +232,11 @@ function InlinePriorityEditor({
 function InlineEstimateEditor({
   durationMinutes,
   onChange,
+  className = "",
 }: {
   durationMinutes: number;
   onChange: (minutes: number) => void;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -200,7 +245,7 @@ function InlineEstimateEditor({
   return (
     <div
       ref={ref}
-      className="relative"
+      className={`relative flex ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -246,6 +291,7 @@ function InlineProjectEditor({
   userId,
   onChange,
   onCreated,
+  className = "",
 }: {
   project: Project;
   projects: Project[];
@@ -253,12 +299,17 @@ function InlineProjectEditor({
   userId: string;
   onChange: (projectId: string | null) => void;
   onCreated: (project: Project) => void;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
   return (
-    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+    <div
+      ref={ref}
+      className={`relative flex ${className}`}
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -576,6 +627,7 @@ export function TaskItem({
   // view flags a subtask without every caller having to thread the parent
   // through. Derived (not synced via an effect) so the prop stays authoritative.
   const isSubtask = !!task.parent_task_id && !hideParentRef;
+  const align = firstLineAlignment(isSubtask, compact);
   const [fetchedParentTitle, setFetchedParentTitle] = useState<string | null>(
     null
   );
@@ -847,7 +899,7 @@ export function TaskItem({
            leading here shrinks every one of them at once, and the few children
            that need their own leading (the title, the subtask breadcrumb)
            already declare it. */
-        className={`group/row flex cursor-pointer items-start rounded-lg px-3 transition-colors @lg:items-center ${
+        className={`group/row flex cursor-pointer items-start rounded-lg px-3 transition-colors ${align.row} ${
           compact ? "gap-2.5 py-1 leading-4" : "gap-3 py-2.5"
         } ${
           selected
@@ -895,11 +947,12 @@ export function TaskItem({
           }
         }}
       >
-        {/* Wrapper keeps the completion circle centered on the title line when
-            the row stacks into two rows. Selection has no per-row checkbox —
-            ⌘/Ctrl-click, Shift-click and the keyboard shortcuts drive it, and
-            the row highlight is the indicator. */}
-        <div className="flex h-5 shrink-0 items-center @lg:h-auto">
+        {/* Wrapper keeps the completion circle centered on the title's first
+            line — on its own 20px line box when the row stacks into two rows,
+            in the wide row's 28px band otherwise. Selection has no per-row
+            checkbox — ⌘/Ctrl-click, Shift-click and the keyboard shortcuts
+            drive it, and the row highlight is the indicator. */}
+        <div className={`flex h-5 shrink-0 items-center ${align.band}`}>
           <button
             onClick={handleToggleComplete}
             className="flex h-5 shrink-0 items-center justify-center"
@@ -942,9 +995,9 @@ export function TaskItem({
           </button>
         </div>
 
-        {/* Wrapper keeps the priority bars centered on the title line when the
-            row stacks into two rows. */}
-        <div className="flex h-5 shrink-0 items-center @lg:h-auto">
+        {/* Wrapper keeps the priority bars centered on the title's first line,
+            the same way. */}
+        <div className={`flex h-5 shrink-0 items-center ${align.band}`}>
           <InlinePriorityEditor priority={priority} onChange={handlePriorityChange} />
         </div>
 
@@ -953,14 +1006,14 @@ export function TaskItem({
             to a single inline row (the metadata wrapper becomes
             `display: contents`). */}
         <div
-          className={`flex min-w-0 flex-1 flex-col @lg:flex-row @lg:items-center ${
+          className={`flex min-w-0 flex-1 flex-col @lg:flex-row ${align.cross} ${
             compact ? "gap-0.5 @lg:gap-1.5" : "gap-1 @lg:gap-2"
           }`}
         >
           {/* Title, with the subtask breadcrumb stacked above it so a subtask
               row reads "↳ parent / this task" in both the wide and stacked
               layouts. */}
-          <div className="flex min-w-0 flex-col gap-0.5">
+          <div className={`flex min-w-0 flex-col gap-0.5 ${align.title}`}>
             {isSubtask ? (
               <Link
                 href={taskPath(task.parent_task_id ?? "")}
@@ -1003,7 +1056,7 @@ export function TaskItem({
             {task.tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
+                className={`${align.meta} rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400`}
               >
                 {tag}
               </span>
@@ -1011,7 +1064,7 @@ export function TaskItem({
 
             {task.recurrence_rule && (
               <span
-                className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950 dark:text-violet-400"
+                className={`${align.meta} inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950 dark:text-violet-400`}
                 title={task.recurrence_rule}
               >
                 <svg
@@ -1033,6 +1086,7 @@ export function TaskItem({
 
             {project && (
               <InlineProjectEditor
+                className={align.meta}
                 project={project}
                 projects={allProjects}
                 selectedId={projectId}
@@ -1044,6 +1098,7 @@ export function TaskItem({
 
             {duration && (
               <InlineEstimateEditor
+                className={align.meta}
                 durationMinutes={duration}
                 onChange={handleDurationChange}
               />
@@ -1051,13 +1106,18 @@ export function TaskItem({
 
             {showStatusBadge && statusCfg && (
               <span
-                /* Left free to wrap in the roomy layout, where a two-line badge
+                /* Sentence case, like every other label on the row. Upper-casing
+                   it was the one thing in the list shouting, and it made the
+                   longest status ("In progress") half again as wide for no
+                   added meaning.
+
+                   Left free to wrap in the roomy layout, where a two-line badge
                    just makes an already-tall row slightly taller. Compact's
-                   whole promise is a uniform row height, and "IN PROGRESS"
-                   breaking across two lines is the one thing in the row that
-                   silently breaks it — so there it stays on one line and the
-                   title absorbs the squeeze instead. */
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                   whole promise is a uniform row height, and a status breaking
+                   across two lines is the one thing in the row that silently
+                   breaks it — so there it stays on one line and the title
+                   absorbs the squeeze instead. */
+                className={`${align.meta} rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   compact ? "shrink-0 whitespace-nowrap" : ""
                 }`}
                 style={{
@@ -1076,7 +1136,7 @@ export function TaskItem({
                 completion and the refresh that stamps `completed_at`. */}
             {completed ? (
               <span
-                className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500 @lg:ml-auto dark:bg-neutral-800 dark:text-neutral-400"
+                className={`${align.meta} shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500 @lg:ml-auto dark:bg-neutral-800 dark:text-neutral-400`}
                 title={
                   task.completed_at
                     ? `Completed ${new Date(task.completed_at).toLocaleString()}`
@@ -1107,7 +1167,7 @@ export function TaskItem({
                  project chip collapsing to a single letter, the title breaking
                  one character per line). */
               (scheduledDate || task.deadline_date) && (
-                <div className="flex shrink-0 items-center gap-2 @lg:ml-auto">
+                <div className={`${align.meta} flex shrink-0 items-center gap-2 @lg:ml-auto`}>
                   <InlineScheduleEditor
                     scheduledDate={scheduledDate}
                     scheduledTime={scheduledTime}
@@ -1134,7 +1194,7 @@ export function TaskItem({
             `group/row` so hovering one row never reveals a sibling's controls
             (an outer section may also be a `group`). */}
         <div
-          className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100"
+          className={`flex shrink-0 items-center gap-1 opacity-100 transition-opacity ${align.band} md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
           onClick={(e) => e.stopPropagation()}
         >
           {canSchedule && duration && (

@@ -674,10 +674,11 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 999,
   },
+  // Sentence case, matching web and every other label on the row. The status
+  // was the one chip shouting, and upper-casing made the longest one
+  // ("In progress") half again as wide for no added meaning.
   statusChipLabel: {
     fontSize: 10,
     fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
   },
 });

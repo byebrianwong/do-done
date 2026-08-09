@@ -316,6 +316,28 @@ export const LongTitle: Story = {
   },
 };
 
+/**
+ * The case that made the row's alignment visible: a title long enough to wrap,
+ * carrying the full set of metadata. Every piece of furniture — the completion
+ * circle, the priority bars, each chip, the date and the edit button — sits on
+ * the title's FIRST line, so the row still reads along the same line as its
+ * single-line neighbours instead of floating into the gap between two.
+ */
+export const WrappedTitleWithMetadata: Story = {
+  name: "Long title with metadata (first-line alignment)",
+  args: {
+    task: makeTask({
+      title: "Finish godaddy porkbun domain transfer for paperandmilk.com",
+      priority: "p3",
+      status: "next",
+      project_id: "proj-2",
+      duration_minutes: 30,
+      scheduled_date: today,
+    }),
+    projects: SAMPLE_PROJECTS,
+  },
+};
+
 export const ManyTags: Story = {
   args: {
     task: makeTask({
