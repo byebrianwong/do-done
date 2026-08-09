@@ -1,13 +1,33 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { Project } from "@do-done/shared";
 import { SPARK_COUNT } from "@do-done/shared";
 import { SectionOpenProvider } from "@/lib/task-row-behavior";
+import { CompletionStreakProvider } from "@/lib/completion-streak";
+import { addDaysLocalISO } from "@do-done/shared";
 import { TaskItem } from "./task-item";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
+/**
+ * The row's data door. `complete`/`reopen` deliberately never settle, so the
+ * row stays in the optimistic state the completion animation is about — a
+ * resolved write would refresh it out from under the assertion, and a rejected
+ * one would revert it.
+ */
+const { tasksApiMock } = vi.hoisted(() => ({
+  tasksApiMock: {
+    listCompleted: vi.fn(async () => ({ data: [], error: null })),
+    complete: vi.fn(() => new Promise(() => {})),
+    reopen: vi.fn(() => new Promise(() => {})),
+  } as Record<string, unknown>,
+}));
+vi.mock("@/lib/supabase/tasks-client", () => ({
+  getClientTasksApi: async () => tasksApiMock,
+  getTasksApiFor: () => tasksApiMock,
 }));
 
 // Isolate the row from the (heavy) edit modal subtree, but keep the real
@@ -265,5 +285,82 @@ describe("TaskItem — the celebratory burst is gated", () => {
       fireEvent.click(box);
     });
     expect(container.querySelectorAll(".dd-spark")).toHaveLength(0);
+  });
+});
+
+describe("TaskItem — the streak rule", () => {
+  /**
+   * The streak is the one gate rule with data behind it, and the row reads it
+   * through a provider. What is worth asserting is the wiring: an ordinary task
+   * in a section with work left sparks *only* because the day's run says so.
+   */
+  const listCompleted = tasksApiMock.listCompleted as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    listCompleted.mockReset();
+  });
+
+  function renderRow() {
+    const task = makeTask({ title: "Ordinary thing", priority: "p3" });
+    return render(
+      <CompletionStreakProvider>
+        <SectionOpenProvider tasks={[task, makeTask({ title: "Another" })]}>
+          <TaskItem task={task} />
+        </SectionOpenProvider>
+      </CompletionStreakProvider>
+    );
+  }
+
+  async function settle() {
+    // Let the provider's one fetch land before anything is clicked.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  async function clickComplete(container: HTMLElement) {
+    const box = screen.getAllByRole("button", { name: /mark complete/i })[0];
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    return container.querySelectorAll(".dd-spark").length;
+  }
+
+  function history(days: string[]) {
+    listCompleted.mockResolvedValue({
+      data: days.map((d) => ({
+        completed_at: new Date(`${d}T12:00:00`).toISOString(),
+      })),
+      error: null,
+    });
+  }
+
+  it("fires for the completion that keeps a run alive", async () => {
+    history([addDaysLocalISO(-1), addDaysLocalISO(-2)]);
+    const { container } = renderRow();
+    await settle();
+    expect(await clickComplete(container)).toBe(SPARK_COUNT);
+  });
+
+  it("stays quiet when today merely starts a run", async () => {
+    // A streak of one is just a Tuesday.
+    history([addDaysLocalISO(-4)]);
+    const { container } = renderRow();
+    await settle();
+    expect(await clickComplete(container)).toBe(0);
+  });
+
+  it("stays quiet when today already had a completion", async () => {
+    history([addDaysLocalISO(0), addDaysLocalISO(-1)]);
+    const { container } = renderRow();
+    await settle();
+    expect(await clickComplete(container)).toBe(0);
+  });
+
+  it("never guesses before the history has loaded", async () => {
+    listCompleted.mockReturnValue(new Promise(() => {}));
+    const { container } = renderRow();
+    expect(await clickComplete(container)).toBe(0);
   });
 });

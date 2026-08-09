@@ -22,6 +22,7 @@ import {
 } from '@do-done/shared';
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
+import { claimStreakDay } from '@/lib/completion-streak';
 import { panelForSwipe } from '@/lib/swipe-actions';
 import {
   deleteTask,
@@ -207,10 +208,17 @@ function TaskItem({
     // Only on the way in. Reopening is a correction, not an achievement.
     if (nextCompleted) {
       exit.punch();
-      // …and the burst on top of that, for the completions that earned one.
-      // Read now, not at render time: by the time the write lands the row has
-      // already told its list it is done.
-      if (shouldSpark(task, { openInSection, openInProject })) exit.spark();
+      // Claimed unconditionally: *any* completion starts today, including one
+      // that would have sparked for another reason. Asking only when the other
+      // rules missed would let a second completion moments later claim the
+      // same day again.
+      const streakDay = claimStreakDay();
+      // …and the burst on top, for the completions that earned one. Read now,
+      // not at render time: by the time the write lands the row has already
+      // told its list it is done.
+      if (shouldSpark(task, { openInSection, openInProject, streakDay })) {
+        exit.spark();
+      }
     }
 
     // In a list that keeps completed tasks there is nothing to leave: the row

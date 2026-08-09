@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { CommandPalette } from "@/components/command-palette";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { UndoToastProvider } from "@/components/undo-toast";
+import { CompletionStreakProvider } from "@/lib/completion-streak";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { TaskEditorProvider } from "@/components/task-editor-provider";
 import { TaskSelectionProvider } from "@/lib/task-selection";
@@ -27,26 +28,30 @@ export function DemoShell({ children }: { children: React.ReactNode }) {
   const { projects } = useDemoData();
 
   return (
-    <UndoToastProvider>
-      <TaskSelectionProvider>
-        <TaskEditingHoldProvider>
-          <QuickAddProvider projects={projects} userId={DEMO_USER_ID}>
-            <TaskEditorProvider>
-              <AppShell
-                projects={projects}
-                userEmail={null}
-                sidebarFooter={<DemoSidebarFooter />}
-              >
-                {children}
-              </AppShell>
-              <CommandPalette projects={projects} />
-              <QuickAddModal projects={projects} userId={DEMO_USER_ID} />
-            </TaskEditorProvider>
-          </QuickAddProvider>
-        </TaskEditingHoldProvider>
-        <BulkActionBar projects={projects} />
-      </TaskSelectionProvider>
-    </UndoToastProvider>
+    // The demo is the app, so the streak rule has to work here too — against
+    // the sandbox's own completion history.
+    <CompletionStreakProvider>
+      <UndoToastProvider>
+        <TaskSelectionProvider>
+          <TaskEditingHoldProvider>
+            <QuickAddProvider projects={projects} userId={DEMO_USER_ID}>
+              <TaskEditorProvider>
+                <AppShell
+                  projects={projects}
+                  userEmail={null}
+                  sidebarFooter={<DemoSidebarFooter />}
+                >
+                  {children}
+                </AppShell>
+                <CommandPalette projects={projects} />
+                <QuickAddModal projects={projects} userId={DEMO_USER_ID} />
+              </TaskEditorProvider>
+            </QuickAddProvider>
+          </TaskEditingHoldProvider>
+          <BulkActionBar projects={projects} />
+        </TaskSelectionProvider>
+      </UndoToastProvider>
+    </CompletionStreakProvider>
   );
 }
 

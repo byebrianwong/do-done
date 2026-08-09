@@ -15,3 +15,4 @@ export * from "./project-icons.js";
 export * from "./voice.js";
 export * from "./task-row.js";
 export * from "./spark.js";
+export * from "./streak.js";
