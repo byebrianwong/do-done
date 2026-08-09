@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DEFAULT_PROJECT_COLORS } from "@do-done/shared";
 import type { Project } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
+import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 
 interface ProjectFormProps {
   project?: Project; // present = edit mode, absent = create mode
@@ -68,10 +69,12 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
     startTransition(() => router.push("/projects"));
   }
 
+  const backdrop = useBackdropDismiss<HTMLDivElement>(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-neutral-900"
