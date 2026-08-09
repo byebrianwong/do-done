@@ -263,6 +263,16 @@ body {
  *
  * `currentColor` means the line greys out with the words rather than being a
  * second colour that has to be kept in step with them.
+ *
+ * One side effect worth knowing about, because it looks like good news and
+ * isn't: axe's `color-contrast` rule skips any element carrying a
+ * background-image, since it can't compute a ratio against one. Putting the
+ * rule here therefore silences the contrast findings that completed titles
+ * used to raise — Chromatic's accessibility snapshots dropped five of them on
+ * the completion stories. The rendering is unchanged (those builds compared
+ * visually EQUAL); a greyed-out completed title is still the low-contrast text
+ * it always was, deliberately so. What changed is only that the automated
+ * check can no longer see it, so that contrast is now ours to keep an eye on.
  */
 .dd-strike {
   background-image: linear-gradient(to right, currentColor, currentColor);
