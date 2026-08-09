@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { userEvent, within } from "storybook/test";
 import { ProjectForm } from "./project-form";
 import { SAMPLE_PROJECTS } from "./__stories__/mocks";
 
@@ -37,5 +38,28 @@ export const EditPink: Story = {
   name: "Edit (pink, no icon)",
   args: {
     project: SAMPLE_PROJECTS[2],
+  },
+};
+
+// The icon grid open. It expands in flow and the dialog body scrolls — the
+// state that regressed when it was a floating panel, since the dialog clips.
+export const IconPickerOpen: Story = {
+  name: "Edit (icon picker open)",
+  args: { project: { ...SAMPLE_PROJECTS[0], name: "Engineering", icon: "🚀" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /change/i }));
+  },
+};
+
+// The symbols group: characters that are not emoji and take the row's own text
+// colour. `icon` has always accepted them; nothing used to say so.
+export const IconPickerSymbols: Story = {
+  name: "Edit (icon picker, symbols)",
+  args: { project: { ...SAMPLE_PROJECTS[0], name: "Engineering", icon: "★" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /change/i }));
+    await userEvent.click(await canvas.findByRole("button", { name: "Symbols" }));
   },
 };

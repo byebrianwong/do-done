@@ -45,7 +45,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { parseTaskInput } from '@do-done/task-engine';
 import {
-  DEFAULT_PROJECT_COLORS,
+  COMPACT_PROJECT_COLORS,
   PRIORITY_CONFIG,
   QUICK_SCHEDULE,
   classifyShortcutToken,
@@ -427,7 +427,7 @@ function NewProjectForm({
   onSubmit: (name: string, color: string) => Promise<boolean>;
 }) {
   const [name, setName] = useState('');
-  const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  const [color, setColor] = useState<string>(COMPACT_PROJECT_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -456,7 +456,7 @@ function NewProjectForm({
         editable={!saving}
       />
       <View style={styles.swatchRow}>
-        {DEFAULT_PROJECT_COLORS.map((c) => (
+        {COMPACT_PROJECT_COLORS.map((c) => (
           <Pressable
             key={c}
             onPress={() => setColor(c)}

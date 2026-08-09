@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_PROJECT_COLORS } from "@do-done/shared";
+import { COMPACT_PROJECT_COLORS } from "@do-done/shared";
 import type { Project } from "@do-done/shared";
 import { getProjectsApiFor } from "@/lib/supabase/projects-client";
 
@@ -42,7 +42,7 @@ export function ProjectPickerPopover({
 
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  const [color, setColor] = useState<string>(COMPACT_PROJECT_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -175,7 +175,7 @@ export function ProjectPickerPopover({
               className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-800 outline-none focus:border-indigo-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
             />
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {DEFAULT_PROJECT_COLORS.map((c) => (
+              {COMPACT_PROJECT_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
