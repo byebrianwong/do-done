@@ -77,7 +77,9 @@ export default function ProjectDetailScreen() {
         sections={sections}
         keyExtractor={(t) => t.id}
         renderItem={({ item }) => (
-          <TaskItem task={item} onPress={handlePress} />
+          // Every row here belongs to the project in the title bar, so the
+          // subline saying so on all of them would be pure repetition.
+          <TaskItem task={item} onPress={handlePress} hideProject />
         )}
         renderSectionHeader={({ section: { title: t, data } }) => (
           <View style={styles.sectionHeader}>

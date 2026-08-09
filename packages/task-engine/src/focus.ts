@@ -93,7 +93,7 @@ export function partitionToday(
   focusMax: number = 3
 ): TodayPartition {
   const active = tasks.filter(isActive);
-  const overdue = active.filter(isOverdue);
+  const overdue = active.filter((t) => isOverdue(t));
   const overdueIds = new Set(overdue.map((t) => t.id));
   const nonOverdue = active.filter((t) => !overdueIds.has(t.id));
   const focus = generateFocusList(nonOverdue, focusMax);
@@ -116,7 +116,7 @@ export function todayUniverse(
   focusMax: number = 3
 ): Task[] {
   const active = allTasks.filter(isActive);
-  const overdue = active.filter(isOverdue);
+  const overdue = active.filter((t) => isOverdue(t));
   const overdueIds = new Set(overdue.map((t) => t.id));
   const nonOverdue = active.filter((t) => !overdueIds.has(t.id));
   const focusIds = new Set(

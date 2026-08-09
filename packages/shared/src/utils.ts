@@ -314,9 +314,9 @@ export function formatRelativeDay(date: string, from: Date = new Date()): string
   return m === 1 ? "1 month ago" : `${m} months ago`;
 }
 
-export function isOverdue(task: Task): boolean {
+export function isOverdue(task: Task, now: Date = new Date()): boolean {
   if (task.status === "done" || task.status === "cancelled") return false;
-  const today = todayLocalISO();
+  const today = todayLocalISO(now);
   if (task.deadline_date && task.deadline_date < today) return true;
   if (task.scheduled_date && task.scheduled_date < today) return true;
   return false;
