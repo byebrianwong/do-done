@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
 import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
 import { useQuickAddContext } from "@/lib/quick-add-context";
-import type { QuickAddSeed } from "@/lib/quick-add";
+import { seedFromPathname, type QuickAddSeed } from "@/lib/quick-add";
 import {
   OPEN_QUICK_ADD_EVENT,
   type OpenQuickAddDetail,
@@ -41,7 +42,14 @@ export function QuickAddModal({
   userId: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [seed, setSeed] = useState<QuickAddSeed>({});
+  // A seed carried by the open event (a section's "add here"), when there is
+  // one. Otherwise the modal takes the page's own context: it opens over
+  // wherever the user already is, so `q` on a project page should file there
+  // exactly as that page's own bar does.
+  const [seedOverride, setSeedOverride] = useState<QuickAddSeed | null>(null);
+  const pathname = usePathname();
+  const routeSeed = useMemo(() => seedFromPathname(pathname), [pathname]);
+  const seed = seedOverride ?? routeSeed;
   const composer = useQuickAddComposer(seed, { keepOpen: false });
   const { resetAll, reset, handoffTask } = composer;
   const { addProject } = useQuickAddContext();
@@ -62,7 +70,7 @@ export function QuickAddModal({
       const detail = (e as CustomEvent<OpenQuickAddDetail>).detail;
       restoreFocusRef.current = document.activeElement as HTMLElement | null;
       resetAll();
-      setSeed(detail?.seed ?? {});
+      setSeedOverride(detail?.seed ?? null);
       setOpen(true);
     };
     window.addEventListener(OPEN_QUICK_ADD_EVENT, onOpen);
@@ -87,7 +95,7 @@ export function QuickAddModal({
       e.preventDefault();
       restoreFocusRef.current = t;
       resetAll();
-      setSeed({});
+      setSeedOverride(null);
       setOpen(true);
     };
     window.addEventListener("keydown", onKey);
@@ -164,7 +172,11 @@ export function QuickAddModal({
             </div>
 
             {composer.parsed && composer.parsed.title ? (
-              <ParsedPreview parsed={composer.parsed} className="px-4 pb-1" />
+              <ParsedPreview
+                parsed={composer.parsed}
+                omitChipFields
+                className="px-4 pb-1"
+              />
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 px-4 py-3">

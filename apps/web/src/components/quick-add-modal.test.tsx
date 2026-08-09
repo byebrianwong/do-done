@@ -7,8 +7,11 @@ import { QuickAddProvider } from "@/lib/quick-add-context";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 import type { CreateTaskInput, Task } from "@do-done/shared";
 
+// The modal reads the route to seed itself from the page it opened over, so
+// the mock has to answer usePathname as well as useRouter.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/upcoming",
 }));
 
 const createdTask = makeTask({ id: "new-1", title: "Buy milk", user_id: "user-1" });
@@ -170,10 +173,16 @@ describe("QuickAddModal — typing #project", () => {
     return screen.getByLabelText("Task title");
   }
 
-  it("previews the matched project instead of a tag", () => {
+  // The Project chip is where a match shows — it fills in from the text the
+  // same way it fills in from the page's own context, so what the chips say is
+  // always what the task gets. The preview is left to the fields they can't say.
+  it("fills the Project chip with the match instead of tagging it", () => {
     const input = renderInProvider();
+    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument();
     fireEvent.change(input, { target: { value: "buy milk #engineering" } });
-    expect(screen.getByText("#Engineering")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Engineering/ })
+    ).toBeInTheDocument();
   });
 
   it("creates the task in that project, with the token out of the title", async () => {

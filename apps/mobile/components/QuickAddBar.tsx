@@ -53,6 +53,12 @@ interface QuickAddBarProps {
   /** Assign created tasks to this project (e.g. on the project detail screen). */
   projectId?: string;
   /**
+   * Schedule created tasks for this day (the Today screen passes today). Like
+   * `projectId` it only pre-fills the chip: a typed date replaces it, and it can
+   * be cleared outright.
+   */
+  scheduledDate?: string;
+  /**
    * Focus the input as soon as the bar mounts. Used by the quick-add widget
    * deep link so a home-screen tap lands directly in task capture.
    */
@@ -63,6 +69,7 @@ export default function QuickAddBar({
   defaultStatus = 'inbox',
   onCreated,
   projectId,
+  scheduledDate,
   autoFocus = false,
 }: QuickAddBarProps) {
   const [text, setText] = useState('');
@@ -73,10 +80,13 @@ export default function QuickAddBar({
   /** The task handed off to the full editor by the expand button, if any. */
   const [expandedTask, setExpandedTask] = useState<Task | null>(null);
 
-  // The screen's project seeds the chip, so the project page's bar shows where
-  // the task is going — and lets the user redirect it without leaving.
+  // The screen's own context seeds the chips, so the bar shows where the task
+  // is going — and lets the user redirect it without leaving.
   const { data: projects } = useProjects();
-  const fields = useQuickAddFields({ projectId: projectId ?? null }, projects);
+  const fields = useQuickAddFields(
+    { projectId: projectId ?? null, scheduledDate: scheduledDate ?? null },
+    projects
+  );
 
   // Dictation appends rather than replaces, so speaking into a half-typed line
   // extends it — the same thing typing would have done.

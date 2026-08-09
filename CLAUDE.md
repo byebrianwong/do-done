@@ -61,6 +61,50 @@ the default. On mobile that default lives in one place per component —
 `defaultStatus` in `QuickAddBar.tsx` and `QuickAddComposer.tsx`; on web,
 omitting `status` from the `QuickAddSeed` is what reaches it.
 
+## A guessable facet arrives already filled in
+
+**Where the surface knows what a field should be, the chip shows it before the
+user types a word.** Adding on the Finance project page fills the Project chip
+with Finance; adding on Today fills the Date chip with today. It was already
+*creating* the task that way — the seed has always been merged in at submit —
+but silently, so the row you got back was not the row the composer described,
+and on Today the seed didn't exist at all: a task typed into the Today bar had
+no date and dropped straight out of the list it was typed into.
+
+The rule the chips make legible, on web (`buildCreateInput` +
+`contextFacets`, `lib/quick-add.ts`) and mobile (`buildInput`,
+`QuickAddFields.tsx`) alike:
+
+| Source | Beats |
+| --- | --- |
+| An explicit chip pick — including *clearing* one | everything |
+| What was typed (`#home`, `p1`, "friday") | the surface's guess |
+| The surface's guess (project page, Today, a section) | nothing |
+
+- **A chip shows the value the task would be created with**, so it tracks the
+  text as it's typed: `#home` on the Groceries page moves the chip to Home, and
+  deleting the token moves it back. `ParsedPreview` is left echoing only what
+  the chips can't say (deadline, tags, recurrence) — before this it was the
+  *only* place a parsed date or priority showed, and the chips beside it sat
+  empty.
+- **A typed date now beats a seeded one**, including an Upcoming column's. That
+  reversed a rule ("the column IS the date"), which was safe only while the
+  seed was invisible: with the chip showing "Fri" as you type, an override the
+  user can see is better than one that silently discards what they wrote.
+- **Clearing is a real answer, and the only way to say "not in this project"
+  on a page that is one.** `applyOverride` deletes a field passed `null`, which
+  is why the chip picks are a `QuickAddOverride` (nullable) rather than a
+  `Partial<CreateTaskInput>` (absent-only).
+- **Touched-ness is state; the values are derived.** `useQuickAddComposer`
+  stores only what the user picked, so nothing has to be re-synced when the
+  seed changes, and `anyChipSet` — what keeps a surface expanded — means *the
+  user set something*, not *a chip has a value*. A project page's bar would
+  never collapse again otherwise. A successful create clears the picks, so the
+  next task inherits the same context.
+- **Only a route that genuinely is one facet seeds one.** `seedFromPathname`
+  gives the universal quick-add (sidebar, palette, `q`) the same context the
+  page's own bar has — project pages, Today, Inbox — and nothing anywhere else.
+
 ## Status ↔ schedule auto-sync
 
 An opt-in rule (two independent halves, both off by default) that keeps a

@@ -491,8 +491,9 @@ export function QuickAddChipRow({
 /**
  * Read-only preview of what the natural-language text parsed into. By default
  * it shows every field; pass `omitChipFields` on surfaces that already expose
- * When / Priority / Estimate as chips, so the preview only echoes the fields
- * the chips don't cover (deadline, tags, recurrence).
+ * When / Priority / Project / Estimate as chips — those chips fill in from the
+ * parse as it's typed, so the preview is left echoing only what they can't say
+ * (deadline, tags, recurrence).
  */
 export function ParsedPreview({
   parsed,
@@ -530,7 +531,7 @@ export function ParsedPreview({
   // Only present when a typed `#name` / `/name` matched a real project, and
   // `parsed.project` is then that project's own name — so this echoes what will
   // actually be set, not the token as typed.
-  if (parsed.project_id && parsed.project)
+  if (!omitChipFields && parsed.project_id && parsed.project)
     chips.push(
       <span
         key="project"
