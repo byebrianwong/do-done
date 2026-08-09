@@ -50,10 +50,14 @@ export function rowGutter(task: Task, now: Date = new Date()): RowGutter {
 // ── Dates, said the short way ───────────────────────────
 
 /**
- * A compact calendar label: "Today", "Tomorrow", "Yesterday", a weekday name
- * inside the coming or past week, then "Aug 12". Deliberately shorter than
+ * A compact calendar label: "Today", "Tomorrow", "Yesterday", then "Fri Aug 14"
+ * within the coming week and "Aug 27" beyond it. Deliberately shorter than
  * `formatRelativeDay` ("in 3 days"), which is prose for a sentence rather
  * than a label meant to be scanned down a column.
+ *
+ * The near days carry the weekday **and** the date, per the rule
+ * `formatCompletedDate` already follows: a bare "Fri" reads as a day of the
+ * week with no way to tell *which* one from a list that spans several.
  *
  * Returns "" for an unparseable date so callers can drop the part entirely.
  */
@@ -66,11 +70,9 @@ export function shortDayLabel(date: string, now: Date = new Date()): string {
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
-  if (diff > 1 && diff < 7) {
-    return target.toLocaleDateString("en-US", { weekday: "short" });
-  }
   const sameYear = target.getFullYear() === today.getFullYear();
   return target.toLocaleDateString("en-US", {
+    ...(diff > 1 && diff < 7 ? { weekday: "short" } : {}),
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),

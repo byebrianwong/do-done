@@ -75,8 +75,10 @@ describe("shortDayLabel", () => {
     expect(shortDayLabel("2026-08-11", NOW)).toBe("Yesterday");
   });
 
-  it("uses a weekday inside the coming week and a date past it", () => {
-    expect(shortDayLabel("2026-08-14", NOW)).toBe("Fri");
+  // A bare "Fri" reads as a day of the week with no way to tell which one from
+  // a list spanning several — the rule formatCompletedDate already follows.
+  it("names the date as well as the weekday inside the coming week", () => {
+    expect(shortDayLabel("2026-08-14", NOW)).toBe("Fri, Aug 14");
     expect(shortDayLabel("2026-08-27", NOW)).toBe("Aug 27");
   });
 
@@ -115,7 +117,7 @@ describe("rowSubline", () => {
         task({ scheduled_date: "2026-08-14", scheduled_time: "11:00" }),
         { now: NOW }
       )
-    ).toEqual(["Fri 11:00 AM"]);
+    ).toEqual(["Fri, Aug 14 11:00 AM"]);
   });
 
   it("prints an overdue task's age rather than its date", () => {
@@ -127,7 +129,7 @@ describe("rowSubline", () => {
   it("names a deadline as a deadline", () => {
     expect(
       rowSubline(task({ deadline_date: "2026-08-14" }), { now: NOW })
-    ).toEqual(["Deadline Fri"]);
+    ).toEqual(["Deadline Fri, Aug 14"]);
   });
 
   it("reads recurrence and project as prose", () => {
@@ -166,8 +168,8 @@ describe("rowSubline", () => {
 
   it("leaves the project out when the caller withholds it", () => {
     const t = task({ scheduled_date: "2026-08-14" });
-    expect(rowSubline(t, { now: NOW })).toEqual(["Fri"]);
-    expect(rowSubline(t, { now: NOW, projectName: null })).toEqual(["Fri"]);
+    expect(rowSubline(t, { now: NOW })).toEqual(["Fri, Aug 14"]);
+    expect(rowSubline(t, { now: NOW, projectName: null })).toEqual(["Fri, Aug 14"]);
   });
 });
 
