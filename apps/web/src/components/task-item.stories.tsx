@@ -5,6 +5,19 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { UndoToastProvider } from "./undo-toast";
 import { TaskSelectionProvider } from "@/lib/task-selection";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
+import type { Project } from "@do-done/shared";
+
+/**
+ * The shared mocks leave `icon` null, and they are shared — giving them emoji
+ * would change the sidebar, the project picker and the editor's baselines too,
+ * none of which this row has anything to do with. Real projects usually have
+ * one, and the ring is where it shows, so the row's stories bring their own.
+ */
+const SAMPLE_PROJECTS_WITH_EMOJI: Project[] = [
+  { ...SAMPLE_PROJECTS[0], icon: "\u{1F4BC}" },
+  { ...SAMPLE_PROJECTS[1], icon: "\u{1F3E0}" },
+  { ...SAMPLE_PROJECTS[2], icon: "\u{1F3A8}" },
+];
 
 const meta: Meta<typeof TaskItem> = {
   title: "Components/TaskItem",
@@ -175,7 +188,39 @@ export const WithProject: Story = {
       priority: "p2",
       project_id: "proj-1",
     }),
-    projects: SAMPLE_PROJECTS,
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
+  },
+};
+
+// The ring is the row's identity slot: the project's colour, and its emoji when
+// the project has one. A project with no emoji is a first-class state, not a
+// fallback — the ring is still its colour — so both are worth a baseline.
+export const ProjectWithoutEmoji: Story = {
+  name: "Project without an emoji",
+  args: {
+    task: makeTask({
+      title: "Refactor auth module",
+      priority: "p2",
+      project_id: "proj-9",
+    }),
+    projects: [
+      ...SAMPLE_PROJECTS_WITH_EMOJI,
+      {
+        ...SAMPLE_PROJECTS_WITH_EMOJI[0],
+        id: "proj-9",
+        name: "Operations",
+        color: "#0891b2",
+        icon: null,
+      },
+    ],
+  },
+};
+
+// No project at all: a deliberate neutral ring, not a missing value.
+export const NoProject: Story = {
+  args: {
+    task: makeTask({ title: "Book the venue", priority: "p3" }),
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
   },
 };
 
@@ -194,7 +239,7 @@ export const Subtask: Story = {
       project_id: "proj-1",
     }),
     parentTask: { id: "parent-1", title: "Launch the new signup flow" },
-    projects: SAMPLE_PROJECTS,
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
   },
 };
 
@@ -254,7 +299,7 @@ export const InProgress: Story = {
       status: "in_progress",
       project_id: "proj-1",
     }),
-    projects: SAMPLE_PROJECTS,
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
   },
 };
 
@@ -334,7 +379,7 @@ export const WrappedTitleWithMetadata: Story = {
       duration_minutes: 30,
       scheduled_date: today,
     }),
-    projects: SAMPLE_PROJECTS,
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
   },
 };
 
@@ -347,7 +392,7 @@ export const ManyTags: Story = {
       project_id: "proj-3",
       duration_minutes: 45,
     }),
-    projects: SAMPLE_PROJECTS,
+    projects: SAMPLE_PROJECTS_WITH_EMOJI,
   },
 };
 
