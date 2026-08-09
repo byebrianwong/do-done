@@ -19,14 +19,8 @@ import type {
   WidgetTaskHandlerProps,
 } from 'react-native-android-widget';
 import { QuickAddWidget } from './QuickAddWidget';
-
-const TASK_LIST_WIDGET_NAMES = ['Today', 'Upcoming'] as const;
-
-type TaskListWidgetName = (typeof TASK_LIST_WIDGET_NAMES)[number];
-
-function isTaskListWidget(name: string): name is TaskListWidgetName {
-  return (TASK_LIST_WIDGET_NAMES as readonly string[]).includes(name);
-}
+import type { WidgetTasks } from './widget-data';
+import type { TaskWidgetComponent, TaskWidgetName } from './widget-render';
 
 export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
   const widgetName = props.widgetInfo.widgetName;
@@ -49,28 +43,54 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
     return;
   }
 
-  if (!isTaskListWidget(widgetName)) return;
-  await renderTaskListWidget(widgetName, props);
+  // Everything past here needs the data layer, so the name check comes from the
+  // module that owns the list — loaded lazily like everything else on this path.
+  const { isTaskWidgetName } = await import('./widget-render');
+  if (!isTaskWidgetName(widgetName)) return;
+  await renderTaskWidget(widgetName, props);
 }
 
-async function renderTaskListWidget(
-  widgetName: TaskListWidgetName,
+/** Everything the task widgets need, loaded only on the branch that needs it. */
+async function loadTaskWidgetModules() {
+  const [data, render, today, upcoming, nextUp] = await Promise.all([
+    import('./widget-data'),
+    import('./widget-render'),
+    import('./TodayWidget'),
+    import('./UpcomingWidget'),
+    import('./NextUpWidget'),
+  ]);
+  const components: Record<TaskWidgetName, TaskWidgetComponent> = {
+    Today: today.TodayWidget,
+    Upcoming: upcoming.UpcomingWidget,
+    NextUp: nextUp.NextUpWidget,
+  };
+  return {
+    loadWidgetTasks: data.loadWidgetTasks,
+    names: render.TASK_WIDGET_NAMES,
+    themedPair: render.themedPair,
+    components,
+  };
+}
+
+type TaskWidgetModules = Awaited<ReturnType<typeof loadTaskWidgetModules>>;
+
+function draw(
+  name: TaskWidgetName,
+  mods: TaskWidgetModules,
+  data: WidgetTasks,
+  info: { width: number; height: number }
+) {
+  return mods.themedPair(mods.components[name], data, info);
+}
+
+async function renderTaskWidget(
+  widgetName: TaskWidgetName,
   props: WidgetTaskHandlerProps
 ) {
-  const [{ loadWidgetTasks }, { TodayWidget }, { UpcomingWidget }] =
-    await Promise.all([
-      import('./widget-data'),
-      import('./TodayWidget'),
-      import('./UpcomingWidget'),
-    ]);
+  const mods = await loadTaskWidgetModules();
 
-  const components = {
-    Today: TodayWidget,
-    Upcoming: UpcomingWidget,
-  } as const;
-
-  // A tapped checkbox completes the task in the background, then falls through
-  // to re-render this widget with the task removed from the list.
+  // A tapped ring completes the task in the background, then falls through to
+  // re-render this widget with the task removed from the list.
   let completed = false;
   if (
     props.widgetAction === 'WIDGET_CLICK' &&
@@ -89,32 +109,24 @@ async function renderTaskListWidget(
     }
   }
 
-  const data = await loadWidgetTasks();
-  props.renderWidget(
-    React.createElement(components[widgetName], {
-      data,
-      height: props.widgetInfo.height,
-    })
-  );
+  const data = await mods.loadWidgetTasks();
+  props.renderWidget(draw(widgetName, mods, data, props.widgetInfo));
 
-  // Completing from one widget removes the task everywhere, so keep the other
-  // task widget (if the user has it) in sync too.
-  if (completed) {
-    const sibling: TaskListWidgetName =
-      widgetName === 'Today' ? 'Upcoming' : 'Today';
-    const { requestWidgetUpdate } = await import('react-native-android-widget');
+  // Completing from one widget removes the task everywhere, so keep whichever
+  // of the others the user has on their home screen in step too.
+  if (!completed) return;
+
+  const { requestWidgetUpdate } = await import('react-native-android-widget');
+  for (const sibling of mods.names) {
+    if (sibling === widgetName) continue;
     await requestWidgetUpdate({
       widgetName: sibling,
-      renderWidget: (info: WidgetInfo) =>
-        React.createElement(components[sibling], {
-          data,
-          height: info.height,
-        }),
+      renderWidget: (info: WidgetInfo) => draw(sibling, mods, data, info),
       widgetNotFound: () => {
-        // sibling widget isn't on the home screen — nothing to update
+        // that widget isn't on the home screen — nothing to update
       },
     }).catch(() => {
-      // best-effort — never fail the primary render because of the sibling
+      // best-effort — never fail the primary render because of a sibling
     });
   }
 }

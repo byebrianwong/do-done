@@ -107,6 +107,17 @@ export interface RowSublineContext {
    * project-grouped list wants, since its header already said it.
    */
   projectName?: string | null;
+  /**
+   * Drop the scheduled *day* and keep only its time — for a list already
+   * grouped by date, where the section header has just named the day. The
+   * date-shaped twin of `projectName: null`, and the reason the home-screen
+   * Upcoming widget doesn't print "Tomorrow" under a header reading
+   * "Tomorrow".
+   *
+   * Deliberately does not touch the deadline, which is a different field and
+   * a different day.
+   */
+  hideScheduledDay?: boolean;
   now?: Date;
 }
 
@@ -138,7 +149,7 @@ export function rowSubline(
   } else if (task.status === "cancelled") {
     parts.push("Cancelled");
   } else {
-    const when = schedulePart(task, now);
+    const when = schedulePart(task, now, ctx.hideScheduledDay ?? false);
     if (when) parts.push(when);
     if (task.deadline_date) {
       const label = shortDayLabel(task.deadline_date, now);
@@ -173,10 +184,13 @@ export function rowSubline(
  * that has stopped carrying information. An overdue one prints its age
  * instead of its date, because "3 days ago" is the actionable form.
  */
-function schedulePart(task: Task, now: Date): string {
+function schedulePart(task: Task, now: Date, hideDay: boolean): string {
   const date = task.scheduled_date;
   const time = task.scheduled_time ? formatTimeOfDay(task.scheduled_time) : "";
   if (!date) return time;
+  // The caller's header has already named this day, so the time — if there is
+  // one — is the only part left that says anything.
+  if (hideDay) return time;
 
   const day = shortDayLabel(date, now);
   if (day === "Today") return time;
