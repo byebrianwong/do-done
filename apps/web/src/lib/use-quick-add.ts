@@ -3,9 +3,14 @@
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { parseTaskInput } from "@do-done/task-engine";
-import type { CreateTaskInput, ParsedTask, Task } from "@do-done/shared";
+import type { ParsedTask, Task } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
-import { applyOverride, buildCreateInput, type QuickAddSeed } from "./quick-add";
+import {
+  applyOverride,
+  buildCreateInput,
+  type QuickAddOverride,
+  type QuickAddSeed,
+} from "./quick-add";
 import { useQuickAddContext } from "./quick-add-context";
 
 export interface UseQuickAddOptions {
@@ -15,8 +20,9 @@ export interface UseQuickAddOptions {
 }
 
 export interface QuickAddSubmitOptions {
-  /** Explicit fields (e.g. modal chips) that win over the parsed text + seed. */
-  override?: Partial<CreateTaskInput>;
+  /** Explicit chip picks that win over the parsed text + seed; a `null` value
+   *  clears the field the seed or the text would otherwise have set. */
+  override?: QuickAddOverride;
   /** Skip the post-create router.refresh() — used when handing off to the edit
    *  modal, which refreshes the route on its own close. */
   skipRefresh?: boolean;

@@ -28,7 +28,7 @@
  * that knows whether there's a query cache behind it to keep in step.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -82,10 +82,19 @@ interface MenuItem {
 
 const POPOVER_WIDTH = 252;
 
-/** What the hosting surface implies about the task before the user touches it. */
+/**
+ * What the hosting surface implies about the task before the user touches it.
+ * Each seeded facet arrives already showing in its chip — the surface's guess
+ * is a visible default, not a hidden one — and a typed value or a tapped chip
+ * replaces it. A screen only seeds an axis it genuinely is: the project screen
+ * its project, Today its date. Status is not seeded here; see `defaultStatus`
+ * on the hosts.
+ */
 export interface QuickAddSeed {
   /** Pre-file into this project (the project detail screen). */
   projectId?: string | null;
+  /** Pre-schedule for this day (the Today screen). */
+  scheduledDate?: string | null;
 }
 
 export function durationLabel(minutes: number | null): string {
@@ -177,6 +186,7 @@ export function useQuickAddFields(
   hostProjects?: Project[]
 ): QuickAddFields {
   const seedProjectId = seed.projectId ?? null;
+  const seedScheduledDate = seed.scheduledDate ?? null;
 
   // Projects created from the chip. Merged over the host's list rather than
   // replacing it, and deduped by id, because a query-backed host refetches and
@@ -190,9 +200,35 @@ export function useQuickAddFields(
 
   const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
-  const [scheduledDate, setScheduledDate] = useState<string | null>(null);
+  const [scheduledDate, setScheduledDate] = useState<string | null>(
+    seedScheduledDate
+  );
   const [duration, setDuration] = useState<number | null>(null);
   const [projectId, setProjectId] = useState<string | null>(seedProjectId);
+
+  // Follow the host's context when it changes — the day rolling over under a
+  // screen left open all night is the case this exists for — but never over the
+  // top of a value the user chose themselves.
+  const lastSeed = useRef({
+    projectId: seedProjectId,
+    scheduledDate: seedScheduledDate,
+  });
+  useEffect(() => {
+    const prev = lastSeed.current;
+    if (
+      prev.projectId === seedProjectId &&
+      prev.scheduledDate === seedScheduledDate
+    )
+      return;
+    lastSeed.current = {
+      projectId: seedProjectId,
+      scheduledDate: seedScheduledDate,
+    };
+    setProjectId((cur) => (cur === prev.projectId ? seedProjectId : cur));
+    setScheduledDate((cur) =>
+      cur === prev.scheduledDate ? seedScheduledDate : cur
+    );
+  }, [seedProjectId, seedScheduledDate]);
 
   const [menu, setMenu] = useState<QuickAddMenu>(null);
   const [anchors, setAnchors] = useState<Record<ChipKey, number>>({
@@ -285,10 +321,11 @@ export function useQuickAddFields(
     return stripped;
   };
 
+  /** Back to the host's context, so the next task lands where this one did. */
   const reset = () => {
     setTags([]);
     setPriority(null);
-    setScheduledDate(null);
+    setScheduledDate(seedScheduledDate);
     setDuration(null);
     setProjectId(seedProjectId);
     setMenu(null);
@@ -300,10 +337,20 @@ export function useQuickAddFields(
     const mergedTags = Array.from(new Set([...tags, ...(parsed.tags ?? [])]));
     const finalPriority = priority ?? parsed.priority ?? undefined;
     const finalDuration = duration ?? parsed.duration_minutes ?? undefined;
-    const finalScheduledDate = scheduledDate ?? parsed.scheduled_date ?? undefined;
+    // A chip the user set wins over the typed text; a chip still holding the
+    // *screen's* guess loses to it — typing "friday" on Today means Friday, and
+    // "#home" on the Groceries screen means Home. Same rule as web's
+    // buildCreateInput.
+    const finalScheduledDate =
+      (scheduledDate !== seedScheduledDate
+        ? scheduledDate
+        : parsed.scheduled_date ?? scheduledDate) ?? undefined;
     // The chip already carries anything the absorber pulled out of the text;
     // the parse is what catches a trailing `#name` typed without a space after.
-    const finalProjectId = projectId ?? parsed.project_id ?? undefined;
+    const finalProjectId =
+      (projectId !== seedProjectId
+        ? projectId
+        : parsed.project_id ?? projectId) ?? undefined;
 
     return {
       title: parsed.title || trimmed,
@@ -325,11 +372,13 @@ export function useQuickAddFields(
     };
   };
 
+  // What the *user* has set, not what the chips show: a seeded chip must not
+  // hold its surface open forever.
   const anySet =
     priority !== null ||
-    scheduledDate !== null ||
     duration !== null ||
     tags.length > 0 ||
+    scheduledDate !== seedScheduledDate ||
     projectId !== seedProjectId;
 
   return {

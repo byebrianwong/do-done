@@ -69,9 +69,12 @@ export function TodayView({
       beforeContent={
         <>
           <TodaySchedule events={events} />
-          {/* No status seed: Today isn't a status axis, so a task typed here
-              takes the default — inbox. */}
-          <QuickAddBar />
+          {/* Scheduled for today, because that is what this screen is: an
+              undated task typed here vanishes from the list it was typed into.
+              The Date chip shows it and a typed date overrules it, so it's a
+              default rather than a decision. No status seed, though — Today
+              isn't a status axis, so the task takes the default, inbox. */}
+          <QuickAddBar seed={{ scheduled_date: todayLocalISO() }} />
         </>
       }
       curatedWhen={(c) => c.group === "none" && isManualSort(c)}

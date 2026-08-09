@@ -303,7 +303,11 @@ export default function TodayScreen() {
         />
       )}
 
-      <QuickAddBar onCreated={invalidateTasks} />
+      {/* Scheduled for today by default — that is what this screen is, and an
+          undated task typed here would drop straight out of the list it was
+          typed into. The chip shows it, a typed date replaces it, and
+          `localDay` rolls it over when the app comes back on a new day. */}
+      <QuickAddBar scheduledDate={localDay} onCreated={invalidateTasks} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
