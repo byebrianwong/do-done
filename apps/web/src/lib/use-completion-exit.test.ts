@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import {
   TASK_COMPLETE_COLLAPSE_MS,
+  TASK_COMPLETE_HALO_MS,
   TASK_COMPLETE_HOLD_MS,
 } from "@do-done/shared";
 import { useCompletionExit } from "./use-completion-exit";
@@ -114,5 +115,61 @@ describe("useCompletionExit", () => {
     );
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useCompletionExit — the halo", () => {
+  it("rings out once and then stops existing", () => {
+    const { result } = renderHook(() => useCompletionExit());
+
+    expect(result.current.pulsing).toBe(false);
+    act(() => result.current.pulse());
+    expect(result.current.pulsing).toBe(true);
+
+    act(() => void vi.advanceTimersByTime(TASK_COMPLETE_HALO_MS - 1));
+    expect(result.current.pulsing).toBe(true);
+
+    // Unmounted afterwards, so a re-render can't restart a finished animation.
+    act(() => void vi.advanceTimersByTime(1));
+    expect(result.current.pulsing).toBe(false);
+  });
+
+  it("survives the exit starting on top of it", () => {
+    const { result } = renderHook(() => useCompletionExit());
+
+    // The real order in `handleToggleComplete`: pulse, then start. These used
+    // to share a timer list, so `start`'s clear-down killed the pulse's own
+    // clean-up and left the halo on screen for the life of the row.
+    act(() => {
+      result.current.pulse();
+      result.current.start(vi.fn());
+    });
+    expect(result.current.pulsing).toBe(true);
+
+    act(() => void vi.advanceTimersByTime(TASK_COMPLETE_HALO_MS));
+    expect(result.current.pulsing).toBe(false);
+  });
+
+  it("takes the halo back when the write fails", () => {
+    const { result } = renderHook(() => useCompletionExit());
+
+    act(() => {
+      result.current.pulse();
+      result.current.start(vi.fn());
+    });
+    // A write that failed gets no celebration.
+    act(() => result.current.cancel());
+    expect(result.current.pulsing).toBe(false);
+
+    act(() => void vi.advanceTimersByTime(TASK_COMPLETE_HALO_MS * 4));
+    expect(result.current.pulsing).toBe(false);
+  });
+
+  it("does not ring under reduce motion", () => {
+    setReducedMotion(true);
+    const { result } = renderHook(() => useCompletionExit());
+
+    act(() => result.current.pulse());
+    expect(result.current.pulsing).toBe(false);
   });
 });

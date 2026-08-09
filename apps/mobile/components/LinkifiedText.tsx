@@ -3,7 +3,9 @@ import {
   Linking,
   StyleSheet,
   Text,
+  type NativeSyntheticEvent,
   type StyleProp,
+  type TextLayoutEventData,
   type TextStyle,
 } from 'react-native';
 import { linkifyText } from '@do-done/shared';
@@ -16,6 +18,14 @@ interface LinkifiedTextProps {
   /** Style applied to the link runs on top of the default accent. */
   linkStyle?: StyleProp<TextStyle>;
   numberOfLines?: number;
+  /**
+   * Per-line geometry for the rendered text, once it has been laid out.
+   *
+   * Passed straight through to the root `Text`. `StruckText` needs it because
+   * React Native can't animate `textDecorationLine` and has to draw the rule
+   * itself, one view per line.
+   */
+  onTextLayout?: (e: NativeSyntheticEvent<TextLayoutEventData>) => void;
 }
 
 /**
@@ -30,10 +40,15 @@ export function LinkifiedText({
   style,
   linkStyle,
   numberOfLines,
+  onTextLayout,
 }: LinkifiedTextProps) {
   const segments = linkifyText(text);
   return (
-    <Text style={style} numberOfLines={numberOfLines}>
+    <Text
+      style={style}
+      numberOfLines={numberOfLines}
+      onTextLayout={onTextLayout}
+    >
       {segments.map((seg, i) =>
         seg.type === 'text' ? (
           <Text key={i}>{seg.value}</Text>

@@ -132,3 +132,41 @@ describe("TaskItem — status badge redundancy", () => {
     expect(screen.queryByText("Next")).not.toBeInTheDocument();
   });
 });
+
+describe("TaskItem — the strike-through is drawn, not switched on", () => {
+  it("carries the drawn rule rather than a line-through class", () => {
+    const { container } = render(
+      <TaskItem task={makeTask({ title: "Ship it", status: "done" })} />
+    );
+
+    const strike = container.querySelector(".dd-strike");
+    expect(strike).not.toBeNull();
+    // A completed row mounts already struck. Transitions don't run on first
+    // paint, so it renders drawn rather than animating in on page load.
+    expect(strike!.className).toContain("dd-strike-on");
+
+    // `line-through` is what this replaces: it flipped on instantly, on the
+    // tap's own frame, while every other part of the gesture eased.
+    const title = strike!.parentElement as HTMLElement;
+    expect(title.className).not.toContain("line-through");
+  });
+
+  it("leaves an open task's rule undrawn", () => {
+    const { container } = render(
+      <TaskItem task={makeTask({ title: "Ship it" })} />
+    );
+    const strike = container.querySelector(".dd-strike");
+    expect(strike).not.toBeNull();
+    expect(strike!.className).not.toContain("dd-strike-on");
+  });
+
+  it("never rings the halo for a row that merely renders completed", () => {
+    // The halo marks the *moment* a task was ticked off. Keying it off the
+    // completed state instead would set every row in a Completed list going
+    // the instant the page painted.
+    const { container } = render(
+      <TaskItem task={makeTask({ title: "Ship it", status: "done" })} />
+    );
+    expect(container.querySelector(".dd-check-halo")).toBeNull();
+  });
+});

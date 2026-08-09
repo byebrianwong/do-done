@@ -193,6 +193,78 @@ export const TASK_COMPLETE_COLLAPSE_MS = 260;
 export const TASK_COMPLETE_EXIT_MS =
   TASK_COMPLETE_HOLD_MS + TASK_COMPLETE_COLLAPSE_MS;
 
+// The three phases above are the *shape* of the gesture. What follows is its
+// texture, and it lands inside them — nothing here extends the 680ms envelope,
+// which is what keeps the hold, the write and the undo window untouched.
+//
+// Three layers, and they overlap on purpose:
+//
+//   -90 →   0   the ring flinches under the press          (anticipation)
+//     0 → 220   the check springs and the ring fills       (existing)
+//    20 → 360   a hairline halo rings out and dissolves    (anticipation)
+//    40 → 230   the strike-through is drawn, left to right (strike)
+//   420 → 680   the row slides right as its height closes  (exit)
+//
+// The line finishes at 230ms, right as the check finishes at 220: one is the
+// control acknowledging the tap, the other is the text acknowledging it, and
+// the eye may be on either. The slide is strictly after the hold, so it never
+// shares the stage with them.
+
+/**
+ * The ring squashes for this long before it fills.
+ *
+ * Anticipation is what separates a control that responds from one that
+ * reports. Web drives it from `:active`, so it really is the press; mobile
+ * folds it into the completion itself, because a 22px ring under a thumb is
+ * occluded at exactly the moment it would be visible — and because swipe-to-
+ * complete has no press to anticipate from.
+ */
+export const TASK_COMPLETE_ANTICIPATE_MS = 90;
+
+/** How far the ring squashes. Small enough to read as give, not as a bounce. */
+export const TASK_COMPLETE_ANTICIPATE_SCALE = 0.86;
+
+/** A hairline ring expands out of the checkbox and dissolves. */
+export const TASK_COMPLETE_HALO_MS = 340;
+
+/**
+ * The strike-through is drawn rather than flipped on.
+ *
+ * It used to be a class toggle — instant, on the tap's own frame, while
+ * everything around it eased. That made it the only un-animated part of the
+ * gesture, and it sits where the eye already is, because it is where the words
+ * are. Crossing something out is the most literal metaphor in task management;
+ * drawing it turns it back into a gesture.
+ */
+export const TASK_COMPLETE_STRIKE_MS = 190;
+
+/**
+ * The line starts a beat after the check does, so the two *finish* together
+ * (40 + 190 = 230, against the check's 220) rather than starting together and
+ * finishing apart.
+ */
+export const TASK_COMPLETE_STRIKE_DELAY_MS = 40;
+
+/** The title's colour trails the line rather than racing it. */
+export const TASK_COMPLETE_TITLE_DELAY_MS = 90;
+
+/**
+ * How far the row travels as it leaves.
+ *
+ * A pure height collapse is the animation of *removal* — it is what a deleted
+ * row does. But a completed task hasn't gone anywhere: it is in the Completed
+ * view, it fed the pet, and it is undoable for the next six seconds. Sliding
+ * it out says "filed", which is what actually happened.
+ *
+ * Rightward is not arbitrary on mobile, where swipe-*right* is already the
+ * complete gesture — the exit continues the direction the finger was already
+ * travelling, and the tap inherits the same vector for free.
+ */
+export const TASK_COMPLETE_SLIDE_PX = 26;
+
+/** And shrinks a touch as it goes, so it reads as lifting off the list. */
+export const TASK_COMPLETE_SLIDE_SCALE = 0.972;
+
 /**
  * How many Google calendars DoDone will read events from per page load. Each
  * one is a separate `events.list` round-trip, so a user subscribed to holidays,

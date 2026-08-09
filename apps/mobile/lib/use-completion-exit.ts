@@ -4,14 +4,20 @@ import {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withSequence,
   withSpring,
   withTiming,
   Easing,
 } from 'react-native-reanimated';
 import {
+  TASK_COMPLETE_ANTICIPATE_MS,
+  TASK_COMPLETE_ANTICIPATE_SCALE,
   TASK_COMPLETE_CHECK_MS,
   TASK_COMPLETE_COLLAPSE_MS,
+  TASK_COMPLETE_HALO_MS,
   TASK_COMPLETE_HOLD_MS,
+  TASK_COMPLETE_SLIDE_PX,
+  TASK_COMPLETE_SLIDE_SCALE,
 } from '@do-done/shared';
 
 /**
@@ -71,12 +77,33 @@ export interface CompletionExit {
   checkStyle: ReturnType<typeof useAnimatedStyle>;
   /** Drive the check from the row's (optimistic) completed state. */
   setChecked: (checked: boolean) => void;
+  /**
+   * Scale for the ring itself: it squashes and springs back as the task is
+   * ticked off, so the control answers the finger instead of only reporting
+   * that something changed.
+   *
+   * Unlike web — where the squash hangs off `:active` and really is the press —
+   * this is folded into the completion. A 22px ring is under the thumb at
+   * exactly the moment a press-driven squash would be visible, and swipe-to-
+   * complete has no press to anticipate from at all.
+   */
+  ringStyle: ReturnType<typeof useAnimatedStyle>;
+  /** A hairline ring expanding out of the checkbox. Spread onto the halo view. */
+  haloStyle: ReturnType<typeof useAnimatedStyle>;
+  /**
+   * Squash-and-spring the ring, and ring the halo once.
+   *
+   * Only on the way in: reopening a task is a correction, not an achievement.
+   */
+  punch: () => void;
 }
 
 export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   const progress = useSharedValue(0);
   const naturalHeight = useSharedValue(0);
   const checkScale = useSharedValue(initiallyChecked ? 1 : 0);
+  const ringScale = useSharedValue(1);
+  const halo = useSharedValue(0);
   const [collapsing, setCollapsing] = useState(false);
 
   const style = useAnimatedStyle(() => ({
@@ -85,11 +112,33 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
       progress.value === 0
         ? UNCLAMPED
         : naturalHeight.value * (1 - progress.value),
+    // Two more reads of the same `progress`, which is what makes the exit read
+    // as filed rather than deleted: the row travels as its height closes. It
+    // costs nothing — `transform` never touches layout, so the collapse
+    // underneath is unaffected, and the rows below still travel for exactly
+    // TASK_COMPLETE_COLLAPSE_MS.
+    //
+    // Rightward continues the direction the finger was already going, since
+    // swipe-right is the complete gesture; a tap inherits the same vector.
+    transform: [
+      { translateX: progress.value * TASK_COMPLETE_SLIDE_PX },
+      { scale: 1 - progress.value * (1 - TASK_COMPLETE_SLIDE_SCALE) },
+    ],
   }));
 
   const checkStyle = useAnimatedStyle(() => ({
     transform: [{ scale: checkScale.value }],
     opacity: checkScale.value,
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+  }));
+
+  // 0 → 1 drives both, so the halo can't get out of step with itself.
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: halo.value === 0 ? 0 : 0.6 * (1 - halo.value),
+    transform: [{ scale: 1 + halo.value * 1.5 }],
   }));
 
   const onLayout = useCallback(
@@ -131,9 +180,42 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   const cancel = useCallback(() => {
     setCollapsing(false);
     progress.value = withTiming(0, { duration: 150 });
-  }, [progress]);
+    // A write that failed gets no celebration.
+    halo.value = 0;
+    ringScale.value = withTiming(1, { duration: TASK_COMPLETE_ANTICIPATE_MS });
+  }, [progress, halo, ringScale]);
 
-  return { style, collapsing, onLayout, start, cancel, checkStyle, setChecked };
+  const punch = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    ringScale.value = withSequence(
+      withTiming(TASK_COMPLETE_ANTICIPATE_SCALE, {
+        duration: TASK_COMPLETE_ANTICIPATE_MS,
+      }),
+      // The same spring the check uses, so the ring and the mark inside it read
+      // as one object rather than two things that happened at once.
+      withSpring(1, { damping: 9, stiffness: 260 })
+    );
+    // Reset without animating first, or a second completion in quick succession
+    // would sweep the halo backwards from wherever it had got to.
+    halo.value = 0;
+    halo.value = withTiming(1, {
+      duration: TASK_COMPLETE_HALO_MS,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [ringScale, halo]);
+
+  return {
+    style,
+    collapsing,
+    onLayout,
+    start,
+    cancel,
+    checkStyle,
+    setChecked,
+    ringStyle,
+    haloStyle,
+    punch,
+  };
 }
 
 /**
