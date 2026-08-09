@@ -35,6 +35,7 @@ import {
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
   appendTranscript,
+  classifyShortcutToken,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -93,6 +94,7 @@ import {
   backdropOpacity,
   closeDurationMs,
   dragTranslation,
+  dragVerdict,
   shouldDismiss,
 } from "@/lib/sheet-motion";
 
@@ -112,13 +114,15 @@ export const PRIORITY_COLORS: Record<TaskPriority, string> = {
 };
 
 // Coloured by exception: red and amber mean something, and everything at or
-// below Medium is a hairline. Most tasks on a personal list never get a
-// priority, so a permanently lit stripe would stop being read.
+// below Medium draws nothing at all. Most tasks on a personal list never get a
+// priority, so a permanently lit stripe would stop being read — and a grey one
+// (which is what this used to draw) reads as a stray divider between the
+// sheet's rounded top and the banner rather than as a signal about the task.
 const PRIORITY_STRIPE_COLORS: Record<TaskPriority, string> = {
   p1: PRIORITY_CONFIG.p1.color,
   p2: PRIORITY_CONFIG.p2.color,
-  p3: "#e5e5e5",
-  p4: "#e5e5e5",
+  p3: "transparent",
+  p4: "transparent",
 };
 
 /** Fallback identity for a task with no project: the app's own accent. */
@@ -129,6 +133,14 @@ export const ESTIMATE_BUCKETS = [30, 60, 120, 240, 480, 960];
 /** `formatRelativeDay` returns lowercase prose; the headline wants a sentence. */
 function capitalizeFirst(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** "45m" / "2h" — the compact reading the meta field prints. */
+export function estimateLabel(minutes: number | null): string {
+  if (!minutes) return "None";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = minutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 }
 
 export function estimateBarIndex(minutes: number | null): number {
@@ -296,18 +308,14 @@ function coverBlobs(projectId: string | null): {
 function TaskCover({
   project,
   priority,
-  estimateMinutes,
   onPressProject,
   onPressPriority,
-  onPressEstimate,
   children,
 }: {
   project: Project | null;
   priority: TaskPriority;
-  estimateMinutes: number | null;
   onPressProject: () => void;
   onPressPriority: () => void;
-  onPressEstimate: () => void;
   /** The save dot, undo and menu, laid over the banner's top row. */
   children: React.ReactNode;
 }) {
@@ -344,15 +352,16 @@ function TaskCover({
           />
         ))}
       </View>
-      {/* Emoji watermark, bled off the top-right so it never sits under the
-          controls along the banner's bottom edge. */}
+      {/* Emoji watermark. It bleeds off the *right* edge only — cropping its
+          top as well left a half-drawn glyph that reads as a clipping bug
+          rather than as a watermark. */}
       {project?.icon ? (
         <Text style={styles.coverMark} pointerEvents="none">
           {project.icon}
         </Text>
       ) : null}
-      {/* Darkens the bottom so the white pill and rail hold their contrast
-          over a pale project colour — amber and lime are the ones that would
+      {/* Darkens the bottom so the white project pill holds its contrast over
+          a pale project colour — amber and lime are the ones that would
           otherwise wash out. */}
       <View style={styles.coverScrim} pointerEvents="none" />
 
@@ -395,50 +404,56 @@ function TaskCover({
           </Pressable>
         ) : null}
       </View>
-
-      <EstimateRail value={estimateMinutes} onPress={onPressEstimate} />
     </View>
   );
 }
 
 /**
- * Six segments filling left to right along the banner's bottom edge. Length is
- * the right metaphor for a duration — a longer task is a longer bar — and the
- * whole strip is the tap target, not just the 4px of visible rail.
+ * A labelled property control: the shape Priority and Estimate take in the
+ * body, matching the Status field below them.
+ *
+ * They spent a release as marks on the banner — a 4px stripe and a
+ * six-segment rail — on the theory that a signal at the top plus a control
+ * further down is worse than either alone. The theory holds; the marks were
+ * the wrong half to keep. Neither carried a name or looked pressable, so the
+ * rail read as a progress bar and the stripe as a divider, and the two fields
+ * the app asks about most became unreachable without knowing where to poke.
+ * The banner keeps what colour is genuinely good at — project identity — and
+ * these say what they are.
  */
-function EstimateRail({
+function MetaField({
+  label,
   value,
+  dotColor,
+  muted,
   onPress,
 }: {
-  value: number | null;
+  label: string;
+  value: string;
+  dotColor: string;
+  /** Nothing set: the value greys back to the weight of a placeholder. */
+  muted?: boolean;
   onPress: () => void;
 }) {
-  const activeIdx = estimateBarIndex(value);
-  const label = value
-    ? value >= 60
-      ? `${Math.round(value / 60)}h`
-      : `${value}m`
-    : "—";
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={value ? `Estimate: ${label}` : "Set an estimate"}
-      style={styles.estRail}
-    >
-      <View style={styles.estRailTrack}>
-        {ESTIMATE_BUCKETS.map((m, i) => (
-          <View
-            key={m}
-            style={[
-              styles.estRailSeg,
-              i <= activeIdx && styles.estRailSegOn,
-            ]}
-          />
-        ))}
-      </View>
-      <Text style={styles.estRailLabel}>{label}</Text>
-    </Pressable>
+    <View style={styles.metaField}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value}`}
+        style={styles.projectField}
+      >
+        <View style={[styles.projectFieldDot, { backgroundColor: dotColor }]} />
+        <Text
+          style={[styles.projectFieldText, muted && styles.metaFieldValueMuted]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        <Text style={styles.projectFieldChevron}>▾</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1826,19 +1841,20 @@ export default function TaskEditModalV2({
   }, [sheetH, sheetHeight]);
 
   /**
-   * The body ScrollView's offset, and whether the current drag began with the
-   * body already at its top.
+   * The body ScrollView's offset, and the bookkeeping the dismiss gesture needs
+   * to decide whether a drag is the sheet's or the body's.
    *
-   * Both live on the UI thread because the pan gesture has to consult them
-   * mid-gesture. `activeOffsetY(12)` claims *downward* drags — which is also
-   * how you scroll a list back up, so without this the sheet took every one of
-   * them and the body simply would not scroll down: the whole editor lurched
-   * toward the floor instead. The rule is the one every good sheet uses — the
-   * body owns the drag until it has nothing left to scroll, and only then does
-   * the sheet take over.
+   * All of it lives on the UI thread because the pan has to consult it
+   * mid-gesture. The rule is the one every good sheet uses — the body owns the
+   * drag until it has nothing left to scroll, and only then does the sheet take
+   * over — but *how* the sheet stands down is the load-bearing part; see
+   * `dismissPan` below.
    */
   const scrollOffset = useSharedValue(0);
-  const dragOwnsSheet = useSharedValue(false);
+  /** Where the finger went down, in screen coordinates. */
+  const dragStartY = useSharedValue(0);
+  /** True once the pan has actually activated, so it stops second-guessing. */
+  const dragActive = useSharedValue(false);
   const scrollRef = useRef<React.ComponentRef<typeof Reanimated.ScrollView>>(null);
 
   // Which task is on screen. The editor can drill from the opened task into a
@@ -1927,31 +1943,76 @@ export default function TaskEditModalV2({
   /**
    * Drag the sheet down to dismiss.
    *
-   * No `runOnJS(true)` any more: the handlers below are worklets, so the finger
-   * moves the sheet on the UI thread at display rate whatever JS is busy with.
-   * `activeOffsetY` still makes it claim only downward drags, leaving taps and
-   * the horizontal sliders alone.
+   * No `runOnJS(true)`: the handlers below are worklets, so the finger moves the
+   * sheet on the UI thread at display rate whatever JS is busy with.
+   *
+   * **The gesture activates manually, and fails outright the moment the body
+   * has somewhere to scroll.** Sitting still while activated is not enough. An
+   * active RNGH handler cancels the touch stream of the plain native views
+   * under it, so a pan that activated over a scrolled body killed the scroll
+   * and then declined to move the sheet — the drag did nothing at all. It was
+   * intermittent because it was a race: Android's ScrollView claims a drag at
+   * its ~8px slop and a slow drag reaches that first, but one fast flick can
+   * clear `SHEET_DRAG_ACTIVATE_PX` inside a single move event and win. Swiping
+   * *quickly* back up through a long task was the reliable way to see nothing
+   * happen.
+   *
+   * `simultaneousWithExternalGesture(scrollRef)` is what used to be here, and
+   * it never did anything: `convertToHandlerTag` resolves a ref by reading
+   * `ref.current.handlerTag`, which only exists on RNGH's own components and on
+   * gesture objects. `Reanimated.ScrollView` wraps React Native's, so the
+   * relation resolved to -1 and was filtered out. Failing early needs no
+   * relation — a gesture that never activates has nothing to be simultaneous
+   * with — and it is the same rule the body/sheet handoff already stated.
    */
   const dismissPan = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetY(12)
-        // Runs alongside the body's own scrolling rather than cancelling it, so
-        // a drag that starts mid-list stays a scroll all the way through.
-        .simultaneousWithExternalGesture(scrollRef)
-        .onBegin(() => {
+        .manualActivation(true)
+        .onTouchesDown((e, manager) => {
           "worklet";
-          dragOwnsSheet.value = scrollOffset.value <= 0;
+          // Only the first finger down starts a drag; a second one landing
+          // mid-gesture must not re-datum it.
+          if (e.numberOfTouches > 1) return;
+          dragStartY.value = e.allTouches[0]?.absoluteY ?? 0;
+          if (dragVerdict(scrollOffset.value, 0) === "yield") manager.fail();
+        })
+        .onTouchesMove((e, manager) => {
+          "worklet";
+          if (dragActive.value) return;
+          const touch = e.allTouches[0];
+          if (!touch) return;
+          // Re-checked every move, not just at touch-down: a drag that starts at
+          // the top, scrolls the body down and then reverses would otherwise
+          // still be holding a claim on the sheet.
+          const verdict = dragVerdict(
+            scrollOffset.value,
+            touch.absoluteY - dragStartY.value
+          );
+          if (verdict === "yield") manager.fail();
+          else if (verdict === "activate") manager.activate();
+        })
+        .onStart(() => {
+          "worklet";
+          dragActive.value = true;
         })
         .onUpdate((e) => {
           "worklet";
-          if (!dragOwnsSheet.value) return;
           translateY.value = dragTranslation(e.translationY);
         })
-        .onEnd((e) => {
+        .onFinalize(() => {
           "worklet";
-          if (!dragOwnsSheet.value) return;
+          dragActive.value = false;
+        })
+        .onEnd((e, success) => {
+          "worklet";
           const h = sheetHeight.value;
+          // A cancelled gesture is not a decision. Evaluating one would let the
+          // sheet dismiss on a drag the system took away.
+          if (!success) {
+            translateY.value = withSpring(0, RETURN_SPRING);
+            return;
+          }
           if (shouldDismiss(e.translationY, e.velocityY, h)) {
             // A dismissal the body has vetoed springs back and hands the
             // explanation to JS, rather than leaving the sheet half-off screen
@@ -1980,7 +2041,8 @@ export default function TaskEditModalV2({
       translateY,
       sheetHeight,
       finishClose,
-      dragOwnsSheet,
+      dragStartY,
+      dragActive,
       scrollOffset,
       closeBlocked,
       promptDiscard,
@@ -2186,6 +2248,18 @@ function Inner({
     scrollOffset.value = e.contentOffset.y;
   });
 
+  // The offset belongs to the ScrollView below, but the shared value holding it
+  // lives one component up, where the gesture can read it — and those two have
+  // different lifetimes. RN's `Modal` renders null while it is hidden, so the
+  // body unmounts on close and comes back scrolled to the top, while the shared
+  // value still reads wherever the *last* task was left. The gesture then
+  // believed a fresh body was scrolled and refused to take a single drag: swipe
+  // to dismiss silently stopped working until you scrolled the body to its top.
+  // Same story for a drill-down, which remounts this on the new task's id.
+  useEffect(() => {
+    scrollOffset.value = 0;
+  }, [scrollOffset]);
+
   // Stable identity so the calendar below can skip re-rendering on keystrokes.
   const onPickDate = useCallback(
     (date: string) => {
@@ -2259,9 +2333,27 @@ function Inner({
     onClose();
   };
 
-  const handleAddTag = (tag: string) => {
-    if (current.tags.includes(tag)) return;
-    setField("tags", [...current.tags, tag]);
+  /**
+   * "+ tag" classifies what it is given exactly as a typed `#token` in the
+   * title would — so `personal` here files the task into the Personal project
+   * rather than minting a tag that happens to spell its name.
+   */
+  const handleAddTag = (token: string) => {
+    const classified = classifyShortcutToken(token, allProjects);
+    switch (classified.kind) {
+      case "estimate":
+        setField("duration_minutes", classified.durationMinutes);
+        return;
+      case "priority":
+        setField("priority", classified.priority);
+        return;
+      case "project":
+        setField("project_id", classified.projectId);
+        return;
+      default:
+        if (current.tags.includes(classified.tag)) return;
+        setField("tags", [...current.tags, classified.tag]);
+    }
   };
 
   const handleRemoveTag = (tag: string) => {
@@ -2369,10 +2461,15 @@ function Inner({
 
   return (
     <View style={styles.sheetContent}>
-      {/* Priority owns the top edge, the banner carries project and estimate.
-          The sheet's own chrome — save state, undo, menu — rides *on* the
-          banner rather than in a bar above it: on a phone that bar cost 46px
-          of height before the title, and the banner has room for it. */}
+      {/* The banner carries the project, and nothing else about the task: hue
+          and texture are spent on identity, so a second signal borrowing
+          either would read as "something about the project". The sheet's own
+          chrome — save state, undo, menu — rides *on* it rather than in a bar
+          above it: on a phone that bar cost 46px of height before the title,
+          and the banner has room for it.
+
+          The one exception is a P1/P2 stripe along the very top edge, which is
+          urgency and is allowed to shout. It draws nothing below P2. */}
       <View
         style={[
           styles.priorityStripe,
@@ -2382,10 +2479,8 @@ function Inner({
       <TaskCover
         project={selectedProject}
         priority={current.priority}
-        estimateMinutes={current.duration_minutes}
         onPressProject={() => setProjectPickerOpen(true)}
         onPressPriority={() => setPriPickerOpen(true)}
-        onPressEstimate={() => setEstPickerOpen(true)}
       >
         <SaveStatusDot status={saveStatus} onCover />
         <View style={{ flex: 1 }} />
@@ -2546,12 +2641,25 @@ function Inner({
           ) : null}
         </View>
 
-        {/* Priority and estimate used to sit here as a two-up meter card.
-            They're on the banner now — the stripe and the rail — and neither
-            was left behind: a signal at the top plus a control further down is
-            worse than either alone, because you read the value in one place
-            and then have to hunt for where to change it. Tapping either mark
-            opens the same picker this card's labels opened. */}
+        {/* Priority and estimate. Both name themselves and both open the same
+            pickers the banner's marks used to — see MetaField for why the
+            marks alone weren't enough. */}
+        <View style={styles.metaFieldsRow}>
+          <MetaField
+            label="Priority"
+            value={PRIORITY_CONFIG[current.priority].label}
+            dotColor={PRIORITY_COLORS[current.priority]}
+            muted={current.priority === "p4"}
+            onPress={() => setPriPickerOpen(true)}
+          />
+          <MetaField
+            label="Estimate"
+            value={estimateLabel(current.duration_minutes)}
+            dotColor={current.duration_minutes ? "#6366f1" : "#d1d5db"}
+            muted={!current.duration_minutes}
+            onPress={() => setEstPickerOpen(true)}
+          />
+        </View>
 
         {/* Location reminders — folded like Repeat, since most tasks have none */}
         <View style={{ marginTop: 14 }}>
@@ -2601,19 +2709,31 @@ function Inner({
           <PickerSheet
             visible={estPickerOpen}
             title="Estimate"
-            options={ESTIMATE_PICKER_OPTIONS.map((b) => ({
-              key: String(b.minutes),
-              code: b.code,
-              label: b.label,
-            }))}
+            options={[
+              ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
+                key: String(b.minutes),
+                code: b.code,
+                label: b.label,
+              })),
+              // Priority clears by re-picking its current row; an estimate has
+              // no such row to re-pick, so without this there was no way back
+              // to "unestimated" once a value had been set.
+              ...(current.duration_minutes
+                ? [{ key: "none", code: "", label: "No estimate" }]
+                : []),
+            ]}
             selectedKey={(() => {
               const idx = estimateBarIndex(current.duration_minutes);
               return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
             })()}
             onSelect={(key) => {
-              setField("duration_minutes", parseInt(key, 10));
+              setField(
+                "duration_minutes",
+                key === "none" ? null : parseInt(key, 10)
+              );
               setEstPickerOpen(false);
             }}
+            accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
             onClose={() => setEstPickerOpen(false)}
           />
         ) : null}
@@ -2842,7 +2962,10 @@ const styles = StyleSheet.create({
   },
   // ── Project banner ────────────────────────────────────
   priorityStripe: { height: 4, width: "100%" },
-  cover: { height: 84, overflow: "hidden", justifyContent: "flex-end" },
+  // `space-between` with both rows in flow, rather than an absolute top row
+  // over a bottom-aligned one: at 84px those two overlapped, and the save
+  // caption came out with the project pill drawn through it.
+  cover: { height: 96, overflow: "hidden", justifyContent: "space-between" },
   // Horizontal bands standing in for a gradient — see TaskCover for why this
   // isn't expo-linear-gradient.
   coverBandRow: { flex: 1, flexDirection: "row" },
@@ -2853,12 +2976,12 @@ const styles = StyleSheet.create({
   },
   coverMark: {
     position: "absolute",
-    right: -8,
-    top: -14,
-    fontSize: 72,
-    lineHeight: 82,
-    opacity: 0.3,
-    transform: [{ rotate: "-13deg" }],
+    right: -12,
+    top: 8,
+    fontSize: 62,
+    lineHeight: 72,
+    opacity: 0.28,
+    transform: [{ rotate: "-10deg" }],
   },
   coverScrim: {
     position: "absolute",
@@ -2869,13 +2992,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.18)",
   },
   coverTopRow: {
-    position: "absolute",
-    top: 8,
-    left: 14,
-    right: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    paddingTop: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
   },
   coverUndo: {
     paddingHorizontal: 9,
@@ -2886,10 +3008,10 @@ const styles = StyleSheet.create({
   coverUndoText: { fontSize: 11.5, fontWeight: "700", color: "#fff" },
   coverBottomRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 14,
-    paddingBottom: 4,
+    paddingBottom: 10,
   },
   coverPill: {
     flexDirection: "row",
@@ -2925,24 +3047,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     color: "#fff",
   },
-  // The whole strip is the tap target, not just the 4px of visible rail.
-  estRail: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: 8,
-  },
-  estRailTrack: { flex: 1, flexDirection: "row", gap: 3 },
-  estRailSeg: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.28)",
-  },
-  estRailSegOn: { backgroundColor: "#fff" },
-  estRailLabel: { fontSize: 11, fontWeight: "700", color: "#fff" },
   menuDotOnCover: {
     width: 3.5,
     height: 3.5,
@@ -2957,6 +3061,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  metaFieldsRow: { marginTop: 18, flexDirection: "row", gap: 10 },
+  // Equal halves, so neither field's width tells you anything about the value
+  // inside it.
+  metaField: { flex: 1, gap: 6 },
+  metaFieldValueMuted: { color: "#9ca3af", fontWeight: "500" },
 
   menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
   menuRowDestructive: { fontSize: 15, fontWeight: "600", color: "#dc2626" },

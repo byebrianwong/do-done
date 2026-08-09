@@ -5,9 +5,11 @@ import {
   DISMISS_TRAVEL_MIN_PX,
   SHEET_CLOSE_MIN_MS,
   SHEET_CLOSE_MS,
+  SHEET_DRAG_ACTIVATE_PX,
   backdropOpacity,
   closeDurationMs,
   dragTranslation,
+  dragVerdict,
   projectedTranslation,
   shouldDismiss,
 } from "./sheet-motion";
@@ -25,6 +27,51 @@ describe("dragTranslation", () => {
     // The bug this replaces: an ignored upward drag left the last *downward*
     // value on screen, so pulling the sheet back up stranded it below its rest.
     expect(dragTranslation(-200)).toBe(0);
+  });
+});
+
+describe("dragVerdict", () => {
+  it("yields the drag whenever the body has somewhere to scroll", () => {
+    // The bug this exists for: standing still while activated is not standing
+    // down. An active handler cancels the ScrollView underneath it, so the
+    // drag scrolled nothing and moved nothing.
+    expect(dragVerdict(1, 0)).toBe("yield");
+    expect(dragVerdict(240, 200)).toBe("yield");
+  });
+
+  it("yields on a scroll that starts at the top and then reverses", () => {
+    // Touch down at 0, flick the body up, come back down past the start: the
+    // claim taken at touch-down must not survive the body having scrolled.
+    expect(dragVerdict(0, 4)).toBe("wait");
+    expect(dragVerdict(180, 40)).toBe("yield");
+  });
+
+  it("waits at the top until the finger has committed downward", () => {
+    expect(dragVerdict(0, 0)).toBe("wait");
+    expect(dragVerdict(0, SHEET_DRAG_ACTIVATE_PX - 1)).toBe("wait");
+  });
+
+  it("never activates on an upward drag, which is a scroll", () => {
+    expect(dragVerdict(0, -60)).toBe("wait");
+  });
+
+  it("activates at the top once the threshold is cleared", () => {
+    expect(dragVerdict(0, SHEET_DRAG_ACTIVATE_PX)).toBe("activate");
+    expect(dragVerdict(0, 400)).toBe("activate");
+  });
+
+  it("treats an overscrolled body as being at its top", () => {
+    // iOS bounce puts the offset negative; that is still nothing left to
+    // scroll upward, so the sheet may take the drag.
+    expect(dragVerdict(-30, SHEET_DRAG_ACTIVATE_PX)).toBe("activate");
+  });
+
+  it("clears the threshold in one event, which is the race that was lost", () => {
+    // A fast flick's first move can jump well past both this threshold and
+    // Android's ~8px scroll slop. At the top that is a dismissal; mid-list it
+    // must be the body's, whatever the distance.
+    expect(dragVerdict(0, 90)).toBe("activate");
+    expect(dragVerdict(2, 90)).toBe("yield");
   });
 });
 

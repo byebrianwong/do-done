@@ -12,6 +12,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
+  classifyShortcutToken,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -36,6 +37,7 @@ import {
 import { getTasksApiFor } from "@/lib/supabase/tasks-client";
 import { getAttachmentsApiFor } from "@/lib/supabase/attachments-client";
 import { isCopyLinkShortcut } from "@/lib/task-link";
+import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
@@ -2934,10 +2936,31 @@ function TaskEditModalBody({
     );
   };
 
-  const handleAddTag = (tag: string) => {
-    if (current.tags.includes(tag)) return;
-    setField("tags", [...current.tags, tag]);
+  /**
+   * The "+ tag" control classifies what it is given exactly as a typed
+   * `#token` in the title would — so `personal` here files the task into the
+   * Personal project, and `p1` sets the priority, rather than minting a tag
+   * that happens to spell either.
+   */
+  const handleAddTag = (token: string) => {
+    const classified = classifyShortcutToken(token, allProjects);
+    switch (classified.kind) {
+      case "estimate":
+        setField("duration_minutes", classified.durationMinutes);
+        return;
+      case "priority":
+        setField("priority", classified.priority);
+        return;
+      case "project":
+        setField("project_id", classified.projectId);
+        return;
+      default:
+        if (current.tags.includes(classified.tag)) return;
+        setField("tags", [...current.tags, classified.tag]);
+    }
   };
+
+  const backdrop = useBackdropDismiss<HTMLDivElement>(handleClose);
 
   return (
     <>
@@ -2948,7 +2971,7 @@ function TaskEditModalBody({
     <div
       data-no-dnd
       className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/30 p-3 backdrop-blur-sm sm:p-6"
-      onClick={handleClose}
+      {...backdrop}
     >
       <div
         className="flex max-h-[calc(100dvh-1.5rem)] w-[660px] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(17,24,39,0.10),0_4px_12px_rgba(17,24,39,0.04)] sm:max-h-[90vh] dark:bg-neutral-950"
@@ -3234,11 +3257,12 @@ function ConfirmDiscardDialog({
   onRetry: () => void;
   onDiscard: () => void;
 }) {
+  const backdrop = useBackdropDismiss<HTMLDivElement>(onCancel);
   return (
     <div
       data-no-dnd
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
+      {...backdrop}
     >
       <div
         role="alertdialog"
@@ -3301,11 +3325,12 @@ function ConfirmDeleteDialog({
   onConfirm: () => void;
 }) {
   const trimmed = title.trim();
+  const backdrop = useBackdropDismiss<HTMLDivElement>(onCancel);
   return (
     <div
       data-no-dnd
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
+      {...backdrop}
     >
       <div
         role="alertdialog"

@@ -273,14 +273,24 @@ a tag when it doesn't. Precedence inside a token is fixed —
 `#xs`…`#xxl` (estimate) → `#p1`…`#p4` (priority) → project → tag — so a project
 named "M" loses to the size code rather than shadowing it.
 
-Two pieces do the work and **must agree**, since the same text is read by both:
-`parseTaskInput` (`packages/task-engine`) parses a whole quick-add string at
-submit, and `extractTitleShortcuts` (`packages/shared`) is the live absorber the
-title fields run on every keystroke. Both take the project list as an *optional*
-argument and both delegate the match to `matchProject` in
+Three pieces do the work and **must agree**, since the same text is read by all
+of them: `parseTaskInput` (`packages/task-engine`) parses a whole quick-add
+string at submit, `extractTitleShortcuts` (`packages/shared`) is the live
+absorber the title fields run on every keystroke, and **every "+ tag" control**
+— the two task editors and mobile's quick-add chip row — classifies the bare
+word it is handed. They take the project list as an *optional* argument and
+delegate the match to `matchProject` in
 `packages/shared/src/project-match.ts`. Omit the list — Storybook, the mobile
 widget root, any surface with no projects to hand — and every token is a tag,
 exactly as before.
+
+**The "+ tag" field is a `#token` without the `#`**, and reads its word through
+`classifyShortcutToken` on the same size → priority → project → tag ladder. It
+used to store whatever was typed verbatim, so `#personal` in the title filed the
+task into Personal while `personal` typed into the tag box two inches away made
+a tag of the same word — and `p1` there made a tag literally named "p1". A
+classification rule the user can't see has to be the same rule everywhere it can
+be reached, so it is a function both callers share rather than a comment.
 
 - **Matching is on a normalised key** (lowercase, alphanumerics only). A token
   is `\w+`, so it can never carry a space; without normalising both sides,
@@ -924,6 +934,67 @@ unrecognised reason deliberately doesn't claim currency either.
   + the Quick Add tile). Supabase, `@do-done/api-client` and the task engine are
   behind `await import(...)` on the branch that needs them.
 - Widgets use AsyncStorage (shared with main app) to read the Supabase session
+
+### The task widgets draw the app's row
+
+Today, Upcoming and the 4×1 **Next up** strip all render the two-slot row
+described under *The task row* above — ring for the project, gutter for
+urgency, one muted subline for the rest. The row's decisions are **not**
+reimplemented here: `rowGutter` / `rowSubline` / `rowEstimate` from
+`@do-done/shared` are the same functions the in-app row calls, so a widget and
+a list can never disagree about what a task is. Priority used to colour the
+checkbox on this surface, which put an ordinal variable in a nominal channel on
+the one place in DoDone that never said which project a task belonged to.
+
+Four rules the widget adds on top, all of them about a launcher cell being
+small:
+
+- **`loadWidgetTasks` fetches projects as well as tasks**, because the ring
+  needs a colour and an emoji. A projects failure returns an empty list rather
+  than propagating — every ring falls back to neutral, which is a duller widget
+  but still a correct one; letting it take the task list down would turn a
+  cosmetic outage into an empty home screen.
+- **Fitting spends a height budget, not a row count.** `layoutRows` in
+  `widgets/widget-layout.ts` charges 24 dp for a bare row, 34 dp for one
+  carrying a subline and 22 dp for a group header, and reserves the "+N more"
+  line *before* placing the row that would need it. The old `rowCapacity`
+  divided the height by a flat 26 dp, which was wrong in both directions the
+  moment rows stopped being uniform — and a "+N more" computed off a wrong
+  capacity is a wrong number about the user's own task list, with nothing on
+  the home screen to contradict it.
+- **Below `COMPACT_BUDGET_DP` the sublines go, all of them.** A subline costs
+  42% more row height, which on a 3×2 is the difference between three tasks and
+  one — the widget was a group header and a single line. There are exactly two
+  densities and no truncated middle ground, and the choice is made inside
+  `layoutRows` from the budget, so no caller can get it wrong.
+- **A group header owns its day, so the rows beneath it don't repeat it.**
+  `WidgetGroup.namesTheDay` drives `rowSubline`'s `hideScheduledDay`, which is
+  the date-shaped twin of `projectName: null`. Overdue is deliberately *not* a
+  day group: "3 days ago" is the one genuinely actionable thing those rows
+  have to say. The project name **stays** in the subline — the ring is a fast
+  cue, the name is the readable one, and a project with no emoji would
+  otherwise be a colour the user has to have memorised.
+- **The card has a dark variant**, via the library's own
+  `renderWidget({ light, dark })`. One component tree; a theme is an argument
+  to it (`widgets/widget-theme.ts`). A project's colour is **lifted toward
+  white, never replaced** — someone who picked green for Home has to find green
+  on both cards. The dark card is `#191b22` rather than black, so it keeps an
+  edge against an AMOLED wallpaper.
+
+**`widgets/widget-render.ts` is why the two render paths can't drift.** The
+launcher's headless handler and the app's own foreground refresh
+(`lib/widgets.ts`, called from `invalidateTasks`) both build the light/dark
+pair from it. A refresh that passed a single tree would silently drop the dark
+card until the next 30-minute tick — a bug that only reproduces on a phone set
+to dark.
+
+Two things that can only be checked on a device: an 18 dp ring is well under
+Material's 48 dp touch minimum (its tappable box is padded to 26×24, which is
+as far as it goes without making every row taller), and `TextWidget` has no
+`lineHeight`, so the dp constants in `widget-layout.ts` are padding-and-margin
+sums rather than a typographic ideal. **Adding the Next up widget changes
+`app.config.ts`, so it needs a fresh `eas build` — it will not arrive over
+OTA.** The row redesign itself is pure JS and does ship over an update.
 
 ### Quick-add widget (floats over the home screen)
 The 1×1 "Quick Add" widget mimics Todoist's add-task widget: tapping it opens a

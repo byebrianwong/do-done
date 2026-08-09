@@ -55,6 +55,37 @@ export const DISMISS_TRAVEL_MIN_PX = 96;
  */
 export const RETURN_VELOCITY_PX_S = -350;
 
+/**
+ * Downward movement, in px, that turns a touch at the top of the body into a
+ * drag of the sheet.
+ *
+ * Deliberately larger than Android's ~8px touch slop: the body's ScrollView
+ * claims a drag at its slop, and the two thresholds racing is what `dragVerdict`
+ * exists to keep out of the way of.
+ */
+export const SHEET_DRAG_ACTIVATE_PX = 12;
+
+/**
+ * What the sheet's dismiss gesture should do with a touch in progress.
+ *
+ * - `yield` — the body has somewhere to scroll, so the sheet must *fail* its
+ *   gesture rather than merely sit still. A gesture that activates and then
+ *   does nothing is worse than one that never activates: activating cancels the
+ *   native ScrollView's touch stream, so the drag scrolls nothing and moves
+ *   nothing. That is the "swiping down sometimes does nothing" bug — and it was
+ *   intermittent because it was a race between the ScrollView's ~8px slop and
+ *   this gesture's threshold, which a fast flick can clear in a single event.
+ * - `activate` — the body is at its top and the finger has committed downward.
+ * - `wait` — at the top, but not yet far enough to call it.
+ */
+export type DragVerdict = "yield" | "activate" | "wait";
+
+export function dragVerdict(scrollOffset: number, dy: number): DragVerdict {
+  "worklet";
+  if (scrollOffset > 0) return "yield";
+  return dy >= SHEET_DRAG_ACTIVATE_PX ? "activate" : "wait";
+}
+
 /** Spring for the return-to-open. Critically damped: settles, never bounces. */
 export const RETURN_SPRING = {
   damping: 26,

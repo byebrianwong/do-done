@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { extractTitleShortcuts } from "./title-shortcuts.js";
+import {
+  classifyShortcutToken,
+  extractTitleShortcuts,
+} from "./title-shortcuts.js";
 
 describe("extractTitleShortcuts", () => {
   describe("space-terminated tokens", () => {
@@ -176,5 +179,76 @@ describe("extractTitleShortcuts", () => {
         extractTitleShortcuts("fix the sink #home", true, PROJECTS).projectId
       ).toBe("p-home");
     });
+  });
+});
+
+describe("classifyShortcutToken", () => {
+  const PROJECTS = [
+    { id: "p-home", name: "Home" },
+    { id: "p-side", name: "Side Project" },
+  ];
+
+  it("names a project when the token does", () => {
+    expect(classifyShortcutToken("home", PROJECTS)).toEqual({
+      kind: "project",
+      projectId: "p-home",
+    });
+    expect(classifyShortcutToken("Side_Project", PROJECTS)).toEqual({
+      kind: "project",
+      projectId: "p-side",
+    });
+  });
+
+  it("keeps the size → priority → project → tag precedence", () => {
+    const shadowing = [
+      { id: "p-m", name: "M" },
+      { id: "p-p1", name: "p1" },
+    ];
+    expect(classifyShortcutToken("m", shadowing)).toEqual({
+      kind: "estimate",
+      durationMinutes: 120,
+    });
+    expect(classifyShortcutToken("P1", shadowing)).toEqual({
+      kind: "priority",
+      priority: "p1",
+    });
+  });
+
+  it("falls back to a tag, and to a tag for every token with no list", () => {
+    expect(classifyShortcutToken("plumbing", PROJECTS)).toEqual({
+      kind: "tag",
+      tag: "plumbing",
+    });
+    expect(classifyShortcutToken("home")).toEqual({ kind: "tag", tag: "home" });
+  });
+
+  it("keeps the tag exactly as typed, case and all", () => {
+    // The title absorber pushes `m[1]`, not the lowercased copy it matches on.
+    expect(classifyShortcutToken("Plumbing", PROJECTS)).toEqual({
+      kind: "tag",
+      tag: "Plumbing",
+    });
+  });
+
+  it("agrees with the title absorber on the same token", () => {
+    // The two run on the same text from different boxes — a "+ tag" field and
+    // a title — so a disagreement here is the bug this function exists to end.
+    for (const token of ["home", "sideproject", "plumbing", "xs", "p2"]) {
+      const viaTitle = extractTitleShortcuts(`t #${token} `, false, PROJECTS);
+      const viaToken = classifyShortcutToken(token, PROJECTS);
+      switch (viaToken.kind) {
+        case "project":
+          expect(viaTitle.projectId).toBe(viaToken.projectId);
+          break;
+        case "estimate":
+          expect(viaTitle.durationMinutes).toBe(viaToken.durationMinutes);
+          break;
+        case "priority":
+          expect(viaTitle.priority).toBe(viaToken.priority);
+          break;
+        default:
+          expect(viaTitle.tags).toEqual([viaToken.tag]);
+      }
+    }
   });
 });

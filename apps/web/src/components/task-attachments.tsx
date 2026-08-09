@@ -13,6 +13,7 @@ import {
   type TaskAttachment,
 } from "@do-done/shared";
 import { AttachmentsApi } from "@do-done/api-client";
+import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 
 // ─── Icons ─────────────────────────────────────────────────
 
@@ -271,12 +272,14 @@ function ImageLightbox({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
+  const backdrop = useBackdropDismiss<HTMLDivElement>(onClose);
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={alt}
-      onClick={onClose}
+      {...backdrop}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/80 p-8 backdrop-blur-sm"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
