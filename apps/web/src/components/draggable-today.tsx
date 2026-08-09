@@ -26,7 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Project, Task, UpdateTaskInput } from "@do-done/shared";
 import { partitionToday } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
-import { useIsCompact } from "@/lib/task-row-behavior";
+import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { OverdueSection } from "./overdue-section";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
@@ -334,9 +334,12 @@ function DroppableList({
             Drop here
           </div>
         ) : null}
-        {tasks.map((t) => (
-          <SortableRow key={t.id} task={t} projects={projects} />
-        ))}
+        {/* Today's sections are real sections — clearing Focus is a moment. */}
+        <SectionOpenProvider tasks={tasks}>
+          {tasks.map((t) => (
+            <SortableRow key={t.id} task={t} projects={projects} />
+          ))}
+        </SectionOpenProvider>
       </div>
     </SortableContext>
   );

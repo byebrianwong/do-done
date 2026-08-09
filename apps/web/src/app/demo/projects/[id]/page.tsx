@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use } from "react";
 import { QuickAddBar } from "@/components/quick-add-bar";
 import { TaskDisplayView } from "@/components/task-display-view";
+import { ProjectOpenProvider } from "@/lib/task-row-behavior";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
 
@@ -60,12 +61,16 @@ export default function DemoProjectDetailPage({
       <QuickAddBar seed={{ status: "not_started", project_id: id }} />
 
       <div className="mt-4">
-        <TaskDisplayView
-          viewKey="project"
-          tasks={projectTasks}
-          projects={projects}
-          emptyText="No tasks yet. Add one above."
-        />
+        {/* Same as the real project page — the demo is the app, so the
+            finished-project burst has to work here too. */}
+        <ProjectOpenProvider tasks={projectTasks}>
+          <TaskDisplayView
+            viewKey="project"
+            tasks={projectTasks}
+            projects={projects}
+            emptyText="No tasks yet. Add one above."
+          />
+        </ProjectOpenProvider>
       </div>
     </div>
   );

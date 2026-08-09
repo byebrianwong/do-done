@@ -26,6 +26,7 @@ import {
   TASK_COMPLETE_STRIKE_DELAY_MS,
   TASK_COMPLETE_STRIKE_MS,
   TASK_COMPLETE_TITLE_DELAY_MS,
+  shouldSpark,
   formatCompletedDate,
   formatDuration,
   formatScheduleHint,
@@ -37,10 +38,16 @@ import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { useCompletionExit } from "@/lib/use-completion-exit";
-import { useIsCompact, useKeepsCompleted } from "@/lib/task-row-behavior";
+import {
+  useIsCompact,
+  useKeepsCompleted,
+  useProjectOpenCount,
+  useSectionOpenCount,
+} from "@/lib/task-row-behavior";
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { taskPath } from "@/lib/task-link";
+import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
 import { ScheduleButton } from "./schedule-button";
 import {
@@ -649,6 +656,11 @@ export function TaskItem({
   // about what the row renders — every chip and control is still here — so the
   // only branches below are on spacing and type scale.
   const compact = useIsCompact();
+  // What the surroundings know that the row cannot: whether ticking this off
+  // empties its section or finishes its project. Both are null on surfaces with
+  // no such notion, which simply means those rules can't fire there.
+  const sectionOpen = useSectionOpenCount();
+  const projectOpen = useProjectOpenCount();
   // Parent title for the "↳ parent" subtask reference. Prefer the prop the
   // caller supplied; otherwise fall back to a lazily-resolved title so any list
   // view flags a subtask without every caller having to thread the parent
@@ -773,8 +785,21 @@ export function TaskItem({
     // drawing on this frame, before anything touches the network.
     setCompleted(next);
     // The halo marks the moment, so it only rings on the way in — reopening a
-    // task is a correction, not an achievement.
-    if (next) exit.pulse();
+    // task is a correction, not an achievement. The burst is the same, and
+    // gated on top: most completions don't get one. The counts are read here
+    // rather than at render time because by the time the write lands the row
+    // has already told the list it is done.
+    if (next) {
+      exit.pulse();
+      if (
+        shouldSpark(task, {
+          openInSection: sectionOpen,
+          openInProject: projectOpen,
+        })
+      ) {
+        exit.spark();
+      }
+    }
 
     // In a list that keeps completed tasks there is nothing to leave — the row
     // stays put wearing its completed styling. Everywhere else it holds for a
@@ -1035,7 +1060,9 @@ export function TaskItem({
                 } as React.CSSProperties
               }
             >
-              {/* Rendered only for the frames it runs in — see `exit.pulse`. */}
+              {/* Both are rendered only for the frames they run in — see
+                  `exit.pulse` / `exit.spark`. The halo rings on every
+                  completion; the burst only on one that earned it. */}
               {exit.pulsing ? (
                 <span
                   className="dd-check-halo"
@@ -1043,6 +1070,7 @@ export function TaskItem({
                   aria-hidden="true"
                 />
               ) : null}
+              {exit.sparking ? <CompletionSpark color={ringColor} /> : null}
               {/* The project's emoji holds the ring until the task is done,
                   when the check takes the space. */}
               {project?.icon && !completed ? (

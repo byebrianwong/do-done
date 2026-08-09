@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  SPARK_MS,
   TASK_COMPLETE_COLLAPSE_MS,
   TASK_COMPLETE_HALO_MS,
   TASK_COMPLETE_HOLD_MS,
@@ -40,6 +41,15 @@ export interface CompletionExit {
   pulsing: boolean;
   /** Ring the halo once. Called when the user completes the task, not on mount. */
   pulse: () => void;
+  /**
+   * True for the frames the celebratory burst is in the air. Same
+   * moment-not-state reasoning as {@link CompletionExit.pulsing}, but this one
+   * is also *gated* — see `sparkReason` in `@do-done/shared`, which decides
+   * whether a given completion earned it at all.
+   */
+  sparking: boolean;
+  /** Throw the burst once. */
+  spark: () => void;
 }
 
 /** Honour the OS setting; SSR has no matchMedia, so assume motion is fine. */
@@ -59,27 +69,51 @@ function prefersReducedMotion(): boolean {
  * caller must have already written the completion to the server before calling
  * `start`. Nothing here is load-bearing for the data, only for the pixels.
  */
+/**
+ * A flag that is true for `ms` and then isn't, for marking a moment rather than
+ * a state.
+ *
+ * Each one owns its timer. The exit's `start` clears the exit's timers and runs
+ * immediately after these fire, so anything sharing that list would have its
+ * own clean-up cancelled and be stranded on screen for the life of the row.
+ */
+function useMoment(ms: number): [boolean, () => void, () => void] {
+  const [on, setOn] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clear = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setOn(false);
+  }, []);
+
+  const fire = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    if (timer.current) clearTimeout(timer.current);
+    setOn(true);
+    // Unmounted once it has run, so a re-render mid-flight can't restart it and
+    // a row that stays put (a list that keeps completed tasks) isn't left
+    // holding an element that has finished doing anything.
+    timer.current = setTimeout(() => setOn(false), ms);
+  }, [ms]);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  return [on, fire, clear];
+}
+
 export function useCompletionExit(): CompletionExit {
   const [phase, setPhase] = useState<ExitPhase>("idle");
-  const [pulsing, setPulsing] = useState(false);
+  const [pulsing, pulse, clearPulse] = useMoment(TASK_COMPLETE_HALO_MS);
+  const [sparking, spark, clearSpark] = useMoment(SPARK_MS);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // The halo keeps its own timer. `start` clears the exit's timers and is
-  // called immediately after `pulse` — sharing one list would cancel the
-  // pulse's own clean-up and strand the halo on screen for good.
-  const haloTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimers = useCallback(() => {
     for (const t of timers.current) clearTimeout(t);
     timers.current = [];
   }, []);
 
-  useEffect(
-    () => () => {
-      clearTimers();
-      if (haloTimer.current) clearTimeout(haloTimer.current);
-    },
-    [clearTimers]
-  );
+  useEffect(() => clearTimers, [clearTimers]);
 
   const start = useCallback(
     (onGone: () => void) => {
@@ -101,19 +135,18 @@ export function useCompletionExit(): CompletionExit {
     clearTimers();
     setPhase("idle");
     // A write that failed gets no celebration.
-    if (haloTimer.current) clearTimeout(haloTimer.current);
-    setPulsing(false);
-  }, [clearTimers]);
+    clearPulse();
+    clearSpark();
+  }, [clearTimers, clearPulse, clearSpark]);
 
-  const pulse = useCallback(() => {
-    if (prefersReducedMotion()) return;
-    if (haloTimer.current) clearTimeout(haloTimer.current);
-    setPulsing(true);
-    // Unmounted once it has run, so a re-render mid-flight can't restart it and
-    // a row that stays put (a list that keeps completed tasks) isn't left
-    // holding an element that has finished doing anything.
-    haloTimer.current = setTimeout(() => setPulsing(false), TASK_COMPLETE_HALO_MS);
-  }, []);
-
-  return { phase, collapsing: phase === "collapsing", start, cancel, pulsing, pulse };
+  return {
+    phase,
+    collapsing: phase === "collapsing",
+    start,
+    cancel,
+    pulsing,
+    pulse,
+    sparking,
+    spark,
+  };
 }

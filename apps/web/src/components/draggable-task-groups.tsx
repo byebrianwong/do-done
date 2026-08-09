@@ -38,7 +38,11 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { seedFromDrop } from "@/lib/quick-add";
-import { TaskRowBehaviorProvider, useIsCompact } from "@/lib/task-row-behavior";
+import {
+  SectionOpenProvider,
+  TaskRowBehaviorProvider,
+  useIsCompact,
+} from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -472,20 +476,24 @@ function GroupSection({
           Drop here
         </div>
       ) : null}
-      {group.tasks.map((t) =>
-        sortableIds ? (
-          <SortableRow
-            key={t.id}
-            task={t}
-            projects={projects}
-            hideStatusBadge={hideStatusBadge}
-          />
-        ) : (
-          <div key={t.id} className="py-px">
-            <TaskItem task={t} projects={projects} hideStatusBadge={hideStatusBadge} />
-          </div>
-        )
-      )}
+      {/* The section is what knows whether a completion empties it, so the
+          count is published here rather than threaded through SortableRow. */}
+      <SectionOpenProvider tasks={group.tasks}>
+        {group.tasks.map((t) =>
+          sortableIds ? (
+            <SortableRow
+              key={t.id}
+              task={t}
+              projects={projects}
+              hideStatusBadge={hideStatusBadge}
+            />
+          ) : (
+            <div key={t.id} className="py-px">
+              <TaskItem task={t} projects={projects} hideStatusBadge={hideStatusBadge} />
+            </div>
+          )
+        )}
+      </SectionOpenProvider>
     </div>
   );
 
