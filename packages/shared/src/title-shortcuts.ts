@@ -33,6 +33,40 @@ const PRIORITY_SHORTCUTS: Record<string, TaskPriority> = {
   p4: "p4",
 };
 
+/** What a single `#token` turned out to mean. */
+export type ShortcutToken =
+  | { kind: "estimate"; durationMinutes: number }
+  | { kind: "priority"; priority: TaskPriority }
+  | { kind: "project"; projectId: string }
+  | { kind: "tag"; tag: string };
+
+/**
+ * Classify one bare token (no leading `#`), in the fixed precedence order
+ * size → priority → project → tag.
+ *
+ * The loop below is one caller; the other is every **"+ tag" control**, which
+ * reaches this classification without going through a title at all. Those
+ * fields used to store whatever was typed verbatim, so `#personal` typed into
+ * a title filed the task into the Personal project while `personal` typed into
+ * the tag field two inches away made a tag of the same name — the same word,
+ * meaning two different things depending on which box it was typed in. A
+ * classification the user can't see the rule for has to be the same rule
+ * everywhere, which is why it is a function rather than a comment.
+ */
+export function classifyShortcutToken(
+  token: string,
+  projects?: readonly ProjectRef[]
+): ShortcutToken {
+  const lower = token.toLowerCase();
+  if (lower in ESTIMATE_SHORTCUTS)
+    return { kind: "estimate", durationMinutes: ESTIMATE_SHORTCUTS[lower] };
+  if (lower in PRIORITY_SHORTCUTS)
+    return { kind: "priority", priority: PRIORITY_SHORTCUTS[lower] };
+  const project = matchProject(token, projects);
+  if (project) return { kind: "project", projectId: project.id };
+  return { kind: "tag", tag: token };
+}
+
 export interface TitleShortcuts {
   /** The title with every consumed `#token` removed. */
   stripped: string;
@@ -77,21 +111,20 @@ export function extractTitleShortcuts(
   const re = flushTrailing ? /#(\w+)(?:\s+|$)/g : /#(\w+)\s+/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const token = m[1].toLowerCase();
-    if (token in ESTIMATE_SHORTCUTS) {
-      durationMinutes = ESTIMATE_SHORTCUTS[token];
-      continue;
+    const classified = classifyShortcutToken(m[1], projects);
+    switch (classified.kind) {
+      case "estimate":
+        durationMinutes = classified.durationMinutes;
+        break;
+      case "priority":
+        priority = classified.priority;
+        break;
+      case "project":
+        projectId = classified.projectId;
+        break;
+      default:
+        tags.push(classified.tag);
     }
-    if (token in PRIORITY_SHORTCUTS) {
-      priority = PRIORITY_SHORTCUTS[token];
-      continue;
-    }
-    const project = matchProject(m[1], projects);
-    if (project) {
-      projectId = project.id;
-      continue;
-    }
-    tags.push(m[1]);
   }
 
   if (

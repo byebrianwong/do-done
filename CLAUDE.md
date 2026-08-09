@@ -273,14 +273,24 @@ a tag when it doesn't. Precedence inside a token is fixed —
 `#xs`…`#xxl` (estimate) → `#p1`…`#p4` (priority) → project → tag — so a project
 named "M" loses to the size code rather than shadowing it.
 
-Two pieces do the work and **must agree**, since the same text is read by both:
-`parseTaskInput` (`packages/task-engine`) parses a whole quick-add string at
-submit, and `extractTitleShortcuts` (`packages/shared`) is the live absorber the
-title fields run on every keystroke. Both take the project list as an *optional*
-argument and both delegate the match to `matchProject` in
+Three pieces do the work and **must agree**, since the same text is read by all
+of them: `parseTaskInput` (`packages/task-engine`) parses a whole quick-add
+string at submit, `extractTitleShortcuts` (`packages/shared`) is the live
+absorber the title fields run on every keystroke, and **every "+ tag" control**
+— the two task editors and mobile's quick-add chip row — classifies the bare
+word it is handed. They take the project list as an *optional* argument and
+delegate the match to `matchProject` in
 `packages/shared/src/project-match.ts`. Omit the list — Storybook, the mobile
 widget root, any surface with no projects to hand — and every token is a tag,
 exactly as before.
+
+**The "+ tag" field is a `#token` without the `#`**, and reads its word through
+`classifyShortcutToken` on the same size → priority → project → tag ladder. It
+used to store whatever was typed verbatim, so `#personal` in the title filed the
+task into Personal while `personal` typed into the tag box two inches away made
+a tag of the same word — and `p1` there made a tag literally named "p1". A
+classification rule the user can't see has to be the same rule everywhere it can
+be reached, so it is a function both callers share rather than a comment.
 
 - **Matching is on a normalised key** (lowercase, alphanumerics only). A token
   is `\w+`, so it can never carry a space; without normalising both sides,
