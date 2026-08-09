@@ -48,6 +48,7 @@ import {
   DEFAULT_PROJECT_COLORS,
   PRIORITY_CONFIG,
   QUICK_SCHEDULE,
+  classifyShortcutToken,
   extractTitleShortcuts,
   formatScheduleHint,
   resolveQuickSchedule,
@@ -114,7 +115,12 @@ export interface QuickAddFields {
   setScheduledDate: (d: string | null) => void;
   setDuration: (m: number | null) => void;
   setProjectId: (id: string | null) => void;
-  addTag: (tag: string) => void;
+  /**
+   * Add what the "+ tag" field was given — classified exactly as the same word
+   * typed as a `#token` in the title would be, so a project name fills the
+   * Project chip and only a word that names nothing becomes a tag.
+   */
+  addTag: (token: string) => void;
   removeTag: (tag: string) => void;
   /**
    * Pull `#token` shortcuts out of the title as they're typed (same behavior as
@@ -223,8 +229,29 @@ export function useQuickAddFields(
       prev.some((p) => p.id === project.id) ? prev : [...prev, project]
     );
 
-  const addTag = (tag: string) =>
-    setTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+  /**
+   * "+ tag" reads its token the same way the title absorber reads a typed
+   * `#token` — so `personal` fills the Project chip when a Personal project
+   * exists, instead of becoming a tag spelling its name.
+   */
+  const addTag = (token: string) => {
+    const classified = classifyShortcutToken(token, projects);
+    switch (classified.kind) {
+      case 'estimate':
+        setDuration(classified.durationMinutes);
+        return;
+      case 'priority':
+        setPriority(classified.priority);
+        return;
+      case 'project':
+        setProjectId(classified.projectId);
+        return;
+      default:
+        setTags((prev) =>
+          prev.includes(classified.tag) ? prev : [...prev, classified.tag]
+        );
+    }
+  };
   const removeTag = (tag: string) =>
     setTags((prev) => prev.filter((t) => t !== tag));
 

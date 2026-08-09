@@ -12,6 +12,7 @@ import {
   STATUS_CONFIG,
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
+  classifyShortcutToken,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -2934,9 +2935,28 @@ function TaskEditModalBody({
     );
   };
 
-  const handleAddTag = (tag: string) => {
-    if (current.tags.includes(tag)) return;
-    setField("tags", [...current.tags, tag]);
+  /**
+   * The "+ tag" control classifies what it is given exactly as a typed
+   * `#token` in the title would — so `personal` here files the task into the
+   * Personal project, and `p1` sets the priority, rather than minting a tag
+   * that happens to spell either.
+   */
+  const handleAddTag = (token: string) => {
+    const classified = classifyShortcutToken(token, allProjects);
+    switch (classified.kind) {
+      case "estimate":
+        setField("duration_minutes", classified.durationMinutes);
+        return;
+      case "priority":
+        setField("priority", classified.priority);
+        return;
+      case "project":
+        setField("project_id", classified.projectId);
+        return;
+      default:
+        if (current.tags.includes(classified.tag)) return;
+        setField("tags", [...current.tags, classified.tag]);
+    }
   };
 
   return (

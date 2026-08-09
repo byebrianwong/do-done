@@ -557,6 +557,47 @@ describe("Title `#token` shortcuts", () => {
     expect(setFieldSpy).toHaveBeenCalledWith("tags", ["work"]);
   });
 
+  describe("the + tag control reads its token the same way the title does", () => {
+    function addViaButton(token: string) {
+      render(
+        <TaskEditModalV2
+          task={makeTask({ title: "" })}
+          open
+          onClose={vi.fn()}
+          projects={SAMPLE_PROJECTS}
+        />
+      );
+      fireEvent.click(screen.getByText("+ tag"));
+      const input = screen.getByLabelText("New tag");
+      fireEvent.change(input, { target: { value: token } });
+      setFieldSpy.mockClear();
+      fireEvent.keyDown(input, { key: "Enter" });
+    }
+
+    it("files the task when the tag names a project", () => {
+      // The reported bug: `#personal` typed in the title filed the task, while
+      // the same word typed into the tag field two inches away made a tag of it.
+      addViaButton("personal");
+      expect(setFieldSpy).toHaveBeenCalledWith("project_id", "proj-2");
+      expect(setFieldSpy).not.toHaveBeenCalledWith("tags", ["personal"]);
+    });
+
+    it("sets the priority from its code", () => {
+      addViaButton("p1");
+      expect(setFieldSpy).toHaveBeenCalledWith("priority", "p1");
+    });
+
+    it("sets the estimate from its size code", () => {
+      addViaButton("xs");
+      expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 30);
+    });
+
+    it("still tags a word that names nothing", () => {
+      addViaButton("work");
+      expect(setFieldSpy).toHaveBeenCalledWith("tags", ["work"]);
+    });
+  });
+
   it("absorbs a trailing token when Esc closes the modal", async () => {
     // Esc unmounts the input, and React fires no `onBlur` on unmount — so the
     // close path has to absorb too, or the token is saved into the title.

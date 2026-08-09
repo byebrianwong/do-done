@@ -35,6 +35,7 @@ import {
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
   appendTranscript,
+  classifyShortcutToken,
   datesBetweenLocalISO,
   extractTitleShortcuts,
   formatFullDate,
@@ -2259,9 +2260,27 @@ function Inner({
     onClose();
   };
 
-  const handleAddTag = (tag: string) => {
-    if (current.tags.includes(tag)) return;
-    setField("tags", [...current.tags, tag]);
+  /**
+   * "+ tag" classifies what it is given exactly as a typed `#token` in the
+   * title would — so `personal` here files the task into the Personal project
+   * rather than minting a tag that happens to spell its name.
+   */
+  const handleAddTag = (token: string) => {
+    const classified = classifyShortcutToken(token, allProjects);
+    switch (classified.kind) {
+      case "estimate":
+        setField("duration_minutes", classified.durationMinutes);
+        return;
+      case "priority":
+        setField("priority", classified.priority);
+        return;
+      case "project":
+        setField("project_id", classified.projectId);
+        return;
+      default:
+        if (current.tags.includes(classified.tag)) return;
+        setField("tags", [...current.tags, classified.tag]);
+    }
   };
 
   const handleRemoveTag = (tag: string) => {
