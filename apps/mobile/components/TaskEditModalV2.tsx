@@ -93,6 +93,7 @@ import {
   backdropOpacity,
   closeDurationMs,
   dragTranslation,
+  dragVerdict,
   shouldDismiss,
 } from "@/lib/sheet-motion";
 
@@ -1826,19 +1827,20 @@ export default function TaskEditModalV2({
   }, [sheetH, sheetHeight]);
 
   /**
-   * The body ScrollView's offset, and whether the current drag began with the
-   * body already at its top.
+   * The body ScrollView's offset, and the bookkeeping the dismiss gesture needs
+   * to decide whether a drag is the sheet's or the body's.
    *
-   * Both live on the UI thread because the pan gesture has to consult them
-   * mid-gesture. `activeOffsetY(12)` claims *downward* drags — which is also
-   * how you scroll a list back up, so without this the sheet took every one of
-   * them and the body simply would not scroll down: the whole editor lurched
-   * toward the floor instead. The rule is the one every good sheet uses — the
-   * body owns the drag until it has nothing left to scroll, and only then does
-   * the sheet take over.
+   * All of it lives on the UI thread because the pan has to consult it
+   * mid-gesture. The rule is the one every good sheet uses — the body owns the
+   * drag until it has nothing left to scroll, and only then does the sheet take
+   * over — but *how* the sheet stands down is the load-bearing part; see
+   * `dismissPan` below.
    */
   const scrollOffset = useSharedValue(0);
-  const dragOwnsSheet = useSharedValue(false);
+  /** Where the finger went down, in screen coordinates. */
+  const dragStartY = useSharedValue(0);
+  /** True once the pan has actually activated, so it stops second-guessing. */
+  const dragActive = useSharedValue(false);
   const scrollRef = useRef<React.ComponentRef<typeof Reanimated.ScrollView>>(null);
 
   // Which task is on screen. The editor can drill from the opened task into a
@@ -1927,31 +1929,76 @@ export default function TaskEditModalV2({
   /**
    * Drag the sheet down to dismiss.
    *
-   * No `runOnJS(true)` any more: the handlers below are worklets, so the finger
-   * moves the sheet on the UI thread at display rate whatever JS is busy with.
-   * `activeOffsetY` still makes it claim only downward drags, leaving taps and
-   * the horizontal sliders alone.
+   * No `runOnJS(true)`: the handlers below are worklets, so the finger moves the
+   * sheet on the UI thread at display rate whatever JS is busy with.
+   *
+   * **The gesture activates manually, and fails outright the moment the body
+   * has somewhere to scroll.** Sitting still while activated is not enough. An
+   * active RNGH handler cancels the touch stream of the plain native views
+   * under it, so a pan that activated over a scrolled body killed the scroll
+   * and then declined to move the sheet — the drag did nothing at all. It was
+   * intermittent because it was a race: Android's ScrollView claims a drag at
+   * its ~8px slop and a slow drag reaches that first, but one fast flick can
+   * clear `SHEET_DRAG_ACTIVATE_PX` inside a single move event and win. Swiping
+   * *quickly* back up through a long task was the reliable way to see nothing
+   * happen.
+   *
+   * `simultaneousWithExternalGesture(scrollRef)` is what used to be here, and
+   * it never did anything: `convertToHandlerTag` resolves a ref by reading
+   * `ref.current.handlerTag`, which only exists on RNGH's own components and on
+   * gesture objects. `Reanimated.ScrollView` wraps React Native's, so the
+   * relation resolved to -1 and was filtered out. Failing early needs no
+   * relation — a gesture that never activates has nothing to be simultaneous
+   * with — and it is the same rule the body/sheet handoff already stated.
    */
   const dismissPan = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetY(12)
-        // Runs alongside the body's own scrolling rather than cancelling it, so
-        // a drag that starts mid-list stays a scroll all the way through.
-        .simultaneousWithExternalGesture(scrollRef)
-        .onBegin(() => {
+        .manualActivation(true)
+        .onTouchesDown((e, manager) => {
           "worklet";
-          dragOwnsSheet.value = scrollOffset.value <= 0;
+          // Only the first finger down starts a drag; a second one landing
+          // mid-gesture must not re-datum it.
+          if (e.numberOfTouches > 1) return;
+          dragStartY.value = e.allTouches[0]?.absoluteY ?? 0;
+          if (dragVerdict(scrollOffset.value, 0) === "yield") manager.fail();
+        })
+        .onTouchesMove((e, manager) => {
+          "worklet";
+          if (dragActive.value) return;
+          const touch = e.allTouches[0];
+          if (!touch) return;
+          // Re-checked every move, not just at touch-down: a drag that starts at
+          // the top, scrolls the body down and then reverses would otherwise
+          // still be holding a claim on the sheet.
+          const verdict = dragVerdict(
+            scrollOffset.value,
+            touch.absoluteY - dragStartY.value
+          );
+          if (verdict === "yield") manager.fail();
+          else if (verdict === "activate") manager.activate();
+        })
+        .onStart(() => {
+          "worklet";
+          dragActive.value = true;
         })
         .onUpdate((e) => {
           "worklet";
-          if (!dragOwnsSheet.value) return;
           translateY.value = dragTranslation(e.translationY);
         })
-        .onEnd((e) => {
+        .onFinalize(() => {
           "worklet";
-          if (!dragOwnsSheet.value) return;
+          dragActive.value = false;
+        })
+        .onEnd((e, success) => {
+          "worklet";
           const h = sheetHeight.value;
+          // A cancelled gesture is not a decision. Evaluating one would let the
+          // sheet dismiss on a drag the system took away.
+          if (!success) {
+            translateY.value = withSpring(0, RETURN_SPRING);
+            return;
+          }
           if (shouldDismiss(e.translationY, e.velocityY, h)) {
             // A dismissal the body has vetoed springs back and hands the
             // explanation to JS, rather than leaving the sheet half-off screen
@@ -1980,7 +2027,8 @@ export default function TaskEditModalV2({
       translateY,
       sheetHeight,
       finishClose,
-      dragOwnsSheet,
+      dragStartY,
+      dragActive,
       scrollOffset,
       closeBlocked,
       promptDiscard,
@@ -2185,6 +2233,18 @@ function Inner({
   const scrollHandler = useAnimatedScrollHandler((e) => {
     scrollOffset.value = e.contentOffset.y;
   });
+
+  // The offset belongs to the ScrollView below, but the shared value holding it
+  // lives one component up, where the gesture can read it — and those two have
+  // different lifetimes. RN's `Modal` renders null while it is hidden, so the
+  // body unmounts on close and comes back scrolled to the top, while the shared
+  // value still reads wherever the *last* task was left. The gesture then
+  // believed a fresh body was scrolled and refused to take a single drag: swipe
+  // to dismiss silently stopped working until you scrolled the body to its top.
+  // Same story for a drill-down, which remounts this on the new task's id.
+  useEffect(() => {
+    scrollOffset.value = 0;
+  }, [scrollOffset]);
 
   // Stable identity so the calendar below can skip re-rendering on keystrokes.
   const onPickDate = useCallback(
