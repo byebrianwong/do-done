@@ -14,8 +14,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { DEFAULT_PROJECT_COLORS } from '@do-done/shared';
+import { PROJECT_COLOR_OPTIONS, DEFAULT_PROJECT_COLORS } from '@do-done/shared';
 import { createProject } from '@/lib/task-queries';
+import { ProjectIconPicker } from '@/components/ProjectIconPicker';
 
 export function ProjectFormSheet({
   visible,
@@ -88,31 +89,24 @@ export function ProjectFormSheet({
             style={styles.input}
           />
 
-          <View style={styles.iconRow}>
-            <Text style={styles.fieldLabel}>Icon</Text>
-            <TextInput
-              value={icon}
-              onChangeText={setIcon}
-              placeholder="🚀"
-              placeholderTextColor="#9ca3af"
-              maxLength={4}
-              style={styles.iconInput}
-            />
-          </View>
-
           <View style={styles.swatchRow}>
-            {DEFAULT_PROJECT_COLORS.map((c) => (
+            {PROJECT_COLOR_OPTIONS.map((c) => (
               <Pressable
-                key={c}
-                onPress={() => setColor(c)}
+                key={c.value}
+                onPress={() => setColor(c.value)}
+                accessibilityRole="button"
+                accessibilityLabel={c.name}
+                accessibilityState={{ selected: color === c.value }}
                 style={[
                   styles.swatch,
-                  { backgroundColor: c },
-                  color === c && styles.swatchActive,
+                  { backgroundColor: c.value },
+                  color === c.value && styles.swatchActive,
                 ]}
               />
             ))}
           </View>
+
+          <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -168,29 +162,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#111827',
   },
-  iconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
-  },
-  fieldLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
-  iconInput: {
-    width: 64,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    textAlign: 'center',
-    color: '#111827',
-  },
   swatchRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 16,
+    gap: 8,
+    marginTop: 14,
   },
   swatch: {
     width: 28,

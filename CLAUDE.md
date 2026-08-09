@@ -748,6 +748,42 @@ races a permission dialog over a keyboard that shouldn't have come up.
 - Aesthetic: Things 3 cleanliness + Linear speed
 - Tokens in `packages/ui/src/theme.ts`
 
+### A project's colour and its icon
+
+Both are the *identity* channel on every task row's ring, so both are chosen
+from a shared menu rather than typed.
+
+- **`PROJECT_COLOR_OPTIONS`** (`packages/shared/src/constants.ts`) is twelve
+  wide and two deep: a bright spectrum, then the same sweep darker finishing on
+  four neutrals. The grid is `grid-cols-12`, not a wrapping row — a palette that
+  reflows to 11-and-1 loses the pairing that lets two projects both be "the
+  green one" and still be told apart at 20 px.
+- **`COMPACT_PROJECT_COLORS`** is the old eight, and it is what the *inline*
+  "new project" forms use — web's project popover, mobile's quick-add chip.
+  Four wrapped rows of dots is fine in a dialog and a wall in a popover over a
+  keyboard, and capture is not where a colour gets chosen carefully.
+- **`packages/shared/src/project-icons.ts`** is the icon catalogue: ten emoji
+  groups plus **Symbols**, which are not emoji at all. `projects.icon` has
+  always been a free string rendered as text, so ★ and ◆ work and take the
+  row's own text colour — the group exists to say so, since nothing did.
+- **Two length budgets, and the catalogue satisfies both.** The column is
+  `char_length(icon) <= 10` (code points) and `ProjectSchema` is
+  `z.string().max(10)` (UTF-16 units), so a ZWJ family — 7 code points, 11
+  units — passes Postgres and is rejected by the client. Rather than let them
+  disagree, sequences that long are not offered, and `normalizeProjectIcon`
+  drops one rather than truncating it (half a ZWJ sequence renders as two
+  unrelated emoji). `firstGrapheme` is the cluster reader, spelled out by hand
+  because `Intl.Segmenter` is not dependable on Hermes.
+
+The picker **expands in flow on both surfaces, and never floats**: web's
+dialog is `overflow-hidden` (that's what rounds its header and footer), so an
+absolutely positioned panel is clipped the moment it passes the footer; on
+mobile an Android `Modal` would open a second window and drop the IME. The
+form grows and its body scrolls instead.
+
+Mobile has no project *edit* screen at all — only create (`ProjectFormSheet`)
+and the detail view — so the full palette and the icon grid reach it there.
+
 ## Testing
 
 Vitest everywhere (`pnpm test` → `turbo run test`). Web component tests run in

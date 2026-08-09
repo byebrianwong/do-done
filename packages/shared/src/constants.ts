@@ -106,7 +106,73 @@ export const FOCUS_SCORES = {
 export const QUICK_WIN_MAX_MINUTES = 15;
 export const QUICK_WIN_PARTIAL_MAX_MINUTES = 30;
 
-export const DEFAULT_PROJECT_COLORS = [
+// ─── Project colour ─────────────────────────────────────
+//
+// A project's colour is the row's *identity* channel — the ring on every task
+// belonging to it (see the task-row note in the root CLAUDE.md). So the palette
+// is built for telling projects apart at 20 px, not for covering a colour
+// wheel: every entry is a mid-weight hue at roughly the same saturation, and
+// the order walks the spectrum so a wrapped grid reads as a rainbow rather than
+// a jumble.
+//
+// It is twelve wide and two deep, and the two rows are the point. The first is
+// the spectrum at full brightness; the second walks the *same* sweep in darker
+// shades and finishes on the neutrals. That pairing is what lets two projects
+// both be "the green one" and still be told apart at a glance, and it gives
+// four quiet choices for a project that shouldn't shout.
+//
+// Twelve is also why the grid is `grid-cols-12` rather than a wrapping row: a
+// palette that reflows to 11-and-1 as the dialog narrows loses the pairing.
+export interface ProjectColorOption {
+  value: string;
+  name: string;
+}
+
+export const PROJECT_COLOR_OPTIONS: readonly ProjectColorOption[] = [
+  // Brights, indigo round to violet.
+  { value: "#6366f1", name: "Indigo" }, // primary — stays first, it is the default
+  { value: "#3b82f6", name: "Blue" },
+  { value: "#06b6d4", name: "Cyan" },
+  { value: "#14b8a6", name: "Teal" },
+  { value: "#22c55e", name: "Green" },
+  { value: "#eab308", name: "Yellow" },
+  { value: "#f59e0b", name: "Amber" },
+  { value: "#f97316", name: "Orange" },
+  { value: "#ef4444", name: "Red" },
+  { value: "#ec4899", name: "Pink" },
+  { value: "#a855f7", name: "Purple" },
+  { value: "#8b5cf6", name: "Violet" },
+  // The same sweep, deeper — then the neutrals.
+  { value: "#1d4ed8", name: "Navy" },
+  { value: "#0f766e", name: "Pine" },
+  { value: "#15803d", name: "Forest" },
+  { value: "#a16207", name: "Bronze" },
+  { value: "#c2410c", name: "Rust" },
+  { value: "#b91c1c", name: "Brick" },
+  { value: "#9d174d", name: "Wine" },
+  { value: "#7e22ce", name: "Plum" },
+  { value: "#64748b", name: "Slate" },
+  { value: "#78716c", name: "Stone" },
+  { value: "#525252", name: "Graphite" },
+  { value: "#0f172a", name: "Ink" },
+];
+
+/**
+ * Just the hex values, in the same order. Every swatch row in both apps maps
+ * over this; call sites that want a label read `PROJECT_COLOR_OPTIONS`.
+ * The first entry is the colour a new project starts on.
+ */
+export const DEFAULT_PROJECT_COLORS: readonly string[] =
+  PROJECT_COLOR_OPTIONS.map((c) => c.value);
+
+/**
+ * The eight the palette used to be, for the swatch rows that live inside a
+ * popover over a keyboard — the inline "new project" forms on both capture
+ * surfaces. Four wrapped rows of dots is a fine thing to scan in a dialog and a
+ * wall in a popover, and capture is not where a colour gets chosen carefully:
+ * the full palette is one visit to the project's own form away.
+ */
+export const COMPACT_PROJECT_COLORS: readonly string[] = [
   "#6366f1", // indigo (primary)
   "#ef4444", // red
   "#f97316", // orange
@@ -116,6 +182,14 @@ export const DEFAULT_PROJECT_COLORS = [
   "#8b5cf6", // violet
   "#ec4899", // pink
 ];
+
+/** Human name for a swatch, for `aria-label` / `title`. Falls back to the hex. */
+export function projectColorName(hex: string): string {
+  const match = PROJECT_COLOR_OPTIONS.find(
+    (c) => c.value.toLowerCase() === hex.toLowerCase()
+  );
+  return match ? match.name : hex;
+}
 
 // ─── Location reminders / geofencing ────────────────────
 //

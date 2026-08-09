@@ -18,7 +18,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { DEFAULT_PROJECT_COLORS } from '@do-done/shared';
+import { COMPACT_PROJECT_COLORS } from '@do-done/shared';
 import type { Project } from '@do-done/shared';
 
 export function ProjectPickerSheet({
@@ -39,7 +39,7 @@ export function ProjectPickerSheet({
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  const [color, setColor] = useState<string>(COMPACT_PROJECT_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput | null>(null);
 
@@ -48,7 +48,7 @@ export function ProjectPickerSheet({
     if (!visible) {
       setCreating(false);
       setName('');
-      setColor(DEFAULT_PROJECT_COLORS[0]);
+      setColor(COMPACT_PROJECT_COLORS[0]);
       setSaving(false);
     }
   }, [visible]);
@@ -126,7 +126,7 @@ export function ProjectPickerSheet({
                 style={styles.input}
               />
               <View style={styles.swatchRow}>
-                {DEFAULT_PROJECT_COLORS.map((c) => (
+                {COMPACT_PROJECT_COLORS.map((c) => (
                   <Pressable
                     key={c}
                     onPress={() => setColor(c)}

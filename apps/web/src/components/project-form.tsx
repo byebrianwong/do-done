@@ -2,9 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_PROJECT_COLORS } from "@do-done/shared";
+import {
+  PROJECT_COLOR_OPTIONS,
+  DEFAULT_PROJECT_COLORS,
+  projectColorName,
+} from "@do-done/shared";
 import type { Project } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
+import { ProjectIconPicker } from "@/components/project-icon-picker";
 
 interface ProjectFormProps {
   project?: Project; // present = edit mode, absent = create mode
@@ -21,6 +26,8 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
   const [icon, setIcon] = useState(project?.icon ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedColorName = projectColorName(color);
 
   async function handleSave() {
     if (!name.trim()) return;
@@ -101,7 +108,9 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
           </button>
         </div>
 
-        <div className="space-y-4 p-5">
+        {/* Capped because the icon grid expands in flow below; a tall dialog
+            scrolls its body rather than running off the screen. */}
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto p-5">
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-500">
               Name
@@ -118,42 +127,45 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-neutral-500">
-              Color
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {DEFAULT_PROJECT_COLORS.map((c) => (
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <label className="block text-xs font-medium text-neutral-500">
+                Color
+              </label>
+              {/* With 28 swatches the selected border alone is a small target
+                  for the eye — naming the choice confirms it. */}
+              <span className="text-[11px] text-neutral-400">
+                {selectedColorName}
+              </span>
+            </div>
+            {/* Fixed at twelve columns so the bright row and its darker
+                counterpart stay vertically paired at every width; the swatches
+                scale instead of reflowing. */}
+            <div className="grid grid-cols-12 gap-1.5">
+              {PROJECT_COLOR_OPTIONS.map((c) => (
                 <button
-                  key={c}
+                  key={c.value}
                   type="button"
-                  onClick={() => setColor(c)}
-                  className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${
-                    color === c
+                  onClick={() => setColor(c.value)}
+                  title={c.name}
+                  className={`aspect-square w-full rounded-full border-2 transition-transform hover:scale-110 ${
+                    color === c.value
                       ? "border-neutral-900 dark:border-white"
                       : "border-transparent"
                   }`}
-                  style={{ backgroundColor: c }}
-                  aria-label={`Color ${c}`}
+                  style={{ backgroundColor: c.value }}
+                  aria-label={c.name}
+                  aria-pressed={color === c.value}
                 />
               ))}
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
+            <label className="mb-1.5 block text-xs font-medium text-neutral-500">
               Icon{" "}
-              <span className="font-normal text-neutral-400">
-                (1-2 chars, e.g. emoji)
-              </span>
+              <span className="font-normal text-neutral-400">(optional)</span>
             </label>
-            <input
-              type="text"
-              value={icon}
-              onChange={(e) => setIcon(e.target.value)}
-              maxLength={4}
-              placeholder="🚀"
-              className="w-20 rounded-md border border-neutral-300 px-3 py-2 text-center text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-            />
+            <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
           </div>
 
           {error && (

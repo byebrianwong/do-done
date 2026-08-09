@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
-  DEFAULT_PROJECT_COLORS,
+  PROJECT_COLOR_OPTIONS,
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   STATUS_ORDER,
@@ -329,16 +329,17 @@ export const PriorityAndStatus: Story = {
 
       <section>
         <SectionTitle>Project palette</SectionTitle>
-        <div className="flex flex-wrap gap-3">
-          {DEFAULT_PROJECT_COLORS.map((c) => (
-            <div key={c} className="flex flex-col items-center gap-1.5">
+        {/* Twelve to a row, so each bright sits above its darker counterpart —
+            that pairing is the palette's structure, not an accident of wrap. */}
+        <div className="grid max-w-2xl grid-cols-12 gap-3">
+          {PROJECT_COLOR_OPTIONS.map((c) => (
+            <div key={c.value} className="flex flex-col items-center gap-1.5">
               <span
                 className="h-9 w-9 rounded-full border border-black/5 dark:border-white/10"
-                style={{ backgroundColor: c }}
+                style={{ backgroundColor: c.value }}
+                title={c.value}
               />
-              <span className="font-mono text-[10px] uppercase text-neutral-500">
-                {c}
-              </span>
+              <span className="text-[10px] text-neutral-500">{c.name}</span>
             </div>
           ))}
         </div>
