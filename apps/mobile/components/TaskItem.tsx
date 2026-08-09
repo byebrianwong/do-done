@@ -35,7 +35,7 @@ import {
   useCompletionExit,
   useOptimisticCompleted,
 } from '@/lib/use-completion-exit';
-import { LinkifiedText } from './LinkifiedText';
+import { StruckText } from './StruckText';
 import { useUndoToast } from './UndoToast';
 
 export type Task = SharedTask;
@@ -64,6 +64,9 @@ const GUTTER_STYLE = {
 
 /** The ring for a task with no project: chosen, not a missing value. */
 const NO_PROJECT_COLOR = '#94a3b8';
+
+/** Struck-out title, and the rule drawn through it — one colour, named once. */
+const TITLE_DONE_COLOR = '#9ca3af';
 
 interface TaskItemProps {
   task: Task;
@@ -183,10 +186,13 @@ function TaskItem({
     if (nextCompleted) hapticSuccess();
     else hapticLight();
 
-    // Paint first, on this frame: the check springs in and the row takes on its
-    // completed styling before anything touches the network or the cache.
+    // Paint first, on this frame: the check springs in, the ring flinches and
+    // rings out, and the strike-through starts drawing — all before anything
+    // touches the network or the cache.
     setCompleted(nextCompleted);
     exit.setChecked(nextCompleted);
+    // Only on the way in. Reopening is a correction, not an achievement.
+    if (nextCompleted) exit.punch();
 
     // In a list that keeps completed tasks there is nothing to leave: the row
     // stays put wearing its completed styling, and the cache can drop it (from
@@ -379,45 +385,59 @@ function TaskItem({
           />
         ) : null}
       </View>
-      <Pressable
-        onPress={handleLeadingPress}
-        hitSlop={8}
-        style={[
-          styles.ring,
-          selectionActive
-            ? {
-                borderRadius: 6,
-                borderColor: selected ? '#6366f1' : '#cbd5e1',
-                backgroundColor: selected ? '#6366f1' : 'transparent',
-              }
-            : {
-                borderColor: ringColor,
-                // Completion fills with the project's colour, the same way for
-                // every priority: done is a state, not a rank.
-                backgroundColor: completed ? ringColor : 'transparent',
-              },
-        ]}
-      >
-        {/* The project's emoji holds the ring until the task is done, when the
-            check takes the space. The check is always mounted and scaled to
-            nothing while the task is open, so ticking it off animates a
-            transform instead of a mount — a view that appears has no "before"
-            to spring from. Selection mode drives it directly; it's a state,
-            not an event worth animating. */}
-        {selectionActive ? (
-          selected ? <Text style={styles.check}>✓</Text> : null
-        ) : (
-          <>
-            {project?.icon && !completed ? (
-              <Text style={styles.ringEmoji}>{project.icon}</Text>
-            ) : null}
-            <Animated.Text
-              style={[styles.check, styles.ringCheck, exit.checkStyle]}
-            >
-              ✓
-            </Animated.Text>
-          </>
-        )}
+      {/* The press target keeps the spacing; the ring inside it does the
+          moving, so squashing it can't shift the title beside it. */}
+      <Pressable onPress={handleLeadingPress} hitSlop={8} style={styles.ringSlot}>
+        {/* A hairline copy of the ring, expanding out of it and dissolving.
+            Behind the ring and outside its bounds, so it reads as something the
+            completion sent outwards rather than a border that grew. */}
+        {!selectionActive ? (
+          <Animated.View
+            style={[styles.halo, { borderColor: ringColor }, exit.haloStyle]}
+            pointerEvents="none"
+          />
+        ) : null}
+        <Animated.View
+          style={[
+            styles.ring,
+            selectionActive
+              ? {
+                  borderRadius: 6,
+                  borderColor: selected ? '#6366f1' : '#cbd5e1',
+                  backgroundColor: selected ? '#6366f1' : 'transparent',
+                }
+              : {
+                  borderColor: ringColor,
+                  // Completion fills with the project's colour, the same way for
+                  // every priority: done is a state, not a rank.
+                  backgroundColor: completed ? ringColor : 'transparent',
+                },
+            // Selection is a state, not an event — only the completion punch
+            // animates the ring.
+            selectionActive ? null : exit.ringStyle,
+          ]}
+        >
+          {/* The project's emoji holds the ring until the task is done, when the
+              check takes the space. The check is always mounted and scaled to
+              nothing while the task is open, so ticking it off animates a
+              transform instead of a mount — a view that appears has no "before"
+              to spring from. Selection mode drives it directly; it's a state,
+              not an event worth animating. */}
+          {selectionActive ? (
+            selected ? <Text style={styles.check}>✓</Text> : null
+          ) : (
+            <>
+              {project?.icon && !completed ? (
+                <Text style={styles.ringEmoji}>{project.icon}</Text>
+              ) : null}
+              <Animated.Text
+                style={[styles.check, styles.ringCheck, exit.checkStyle]}
+              >
+                ✓
+              </Animated.Text>
+            </>
+          )}
+        </Animated.View>
       </Pressable>
       <View style={styles.content}>
         {isSubtask ? (
@@ -432,8 +452,12 @@ function TaskItem({
           {focused && !completed ? (
             <Ionicons name="star" size={13} color="#f59e0b" />
           ) : null}
-          <LinkifiedText
+          {/* The strike-through is drawn rather than switched on — see
+              `StruckText` for why mobile has to draw the rule itself. */}
+          <StruckText
             text={task.title}
+            struck={completed}
+            strikeColor={TITLE_DONE_COLOR}
             style={[
               styles.title,
               // Being late is said in weight as well as in the gutter, so it
@@ -534,14 +558,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Spacing lives out here so the ring's squash can't nudge the title.
+  ringSlot: {
+    marginRight: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ring: {
     width: 22,
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    marginRight: 11,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  halo: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    opacity: 0,
   },
   ringEmoji: { fontSize: 10, lineHeight: 12 },
   // Both are centred in the same 22px circle and only one is ever visible, so
@@ -572,7 +609,9 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 15, lineHeight: 20, color: '#111827', flex: 1 },
   titleOverdue: { fontWeight: '600' },
-  titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
+  // No `textDecorationLine` — the rule is drawn by `StruckText` so it can be
+  // animated, which the platform's own decoration cannot be.
+  titleDone: { color: TITLE_DONE_COLOR },
   subline: { fontSize: 12, lineHeight: 16, color: '#9ca3af' },
   estimate: {
     fontSize: 12,

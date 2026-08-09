@@ -16,8 +16,16 @@ import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   QUICK_SCHEDULE,
+  TASK_COMPLETE_ANTICIPATE_MS,
+  TASK_COMPLETE_ANTICIPATE_SCALE,
   TASK_COMPLETE_CHECK_MS,
   TASK_COMPLETE_COLLAPSE_MS,
+  TASK_COMPLETE_HALO_MS,
+  TASK_COMPLETE_SLIDE_PX,
+  TASK_COMPLETE_SLIDE_SCALE,
+  TASK_COMPLETE_STRIKE_DELAY_MS,
+  TASK_COMPLETE_STRIKE_MS,
+  TASK_COMPLETE_TITLE_DELAY_MS,
   formatCompletedDate,
   formatDuration,
   formatScheduleHint,
@@ -761,9 +769,12 @@ export function TaskItem({
   async function handleToggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
     const next = !completed;
-    // Paint first: the check springs in and the title strikes through on this
-    // frame, before anything touches the network.
+    // Paint first: the check springs in and the title's strike-through starts
+    // drawing on this frame, before anything touches the network.
     setCompleted(next);
+    // The halo marks the moment, so it only rings on the way in — reopening a
+    // task is a correction, not an achievement.
+    if (next) exit.pulse();
 
     // In a list that keeps completed tasks there is nothing to leave — the row
     // stays put wearing its completed styling. Everywhere else it holds for a
@@ -910,8 +921,24 @@ export function TaskItem({
       {/* `@container` makes the row stack on its OWN available width rather
           than the viewport, so it goes two-row in any narrow column (a phone,
           a split pane, a narrow sidebar) — not just on small screens. Below
-          ~32rem (`@lg`) the title takes its own row. */}
-      <div className="@container">
+          ~32rem (`@lg`) the title takes its own row.
+
+          It also carries the exit's *travel*. A pure height collapse is the
+          animation of removal, and a completed task hasn't been removed — it's
+          in the Completed view and undoable for another six seconds. Sliding it
+          out reads as filed instead. Transform costs no layout, so the height
+          collapse underneath it is unaffected, and the easing turns ease-*in*
+          because a row on its way out shouldn't decelerate. */}
+      <div
+        className="@container transition-transform motion-reduce:transition-none"
+        style={{
+          transform: exit.collapsing
+            ? `translateX(${TASK_COMPLETE_SLIDE_PX}px) scale(${TASK_COMPLETE_SLIDE_SCALE})`
+            : undefined,
+          transitionDuration: `${TASK_COMPLETE_COLLAPSE_MS}ms`,
+          transitionTimingFunction: "cubic-bezier(0.4, 0, 1, 1)",
+        }}
+      >
       <div
         data-task-row={task.id}
         /* `leading-4` in compact is what actually shortens the row. Trimming
@@ -977,24 +1004,45 @@ export function TaskItem({
         <div className={`flex h-5 shrink-0 items-center ${align.band}`}>
           <button
             onClick={handleToggleComplete}
-            className="flex h-5 shrink-0 items-center justify-center"
+            className="dd-check-btn flex h-5 shrink-0 items-center justify-center"
             aria-label={completed ? "Mark incomplete" : "Mark complete"}
           >
             {/* The check is always mounted and scaled to nothing when the task
                 is open, so ticking it off animates a transform instead of a
                 mount — a freshly mounted element has no "before" to move from.
                 The overshoot easing gives it the little bounce that reads as a
-                stamp rather than a fade. */}
+                stamp rather than a fade.
+
+                The ring itself flinches under the press before it fills:
+                `active:` fires on pointer-down, ahead of React and the network,
+                so the anticipation is genuinely the press rather than a replay
+                of it. Without it the circle only ever reported a state change;
+                with it the control answers the finger. */}
             <span
-              className="relative flex h-5 w-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] ease-out motion-reduce:transition-none"
-              style={{
-                borderColor: ringColor,
-                // Completion fills with the project's colour, the same way for
-                // every priority: done is a state, not a rank.
-                backgroundColor: completed ? ringColor : "transparent",
-                transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
-              }}
+              className="dd-ring relative flex h-5 w-5 items-center justify-center rounded-full border-2"
+              style={
+                {
+                  borderColor: ringColor,
+                  // Completion fills with the project's colour, the same way for
+                  // every priority: done is a state, not a rank.
+                  backgroundColor: completed ? ringColor : "transparent",
+                  // The motion itself is `.dd-ring` in globals.css; these are
+                  // the shared constants it reads.
+                  "--dd-check-ms": `${TASK_COMPLETE_CHECK_MS}ms`,
+                  "--dd-anticipate-ms": `${TASK_COMPLETE_ANTICIPATE_MS}ms`,
+                  "--dd-anticipate-scale": `${TASK_COMPLETE_ANTICIPATE_SCALE}`,
+                  "--dd-halo-ms": `${TASK_COMPLETE_HALO_MS}ms`,
+                } as React.CSSProperties
+              }
             >
+              {/* Rendered only for the frames it runs in — see `exit.pulse`. */}
+              {exit.pulsing ? (
+                <span
+                  className="dd-check-halo"
+                  style={{ color: ringColor }}
+                  aria-hidden="true"
+                />
+              ) : null}
               {/* The project's emoji holds the ring until the task is done,
                   when the check takes the space. */}
               {project?.icon && !completed ? (
@@ -1074,16 +1122,41 @@ export function TaskItem({
                   : "line-clamp-2 text-sm leading-snug @lg:line-clamp-none"
               } ${
                 completed
-                  ? "text-neutral-400 line-through dark:text-neutral-600"
+                  ? "text-neutral-400 dark:text-neutral-600"
                   : "text-neutral-900 dark:text-neutral-100"
               } ${
                 /* Being late is said in weight as well as in the gutter, so it
                    reads from further away than a coloured chip ever did. */
                 overdue && !completed ? "font-semibold" : ""
               }`}
-              style={{ transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms` }}
+              style={{
+                transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
+                // The colour trails the line rather than racing it, so the
+                // words grey out in its wake.
+                transitionDelay: completed
+                  ? `${TASK_COMPLETE_TITLE_DELAY_MS}ms`
+                  : "0ms",
+              }}
             >
-              <LinkifiedText text={task.title} />
+              {/* The strike-through is drawn, not switched on. It was the one
+                  un-animated part of the gesture — a class flip on the tap's own
+                  frame while everything around it eased — and it sits where the
+                  eye already is, because it is where the words are.
+
+                  An inline wrapper, so the rule follows the words: it fragments
+                  one piece per line and each piece ends where its line's text
+                  does. See `.dd-strike`. */}
+              <span
+                className={`dd-strike ${completed ? "dd-strike-on" : ""}`}
+                style={
+                  {
+                    "--dd-strike-ms": `${TASK_COMPLETE_STRIKE_MS}ms`,
+                    "--dd-strike-delay": `${TASK_COMPLETE_STRIKE_DELAY_MS}ms`,
+                  } as React.CSSProperties
+                }
+              >
+                <LinkifiedText text={task.title} />
+              </span>
             </span>
           </div>
 

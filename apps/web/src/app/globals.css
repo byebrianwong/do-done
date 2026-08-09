@@ -175,6 +175,133 @@ body {
   }
 }
 
+/* ── Ticking a task off ───────────────────────────────────────────────
+ *
+ * Two of the three layers of the completion gesture need real CSS; the third
+ * (the row sliding as it leaves) is an inline transform on the collapse shell.
+ * Timings all come from `@do-done/shared` via custom properties the row sets,
+ * so web and mobile can't drift.
+ */
+
+/*
+ * The ring flinches under the press before it fills.
+ *
+ * `:active` fires on pointer-down — ahead of React, ahead of the network — so
+ * this is genuinely the press being answered rather than a replay of it after
+ * the fact. It lives here rather than inline because an inline `transition`
+ * would outrank the `motion-reduce:` class that has to be able to switch it
+ * off, and because Tailwind can't scan an interpolated arbitrary value.
+ *
+ * Per-property durations: the fill takes the check's 220ms, but the squash has
+ * to be quick or a press reads as drag rather than give. `transform` can only
+ * carry one duration, and the squash is its only user on this element.
+ */
+.dd-ring {
+  transition:
+    background-color var(--dd-check-ms, 220ms) ease-out,
+    border-color var(--dd-check-ms, 220ms) ease-out,
+    transform var(--dd-anticipate-ms, 90ms) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.dd-check-btn:active .dd-ring {
+  transform: scale(var(--dd-anticipate-scale, 0.86));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-ring {
+    transition: none;
+  }
+  .dd-check-btn:active .dd-ring {
+    transform: none;
+  }
+}
+
+/*
+ * The halo: a hairline copy of the ring that expands out of it and dissolves.
+ *
+ * Rendered only for the frames it runs in — the row mounts it when a *tap*
+ * completes the task and drops it again afterwards. Keying it off `completed`
+ * instead would fire a halo on every already-done row the moment a completed
+ * list painted, which is a page-load fireworks display nobody asked for.
+ */
+@keyframes dd-check-halo {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.dd-check-halo {
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 1.5px solid currentColor;
+  pointer-events: none;
+  animation: dd-check-halo var(--dd-halo-ms, 340ms)
+    cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/*
+ * The drawn strike-through.
+ *
+ * `text-decoration-line` can't be animated — it is on or off — so the rule is
+ * a background gradient whose width grows instead.
+ *
+ * It sits on an *inline* wrapper inside the title, which is what makes it
+ * follow the words: an inline box fragments into one piece per line, and
+ * `box-decoration-break: clone` gives every fragment its own background. So a
+ * wrapped title gets a rule per line, each ending exactly where that line's
+ * text ends.
+ *
+ * The tempting alternative — putting this on the title block itself and tiling
+ * the gradient down it with `repeat-y` — draws each rule to the full block
+ * width instead, so a short last line trails a long rule off into empty space.
+ *
+ * `currentColor` means the line greys out with the words rather than being a
+ * second colour that has to be kept in step with them.
+ *
+ * One side effect worth knowing about, because it looks like good news and
+ * isn't: axe's `color-contrast` rule skips any element carrying a
+ * background-image, since it can't compute a ratio against one. Putting the
+ * rule here therefore silences the contrast findings that completed titles
+ * used to raise — Chromatic's accessibility snapshots dropped five of them on
+ * the completion stories. The rendering is unchanged (those builds compared
+ * visually EQUAL); a greyed-out completed title is still the low-contrast text
+ * it always was, deliberately so. What changed is only that the automated
+ * check can no longer see it, so that contrast is now ours to keep an eye on.
+ */
+.dd-strike {
+  background-image: linear-gradient(to right, currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 var(--dd-strike-y, 0.58em);
+  background-size: 0% 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size var(--dd-strike-ms, 190ms)
+    cubic-bezier(0.16, 1, 0.3, 1) var(--dd-strike-delay, 40ms);
+}
+
+/* A row that mounts already completed starts here, and transitions don't run
+   on first paint — so it renders struck with no animation, as it should. */
+.dd-strike-on {
+  background-size: 100% 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Land on the end state rather than playing it slowly: the halo is pure
+     decoration and goes, the line simply arrives already drawn. */
+  .dd-check-halo {
+    display: none;
+  }
+  .dd-strike {
+    transition: none;
+  }
+}
+
 /* ── Landing page ─────────────────────────────────────────────────────
  *
  * The marketing page's motion, kept in CSS rather than JS: it runs before

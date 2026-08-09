@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   TASK_COMPLETE_COLLAPSE_MS,
+  TASK_COMPLETE_HALO_MS,
   TASK_COMPLETE_HOLD_MS,
 } from "@do-done/shared";
 
@@ -28,6 +29,17 @@ export interface CompletionExit {
   start: (onGone: () => void) => void;
   /** Abort and snap back to full height — for a write that failed. */
   cancel: () => void;
+  /**
+   * True for the frames the halo is ringing out of the checkbox.
+   *
+   * A boolean rather than "is this row completed" on purpose: the halo marks
+   * the *moment* a task was ticked off, so a list of already-done rows must
+   * paint without a single one of them. Nothing else can tell those two states
+   * apart, since a completed row looks the same however it got that way.
+   */
+  pulsing: boolean;
+  /** Ring the halo once. Called when the user completes the task, not on mount. */
+  pulse: () => void;
 }
 
 /** Honour the OS setting; SSR has no matchMedia, so assume motion is fine. */
@@ -49,14 +61,25 @@ function prefersReducedMotion(): boolean {
  */
 export function useCompletionExit(): CompletionExit {
   const [phase, setPhase] = useState<ExitPhase>("idle");
+  const [pulsing, setPulsing] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // The halo keeps its own timer. `start` clears the exit's timers and is
+  // called immediately after `pulse` — sharing one list would cancel the
+  // pulse's own clean-up and strand the halo on screen for good.
+  const haloTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimers = useCallback(() => {
     for (const t of timers.current) clearTimeout(t);
     timers.current = [];
   }, []);
 
-  useEffect(() => clearTimers, [clearTimers]);
+  useEffect(
+    () => () => {
+      clearTimers();
+      if (haloTimer.current) clearTimeout(haloTimer.current);
+    },
+    [clearTimers]
+  );
 
   const start = useCallback(
     (onGone: () => void) => {
@@ -77,7 +100,20 @@ export function useCompletionExit(): CompletionExit {
   const cancel = useCallback(() => {
     clearTimers();
     setPhase("idle");
+    // A write that failed gets no celebration.
+    if (haloTimer.current) clearTimeout(haloTimer.current);
+    setPulsing(false);
   }, [clearTimers]);
 
-  return { phase, collapsing: phase === "collapsing", start, cancel };
+  const pulse = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    if (haloTimer.current) clearTimeout(haloTimer.current);
+    setPulsing(true);
+    // Unmounted once it has run, so a re-render mid-flight can't restart it and
+    // a row that stays put (a list that keeps completed tasks) isn't left
+    // holding an element that has finished doing anything.
+    haloTimer.current = setTimeout(() => setPulsing(false), TASK_COMPLETE_HALO_MS);
+  }, []);
+
+  return { phase, collapsing: phase === "collapsing", start, cancel, pulsing, pulse };
 }
