@@ -112,13 +112,15 @@ export const PRIORITY_COLORS: Record<TaskPriority, string> = {
 };
 
 // Coloured by exception: red and amber mean something, and everything at or
-// below Medium is a hairline. Most tasks on a personal list never get a
-// priority, so a permanently lit stripe would stop being read.
+// below Medium draws nothing at all. Most tasks on a personal list never get a
+// priority, so a permanently lit stripe would stop being read — and a grey one
+// (which is what this used to draw) reads as a stray divider between the
+// sheet's rounded top and the banner rather than as a signal about the task.
 const PRIORITY_STRIPE_COLORS: Record<TaskPriority, string> = {
   p1: PRIORITY_CONFIG.p1.color,
   p2: PRIORITY_CONFIG.p2.color,
-  p3: "#e5e5e5",
-  p4: "#e5e5e5",
+  p3: "transparent",
+  p4: "transparent",
 };
 
 /** Fallback identity for a task with no project: the app's own accent. */
@@ -129,6 +131,14 @@ export const ESTIMATE_BUCKETS = [30, 60, 120, 240, 480, 960];
 /** `formatRelativeDay` returns lowercase prose; the headline wants a sentence. */
 function capitalizeFirst(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** "45m" / "2h" — the compact reading the meta field prints. */
+export function estimateLabel(minutes: number | null): string {
+  if (!minutes) return "None";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = minutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 }
 
 export function estimateBarIndex(minutes: number | null): number {
@@ -296,18 +306,14 @@ function coverBlobs(projectId: string | null): {
 function TaskCover({
   project,
   priority,
-  estimateMinutes,
   onPressProject,
   onPressPriority,
-  onPressEstimate,
   children,
 }: {
   project: Project | null;
   priority: TaskPriority;
-  estimateMinutes: number | null;
   onPressProject: () => void;
   onPressPriority: () => void;
-  onPressEstimate: () => void;
   /** The save dot, undo and menu, laid over the banner's top row. */
   children: React.ReactNode;
 }) {
@@ -344,15 +350,16 @@ function TaskCover({
           />
         ))}
       </View>
-      {/* Emoji watermark, bled off the top-right so it never sits under the
-          controls along the banner's bottom edge. */}
+      {/* Emoji watermark. It bleeds off the *right* edge only — cropping its
+          top as well left a half-drawn glyph that reads as a clipping bug
+          rather than as a watermark. */}
       {project?.icon ? (
         <Text style={styles.coverMark} pointerEvents="none">
           {project.icon}
         </Text>
       ) : null}
-      {/* Darkens the bottom so the white pill and rail hold their contrast
-          over a pale project colour — amber and lime are the ones that would
+      {/* Darkens the bottom so the white project pill holds its contrast over
+          a pale project colour — amber and lime are the ones that would
           otherwise wash out. */}
       <View style={styles.coverScrim} pointerEvents="none" />
 
@@ -395,50 +402,56 @@ function TaskCover({
           </Pressable>
         ) : null}
       </View>
-
-      <EstimateRail value={estimateMinutes} onPress={onPressEstimate} />
     </View>
   );
 }
 
 /**
- * Six segments filling left to right along the banner's bottom edge. Length is
- * the right metaphor for a duration — a longer task is a longer bar — and the
- * whole strip is the tap target, not just the 4px of visible rail.
+ * A labelled property control: the shape Priority and Estimate take in the
+ * body, matching the Status field below them.
+ *
+ * They spent a release as marks on the banner — a 4px stripe and a
+ * six-segment rail — on the theory that a signal at the top plus a control
+ * further down is worse than either alone. The theory holds; the marks were
+ * the wrong half to keep. Neither carried a name or looked pressable, so the
+ * rail read as a progress bar and the stripe as a divider, and the two fields
+ * the app asks about most became unreachable without knowing where to poke.
+ * The banner keeps what colour is genuinely good at — project identity — and
+ * these say what they are.
  */
-function EstimateRail({
+function MetaField({
+  label,
   value,
+  dotColor,
+  muted,
   onPress,
 }: {
-  value: number | null;
+  label: string;
+  value: string;
+  dotColor: string;
+  /** Nothing set: the value greys back to the weight of a placeholder. */
+  muted?: boolean;
   onPress: () => void;
 }) {
-  const activeIdx = estimateBarIndex(value);
-  const label = value
-    ? value >= 60
-      ? `${Math.round(value / 60)}h`
-      : `${value}m`
-    : "—";
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={value ? `Estimate: ${label}` : "Set an estimate"}
-      style={styles.estRail}
-    >
-      <View style={styles.estRailTrack}>
-        {ESTIMATE_BUCKETS.map((m, i) => (
-          <View
-            key={m}
-            style={[
-              styles.estRailSeg,
-              i <= activeIdx && styles.estRailSegOn,
-            ]}
-          />
-        ))}
-      </View>
-      <Text style={styles.estRailLabel}>{label}</Text>
-    </Pressable>
+    <View style={styles.metaField}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value}`}
+        style={styles.projectField}
+      >
+        <View style={[styles.projectFieldDot, { backgroundColor: dotColor }]} />
+        <Text
+          style={[styles.projectFieldText, muted && styles.metaFieldValueMuted]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        <Text style={styles.projectFieldChevron}>▾</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -2369,10 +2382,15 @@ function Inner({
 
   return (
     <View style={styles.sheetContent}>
-      {/* Priority owns the top edge, the banner carries project and estimate.
-          The sheet's own chrome — save state, undo, menu — rides *on* the
-          banner rather than in a bar above it: on a phone that bar cost 46px
-          of height before the title, and the banner has room for it. */}
+      {/* The banner carries the project, and nothing else about the task: hue
+          and texture are spent on identity, so a second signal borrowing
+          either would read as "something about the project". The sheet's own
+          chrome — save state, undo, menu — rides *on* it rather than in a bar
+          above it: on a phone that bar cost 46px of height before the title,
+          and the banner has room for it.
+
+          The one exception is a P1/P2 stripe along the very top edge, which is
+          urgency and is allowed to shout. It draws nothing below P2. */}
       <View
         style={[
           styles.priorityStripe,
@@ -2382,10 +2400,8 @@ function Inner({
       <TaskCover
         project={selectedProject}
         priority={current.priority}
-        estimateMinutes={current.duration_minutes}
         onPressProject={() => setProjectPickerOpen(true)}
         onPressPriority={() => setPriPickerOpen(true)}
-        onPressEstimate={() => setEstPickerOpen(true)}
       >
         <SaveStatusDot status={saveStatus} onCover />
         <View style={{ flex: 1 }} />
@@ -2546,12 +2562,25 @@ function Inner({
           ) : null}
         </View>
 
-        {/* Priority and estimate used to sit here as a two-up meter card.
-            They're on the banner now — the stripe and the rail — and neither
-            was left behind: a signal at the top plus a control further down is
-            worse than either alone, because you read the value in one place
-            and then have to hunt for where to change it. Tapping either mark
-            opens the same picker this card's labels opened. */}
+        {/* Priority and estimate. Both name themselves and both open the same
+            pickers the banner's marks used to — see MetaField for why the
+            marks alone weren't enough. */}
+        <View style={styles.metaFieldsRow}>
+          <MetaField
+            label="Priority"
+            value={PRIORITY_CONFIG[current.priority].label}
+            dotColor={PRIORITY_COLORS[current.priority]}
+            muted={current.priority === "p4"}
+            onPress={() => setPriPickerOpen(true)}
+          />
+          <MetaField
+            label="Estimate"
+            value={estimateLabel(current.duration_minutes)}
+            dotColor={current.duration_minutes ? "#6366f1" : "#d1d5db"}
+            muted={!current.duration_minutes}
+            onPress={() => setEstPickerOpen(true)}
+          />
+        </View>
 
         {/* Location reminders — folded like Repeat, since most tasks have none */}
         <View style={{ marginTop: 14 }}>
@@ -2601,19 +2630,31 @@ function Inner({
           <PickerSheet
             visible={estPickerOpen}
             title="Estimate"
-            options={ESTIMATE_PICKER_OPTIONS.map((b) => ({
-              key: String(b.minutes),
-              code: b.code,
-              label: b.label,
-            }))}
+            options={[
+              ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
+                key: String(b.minutes),
+                code: b.code,
+                label: b.label,
+              })),
+              // Priority clears by re-picking its current row; an estimate has
+              // no such row to re-pick, so without this there was no way back
+              // to "unestimated" once a value had been set.
+              ...(current.duration_minutes
+                ? [{ key: "none", code: "", label: "No estimate" }]
+                : []),
+            ]}
             selectedKey={(() => {
               const idx = estimateBarIndex(current.duration_minutes);
               return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
             })()}
             onSelect={(key) => {
-              setField("duration_minutes", parseInt(key, 10));
+              setField(
+                "duration_minutes",
+                key === "none" ? null : parseInt(key, 10)
+              );
               setEstPickerOpen(false);
             }}
+            accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
             onClose={() => setEstPickerOpen(false)}
           />
         ) : null}
@@ -2842,7 +2883,10 @@ const styles = StyleSheet.create({
   },
   // ── Project banner ────────────────────────────────────
   priorityStripe: { height: 4, width: "100%" },
-  cover: { height: 84, overflow: "hidden", justifyContent: "flex-end" },
+  // `space-between` with both rows in flow, rather than an absolute top row
+  // over a bottom-aligned one: at 84px those two overlapped, and the save
+  // caption came out with the project pill drawn through it.
+  cover: { height: 96, overflow: "hidden", justifyContent: "space-between" },
   // Horizontal bands standing in for a gradient — see TaskCover for why this
   // isn't expo-linear-gradient.
   coverBandRow: { flex: 1, flexDirection: "row" },
@@ -2853,12 +2897,12 @@ const styles = StyleSheet.create({
   },
   coverMark: {
     position: "absolute",
-    right: -8,
-    top: -14,
-    fontSize: 72,
-    lineHeight: 82,
-    opacity: 0.3,
-    transform: [{ rotate: "-13deg" }],
+    right: -12,
+    top: 8,
+    fontSize: 62,
+    lineHeight: 72,
+    opacity: 0.28,
+    transform: [{ rotate: "-10deg" }],
   },
   coverScrim: {
     position: "absolute",
@@ -2869,13 +2913,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.18)",
   },
   coverTopRow: {
-    position: "absolute",
-    top: 8,
-    left: 14,
-    right: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    paddingTop: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
   },
   coverUndo: {
     paddingHorizontal: 9,
@@ -2886,10 +2929,10 @@ const styles = StyleSheet.create({
   coverUndoText: { fontSize: 11.5, fontWeight: "700", color: "#fff" },
   coverBottomRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 14,
-    paddingBottom: 4,
+    paddingBottom: 10,
   },
   coverPill: {
     flexDirection: "row",
@@ -2925,24 +2968,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     color: "#fff",
   },
-  // The whole strip is the tap target, not just the 4px of visible rail.
-  estRail: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: 8,
-  },
-  estRailTrack: { flex: 1, flexDirection: "row", gap: 3 },
-  estRailSeg: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.28)",
-  },
-  estRailSegOn: { backgroundColor: "#fff" },
-  estRailLabel: { fontSize: 11, fontWeight: "700", color: "#fff" },
   menuDotOnCover: {
     width: 3.5,
     height: 3.5,
@@ -2957,6 +2982,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  metaFieldsRow: { marginTop: 18, flexDirection: "row", gap: 10 },
+  // Equal halves, so neither field's width tells you anything about the value
+  // inside it.
+  metaField: { flex: 1, gap: 6 },
+  metaFieldValueMuted: { color: "#9ca3af", fontWeight: "500" },
 
   menuRow: { paddingVertical: 12, paddingHorizontal: 4 },
   menuRowDestructive: { fontSize: 15, fontWeight: "600", color: "#dc2626" },
