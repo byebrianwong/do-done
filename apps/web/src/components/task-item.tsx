@@ -738,11 +738,15 @@ export function TaskItem({
     }
 
     if (next) {
+      // `task.status` here is the row as it stood when the checkbox was
+      // clicked — the closure captured it before the write — so Undo puts the
+      // task back at that status rather than at the generic Not started.
+      const priorStatus = task.status;
       toast.show({
         message: `Completed “${task.title}”`,
         undo: async () => {
           const api = await getClientTasksApi();
-          await api.reopen(task.id);
+          await api.reopen(task.id, priorStatus);
           setCompleted(false);
           exit.cancel();
           startTransition(() => router.refresh());

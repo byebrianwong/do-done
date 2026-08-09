@@ -6,6 +6,7 @@ import type {
   TaskFilterInput,
   PetEventActor,
   StatusSyncSettings,
+  TaskStatus,
   TrackedField,
 } from "@do-done/shared";
 import {
@@ -325,6 +326,19 @@ export class TasksApi {
     if (isCompletionTransition) {
       patch.completed_at = new Date().toISOString();
     }
+    // ...and clear it again on the way back out, in the same write that moves
+    // the status. `reopen()` did this for its own path only, so a task taken
+    // out of done any other way — the editor's checkbox, an autosave undo —
+    // kept a completed_at, and every surface that reads completion off the
+    // stamp rather than the status (the Completed list, the weekly summary)
+    // went on counting it as finished.
+    if (
+      input.status !== undefined &&
+      input.status !== "done" &&
+      priorStatus === "done"
+    ) {
+      patch.completed_at = null;
+    }
 
     // Status ↔ schedule auto-sync. Folded into the same UPDATE rather than
     // chased with a second write, so the row the caller gets back is already
@@ -441,14 +455,33 @@ export class TasksApi {
     return { error: error as Error | null };
   }
 
-  async reopen(id: string): Promise<{ data: Task | null; error: Error | null }> {
-    // Move a done task back to active (not_started) and clear completed_at.
-    // We don't route through update() because we want completed_at cleared
-    // regardless of the input shape, which update()'s patch logic doesn't
-    // handle on its own.
+  /**
+   * Move a done task back to active and clear completed_at.
+   *
+   * `restoreStatus` is the status the task held *before* it was completed, and
+   * it is what makes undo an undo: a task checked off from In progress came
+   * back as Not started, which is a different task state than the one the user
+   * asked to have back. Callers that know the prior status (a completion toast's
+   * Undo, which captured the row as it was) pass it; a bare uncheck, which has
+   * no prior state to speak of, doesn't, and gets the neutral `not_started`.
+   *
+   * `done` is refused, since restoring it would make the reopen a no-op and
+   * leave the Undo button looking broken. `cancelled` is honoured — a cancelled
+   * task that was then completed really was cancelled a moment ago.
+   *
+   * We don't route through update() because we want completed_at cleared
+   * regardless of the input shape, which update()'s patch logic only handles
+   * for an explicit status change.
+   */
+  async reopen(
+    id: string,
+    restoreStatus?: TaskStatus
+  ): Promise<{ data: Task | null; error: Error | null }> {
+    const status =
+      restoreStatus && restoreStatus !== "done" ? restoreStatus : "not_started";
     const { data, error } = await this.supabase
       .from("tasks")
-      .update({ status: "not_started", completed_at: null })
+      .update({ status, completed_at: null })
       .eq("id", id)
       .select()
       .single();

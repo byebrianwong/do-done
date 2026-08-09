@@ -87,6 +87,16 @@ describe("demo store writes", () => {
     expect(reopened?.completed_at).toBeNull();
   });
 
+  it("gives an undone task back the status it was completed from", async () => {
+    const target = getDemoState().tasks.find((t) => t.status !== "done")!;
+    await demoTasksApi.update(target.id, { status: "in_progress" });
+    await demoTasksApi.complete(target.id);
+
+    const { data } = await demoTasksApi.reopen(target.id, "in_progress");
+    expect(data?.status).toBe("in_progress");
+    expect(data?.completed_at).toBeNull();
+  });
+
   it("deletes a task's subtasks with it, as the FK cascade does", async () => {
     const parent = getDemoState().tasks.find((t) =>
       getDemoState().tasks.some((c) => c.parent_task_id === t.id)

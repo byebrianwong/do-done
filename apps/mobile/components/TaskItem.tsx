@@ -214,10 +214,14 @@ function TaskItem({
    * Undo for the completion toast. The reopen is queued behind the completion
    * it undoes (see `toggleComplete`), so tapping this the instant the toast
    * appears can't have the two writes land out of order.
+   *
+   * `task.status` is the row as it stood before the tap — the cache drops the
+   * completed row rather than restating it — so the task comes back at the
+   * status it actually had, In progress included.
    */
   async function undoComplete() {
     try {
-      await toggleComplete(task.id, false);
+      await toggleComplete(task.id, false, { restoreStatus: task.status });
       setCompleted(false);
       exit.setChecked(false);
       exit.cancel();

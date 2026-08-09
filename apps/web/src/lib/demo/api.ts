@@ -8,6 +8,7 @@ import type {
   Task,
   TaskFilterInput,
   TaskAttachment,
+  TaskStatus,
   UpdateProjectInput,
   UpdateTaskInput,
 } from "@do-done/shared";
@@ -165,11 +166,16 @@ class DemoTasksApiImpl {
     const prior = this.tasks.find((t) => t.id === id);
     if (!prior) return { data: null, error: new Error("Task not found") };
     const becomingDone = input.status === "done" && prior.status !== "done";
+    const leavingDone =
+      input.status !== undefined &&
+      input.status !== "done" &&
+      prior.status === "done";
     const updated: Task = {
       ...prior,
       ...input,
       updated_at: nowISO(),
       ...(becomingDone ? { completed_at: nowISO() } : {}),
+      ...(leavingDone ? { completed_at: null } : {}),
     };
     this.write(this.tasks.map((t) => (t.id === id ? updated : t)));
     return ok(updated);
@@ -179,12 +185,13 @@ class DemoTasksApiImpl {
     return this.update(id, { status: "done" });
   }
 
-  async reopen(id: string) {
+  async reopen(id: string, restoreStatus?: TaskStatus) {
     const prior = this.tasks.find((t) => t.id === id);
     if (!prior) return { data: null, error: new Error("Task not found") };
     const updated: Task = {
       ...prior,
-      status: "not_started",
+      status:
+        restoreStatus && restoreStatus !== "done" ? restoreStatus : "not_started",
       completed_at: null,
       updated_at: nowISO(),
     };
