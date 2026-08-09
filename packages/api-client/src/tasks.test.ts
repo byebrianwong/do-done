@@ -583,3 +583,69 @@ describe("TasksApi.syncScheduledToStatus", () => {
     expect(updates).toEqual([]);
   });
 });
+
+/**
+ * Undo has to give the task back the way it was. Reopening always wrote
+ * `not_started`, so checking off something that was In progress and tapping
+ * Undo silently demoted it — the row came back, at the wrong status, with
+ * nothing on screen saying so.
+ */
+describe("TasksApi.reopen — the status a task comes back at", () => {
+  const apiFor = (prior: Task) => {
+    const { supabase, updates } = makeSyncStub({ timezone: "UTC" }, prior);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { api: new TasksApi(supabase as any, "user-1"), updates };
+  };
+
+  it("restores the status it was given, and clears completed_at", async () => {
+    const { api, updates } = apiFor(makeTask({ status: "done" }));
+
+    await api.reopen("t1", "in_progress");
+
+    expect(updates[0]).toEqual({ status: "in_progress", completed_at: null });
+  });
+
+  it("falls back to not_started for a bare uncheck", async () => {
+    const { api, updates } = apiFor(makeTask({ status: "done" }));
+
+    await api.reopen("t1");
+
+    expect(updates[0]).toEqual({ status: "not_started", completed_at: null });
+  });
+
+  it("refuses to restore done, which would leave Undo doing nothing", async () => {
+    const { api, updates } = apiFor(makeTask({ status: "done" }));
+
+    await api.reopen("t1", "done");
+
+    expect(updates[0]).toMatchObject({ status: "not_started" });
+  });
+});
+
+describe("TasksApi.update — leaving done", () => {
+  it("clears completed_at when the status moves off done", async () => {
+    const { supabase, updates } = makeSyncStub(
+      { timezone: "UTC" },
+      makeTask({ status: "done", completed_at: "2026-08-01T10:00:00.000Z" })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("t1", { status: "in_progress" });
+
+    expect(updates[0]).toEqual({ status: "in_progress", completed_at: null });
+  });
+
+  it("leaves the stamp alone on a write that doesn't touch the status", async () => {
+    const { supabase, updates } = makeSyncStub(
+      { timezone: "UTC" },
+      makeTask({ status: "done", completed_at: "2026-08-01T10:00:00.000Z" })
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("t1", { title: "Renamed" });
+
+    expect(updates[0]).toEqual({ title: "Renamed" });
+  });
+});

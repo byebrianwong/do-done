@@ -216,7 +216,7 @@ describe("toggleComplete — completion hold", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(completedIds()).toEqual([]);
-    expect(reopen).toHaveBeenCalledWith(TASK_ID);
+    expect(reopen).toHaveBeenCalledWith(TASK_ID, undefined);
   });
 });
 
@@ -246,7 +246,23 @@ describe("toggleComplete — undo while the completion is in flight", () => {
 
     completeWrite.ok();
     await vi.advanceTimersByTimeAsync(0);
-    expect(reopen).toHaveBeenCalledWith(TASK_ID);
+    expect(reopen).toHaveBeenCalledWith(TASK_ID, undefined);
+  });
+
+  // Undo means "put it back", so the row's status before the tap travels with
+  // the reopen. Without it the write is a plain `not_started` and a task
+  // checked off from In progress comes back demoted.
+  it("carries the pre-completion status through to the reopen", async () => {
+    seedList(TASK_ID, "other");
+    complete.mockResolvedValue({ data: null, error: null });
+    reopen.mockResolvedValue({ data: null, error: null });
+
+    void toggleComplete(TASK_ID, true, { holdMs: HOLD });
+    await vi.advanceTimersByTimeAsync(0);
+    void toggleComplete(TASK_ID, false, { restoreStatus: "in_progress" });
+    await vi.advanceTimersByTimeAsync(HOLD * 2);
+
+    expect(reopen).toHaveBeenCalledWith(TASK_ID, "in_progress");
   });
 
   it("leaves the row in its list when the undo lands first", async () => {

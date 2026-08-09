@@ -12,6 +12,15 @@ Supabase client wrapper and typed API classes.
 - `getToday`/`getUpcoming` derive "today" from the **process** clock, which is
   UTC on a deployed host. Server-side callers should use `getDatedBetween` /
   `getOverdue` and pass the day they resolved from the user's timezone instead.
+- **`completed_at` is owned by `update()`, in both directions.** It stamps on
+  the transition into `done` and clears on any status change out of it, so a
+  task taken out of done by the editor or an autosave undo doesn't keep a
+  timestamp that the Completed list and the weekly summary read as "finished".
+- **`reopen(id, restoreStatus?)` — an undo is only an undo if the status comes
+  back too.** Callers that know what the task was before it was completed (a
+  completion toast's Undo, which captured the row as it was) pass it; a bare
+  uncheck has no earlier state and gets `not_started`. `done` is refused, or
+  the Undo button would visibly do nothing.
 - Always check `.error` from Supabase responses
 - Return `{ data, error }` tuples from all methods
 - Use types from `@do-done/shared` for all return types

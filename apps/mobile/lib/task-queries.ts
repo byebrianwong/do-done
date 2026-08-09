@@ -19,6 +19,7 @@ import type {
   Project,
   Task,
   TaskFilterInput,
+  TaskStatus,
   UpdateTaskInput,
 } from '@do-done/shared';
 import { getProjectsApi, getTasksApi } from './supabase';
@@ -288,6 +289,13 @@ export interface ToggleCompleteOptions {
    * — the hold is a rendering concern that never reaches the network.
    */
   holdMs?: number;
+  /**
+   * Reopening only: the status the task held before it was completed, so an
+   * Undo restores the state the user actually had. Omitted for a plain
+   * uncheck, which has no earlier state to go back to and lands on
+   * `not_started`. Ignored when completing.
+   */
+  restoreStatus?: TaskStatus;
 }
 
 /**
@@ -373,7 +381,9 @@ async function runToggleComplete(
   const startedAt = Date.now();
   try {
     const api = await getTasksApi();
-    const { error } = complete ? await api.complete(id) : await api.reopen(id);
+    const { error } = complete
+      ? await api.complete(id)
+      : await api.reopen(id, options.restoreStatus);
     if (error) throw error;
   } catch (e) {
     // A no-op when we never dropped anything, which is exactly right — the
