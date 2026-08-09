@@ -570,12 +570,30 @@ and because web will want the same answers when its row follows.
 `RECURRENCE_PRESETS` moved there too, so the label a row prints can never drift
 from the option the editor's picker set.
 
-> **Web still has the old row.** The two `TaskItem`s are independent
-> (`apps/web` Tailwind, `apps/mobile` StyleSheet); this landed on mobile only.
-> Two follow-ups it deliberately left out: dropping the project from the
-> subline when it repeats the row above (needs list-level context at every call
-> site — `hideProject` is the prop, and `app/projects/[id].tsx` already passes
-> it), and the section-header changes (capacity, create-into-group).
+**Both surfaces encode it the same way, and only the anchor is shared.** The
+two `TaskItem`s are independent (`apps/web` Tailwind, `apps/mobile`
+StyleSheet), and they agree on the ring and the gutter — both call `rowGutter`
+— but not on what follows the title:
+
+- **Mobile** collapses every chip into `rowSubline`'s single line of prose,
+  because nothing in that row was interactive anyway.
+- **Web keeps its chips**, because there they are *editors*: priority, project,
+  estimate and schedule each open a popover in place. Collapsing them into
+  prose would delete four inline affordances to save a line. The project chip
+  drops only its colour dot, which the ring now says. Turning them into a
+  subline that swaps back to editors on hover is a real option, and a separate
+  change.
+
+Web-only detail: the gutter is also the priority editor's button, so a P3/P4
+row has an invisible control. A faint placeholder fades in under the pointer
+(`group-hover/row`) to keep it discoverable.
+
+Two follow-ups deliberately left out: dropping the project from the subline
+when it repeats the row above (needs list-level context at every call site —
+`hideProject` is the prop, and `app/projects/[id].tsx` already passes it), and
+the section-header changes (capacity, create-into-group). One divergence worth
+revisiting: web still paints an overdue date chip red, so an overdue row there
+says it three ways (gutter, weight, chip) where mobile says it two.
 
 One behaviour was removed on purpose: the row's project chip used to open a
 picker inline. The chip is gone, and no other element in the row is a natural

@@ -23,6 +23,7 @@ import {
   formatScheduleHint,
   formatTimeOfDay,
   resolveQuickSchedule,
+  rowGutter,
 } from "@do-done/shared";
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
@@ -140,28 +141,41 @@ function SubtaskArrowIcon({ className }: { className?: string }) {
  * Bars lit count = 5 − priority number (so p1 lights all 4, p4 lights one).
  * Static, non-interactive — the editor uses the bigger PrioritySignal.
  */
-function PriorityBars({ priority }: { priority: TaskPriority }) {
-  const litCount = { p1: 4, p2: 3, p3: 2, p4: 1 }[priority];
-  const color = PRIORITY_CONFIG[priority].color;
-  const heights = ["h-1", "h-1.5", "h-2", "h-2.5"];
+const GUTTER_MARK = {
+  overdue: { color: "#dc2626", className: "h-[7px] w-[7px] rounded-full" },
+  p1: { color: "#ef4444", className: "h-4 w-[3px] rounded-[2px]" },
+  p2: { color: "#f97316", className: "h-2.5 w-[3px] rounded-[2px]" },
+} as const;
+
+/**
+ * The urgency column: a red dot when the task is late, a short bar for P1 and
+ * P2, and nothing at all otherwise.
+ *
+ * This replaces the four priority bars, which lit one segment for a P4 and so
+ * put a mark on every row in the list — a signal that fires everywhere has
+ * stopped being one, and nearly every task nobody triaged is a P4. Priority is
+ * *ordinal*, so it belongs in position and length rather than in hue; the ring
+ * beside it spends hue on the project, which is nominal. Same encoding as the
+ * mobile row, decided by the same `rowGutter` in @do-done/shared.
+ *
+ * The slot keeps its width whatever it draws, so the ring and the title never
+ * shift between rows.
+ */
+function PriorityBars({ task }: { task: Task }) {
+  const mark = rowGutter(task);
   return (
-    <span
-      className="inline-flex items-end gap-[2px]"
-      title={`Priority: ${PRIORITY_CONFIG[priority].label}`}
-      aria-label={`Priority ${PRIORITY_CONFIG[priority].label}`}
-    >
-      {[0, 1, 2, 3].map((i) => {
-        const lit = i < litCount;
-        return (
-          <span
-            key={i}
-            className={`block w-[3px] rounded-[1px] ${heights[i]} ${
-              lit ? "" : "bg-neutral-200 dark:bg-neutral-700"
-            }`}
-            style={lit ? { backgroundColor: color } : undefined}
-          />
-        );
-      })}
+    <span className="inline-flex h-4 w-[7px] items-center justify-center">
+      {mark ? (
+        <span
+          className={GUTTER_MARK[mark].className}
+          style={{ backgroundColor: GUTTER_MARK[mark].color }}
+        />
+      ) : (
+        /* Nothing at rest, but the row is where priority gets set, so a
+           placeholder appears under the pointer — otherwise a P3/P4 row has an
+           invisible control and the affordance is lost. */
+        <span className="h-2.5 w-[3px] rounded-[2px] bg-neutral-200 opacity-0 transition-opacity group-hover/row:opacity-100 dark:bg-neutral-700" />
+      )}
     </span>
   );
 }
@@ -179,9 +193,11 @@ const PRIORITY_ACCENT: Record<TaskPriority, string> = {
  * the row's own click (which opens the modal) from firing.
  */
 function InlinePriorityEditor({
+  task,
   priority,
   onChange,
 }: {
+  task: Task;
   priority: TaskPriority;
   onChange: (p: TaskPriority) => void;
 }) {
@@ -199,10 +215,13 @@ function InlinePriorityEditor({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title={`Priority: ${PRIORITY_CONFIG[priority].label} — click to change`}
+        title={`${rowGutter(task) === "overdue" ? "Overdue · " : ""}Priority: ${
+          PRIORITY_CONFIG[priority].label
+        } — click to change`}
+        aria-label={`Priority ${PRIORITY_CONFIG[priority].label}`}
         className="rounded p-0.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
       >
-        <PriorityBars priority={priority} />
+        <PriorityBars task={task} />
       </button>
       {open ? (
         <PickerPopover
@@ -316,12 +335,12 @@ function InlineProjectEditor({
         aria-haspopup="listbox"
         aria-expanded={open}
         title={`Project: ${project.name} — click to change`}
+        /* No colour dot: the ring at the head of the row is already this
+           project's colour, and repeating it two inches away spends the row's
+           second-most-prominent slot restating what its most prominent one
+           just said. The chip keeps the name, and the click that edits it. */
         className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
       >
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: project.color }}
-        />
         {project.name}
       </button>
       {open ? (
@@ -722,14 +741,17 @@ export function TaskItem({
   // STATUS_CONFIG[task.status] can be undefined for an unmigrated DB still
   // serving legacy 'todo' / 'archived' values — guard before reading .color.
   const statusCfg = STATUS_CONFIG[task.status];
-  // The checkbox circle now reflects status (not priority). Fall back to a
-  // neutral gray if the status is unknown.
-  const statusColor = statusCfg?.color ?? "#94a3b8";
-  // Show a status text chip for everything that isn't the boring default —
-  // the circle color already encodes status, so this is redundant for the
-  // default cases. Kept for `next`, `later`, `in_progress`, `done`,
-  // `cancelled`. When the list is grouped by status, the group header states
-  // the status for every row, so the chip is redundant there too — hide it.
+  // The ring is the row's identity slot: the project's colour, and its emoji
+  // when it has one. Hue is a nominal channel — it says which, not how much —
+  // so it fits a project, a label with no ordering, natively. A task with no
+  // project keeps a deliberate neutral rather than looking unset. Status moved
+  // out of the circle and into the badge that already states it in words.
+  const ringColor = project?.color ?? "#94a3b8";
+  const overdue = rowGutter(task) === "overdue";
+  // Show a status text chip for everything that isn't the boring default.
+  // Kept for `next`, `later`, `in_progress`, `done`, `cancelled`. When the
+  // list is grouped by status, the group header states the status for every
+  // row, so the chip is redundant there too — hide it.
   const showStatusBadge =
     !hideStatusBadge &&
     !!statusCfg &&
@@ -964,15 +986,24 @@ export function TaskItem({
                 The overshoot easing gives it the little bounce that reads as a
                 stamp rather than a fade. */}
             <span
-              className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] ease-out motion-reduce:transition-none"
+              className="relative flex h-5 w-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] ease-out motion-reduce:transition-none"
               style={{
-                borderColor: completed ? "#d4d4d4" : statusColor,
-                backgroundColor: completed ? "#d4d4d4" : "transparent",
+                borderColor: ringColor,
+                // Completion fills with the project's colour, the same way for
+                // every priority: done is a state, not a rank.
+                backgroundColor: completed ? ringColor : "transparent",
                 transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
               }}
             >
+              {/* The project's emoji holds the ring until the task is done,
+                  when the check takes the space. */}
+              {project?.icon && !completed ? (
+                <span className="text-[9px] leading-none" aria-hidden="true">
+                  {project.icon}
+                </span>
+              ) : null}
               <svg
-                className="h-3 w-3 text-white transition-transform motion-reduce:transition-none"
+                className="absolute h-3 w-3 text-white transition-transform motion-reduce:transition-none"
                 style={{
                   transform: completed ? "scale(1)" : "scale(0)",
                   transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms`,
@@ -998,7 +1029,11 @@ export function TaskItem({
         {/* Wrapper keeps the priority bars centered on the title's first line,
             the same way. */}
         <div className={`flex h-5 shrink-0 items-center ${align.band}`}>
-          <InlinePriorityEditor priority={priority} onChange={handlePriorityChange} />
+          <InlinePriorityEditor
+            task={task}
+            priority={priority}
+            onChange={handlePriorityChange}
+          />
         </div>
 
         {/* Title gets its own row when the container is narrow so it's never
@@ -1041,6 +1076,10 @@ export function TaskItem({
                 completed
                   ? "text-neutral-400 line-through dark:text-neutral-600"
                   : "text-neutral-900 dark:text-neutral-100"
+              } ${
+                /* Being late is said in weight as well as in the gutter, so it
+                   reads from further away than a coloured chip ever did. */
+                overdue && !completed ? "font-semibold" : ""
               }`}
               style={{ transitionDuration: `${TASK_COMPLETE_CHECK_MS}ms` }}
             >
