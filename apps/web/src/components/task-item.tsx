@@ -301,8 +301,15 @@ function formatTaskDate(dateStr: string): string {
     (date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
   );
   if (diff < 0) return "Overdue";
+  // Inside the week the weekday is the useful part, but never on its own: a
+  // list showing "Sat" gives no way to tell *which* Saturday, and a chip that
+  // reads "Sat" today means something different tomorrow.
   if (diff <= 7) {
-    return date.toLocaleDateString("en-US", { weekday: "short" });
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
   }
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
