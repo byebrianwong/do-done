@@ -532,6 +532,54 @@ a message-only toast renders without the button.
 Delete is the exception to all of it — a hard delete behind a confirm dialog,
 with no undo. `TasksApi.delete()` clears Storage bytes and cascades subtasks;
 there is no row left to restore.
+## The task row: two coloured slots (mobile)
+
+**The row has exactly two places colour is allowed, and each carries one
+variable.** Everything else that used to be a chip is one muted line of prose.
+
+| Slot | Variable | Why that channel |
+| --- | --- | --- |
+| The **ring** (leading circle) | Project — its colour, and its `icon` emoji when set | Hue is a *nominal* channel: it says which, not how much. A project is a label with no ordering, so colour fits it natively. |
+| The **gutter** (10 px, left of the ring) | Urgency — a red dot when overdue, a short bar for P1 and P2, nothing below | Priority is *ordinal*, and the channels that carry order are position and length. Red–orange–yellow only reads as a ranking because traffic lights taught us, and that scale collapses the moment a user picks red for their "Home" project. |
+
+The rules that make it work, all of them load-bearing:
+
+- **P3 and P4 draw nothing.** A mark on every row has stopped saying anything,
+  and nearly every task nobody triaged is a P4. The gutter is empty on most
+  rows *by design* — that is what makes the marks that are there mean something.
+- **Overdue outranks priority** in the gutter, and is the only thing in that
+  column that is ever red. Being late is said in the title's weight too, so it
+  reads from further away than a coloured chip did.
+- **An unset field takes no space at all** — no placeholder, no empty chip.
+  `rowSubline` returns only the parts that exist, and a bare task renders a
+  title and nothing else.
+- **"Today" never appears on a row.** A task scheduled today prints its time or
+  nothing; the word on every row of the Today screen is a label that has
+  stopped carrying information. An overdue task prints its *age* ("3 days
+  ago"), which is the actionable form.
+- **A project with no emoji is a first-class state**, not a fallback — the ring
+  is still its colour. A task with no project gets a deliberate neutral.
+- **Completion fills the ring with the project's colour**, the same way for
+  every priority. Done is a state, not a rank; the reward must never vary by
+  how important the task was.
+
+The decisions are pure functions in `packages/shared/src/task-row.ts`
+(`rowGutter` / `rowSubline` / `rowEstimate`), *not* in the component, because
+`apps/mobile` has no renderer to test a component with — see Testing below —
+and because web will want the same answers when its row follows.
+`RECURRENCE_PRESETS` moved there too, so the label a row prints can never drift
+from the option the editor's picker set.
+
+> **Web still has the old row.** The two `TaskItem`s are independent
+> (`apps/web` Tailwind, `apps/mobile` StyleSheet); this landed on mobile only.
+> Two follow-ups it deliberately left out: dropping the project from the
+> subline when it repeats the row above (needs list-level context at every call
+> site — `hideProject` is the prop, and `app/projects/[id].tsx` already passes
+> it), and the section-header changes (capacity, create-into-group).
+
+One behaviour was removed on purpose: the row's project chip used to open a
+picker inline. The chip is gone, and no other element in the row is a natural
+target for it, so the picker now lives only in the editor — one tap away.
 
 ## Attachments
 

@@ -69,7 +69,7 @@ function dayLabel(iso: string): string {
 export function buildTodayGroups(tasks: Task[]): WidgetGroup[] {
   const today = todayLocalISO();
   const universe = todayUniverse(tasks, today, 3);
-  const overdue = universe.filter(isOverdue);
+  const overdue = universe.filter((t) => isOverdue(t));
   const overdueIds = new Set(overdue.map((t) => t.id));
   const rest = universe.filter((t) => !overdueIds.has(t.id));
 

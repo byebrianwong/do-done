@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import {
   Alert,
   Pressable,
@@ -12,20 +12,17 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  PRIORITY_CONFIG,
-  STATUS_CONFIG,
   TASK_COMPLETE_EXIT_MS,
   addDaysLocalISO,
-  formatCompletedDate,
-  formatDuration,
-  formatTimeOfDay,
+  rowEstimate,
+  rowGutter,
+  rowSubline,
   todayLocalISO,
 } from '@do-done/shared';
-import type { Project, Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
+import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
 import { panelForSwipe } from '@/lib/swipe-actions';
 import {
-  createProject,
   deleteTask,
   toggleComplete,
   updateTask,
@@ -39,10 +36,34 @@ import {
   useOptimisticCompleted,
 } from '@/lib/use-completion-exit';
 import { LinkifiedText } from './LinkifiedText';
-import { ProjectPickerSheet } from './ProjectPickerSheet';
 import { useUndoToast } from './UndoToast';
 
 export type Task = SharedTask;
+
+/**
+ * The row has exactly two coloured slots, and each carries one variable.
+ *
+ * The **ring** is identity: the project's colour, and its emoji when it has
+ * one. Hue is a nominal channel — it says which, not how much — so it fits a
+ * project, a label with no ordering, natively.
+ *
+ * The **gutter** is urgency: a red dot when the task is late, a short bar for
+ * P1 and P2, and nothing at all otherwise. Priority is ordinal, so it is drawn
+ * with position and length instead. P3 and P4 render nothing on purpose: a
+ * mark that appears on every row has stopped saying anything, and almost every
+ * task nobody triaged is a P4.
+ *
+ * Everything else that used to be a chip is one muted line of prose under the
+ * title (`rowSubline`), where an unset field takes no space at all.
+ */
+const GUTTER_STYLE = {
+  overdue: { color: '#dc2626', size: 7, dot: true },
+  p1: { color: '#ef4444', size: 16, dot: false },
+  p2: { color: '#f97316', size: 10, dot: false },
+} as const;
+
+/** The ring for a task with no project: chosen, not a missing value. */
+const NO_PROJECT_COLOR = '#94a3b8';
 
 interface TaskItemProps {
   task: Task;
@@ -62,6 +83,11 @@ interface TaskItemProps {
    * here every call site holds the row directly, so a prop is the whole story.
    */
   keepsCompleted?: boolean;
+  /**
+   * Drop the project from the subline — for a list already grouped by project,
+   * where the header has just said it.
+   */
+  hideProject?: boolean;
 }
 
 function buildReschedule(
@@ -88,11 +114,8 @@ function TaskItem({
   onDragHandle,
   focused,
   keepsCompleted = false,
+  hideProject = false,
 }: TaskItemProps) {
-  const statusCfg = STATUS_CONFIG[task.status];
-  const statusColor = statusCfg?.color ?? '#94a3b8';
-  const priorityColor = PRIORITY_CONFIG[task.priority].color;
-  const priorityLit = { p1: 4, p2: 3, p3: 2, p4: 1 }[task.priority];
   // Optimistic, because the list deliberately holds the row for the length of
   // the completion animation — the cache still says "not done" while the row is
   // busy showing that it is.
@@ -100,13 +123,12 @@ function TaskItem({
     task.status === 'done'
   );
   const exit = useCompletionExit(task.status === 'done');
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
 
   // Multi-select: long-press enters selection mode and selects the row; while a
   // selection is active a tap toggles the row (instead of opening the editor)
-  // and the leading circle becomes a selection checkbox.
+  // and the leading ring becomes a selection checkbox.
   const selection = useTaskSelection();
   const selected = selection.isSelected(task.id);
   const selectionActive = selection.isActive;
@@ -136,35 +158,20 @@ function TaskItem({
     handleToggle();
   }
 
-  // Projects come from the shared query cache (deduped across rows). The chip
-  // only renders when this task has a project; adding one from scratch lives
-  // in the edit modal, matching the web row.
+  // Projects come from the shared query cache (deduped across rows). The ring
+  // takes the project's colour and emoji; a task with no project keeps a
+  // neutral ring rather than looking broken.
   const { data: projects } = useProjects();
   const project = task.project_id
     ? (projects ?? []).find((p) => p.id === task.project_id) ?? null
     : null;
+  const ringColor = project?.color ?? NO_PROJECT_COLOR;
 
   // Subtask reference: resolve the parent so the row reads "↳ parent" and is
   // recognisable as a subtask wherever it appears in a list.
   const isSubtask = !!task.parent_task_id;
   const { data: parentTask } = useParentTask(task.parent_task_id);
   const parentTitle = parentTask?.title ?? null;
-
-  function handleProjectSelect(projectId: string | null) {
-    hapticLight();
-    void updateTask(task.id, { project_id: projectId }).catch(() => {});
-  }
-
-  async function handleProjectCreate(
-    name: string,
-    color: string
-  ): Promise<Project | null> {
-    try {
-      return await createProject({ name, color });
-    } catch {
-      return null;
-    }
-  }
 
   // All mutations flow through the shared query cache (lib/task-queries): each
   // fires an optimistic patch (the row vanishes from the relevant list
@@ -308,20 +315,13 @@ function TaskItem({
     </View>
   );
 
-  const showStatus =
-    task.status !== 'not_started' && task.status !== 'inbox';
-  // The row stacks into two lines: the title gets its own line (up to two)
-  // so it's never crowded out, and every secondary attribute wraps onto an
-  // indented second line below it.
-  const hasMeta = Boolean(
-    task.duration_minutes ||
-      task.recurrence_rule ||
-      project ||
-      showStatus ||
-      completed ||
-      task.scheduled_date ||
-      task.deadline_date
-  );
+  // What the row actually says, decided in @do-done/shared so the strings can
+  // be tested — apps/mobile has no renderer to test a component with.
+  const gutter = completed ? null : rowGutter(task);
+  const subline = rowSubline(task, {
+    projectName: hideProject ? null : project?.name ?? null,
+  }).join(' · ');
+  const estimate = completed ? '' : rowEstimate(task);
 
   return (
     // Collapse shell for the completion exit. The row shrinks its own height to
@@ -365,11 +365,25 @@ function TaskItem({
       onLongPress={handleRowLongPress}
       delayLongPress={350}
     >
+      {/* The urgency column. Always the same width, so nothing shifts when a
+          task stops being late — and empty on the great majority of rows. */}
+      <View style={styles.gutter}>
+        {gutter ? (
+          <View
+            style={{
+              backgroundColor: GUTTER_STYLE[gutter].color,
+              height: GUTTER_STYLE[gutter].size,
+              width: GUTTER_STYLE[gutter].dot ? 7 : 3,
+              borderRadius: GUTTER_STYLE[gutter].dot ? 4 : 2,
+            }}
+          />
+        ) : null}
+      </View>
       <Pressable
         onPress={handleLeadingPress}
         hitSlop={8}
         style={[
-          styles.checkbox,
+          styles.ring,
           selectionActive
             ? {
                 borderRadius: 6,
@@ -377,36 +391,34 @@ function TaskItem({
                 backgroundColor: selected ? '#6366f1' : 'transparent',
               }
             : {
-                borderColor: completed ? '#d4d4d4' : statusColor,
-                backgroundColor: completed ? '#d4d4d4' : 'transparent',
+                borderColor: ringColor,
+                // Completion fills with the project's colour, the same way for
+                // every priority: done is a state, not a rank.
+                backgroundColor: completed ? ringColor : 'transparent',
               },
         ]}
       >
-        {/* The check is always mounted and scaled to nothing when the task is
-            open, so ticking it off animates a transform instead of a mount — a
-            view that appears has no "before" to spring from. Selection mode
-            drives it directly; it's a state, not an event worth animating. */}
+        {/* The project's emoji holds the ring until the task is done, when the
+            check takes the space. The check is always mounted and scaled to
+            nothing while the task is open, so ticking it off animates a
+            transform instead of a mount — a view that appears has no "before"
+            to spring from. Selection mode drives it directly; it's a state,
+            not an event worth animating. */}
         {selectionActive ? (
           selected ? <Text style={styles.check}>✓</Text> : null
         ) : (
-          <Animated.Text style={[styles.check, exit.checkStyle]}>✓</Animated.Text>
+          <>
+            {project?.icon && !completed ? (
+              <Text style={styles.ringEmoji}>{project.icon}</Text>
+            ) : null}
+            <Animated.Text
+              style={[styles.check, styles.ringCheck, exit.checkStyle]}
+            >
+              ✓
+            </Animated.Text>
+          </>
         )}
       </Pressable>
-      <View style={styles.priorityBars}>
-        {[0, 1, 2, 3].map((i) => {
-          const lit = i < priorityLit;
-          const h = 3 + i * 2;
-          return (
-            <View
-              key={i}
-              style={[
-                styles.priorityBar,
-                { height: h, backgroundColor: lit ? priorityColor : '#e5e7eb' },
-              ]}
-            />
-          );
-        })}
-      </View>
       <View style={styles.content}>
         {isSubtask ? (
           <View style={styles.subtaskRef}>
@@ -422,75 +434,27 @@ function TaskItem({
           ) : null}
           <LinkifiedText
             text={task.title}
-            style={[styles.title, completed && styles.titleDone]}
+            style={[
+              styles.title,
+              // Being late is said in weight as well as in the gutter, so it
+              // reads from further away than a coloured chip ever did.
+              gutter === 'overdue' && styles.titleOverdue,
+              completed && styles.titleDone,
+            ]}
             numberOfLines={2}
           />
         </View>
-        {hasMeta ? (
-          <View style={styles.metaRow}>
-            {task.duration_minutes ? (
-              <View style={styles.metaChip}>
-                <Text style={styles.metaChipLabel}>
-                  ~{formatDuration(task.duration_minutes)}
-                </Text>
-              </View>
-            ) : null}
-            {task.recurrence_rule ? (
-              <Ionicons name="repeat" size={13} color="#9ca3af" />
-            ) : null}
-            {project ? (
-              <Pressable
-                onPress={() => setProjectPickerOpen(true)}
-                hitSlop={6}
-                style={styles.projectChip}
-              >
-                <View
-                  style={[styles.projectDot, { backgroundColor: project.color }]}
-                />
-                <Text style={styles.projectChipLabel} numberOfLines={1}>
-                  {project.name}
-                </Text>
-              </Pressable>
-            ) : null}
-            {showStatus ? (
-              <View
-                style={[
-                  styles.statusChip,
-                  { backgroundColor: STATUS_CONFIG[task.status].color + '22' },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusChipLabel,
-                    { color: STATUS_CONFIG[task.status].color },
-                  ]}
-                >
-                  {STATUS_CONFIG[task.status].label}
-                </Text>
-              </View>
-            ) : null}
-            {/* A completed task shows WHEN it was finished, not its (now
-                irrelevant, usually "overdue") scheduled date. Falls back to
-                "Today" until the optimistic completion settles and stamps
-                completed_at. */}
-            {completed ? (
-              <Text style={styles.deadlineDate}>
-                {task.completed_at ? formatCompletedDate(task.completed_at) : 'Today'}
-              </Text>
-            ) : task.scheduled_date ? (
-              <Text style={styles.deadlineDate}>
-                {formatTaskDate(task.scheduled_date)}
-                {task.scheduled_time ? ` ${formatTimeOfDay(task.scheduled_time)}` : ''}
-              </Text>
-            ) : task.deadline_date ? (
-              <Text style={styles.deadlineDate}>
-                {formatTaskDate(task.deadline_date)}
-                {task.deadline_time ? ` ${task.deadline_time}` : ''}
-              </Text>
-            ) : null}
-          </View>
+        {subline ? (
+          <Text style={styles.subline} numberOfLines={1}>
+            {subline}
+          </Text>
         ) : null}
       </View>
+
+      {/* One right-aligned figure, in tabular digits, so a day's estimates
+          form a column you can add up by eye. */}
+      {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
+
       {onDragHandle && !selectionActive ? (
         <Pressable
           onLongPress={() => {
@@ -504,14 +468,6 @@ function TaskItem({
           <Ionicons name="reorder-three" size={22} color="#cbd5e1" />
         </Pressable>
       ) : null}
-      <ProjectPickerSheet
-        visible={projectPickerOpen}
-        projects={projects ?? []}
-        selectedId={task.project_id}
-        onSelect={handleProjectSelect}
-        onClose={() => setProjectPickerOpen(false)}
-        onCreate={handleProjectCreate}
-      />
     </Pressable>
     </ReanimatedSwipeable>
     </Animated.View>
@@ -519,18 +475,6 @@ function TaskItem({
 }
 
 export default React.memo(TaskItem);
-
-function formatTaskDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00');
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (date.getTime() === today.getTime()) return 'Today';
-  if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
-  if (date < today) return 'Overdue';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 const styles = StyleSheet.create({
   // Crops the row as the completion collapse clamps its height; without this
@@ -542,8 +486,9 @@ const styles = StyleSheet.create({
     // Top-align so the checkbox + priority bars sit on the title's first
     // line when the row grows to two lines.
     alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 11,
+    paddingLeft: 8,
+    paddingRight: 16,
     backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
@@ -580,34 +525,33 @@ const styles = StyleSheet.create({
     width: 80,
     backgroundColor: '#dc2626',
   },
-  checkbox: {
+  gutter: {
+    width: 10,
+    // A fixed 22px band so the mark lines up with the ring on the title's
+    // first line, and nothing shifts when a task stops being late.
+    height: 22,
+    marginRight: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
     width: 22,
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    marginRight: 12,
+    marginRight: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ringEmoji: { fontSize: 10, lineHeight: 12 },
+  // Both are centred in the same 22px circle and only one is ever visible, so
+  // the check is taken out of flow rather than laid out beside the emoji.
+  ringCheck: { position: 'absolute' },
   check: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  priorityBars: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
-    marginRight: 10,
-    // Nudge down to center the short bars on the title's first line.
-    marginTop: 4,
-    width: 18,
-    height: 14,
-  },
-  priorityBar: {
-    width: 3,
-    borderRadius: 1,
-  },
   content: {
     flex: 1,
     flexDirection: 'column',
-    gap: 3,
+    gap: 2,
   },
   subtaskRef: {
     flexDirection: 'row',
@@ -626,59 +570,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  title: { fontSize: 16, lineHeight: 22, color: '#111827', flex: 1 },
+  title: { fontSize: 15, lineHeight: 20, color: '#111827', flex: 1 },
+  titleOverdue: { fontWeight: '600' },
   titleDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
-  deadlineDate: { fontSize: 13, color: '#6b7280' },
+  subline: { fontSize: 12, lineHeight: 16, color: '#9ca3af' },
+  estimate: {
+    fontSize: 12,
+    lineHeight: 20,
+    color: '#9ca3af',
+    marginLeft: 10,
+    minWidth: 32,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
   dragHandle: {
     paddingHorizontal: 6,
-    paddingVertical: 8,
-    marginLeft: 4,
+    paddingVertical: 2,
+    marginLeft: 2,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  metaChip: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 999,
-  },
-  metaChipLabel: {
-    fontSize: 10,
-    color: '#6b7280',
-    fontWeight: '600',
-  },
-  projectChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    maxWidth: 120,
-  },
-  projectDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  projectChipLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    flexShrink: 1,
-  },
-  statusChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 999,
   },
   // Sentence case, matching web and every other label on the row. The status
   // was the one chip shouting, and upper-casing made the longest one
   // ("In progress") half again as wide for no added meaning.
-  statusChipLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
 });

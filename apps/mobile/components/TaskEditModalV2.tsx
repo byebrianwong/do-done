@@ -29,6 +29,8 @@ import {
 } from "react-native";
 import {
   PRIORITY_CONFIG,
+  RECURRENCE_PRESETS,
+  recurrenceShortLabel,
   STATUS_CONFIG,
   STATUS_ORDER,
   TASK_DESCRIPTION_MAX_LENGTH,
@@ -1368,18 +1370,10 @@ export function TagRow({
 
 // ── Recurrence ──────────────────────────────────────────
 
-const RECURRENCE_PRESETS: { label: string; rule: string | null }[] = [
-  { label: "None", rule: null },
-  { label: "Daily", rule: "FREQ=DAILY" },
-  { label: "Weekdays", rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
-  { label: "Weekly", rule: "FREQ=WEEKLY" },
-  { label: "Monthly", rule: "FREQ=MONTHLY" },
-];
-
-export function recurrenceShortLabel(rule: string | null): string {
-  if (!rule) return "None";
-  return RECURRENCE_PRESETS.find((p) => p.rule === rule)?.label ?? "Custom";
-}
+// The presets and their labels now live in @do-done/shared, so the row's
+// subline and this picker can never disagree about what "FREQ=DAILY" is called.
+// Re-exported here because callers already import it from this module.
+export { recurrenceShortLabel };
 
 /**
  * One-line summary of a task's location reminders for the folded row.
