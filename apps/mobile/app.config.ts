@@ -134,6 +134,21 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             updatePeriodMillis: 1800000,
           },
           {
+            // A 4x1 strip for the row above the dock: one task, and the count
+            // behind it. Resizable across, not down — a second line of cells
+            // would just be a short Today widget.
+            name: "NextUp",
+            label: "DoDone — Next up",
+            description: "The one task to do next",
+            minWidth: "250dp",
+            minHeight: "40dp",
+            targetCellWidth: 4,
+            targetCellHeight: 1,
+            resizeMode: "horizontal",
+            previewImage: "./assets/images/icon.png",
+            updatePeriodMillis: 1800000,
+          },
+          {
             name: "Upcoming",
             label: "DoDone — Upcoming",
             description: "Tasks grouped by day",
