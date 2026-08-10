@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag
+- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
 
@@ -28,6 +28,11 @@ Supabase client wrapper and typed API classes.
   web, mobile, the demo sandbox and MCP can't disagree about a count.
   `listByTag()` filters server-side via `overlaps` (the GIN index), never by
   paging tasks and filtering in the client.
+- **`suggestionHistory()` is the opposite bargain to `listTags()`** — three
+  narrow columns, newest-first, bounded. It feeds a guess, not an index, so a
+  row it misses costs nothing; `listTags` must sweep everything because a tag
+  it misses does not exist to the app at all. The rollup is
+  `buildSuggestionIndex` in `@do-done/shared`.
 - Always check `.error` from Supabase responses
 - Return `{ data, error }` tuples from all methods
 - Use types from `@do-done/shared` for all return types
