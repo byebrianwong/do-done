@@ -7,6 +7,7 @@ import { TaskDisplayView } from "@/components/task-display-view";
 import { ProjectOpenProvider } from "@/lib/task-row-behavior";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
+import { ProjectLabel } from "@/components/project-icon";
 
 export default function DemoProjectDetailPage({
   params,
@@ -53,8 +54,7 @@ export default function DemoProjectDetailPage({
           style={{ backgroundColor: project.color }}
         />
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          {project.icon ? `${project.icon} ` : ""}
-          {project.name}
+          <ProjectLabel icon={project.icon} name={project.name} size={22} />
         </h1>
       </div>
 

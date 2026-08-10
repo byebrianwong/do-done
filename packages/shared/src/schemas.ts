@@ -1,7 +1,10 @@
 import { z } from "zod";
 // Type-only in the other direction (constants.ts imports types from here), so
 // this pair doesn't form a runtime cycle.
-import { TASK_DESCRIPTION_MAX_LENGTH } from "./constants.js";
+import {
+  TASK_DESCRIPTION_MAX_LENGTH,
+  PROJECT_ICON_MAX_LENGTH,
+} from "./constants.js";
 
 // ── Enums ──────────────────────────────────────────────
 
@@ -81,7 +84,7 @@ export const ProjectSchema = z.object({
   user_id: z.string().uuid(),
   name: z.string().min(1).max(100),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  icon: z.string().max(10).nullable(),
+  icon: z.string().max(PROJECT_ICON_MAX_LENGTH).nullable(),
   parent_project_id: z.string().uuid().nullable(),
   sort_order: z.number().int().default(0),
   created_at: z.string().datetime(),
@@ -315,7 +318,7 @@ export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 export const CreateProjectInput = z.object({
   name: z.string().min(1).max(100),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#6366f1"),
-  icon: z.string().max(10).optional(),
+  icon: z.string().max(PROJECT_ICON_MAX_LENGTH).optional(),
   parent_project_id: z.string().uuid().optional(),
 });
 export type CreateProjectInput = z.infer<typeof CreateProjectInput>;
@@ -329,7 +332,7 @@ export const UpdateProjectInput = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .optional(),
-  icon: z.string().max(10).nullable().optional(),
+  icon: z.string().max(PROJECT_ICON_MAX_LENGTH).nullable().optional(),
   parent_project_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().optional(),
 });

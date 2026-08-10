@@ -2,6 +2,7 @@ import React from 'react';
 import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
 import type { Project, RowGutter, Task } from '@do-done/shared';
 import { plusSvg } from './dodone-mark';
+import { WidgetProjectIcon } from './widget-project-icon';
 import { ringColor, type WidgetTheme } from './widget-theme';
 import {
   contentBudget,
@@ -218,7 +219,11 @@ function TaskRow({ row, theme }: { row: WidgetTaskRow; theme: WidgetTheme }) {
           }}
         >
           {project?.icon && !done ? (
-            <TextWidget text={project.icon} style={{ fontSize: 9 }} />
+            <WidgetProjectIcon
+              icon={project.icon}
+              size={9}
+              color={hex(ring)}
+            />
           ) : null}
         </FlexWidget>
       </FlexWidget>
@@ -536,7 +541,11 @@ export function NextUpWidget({
             }}
           >
             {project?.icon ? (
-              <TextWidget text={project.icon} style={{ fontSize: 12 }} />
+              <WidgetProjectIcon
+                icon={project.icon}
+                size={12}
+                color={hex(ring)}
+              />
             ) : null}
           </FlexWidget>
         </FlexWidget>

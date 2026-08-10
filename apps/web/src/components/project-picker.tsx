@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMPACT_PROJECT_COLORS } from "@do-done/shared";
 import type { Project } from "@do-done/shared";
+import { ProjectLabel } from "@/components/project-icon";
 import { getProjectsApiFor } from "@/lib/supabase/projects-client";
 
 export function ProjectPickerPopover({
@@ -138,8 +139,7 @@ export function ProjectPickerPopover({
               aria-hidden
             />
             <span className="truncate text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
-              {p.icon ? `${p.icon} ` : ""}
-              {p.name}
+              <ProjectLabel icon={p.icon} name={p.name} size={13} />
             </span>
             {selected ? (
               <span className="ml-auto text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">

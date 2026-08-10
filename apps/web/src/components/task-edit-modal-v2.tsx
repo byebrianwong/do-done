@@ -42,6 +42,7 @@ import { useCopyTaskLink } from "@/lib/use-copy-task-link";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
 import { AttachmentsSection } from "./task-attachments";
+import { ProjectIcon } from "@/components/project-icon";
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -535,10 +536,12 @@ function TaskCover({
       {project?.icon ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute -right-3.5 -top-4 select-none text-[64px] leading-none opacity-30 drop-shadow-[0_4px_10px_rgba(0,0,0,0.2)] sm:-top-[18px] sm:text-[86px]"
+          className="pointer-events-none absolute -right-3.5 -top-4 flex select-none leading-none text-white opacity-30 drop-shadow-[0_4px_10px_rgba(0,0,0,0.2)] sm:-top-[18px]"
           style={{ rotate: "-13deg" }}
         >
-          {project.icon}
+          {/* A drawn icon has no colours of its own, so on the cover it takes
+              white — the same treatment the controls beside it get. */}
+          <ProjectIcon icon={project.icon} size={86} />
         </span>
       ) : null}
       {/* Darkens the bottom so white controls hold their contrast over a pale

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { COMPACT_PROJECT_COLORS } from '@do-done/shared';
 import type { Project } from '@do-done/shared';
+import { ProjectIcon } from '@/components/ProjectIcon';
 
 export function ProjectPickerSheet({
   visible,
@@ -102,9 +103,12 @@ export function ProjectPickerSheet({
                   }}
                   style={[styles.row, selected && styles.rowSelected]}
                 >
-                  <View style={[styles.dot, { backgroundColor: p.color }]} />
+                  {p.icon ? (
+                    <ProjectIcon icon={p.icon} size={15} color={p.color} />
+                  ) : (
+                    <View style={[styles.dot, { backgroundColor: p.color }]} />
+                  )}
                   <Text style={styles.label} numberOfLines={1}>
-                    {p.icon ? `${p.icon} ` : ''}
                     {p.name}
                   </Text>
                   {selected && <Text style={styles.check}>✓</Text>}

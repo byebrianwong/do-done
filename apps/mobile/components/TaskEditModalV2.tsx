@@ -97,6 +97,7 @@ import {
   dragVerdict,
   shouldDismiss,
 } from "@/lib/sheet-motion";
+import { ProjectIcon } from '@/components/ProjectIcon';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -356,9 +357,11 @@ function TaskCover({
           top as well left a half-drawn glyph that reads as a clipping bug
           rather than as a watermark. */}
       {project?.icon ? (
-        <Text style={styles.coverMark} pointerEvents="none">
-          {project.icon}
-        </Text>
+        <View style={styles.coverMark} pointerEvents="none">
+          {/* A drawn icon has no colours of its own, so on the cover it takes
+              white — the same treatment the pill beside it gets. */}
+          <ProjectIcon icon={project.icon} size={62} color="#ffffff" />
+        </View>
       ) : null}
       {/* Darkens the bottom so the white project pill holds its contrast over
           a pale project colour — amber and lime are the ones that would
@@ -2974,12 +2977,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     backgroundColor: "rgba(255,255,255,0.13)",
   },
+  // The mark is a box now rather than a glyph, so the type size moved to the
+  // ProjectIcon call — a View style can't carry fontSize.
   coverMark: {
     position: "absolute",
     right: -12,
     top: 8,
-    fontSize: 62,
-    lineHeight: 72,
     opacity: 0.28,
     transform: [{ rotate: "-10deg" }],
   },

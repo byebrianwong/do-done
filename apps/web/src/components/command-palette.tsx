@@ -10,6 +10,7 @@ import { togglePipPanel } from "@/lib/pip-visibility";
 import { useOpenTask } from "@/lib/open-task";
 import { taskPath } from "@/lib/task-link";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
+import { ProjectIcon } from "@/components/project-icon";
 
 // Window event other components (e.g. the mobile top-bar search button) can
 // dispatch to open the palette without a physical keyboard.
@@ -164,10 +165,17 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
       projects.map((p) => ({
         id: `project-${p.id}`,
         kind: "project",
-        title: `${p.icon ? `${p.icon} ` : ""}${p.name}`,
+        title: p.name,
         subtitle: "Open project",
         href: `/projects/${p.id}`,
         color: p.color,
+        // The icon replaces the colour dot when there is one; it is drawn in
+        // the project's colour, so identity is still carried either way.
+        icon: p.icon ? (
+          <span style={{ color: p.color }}>
+            <ProjectIcon icon={p.icon} size={13} />
+          </span>
+        ) : undefined,
       })),
     [projects]
   );

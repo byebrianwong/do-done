@@ -37,10 +37,15 @@ export interface ProjectIconGroup {
 }
 
 /**
- * Matches the `char_length(icon) <= 10` check on `projects.icon` and the
- * `z.string().max(10)` in `ProjectSchema`.
+ * How long a stored *emoji* icon may be. Ten was the whole budget until
+ * `projects.icon` also had to hold a Phosphor token (`ph:briefcase:fill`), and
+ * it is still the right number for a glyph: it admits skin tones, flags and
+ * single-person ZWJ sequences, and excludes the ones that overflow either
+ * length budget (see `normalizeProjectIcon`).
+ *
+ * The column's own limit is `PROJECT_ICON_MAX_LENGTH`, which is larger.
  */
-export const PROJECT_ICON_MAX_LENGTH = 10;
+export const PROJECT_EMOJI_MAX_LENGTH = 10;
 
 export const PROJECT_ICON_GROUPS: readonly ProjectIconGroup[] = [
   {
@@ -361,8 +366,8 @@ export function firstGrapheme(text: string): string {
 export function normalizeProjectIcon(raw: string): string {
   const glyph = firstGrapheme(raw.trim());
   if (!glyph) return "";
-  if (glyph.length > PROJECT_ICON_MAX_LENGTH) return "";
+  if (glyph.length > PROJECT_EMOJI_MAX_LENGTH) return "";
   // Postgres counts code points; the client counts UTF-16 units. Satisfy both.
-  if (Array.from(glyph).length > PROJECT_ICON_MAX_LENGTH) return "";
+  if (Array.from(glyph).length > PROJECT_EMOJI_MAX_LENGTH) return "";
   return glyph;
 }

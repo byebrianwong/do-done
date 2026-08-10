@@ -20,6 +20,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Project } from "@do-done/shared";
+import { ProjectIcon } from "@/components/project-icon";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
 import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
 import { NavPendingDot } from "./nav-pending-dot";
@@ -49,9 +50,9 @@ function ProjectRowContent({ project }: { project: Project }) {
         className="h-2.5 w-2.5 shrink-0 rounded-full"
         style={{ backgroundColor: project.color }}
       />
-      <span className="truncate">
-        {project.icon ? `${project.icon} ` : ""}
-        {project.name}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <ProjectIcon icon={project.icon} size={13} />
+        <span className="truncate">{project.name}</span>
       </span>
       {/* Drag affordance — reveals on hover; the whole row is the handle. */}
       <span

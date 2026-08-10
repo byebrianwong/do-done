@@ -51,6 +51,7 @@ import {
   classifyShortcutToken,
   extractTitleShortcuts,
   formatScheduleHint,
+  projectIconText,
   resolveQuickSchedule,
   type CreateTaskInput,
   type Project,
@@ -640,7 +641,7 @@ export function QuickAddChipRow({
           icon="folder-outline"
           label={
             project
-              ? `${project.icon ? `${project.icon} ` : ''}${project.name}`
+              ? `${projectIconText(project.icon)} ${project.name}`.trim()
               : 'Project'
           }
           active={!!project}
@@ -785,7 +786,7 @@ export function QuickAddPickers({
   const projectItems: MenuItem[] = [
     ...(projects ?? []).map((p) => ({
       key: p.id,
-      label: `${p.icon ? `${p.icon} ` : ''}${p.name}`,
+      label: `${projectIconText(p.icon)} ${p.name}`.trim(),
       icon: 'folder' as const,
       color: p.color,
       selected: projectId === p.id,

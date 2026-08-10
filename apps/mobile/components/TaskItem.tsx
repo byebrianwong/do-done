@@ -42,6 +42,7 @@ import {
 import { CompletionSpark } from './CompletionSpark';
 import { StruckText } from './StruckText';
 import { useUndoToast } from './UndoToast';
+import { ProjectIcon } from '@/components/ProjectIcon';
 
 export type Task = SharedTask;
 
@@ -466,7 +467,7 @@ function TaskItem({
           ) : (
             <>
               {project?.icon && !completed ? (
-                <Text style={styles.ringEmoji}>{project.icon}</Text>
+                <ProjectIcon icon={project.icon} size={11} color={ringColor} />
               ) : null}
               <Animated.Text
                 style={[styles.check, styles.ringCheck, exit.checkStyle]}

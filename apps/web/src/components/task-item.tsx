@@ -52,6 +52,7 @@ import { tagPath } from "@/lib/tag-link";
 import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
+import { ProjectIcon } from "./project-icon";
 import { ScheduleButton } from "./schedule-button";
 import {
   TaskEditModalV2,
@@ -1087,15 +1088,17 @@ export function TaskItem({
                 <span className="dd-check-halo" aria-hidden="true" />
               ) : null}
               {exit.sparking ? <CompletionSpark color={ringColor} /> : null}
-              {/* The project's emoji holds the ring until the task is done,
+              {/* The project's icon holds the ring until the task is done,
                   when the check takes the space — or until a pointer arrives,
-                  when the ghost borrows it for as long as it hovers. */}
+                  when the ghost borrows it for as long as it hovers. A drawn
+                  icon inherits `ringColor` here; an emoji brings its own. */}
               {project?.icon && !completed ? (
                 <span
-                  className="dd-check-icon text-[9px] leading-none"
+                  className="dd-check-icon flex items-center justify-center leading-none"
                   aria-hidden="true"
+                  style={{ color: ringColor }}
                 >
-                  {project.icon}
+                  <ProjectIcon icon={project.icon} size={11} />
                 </span>
               ) : null}
               {/* The hint that the ring is a button: the check this click would

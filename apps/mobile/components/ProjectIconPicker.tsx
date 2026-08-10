@@ -24,10 +24,19 @@ import {
   View,
 } from 'react-native';
 import {
+  PHOSPHOR_CATALOGUE,
+  PHOSPHOR_WEIGHTS,
   PROJECT_ICON_GROUPS,
+  formatPhosphorIcon,
+  parseProjectIcon,
+  searchPhosphorIcons,
   searchProjectIcons,
+  type PhosphorWeight,
   type ProjectIconOption,
 } from '@do-done/shared';
+import { ProjectIcon } from '@/components/ProjectIcon';
+
+type Tab = 'icons' | 'emoji';
 
 export function ProjectIconPicker({
   value,
@@ -38,11 +47,20 @@ export function ProjectIconPicker({
   onChange: (icon: string) => void;
   color: string;
 }) {
+  const parsed = parseProjectIcon(value);
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>(
+    parsed.kind === 'emoji' ? 'emoji' : 'icons',
+  );
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState<string>('all');
+  // The weight outlives the icon: switching from Briefcase to House keeps the
+  // treatment already chosen, and the next project starts on the last one used.
+  const [weight, setWeight] = useState<PhosphorWeight>(
+    parsed.kind === 'phosphor' ? parsed.weight : 'fill',
+  );
 
-  const results = useMemo(() => {
+  const emojiResults = useMemo(() => {
     const searched = searchProjectIcons(query);
     if (group === 'all') return searched;
     const inGroup = new Set(
@@ -51,17 +69,52 @@ export function ProjectIconPicker({
     return searched.filter((i) => inGroup.has(i.char));
   }, [query, group]);
 
+  const iconResults = useMemo(() => {
+    const searched = searchPhosphorIcons(query);
+    return group === 'all'
+      ? searched
+      : searched.filter((i) => i.groupId === group);
+  }, [query, group]);
+
+  const narrowed = query.trim() !== '' || group !== 'all';
+  const groups = tab === 'emoji' ? PROJECT_ICON_GROUPS : PHOSPHOR_CATALOGUE;
+
   // Headed sections only when nothing is narrowing the list — a filtered result
-  // set broken into ten labelled boxes is harder to scan than one grid.
-  const sections: { label: string | null; icons: readonly ProjectIconOption[] }[] =
-    query.trim() || group !== 'all'
-      ? [{ label: null, icons: results }]
-      : PROJECT_ICON_GROUPS.map((g) => ({ label: g.label, icons: g.icons }));
+  // set broken into eleven labelled boxes is harder to scan than one grid.
+  const emojiSections: {
+    label: string | null;
+    icons: readonly ProjectIconOption[];
+  }[] = narrowed
+    ? [{ label: null, icons: emojiResults }]
+    : PROJECT_ICON_GROUPS.map((g) => ({ label: g.label, icons: g.icons }));
+
+  const iconSections = narrowed
+    ? [{ label: null as string | null, icons: iconResults }]
+    : PHOSPHOR_CATALOGUE.map((g) => ({
+        label: g.label as string | null,
+        icons: g.icons.map((i) => ({ ...i, groupId: g.id })),
+      }));
+
+  const empty = (tab === 'emoji' ? emojiResults : iconResults).length === 0;
 
   const pick = (icon: string) => {
     onChange(icon);
     setOpen(false);
     setQuery('');
+    setGroup('all');
+  };
+
+  const pickWeight = (next: PhosphorWeight) => {
+    setWeight(next);
+    // Re-stamp the current pick so the ring follows the choice, rather than the
+    // choice only applying to whatever is picked next.
+    if (parsed.kind === 'phosphor') {
+      onChange(formatPhosphorIcon(parsed.name, next));
+    }
+  };
+
+  const switchTab = (next: Tab) => {
+    setTab(next);
     setGroup('all');
   };
 
@@ -78,7 +131,7 @@ export function ProjectIconPicker({
           {/* The 22 px ring the task rows draw, so the choice is made against
               the size it will actually be seen at. */}
           <View style={[styles.ring, { borderColor: color }]}>
-            <Text style={styles.ringIcon}>{value}</Text>
+            <ProjectIcon icon={value} size={11} color={color} />
           </View>
           <Text style={styles.previewText}>
             {value ? 'Change' : 'Choose an icon'}
@@ -93,15 +146,77 @@ export function ProjectIconPicker({
 
       {open ? (
         <View style={styles.panel}>
+          <View style={styles.tabRow}>
+            {(
+              [
+                ['icons', 'Icons'],
+                ['emoji', 'Emoji'],
+              ] as const
+            ).map(([id, label]) => (
+              <Pressable
+                key={id}
+                onPress={() => switchTab(id)}
+                style={[styles.tab, tab === id && styles.tabActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: tab === id }}
+              >
+                <Text
+                  style={[styles.tabText, tab === id && styles.tabTextActive]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search, or paste any character…"
+            placeholder={
+              tab === 'emoji'
+                ? 'Search, or paste any character…'
+                : 'Search icons…'
+            }
             placeholderTextColor="#9ca3af"
             style={styles.search}
             autoCorrect={false}
             autoCapitalize="none"
           />
+
+          {tab === 'icons' ? (
+            <View style={styles.weightRow}>
+              <Text style={styles.weightLabel}>Style</Text>
+              {PHOSPHOR_WEIGHTS.map((w) => (
+                <Pressable
+                  key={w.id}
+                  onPress={() => pickWeight(w.id)}
+                  style={[
+                    styles.weightChip,
+                    weight === w.id && styles.weightChipActive,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${w.label} — ${w.hint}`}
+                  accessibilityState={{ selected: weight === w.id }}
+                >
+                  {/* The label is drawn *in* the weight it names — the fastest
+                      way to say what "Light fill" means is to show it. */}
+                  <ProjectIcon
+                    icon={formatPhosphorIcon('circle', w.id)}
+                    size={13}
+                    color={weight === w.id ? '#4338ca' : '#6b7280'}
+                  />
+                  <Text
+                    style={[
+                      styles.weightText,
+                      weight === w.id && styles.weightTextActive,
+                    ]}
+                  >
+                    {w.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <ScrollView
             horizontal
@@ -110,7 +225,7 @@ export function ProjectIconPicker({
             contentContainerStyle={styles.chipRow}
             keyboardShouldPersistTaps="handled"
           >
-            {[{ id: 'all', label: 'All' }, ...PROJECT_ICON_GROUPS].map((g) => (
+            {[{ id: 'all', label: 'All' }, ...groups].map((g) => (
               <Pressable
                 key={g.id}
                 onPress={() => setGroup(g.id)}
@@ -133,13 +248,14 @@ export function ProjectIconPicker({
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
           >
-            {results.length === 0 ? (
+            {empty ? (
               <Text style={styles.empty}>
-                Nothing matches “{query.trim()}”. Any character works — paste one
-                into the search box.
+                {tab === 'emoji'
+                  ? `Nothing matches “${query.trim()}”. Any character works — paste one into the search box.`
+                  : `No icon matches “${query.trim()}”. The Emoji tab has the long tail.`}
               </Text>
-            ) : (
-              sections
+            ) : tab === 'emoji' ? (
+              emojiSections
                 .filter((s) => s.icons.length > 0)
                 .map((section, i) => (
                   <View key={section.label ?? `results-${i}`}>
@@ -164,11 +280,46 @@ export function ProjectIconPicker({
                     </View>
                   </View>
                 ))
+            ) : (
+              iconSections
+                .filter((s) => s.icons.length > 0)
+                .map((section, i) => (
+                  <View key={section.label ?? `results-${i}`}>
+                    {section.label ? (
+                      <Text style={styles.sectionLabel}>{section.label}</Text>
+                    ) : null}
+                    <View style={styles.iconWrap}>
+                      {section.icons.map((icon) => {
+                        const token = formatPhosphorIcon(icon.name, weight);
+                        return (
+                          <Pressable
+                            key={`${section.label ?? 'r'}-${icon.name}`}
+                            onPress={() => pick(token)}
+                            accessibilityRole="button"
+                            accessibilityLabel={icon.label}
+                            style={[
+                              styles.iconCell,
+                              value === token && styles.iconCellActive,
+                            ]}
+                          >
+                            {/* Previewed in the project's own colour, which is
+                                how the row will actually draw it. */}
+                            <ProjectIcon icon={token} size={22} color={color} />
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))
             )}
           </ScrollView>
 
           <View style={styles.panelFooter}>
-            <Text style={styles.hint}>Symbols take the row’s text colour</Text>
+            <Text style={styles.hint}>
+              {tab === 'icons'
+                ? 'Icons take the project’s colour'
+                : 'Symbols take the row’s text colour'}
+            </Text>
             <Pressable onPress={() => pick('')} hitSlop={8}>
               <Text style={styles.noIcon}>No icon</Text>
             </Pressable>
@@ -205,7 +356,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ringIcon: { fontSize: 10, lineHeight: 12, color: '#111827' },
   previewText: { fontSize: 13, color: '#4b5563' },
   remove: { fontSize: 13, fontWeight: '600', color: '#9ca3af' },
   panel: {
@@ -216,6 +366,38 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     backgroundColor: '#fff',
   },
+  tabRow: { flexDirection: 'row', gap: 6, marginHorizontal: 8, marginBottom: 8 },
+  tab: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  tabActive: { backgroundColor: '#111827' },
+  tabText: { fontSize: 12, fontWeight: '600', color: '#6b7280' },
+  tabTextActive: { color: '#fff' },
+  weightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    marginHorizontal: 8,
+  },
+  weightLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginRight: 2,
+  },
+  weightChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    backgroundColor: '#f3f4f6',
+  },
+  weightChipActive: { backgroundColor: '#eef2ff' },
+  weightText: { fontSize: 11, fontWeight: '600', color: '#6b7280' },
+  weightTextActive: { color: '#4338ca' },
   search: {
     marginHorizontal: 8,
     borderWidth: 1,
