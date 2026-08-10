@@ -31,9 +31,10 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
-import type { Project, Task } from '@do-done/shared';
+import type { Project, SuggestionIndex, Task } from '@do-done/shared';
+import { buildSuggestionIndex } from '@do-done/shared';
 
-import { getProjectsApi, supabase } from '@/lib/supabase';
+import { getProjectsApi, getTasksApi, supabase } from '@/lib/supabase';
 import { isVoiceLaunch } from '@/lib/quick-add-launch';
 import QuickAddComposer from '@/components/QuickAddComposer';
 
@@ -46,6 +47,9 @@ export default function QuickAddRoot() {
   // undefined = still loading the session, null = signed out, Session = signed in
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [projects, setProjects] = useState<Project[] | undefined>(undefined);
+  const [suggestionIndex, setSuggestionIndex] = useState<
+    SuggestionIndex | undefined
+  >(undefined);
   // undefined until the launch URL has been read. The composer must not mount
   // before then: mounting with the default and correcting afterwards would put
   // the keyboard up and then race a permission dialog over it.
@@ -92,6 +96,38 @@ export default function QuickAddRoot() {
     };
   }, [session]);
 
+  /**
+   * The suggestion history, on the same terms as the project list above: no
+   * query cache in this root, so it comes straight off TasksApi, and the
+   * composer is already on screen before it lands.
+   *
+   * Read with the same bound as everywhere else rather than a cheaper one
+   * tuned for a launcher activity. A shorter history is a *different* history,
+   * and this surface would then guess differently from the in-app bar for the
+   * same title — exactly the drift the shared scorer exists to prevent.
+   *
+   * This is also the surface with the most to gain: floating over the home
+   * screen there is no view context at all, so nothing else here has any idea
+   * which project the task belongs to.
+   */
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const api = await getTasksApi();
+        const { data, error } = await api.suggestionHistory();
+        if (!cancelled && !error) setSuggestionIndex(buildSuggestionIndex(data));
+      } catch {
+        // A guess is the most optional thing on this surface. Capture works
+        // exactly as it did before if the history can't be read.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   const createProject = useCallback(
     async (name: string, color: string): Promise<Project | null> => {
       const api = await getProjectsApi();
@@ -126,6 +162,7 @@ export default function QuickAddRoot() {
               autoFocus={!voiceLaunch}
               autoRecord={voiceLaunch}
               projects={projects}
+              suggestionIndex={suggestionIndex}
               onCreateProject={createProject}
               onExpand={openInApp}
               onCreated={dismiss}

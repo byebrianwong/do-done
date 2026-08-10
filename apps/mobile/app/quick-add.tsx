@@ -5,7 +5,11 @@ import type { Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
-import { createProjectOrNull, useProjects } from '@/lib/task-queries';
+import {
+  createProjectOrNull,
+  useProjects,
+  useSuggestionIndex,
+} from '@/lib/task-queries';
 
 /**
  * In-app deep-link target (`dodone://quick-add`). Presents the same
@@ -25,6 +29,7 @@ import { createProjectOrNull, useProjects } from '@/lib/task-queries';
 export default function QuickAddModal() {
   const router = useRouter();
   const { data: projects } = useProjects();
+  const { data: suggestionIndex } = useSuggestionIndex();
   const [expandedTask, setExpandedTask] = useState<Task | null>(null);
   const { voice } = useLocalSearchParams<{ voice?: string }>();
   const autoRecord = voice === '1';
@@ -41,6 +46,7 @@ export default function QuickAddModal() {
         autoFocus={!autoRecord}
         autoRecord={autoRecord}
         projects={projects}
+        suggestionIndex={suggestionIndex}
         onCreateProject={createProjectOrNull}
         onExpand={setExpandedTask}
         onCreated={close}

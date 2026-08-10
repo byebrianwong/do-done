@@ -218,8 +218,35 @@ is what stops them.
   bounded, unlike `listTags`, which has to sweep everything because a tag it
   misses doesn't exist to the app. A suggestion has no such duty.
 
-Mobile has none of this yet; `useQuickAddFields`' merge is the mirror site, and
-the scorer is already platform-free.
+**Both platforms, one scorer, and the difference between them is the keyboard.**
+Web binds Tab to accept (only when there is something to accept, so it still
+moves focus otherwise); a phone has no Tab, so a tap is the whole interaction.
+
+Mobile obeys the rule the rest of `QuickAddFields.tsx` already lives under:
+**it may not call a query hook or reach for the API**, because the widget root
+mounts its own React tree with no `QueryClientProvider`. So the index is handed
+in by the host exactly as `projects` is — `useSuggestionIndex()` on the two
+in-app hosts, a direct `TasksApi` read on `quick-add-root.tsx`. That read uses
+the *same* bound as everywhere else and not a cheaper one tuned for a launcher
+activity: a shorter history is a different history, and the widget would then
+guess differently from the in-app bar for the same title, which is the drift a
+shared scorer exists to prevent.
+
+`suggestionsFor(title)` takes the title rather than holding it, because the
+hosts own that state — the same shape as `buildInput(raw)` and
+`absorbTags(value)`. It scores the title directly with no parse: mobile's
+absorber has already stripped every `#token` on the way in, and a leftover date
+word costs nothing because the parser strips those before a task is ever saved,
+so no historical title carries one.
+
+`suggestionKeys` is its own query root, not under `taskKeys` — the optimistic
+`setQueriesData<Task[]>` sweeps rewrite everything under `taskKeys.all`, and
+this cache holds a pair of Maps. It is deliberately **not** in
+`invalidateTasks()`, which is where it differs from `tagKeys`: a tag count is
+an index of what exists and is wrong the moment a task moves, while this is a
+guess from habit that one more task changes by about nothing. Refetching the
+history after every create would be the most expensive write in the app in
+service of a suggestion that would have been identical.
 
 ## Status ↔ schedule auto-sync
 

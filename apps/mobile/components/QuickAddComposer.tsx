@@ -50,7 +50,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { Project, Task } from '@do-done/shared';
+import type { Project, SuggestionIndex, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
@@ -59,6 +59,7 @@ import { TagRow } from './TaskEditModalV2';
 import {
   QuickAddChipRow,
   QuickAddMenuScrim,
+  QuickAddSuggestionRow,
   QuickAddPickers,
   useQuickAddFields,
 } from './QuickAddFields';
@@ -83,6 +84,12 @@ interface QuickAddComposerProps {
   autoRecord?: boolean;
   /** Projects for the Project chip. Omit and the chip hides. */
   projects?: Project[];
+  /**
+   * The counted task history quick-add guesses from. Handed in for the same
+   * reason `projects` is — this composer mounts in the widget root, which has
+   * no query cache behind it. Omit and nothing is ever suggested.
+   */
+  suggestionIndex?: SuggestionIndex;
   /** Provision a project from the Project chip. Omit and the row hides. */
   onCreateProject?: (name: string, color: string) => Promise<Project | null>;
   /**
@@ -101,13 +108,14 @@ export default function QuickAddComposer({
   autoFocus = false,
   autoRecord = false,
   projects,
+  suggestionIndex,
   onCreateProject,
   onExpand,
 }: QuickAddComposerProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const fields = useQuickAddFields({}, projects);
+  const fields = useQuickAddFields({}, projects, suggestionIndex);
 
   // Dictation extends the line rather than replacing it, matching what typing
   // after the existing text would have done.
@@ -295,6 +303,8 @@ export default function QuickAddComposer({
           onAdd={fields.addTag}
           onRemove={fields.removeTag}
         />
+
+        <QuickAddSuggestionRow fields={fields} title={text} />
 
         <QuickAddChipRow fields={fields} />
       </View>

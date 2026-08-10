@@ -29,13 +29,18 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Project, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
-import { createProjectOrNull, useProjects } from '@/lib/task-queries';
+import {
+  createProjectOrNull,
+  useProjects,
+  useSuggestionIndex,
+} from '@/lib/task-queries';
 import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
 import ParsePreview from './ParsePreview';
 import VoiceRecorder, { DictatedNote } from './VoiceRecorder';
 import TaskEditModalV2, { TagRow } from './TaskEditModalV2';
 import {
   QuickAddChipRow,
+  QuickAddSuggestionRow,
   QuickAddMenuScrim,
   QuickAddPickers,
   useQuickAddFields,
@@ -83,9 +88,12 @@ export default function QuickAddBar({
   // The screen's own context seeds the chips, so the bar shows where the task
   // is going — and lets the user redirect it without leaving.
   const { data: projects } = useProjects();
+  // One counted read of the task history for the session; see useSuggestionIndex.
+  const { data: suggestionIndex } = useSuggestionIndex();
   const fields = useQuickAddFields(
     { projectId: projectId ?? null, scheduledDate: scheduledDate ?? null },
-    projects
+    projects,
+    suggestionIndex
   );
 
   // Dictation appends rather than replaces, so speaking into a half-typed line
@@ -290,6 +298,7 @@ export default function QuickAddBar({
               onAdd={fields.addTag}
               onRemove={fields.removeTag}
             />
+            <QuickAddSuggestionRow fields={fields} title={text} />
             <QuickAddChipRow fields={fields} style={styles.chipRow} />
           </>
         ) : null}
