@@ -236,14 +236,25 @@ export function DisplayMenu({
             </div>
           </Section>
 
-          <div className="mt-1 flex items-center justify-between border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
-            <Switch
-              on={config.showCompleted}
-              label="Show completed"
-              onClick={() =>
-                onChange({ ...config, showCompleted: !config.showCompleted })
-              }
-            />
+          <div className="mt-1 space-y-2 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
+            <div className="flex items-center justify-between">
+              <Switch
+                on={config.showCompleted}
+                label="Show completed"
+                onClick={() =>
+                  onChange({ ...config, showCompleted: !config.showCompleted })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Switch
+                on={config.showSubtasks}
+                label="Show subtasks"
+                onClick={() =>
+                  onChange({ ...config, showSubtasks: !config.showSubtasks })
+                }
+              />
+            </div>
           </div>
 
           {!isDefault ? (

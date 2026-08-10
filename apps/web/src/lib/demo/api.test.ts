@@ -21,9 +21,12 @@ import { DEMO_BASE, isDemoPath } from "./mode";
 const INTERNAL = new Set([
   "nextSortOrder",
   "statusSyncContext",
-  // Walks a task's children before a delete so their attachment bytes can be
-  // cleared; nothing outside TasksApi.delete calls it.
+  // Walks a task's children — for a delete (to clear their attachment bytes)
+  // and for a project move. Only TasksApi's own methods call it.
   "subtreeIds",
+  // Moves a task's descendants into its new project; only TasksApi.update
+  // calls it, and the demo folds the same walk into its own update().
+  "cascadeProject",
   // Resolves the owning user id for the Storage key.
   "ownerId",
 ]);

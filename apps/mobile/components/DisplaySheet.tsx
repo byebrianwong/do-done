@@ -174,6 +174,15 @@ export default function DisplaySheet({
                 trackColor={{ true: '#6366f1', false: '#d1d5db' }}
               />
             </View>
+
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Show subtasks</Text>
+              <Switch
+                value={config.showSubtasks}
+                onValueChange={(v) => onChange({ ...config, showSubtasks: v })}
+                trackColor={{ true: '#6366f1', false: '#d1d5db' }}
+              />
+            </View>
           </ScrollView>
         </Pressable>
       </Pressable>

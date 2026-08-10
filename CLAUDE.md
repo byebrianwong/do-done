@@ -105,6 +105,59 @@ The rule the chips make legible, on web (`buildCreateInput` +
   gives the universal quick-add (sidebar, palette, `q`) the same context the
   page's own bar has — project pages, Today, Inbox — and nothing anywhere else.
 
+## A subtask goes where its parent goes
+
+A subtask is the same piece of work as its parent, one level down, so it lives
+in the parent's project unless somebody says otherwise. Three moments, all of
+them in `TasksApi` (`packages/api-client/src/tasks.ts`) rather than in a UI —
+that's the one door web, mobile and MCP all write through, and the rule would
+otherwise have to be re-implemented at each of the surfaces that can make a
+subtask:
+
+| Moment | What happens |
+| --- | --- |
+| Created under a parent | `create` copies the parent's `project_id`, unless the caller named one |
+| Moved under a parent | `update` does the same, on the same terms |
+| The parent changes project | `update` cascades to the whole subtree |
+
+- **The cascade is tested against the *result*, not the input.** A project
+  arrived at by re-parenting propagates the same way one typed into the chip
+  does, and a write that merely re-states the project the task already had
+  costs nothing.
+- **A hand-filed subtask is overwritten when its parent moves.** The parent's
+  move is the later instruction, and the alternative — remembering which
+  subtasks had been filed by hand — is state nothing on the row or in the
+  editor could show the user. Filing a subtask elsewhere still works; it just
+  doesn't survive the parent being moved.
+- **`subtreeIds` bounds the walk at the depth-2 ceiling** the DB trigger
+  enforces, so the cascade is two queries, not an open recursion — and one
+  query for a childless task, which is the overwhelmingly common case. It is
+  awaited, so a caller's cache invalidation lands after the children have
+  moved.
+- **It is best-effort.** The parent's own write has already landed and there is
+  nothing to roll back to, so a failed cascade leaves the subtree behind rather
+  than failing the write the user asked for.
+- `apps/web/src/lib/demo/api.ts` hand-mirrors all three, the same way it
+  mirrors the create-time half.
+
+### Hiding them
+
+Every list is a flat query and a subtask is an ordinary row in it wearing a
+"↳ parent" breadcrumb — right for a checklist someone is working through, noise
+for a parent whose six steps bury the rest of the page. `showSubtasks` on
+`DisplayConfig` is the switch, beside "Show completed" in both Display menus.
+
+- **A top-level field, not a `filters` clause.** It's a default about what a
+  list *is*, not a narrowing the user applied, so it has to be able to default
+  to *on* without lighting the "Filter · N" badge on every view.
+- **It defaults to on**, and `parseDisplayConfig` backfills that for every
+  config saved before it existed — turning it off for everyone would silently
+  change what a saved view means.
+- One branch in `filterTasks`, so grouped lists (`applyDisplay`) and the
+  curated Today/Upcoming layouts (`filterByConfig`) both get it. The four
+  mobile screens that still bypass the display engine — Inbox, Project, Tag,
+  Completed — don't have it, same as they don't have any other display option.
+
 ## Status ↔ schedule auto-sync
 
 An opt-in rule (two independent halves, both off by default) that keeps a
