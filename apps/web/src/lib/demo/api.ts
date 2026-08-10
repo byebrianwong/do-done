@@ -20,8 +20,9 @@ import type {
   TasksApi,
   UserPrefsApi,
 } from "@do-done/api-client";
+import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
-import { getDemoState, setDemoState } from "./store";
+import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
 
 /**
  * The sandbox's stand-ins for `TasksApi` / `ProjectsApi` / `UserPrefsApi`.
@@ -83,6 +84,20 @@ class DemoTasksApiImpl {
 
   private write(tasks: Task[]) {
     setDemoState({ tasks });
+  }
+
+  /**
+   * A write the row plays an animation on top of.
+   *
+   * Crossing into or out of `done` starts the hold-then-collapse timeline in
+   * `useCompletionExit`, and the list must not re-render underneath it — see
+   * `holdDemoNotifications`. The window is the animation's own envelope, and
+   * since the write lands a tick after the click that started it, the list
+   * always updates just *after* the row has finished leaving rather than during.
+   */
+  private writeCompletion(tasks: Task[]) {
+    holdDemoNotifications(TASK_COMPLETE_EXIT_MS);
+    this.write(tasks);
   }
 
   async list(filters?: TaskFilterInput) {
@@ -177,7 +192,9 @@ class DemoTasksApiImpl {
       ...(becomingDone ? { completed_at: nowISO() } : {}),
       ...(leavingDone ? { completed_at: null } : {}),
     };
-    this.write(this.tasks.map((t) => (t.id === id ? updated : t)));
+    const next = this.tasks.map((t) => (t.id === id ? updated : t));
+    if (becomingDone || leavingDone) this.writeCompletion(next);
+    else this.write(next);
     return ok(updated);
   }
 
@@ -195,7 +212,9 @@ class DemoTasksApiImpl {
       completed_at: null,
       updated_at: nowISO(),
     };
-    this.write(this.tasks.map((t) => (t.id === id ? updated : t)));
+    // Reopening leaves a Completed list the same way completing leaves an open
+    // one, so it gets the same quiet.
+    this.writeCompletion(this.tasks.map((t) => (t.id === id ? updated : t)));
     return ok(updated);
   }
 

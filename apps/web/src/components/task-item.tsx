@@ -1056,6 +1056,10 @@ export function TaskItem({
               style={
                 {
                   borderColor: ringColor,
+                  // What `currentColor` resolves to inside the ring: the halo
+                  // that rings out of it and the ghost check that previews a
+                  // click both take the project's hue from here.
+                  color: ringColor,
                   // Completion fills with the project's colour, the same way for
                   // every priority: done is a state, not a rank.
                   backgroundColor: completed ? ringColor : "transparent",
@@ -1072,19 +1076,42 @@ export function TaskItem({
                   `exit.pulse` / `exit.spark`. The halo rings on every
                   completion; the burst only on one that earned it. */}
               {exit.pulsing ? (
-                <span
-                  className="dd-check-halo"
-                  style={{ color: ringColor }}
-                  aria-hidden="true"
-                />
+                <span className="dd-check-halo" aria-hidden="true" />
               ) : null}
               {exit.sparking ? <CompletionSpark color={ringColor} /> : null}
               {/* The project's emoji holds the ring until the task is done,
-                  when the check takes the space. */}
+                  when the check takes the space — or until a pointer arrives,
+                  when the ghost borrows it for as long as it hovers. */}
               {project?.icon && !completed ? (
-                <span className="text-[9px] leading-none" aria-hidden="true">
+                <span
+                  className="dd-check-icon text-[9px] leading-none"
+                  aria-hidden="true"
+                >
                   {project.icon}
                 </span>
+              ) : null}
+              {/* The hint that the ring is a button: the check this click would
+                  draw, faint and a size small, springing up under the pointer.
+                  Mounted only while there is something to hint at — on a done
+                  row the real check is already there, and a ghost of it would
+                  only muddy the state. Purely presentational, so it is hidden
+                  from the accessibility tree; the button's own label is what
+                  says what a click does. */}
+              {!completed ? (
+                <svg
+                  className="dd-check-ghost absolute h-3 w-3"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
               ) : null}
               <svg
                 className="absolute h-3 w-3 text-white transition-transform motion-reduce:transition-none"
