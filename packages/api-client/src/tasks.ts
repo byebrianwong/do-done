@@ -6,6 +6,7 @@ import type {
   TaskFilterInput,
   PetEventActor,
   StatusSyncSettings,
+  SuggestionRow,
   TagSummary,
   TaskStatus,
   TrackedField,
@@ -62,6 +63,16 @@ export interface BulkUpdateResult {
 // React Native does not, which is why a big multi-select bulk action was the
 // thing that fell over. Cap the fan-out instead of relying on the platform.
 const BULK_CONCURRENCY = 8;
+
+/**
+ * How far back `suggestionHistory` looks.
+ *
+ * Three text-and-integer columns, so this is a small payload even at the top
+ * of the range, and it is fetched once per session rather than per keystroke.
+ * Large enough that a habit is visible; small enough that a user who has been
+ * here for years isn't having last year's project layout counted as evidence.
+ */
+const SUGGESTION_HISTORY_LIMIT = 800;
 
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */
 async function mapWithLimit<T, R>(
@@ -235,6 +246,38 @@ export class TasksApi {
       data: normalizeTasks((data as Task[]) ?? []),
       error: error as Error | null,
     };
+  }
+
+  /**
+   * The past tasks a quick-add suggestion is inferred from.
+   *
+   * Three narrow columns and no `*`: this is read once per session to build an
+   * index the composer then queries on every keystroke, and a row's title, its
+   * project and its estimate are the whole of what the index counts. Selecting
+   * the rest would multiply the payload for fields nothing reads.
+   *
+   * Bounded and newest-first, unlike `listTags`, which has to sweep everything
+   * because a tag it misses simply doesn't exist to the app. A suggestion has
+   * no such duty — it is a guess from recent habit, and older rows both weigh
+   * less and describe a project list that has since moved on.
+   *
+   * The aggregation is `buildSuggestionIndex` in `@do-done/shared`, so the
+   * demo sandbox and any future mobile caller guess the same way.
+   */
+  async suggestionHistory(opts?: {
+    limit?: number;
+  }): Promise<{ data: SuggestionRow[]; error: Error | null }> {
+    let query = this.supabase
+      .from("tasks")
+      .select("title, project_id, duration_minutes");
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(opts?.limit ?? SUGGESTION_HISTORY_LIMIT);
+
+    if (error) return { data: [], error: error as Error };
+    return { data: (data as SuggestionRow[]) ?? [], error: null };
   }
 
   /**

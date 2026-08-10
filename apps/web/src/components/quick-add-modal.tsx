@@ -11,7 +11,7 @@ import {
   type OpenQuickAddDetail,
 } from "@/lib/quick-add-events";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
-import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
+import { ParsedPreview, QuickAddChipRow, SuggestedFacets } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
 function PlusIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -137,6 +137,9 @@ export function QuickAddModal({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleAdd();
+    } else if (e.key === "Tab" && !e.shiftKey && composer.acceptSuggestions()) {
+      // Only when there was something to take; otherwise Tab still moves focus.
+      e.preventDefault();
     } else if (e.key === "Escape") {
       e.preventDefault();
       close();
@@ -181,6 +184,13 @@ export function QuickAddModal({
                 className="px-4 pb-1"
               />
             ) : null}
+            <SuggestedFacets
+              suggestions={composer.suggestions}
+              projects={allProjects}
+              onAcceptProject={composer.setProjectId}
+              onAcceptDuration={composer.setDuration}
+              className="px-4 pb-1"
+            />
 
             <div className="flex flex-wrap items-center gap-2 px-4 py-3">
               <QuickAddChipRow

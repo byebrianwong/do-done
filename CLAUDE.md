@@ -158,6 +158,69 @@ for a parent whose six steps bury the rest of the page. `showSubtasks` on
   mobile screens that still bypass the display engine — Inbox, Project, Tag,
   Completed — don't have it, same as they don't have any other display option.
 
+## A fourth voice: what your own past tasks say
+
+Below the three tiers above sits one more — the history — and it is the only
+one that is **offered rather than applied**. As a title is typed, its words are
+scored against the user's own task list and the project (and estimate) that
+kind of task has gone to before appears under the composer. Tab takes it.
+
+**The training set is the history and nothing else.** A keyword table mapping
+"gym" to "Health" is a guess about a project list we can see, and it is wrong
+for everyone whose projects are named differently — which is everyone.
+(`suggestCategories` in `packages/task-engine` is exactly that table, and has
+been dead since it was written.) What the history says is checkable instead —
+"the last four tasks with `standup` went to Work" — which is also what makes a
+suggestion explainable to the person reading it: `because` carries those words
+into the pill's tooltip.
+
+**Nothing here reaches `buildCreateInput`.** Accepting a suggestion calls the
+same setter the chip's own picker does, so from that instant it *is* an
+explicit pick. The failure modes are not symmetrical: an ignored suggestion
+costs a glance, while a silently applied one files the task into a project the
+user never chose and will not think to look in. Auto-applying above some
+confidence would be a fourth tier in `contextFacets` instead — a real option,
+and a different decision from this one.
+
+Every threshold in `packages/shared/src/suggest.ts` is set on that asymmetry: a
+word must have been seen twice (one coincidence would otherwise score a perfect
+1.0), the winner must score a whole vote *and* hold 60% of the evidence, and a
+title whose words point two ways resolves to **silence** — that being exactly
+the case where the user would have stopped to think, and a confident wrong chip
+is what stops them.
+
+- **Each qualifying word splits *one* vote** across the values it has been seen
+  with, so a word that always means the same thing carries a whole vote and a
+  word meaning four things carries a quarter each. Without that normalisation
+  the winner is whichever project simply has the most tasks — a suggestion that
+  ignores the title.
+- **Project and estimate only.** `tasks.priority` is `not null default 'p4'`,
+  so the history cannot tell "chose Low" from "never triaged" — the same
+  collapse that makes P4 draw nothing in the row gutter — and a frequency model
+  over it would suggest `p4` for nearly everything. A date is about *when you
+  are* rather than what the words say, and the parser already reads "friday"
+  out of a title far better than a count could.
+- **It renders below the input, beside `ParsedPreview`, never inside a chip.**
+  A chip's one click already means "open the picker", so a ghosted value in one
+  would have to mean two things at once, and the reading that lost would be the
+  one the user wanted. `SuggestedFacets` gives each guess its own dashed pill
+  whose only job is to be taken.
+- **Only into an *empty* chip.** A facet with a value has been answered by
+  someone with a better claim than the history.
+- **Two calls, because they run at different rates.** `buildSuggestionIndex`
+  counts a bounded sweep once per session (`SuggestionProvider`, mounted beside
+  `CompletionStreakProvider` in the app shell and `DemoShell` alike);
+  `suggestFacets` runs against it per keystroke, off the *parsed* title so a
+  `#project` already typed isn't fed back as evidence for the answer it just
+  gave. State rather than a ref, unlike the streak — the chips have to fill in
+  when the history lands.
+- `TasksApi.suggestionHistory()` selects three narrow columns, newest-first and
+  bounded, unlike `listTags`, which has to sweep everything because a tag it
+  misses doesn't exist to the app. A suggestion has no such duty.
+
+Mobile has none of this yet; `useQuickAddFields`' merge is the mirror site, and
+the scorer is already platform-free.
+
 ## Status ↔ schedule auto-sync
 
 An opt-in rule (two independent halves, both off by default) that keeps a

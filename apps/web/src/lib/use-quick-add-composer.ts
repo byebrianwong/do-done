@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { Task, TaskPriority } from "@do-done/shared";
+import { suggestFacets, type FacetSuggestions, type Task, type TaskPriority } from "@do-done/shared";
 import { useQuickAdd, type UseQuickAddOptions } from "./use-quick-add";
+import { useQuickAddContext } from "./quick-add-context";
+import { useSuggestionIndex } from "./suggestions";
 import {
   contextFacets,
   type QuickAddOverride,
@@ -78,6 +80,69 @@ export function useQuickAddComposer(
     []
   );
 
+  // --- Suggestions -------------------------------------------------------
+  //
+  // A fourth voice, below all three tiers above, and the only one that is
+  // *offered* rather than applied. The tiers already here each have a claim on
+  // the task — the user picked it, the user typed it, the page they are on is
+  // it — while this one is an inference from what similar-sounding tasks did
+  // before, and it is wrong some of the time by construction.
+  //
+  // The failure modes are not symmetrical. A suggestion the user ignores costs
+  // a glance; a suggestion silently applied files the task into a project they
+  // never chose and won't think to look in. So nothing here reaches
+  // `buildCreateInput`: accepting one calls the very same setter the chip's own
+  // picker does, and from that moment it *is* an explicit pick, indistinguishable
+  // from one made by hand. (Auto-applying above some confidence would be the
+  // fourth tier in `contextFacets` instead — a real option, and a different
+  // decision from this one.)
+  const suggestionIndex = useSuggestionIndex();
+  const { projects } = useQuickAddContext();
+  const projectIds = useMemo(() => projects.map((p) => p.id), [projects]);
+
+  // Scored off the *parsed* title, so a `#project` or `~30m` the user has
+  // already typed isn't fed back in as evidence for the answer it just gave.
+  const scored = useMemo<FacetSuggestions>(
+    () =>
+      parsed?.title
+        ? suggestFacets(parsed.title, suggestionIndex, { projectIds })
+        : { project_id: null, duration_minutes: null },
+    [parsed?.title, suggestionIndex, projectIds]
+  );
+
+  // Only ever offered into an *empty* chip. A facet that already has a value
+  // has been answered by someone with a better claim than the history, and
+  // showing a ghost beside it would be arguing with a decision already made.
+  const suggestions = useMemo<FacetSuggestions>(
+    () => ({
+      project_id: projectId == null ? scored.project_id : null,
+      duration_minutes: duration == null ? scored.duration_minutes : null,
+    }),
+    [scored, projectId, duration]
+  );
+
+  const hasSuggestion =
+    suggestions.project_id != null || suggestions.duration_minutes != null;
+
+  /**
+   * Take every suggestion currently on offer. Returns whether there was one,
+   * so a key binding can fall through to its normal behaviour when there wasn't
+   * — Tab has to keep moving focus on a composer with nothing to accept.
+   */
+  const acceptSuggestions = useCallback((): boolean => {
+    if (!hasSuggestion) return false;
+    setPicked((prev) => ({
+      ...prev,
+      ...(suggestions.project_id
+        ? { project_id: suggestions.project_id.value }
+        : {}),
+      ...(suggestions.duration_minutes
+        ? { duration_minutes: suggestions.duration_minutes.value }
+        : {}),
+    }));
+    return true;
+  }, [hasSuggestion, suggestions]);
+
   // The task created by "expand", handed off to the full editor. `isDraft` marks
   // a task created from an *empty* composer (a throwaway titled "New task") so
   // the editor can drop it again if the user closes without editing.
@@ -146,6 +211,9 @@ export function useQuickAddComposer(
     setScheduledDate,
     projectId,
     setProjectId,
+    suggestions,
+    hasSuggestion,
+    acceptSuggestions,
     anyChipSet,
     buildOverride,
     add,
