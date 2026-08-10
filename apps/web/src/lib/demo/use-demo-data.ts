@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   getDemoState,
   hydrateDemoStore,
@@ -22,7 +22,19 @@ export interface DemoData extends DemoState {
   ready: boolean;
 }
 
-/** The sandbox's data, re-rendering the caller on every write to it. */
+/**
+ * The sandbox's data, re-rendering the caller on every write to it.
+ *
+ * **Deleted tasks are filtered out here**, and this is the only place they can
+ * be: the demo screens read the store through this hook rather than calling
+ * `DemoTasksApi.list()`, so the filter the API's getter applies never reaches
+ * them. Without it a deleted task simply stayed on screen — the soft delete
+ * hides a row by marking it, and a reader that looks straight at the array
+ * sees the mark and nothing else.
+ *
+ * The real app has no equivalent gap, because its lists are server components
+ * that go through `TasksApi` like everything else.
+ */
 export function useDemoData(): DemoData {
   const state = useSyncExternalStore(
     subscribeDemoStore,
@@ -34,5 +46,9 @@ export function useDemoData(): DemoData {
     hydrateDemoStore();
     setReady(true);
   }, []);
-  return { ...state, ready };
+  const tasks = useMemo(
+    () => state.tasks.filter((t) => !t.deleted_at),
+    [state.tasks]
+  );
+  return { ...state, tasks, ready };
 }

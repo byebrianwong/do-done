@@ -20,6 +20,11 @@ import {
   TASK_COMPLETE_HOLD_MS,
   TASK_COMPLETE_SLIDE_PX,
   TASK_COMPLETE_SLIDE_SCALE,
+  TASK_DELETE_COLLAPSE_MS,
+  TASK_DELETE_DIM_OPACITY,
+  TASK_DELETE_HOLD_MS,
+  TASK_DELETE_SLIDE_PX,
+  TASK_DELETE_SLIDE_SCALE,
 } from '@do-done/shared';
 
 /**
@@ -43,8 +48,14 @@ export function prefersReducedMotion(): boolean {
 }
 
 /**
- * The completion exit for a task row: hold at full height reading as done, then
- * collapse to nothing so the rows below slide up into the gap.
+ * The exit a task row plays on its way out of a list — hold at full height,
+ * then collapse to nothing so the rows below slide up into the gap.
+ *
+ * Two of them share that shape and nothing else. A **completion** holds reading
+ * as done and slides right, which says filed; a **deletion** dims where it
+ * stands and slides left, further, which says removed. Direction is what keeps
+ * them apart at a glance — see the deletion block in `@do-done/shared`'s
+ * constants.
  *
  * The row animates its own height rather than the list animating around it.
  * That matters here more than on web — these rows live inside a
@@ -53,13 +64,13 @@ export function prefersReducedMotion(): boolean {
  * cooperation from the list at all.
  *
  * Height can't be animated from `auto`, so the row reports its natural height
- * via {@link CompletionExit.onLayout} and the collapse interpolates from that.
+ * via {@link RowExit.onLayout} and the collapse interpolates from that.
  * `maxHeight` rather than `height` so the row keeps sizing itself to its content
  * while idle — an unclamped sentinel means "no constraint".
  */
 const UNCLAMPED = 10_000;
 
-export interface CompletionExit {
+export interface RowExit {
   /** Spread onto the row's outermost `Animated.View`. */
   style: ReturnType<typeof useAnimatedStyle>;
   /**
@@ -71,8 +82,22 @@ export interface CompletionExit {
   collapsing: boolean;
   /** Wire to the same view's `onLayout` so the collapse knows how far to go. */
   onLayout: (e: LayoutChangeEvent) => void;
-  /** Begin the hold-then-collapse. No-op under reduce motion. */
+  /** Begin the completion's hold-then-collapse. No-op under reduce motion. */
   start: () => void;
+  /**
+   * Begin the deletion's: dim where it stands, then close leftward.
+   *
+   * Separate from {@link RowExit.start} rather than a parameter on it because
+   * the two are different animations with different timings, and a caller that
+   * got the flag wrong would produce a hybrid that reads as neither.
+   */
+  startDelete: () => void;
+  /**
+   * True while a deletion is running — the hold included, which is the point:
+   * the hold is where the row still has its height and has to say it is going.
+   * Drives the red wash the row paints under itself.
+   */
+  deleting: boolean;
   /** Snap back to full height — for a write that failed. */
   cancel: () => void;
   /** Scale for the check mark; 0 when open, springs to 1 when completed. */
@@ -102,7 +127,7 @@ export interface CompletionExit {
    * True while the celebratory burst is in the air, so the row can mount the
    * particles for exactly those frames and drop them afterwards.
    *
-   * Separate from {@link CompletionExit.punch} because the burst is *gated*:
+   * Separate from {@link RowExit.punch} because the burst is *gated*:
    * the halo rings on every completion, this one only on a completion that
    * earned it. See `sparkReason` in `@do-done/shared`.
    */
@@ -113,14 +138,23 @@ export interface CompletionExit {
   spark: () => void;
 }
 
-export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
+export function useRowExit(initiallyChecked: boolean): RowExit {
   const progress = useSharedValue(0);
   const naturalHeight = useSharedValue(0);
+  // The condemned dim, on its own clock: it runs across the deletion's *hold*,
+  // while `progress` is still waiting to start the collapse.
+  const dim = useSharedValue(0);
+  // Which way the row leaves, and how hard. Held as shared values rather than
+  // branched inside the worklet so the style has one expression for both exits
+  // — the animation is the same, only its vector differs.
+  const slidePx = useSharedValue(TASK_COMPLETE_SLIDE_PX);
+  const slideScale = useSharedValue(TASK_COMPLETE_SLIDE_SCALE);
   const checkScale = useSharedValue(initiallyChecked ? 1 : 0);
   const ringScale = useSharedValue(1);
   const halo = useSharedValue(0);
   const sparkProgress = useSharedValue(0);
   const [collapsing, setCollapsing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [sparking, setSparking] = useState(false);
   const sparkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -132,22 +166,25 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   );
 
   const style = useAnimatedStyle(() => ({
-    opacity: 1 - progress.value,
+    // Two fades multiplied: the deletion's dim, which runs first and stops
+    // short of invisible so the row stays readable, and the collapse's, which
+    // finishes the job. A completion never touches `dim`, so it is the second
+    // one alone.
+    opacity: (1 - progress.value) * (1 - dim.value * (1 - TASK_DELETE_DIM_OPACITY)),
     maxHeight:
       progress.value === 0
         ? UNCLAMPED
         : naturalHeight.value * (1 - progress.value),
-    // Two more reads of the same `progress`, which is what makes the exit read
-    // as filed rather than deleted: the row travels as its height closes. It
-    // costs nothing — `transform` never touches layout, so the collapse
-    // underneath is unaffected, and the rows below still travel for exactly
-    // TASK_COMPLETE_COLLAPSE_MS.
-    //
-    // Rightward continues the direction the finger was already going, since
-    // swipe-right is the complete gesture; a tap inherits the same vector.
+    // Two more reads of the same `progress`: the row travels as its height
+    // closes, and which way it travels is what tells the two exits apart.
+    // Rightward continues the swipe that completes a task; leftward continues
+    // the swipe that reveals Delete. Either way a tap inherits the vector for
+    // free. It costs nothing — `transform` never touches layout, so the
+    // collapse underneath is unaffected and the rows below still travel for
+    // exactly the collapse's duration.
     transform: [
-      { translateX: progress.value * TASK_COMPLETE_SLIDE_PX },
-      { scale: 1 - progress.value * (1 - TASK_COMPLETE_SLIDE_SCALE) },
+      { translateX: progress.value * slidePx.value },
+      { scale: 1 - progress.value * (1 - slideScale.value) },
     ],
   }));
 
@@ -193,6 +230,8 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   const start = useCallback(() => {
     if (prefersReducedMotion()) return;
     setCollapsing(true);
+    slidePx.value = TASK_COMPLETE_SLIDE_PX;
+    slideScale.value = TASK_COMPLETE_SLIDE_SCALE;
     progress.value = withDelay(
       TASK_COMPLETE_HOLD_MS,
       withTiming(1, {
@@ -200,18 +239,40 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
         easing: Easing.out(Easing.quad),
       })
     );
-  }, [progress]);
+  }, [progress, slidePx, slideScale]);
+
+  const startDelete = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    setDeleting(true);
+    setCollapsing(true);
+    slidePx.value = TASK_DELETE_SLIDE_PX;
+    slideScale.value = TASK_DELETE_SLIDE_SCALE;
+    // The dim fills the hold exactly, so the row is at its condemned opacity on
+    // the frame the collapse begins rather than jumping to it.
+    dim.value = withTiming(1, { duration: TASK_DELETE_HOLD_MS });
+    progress.value = withDelay(
+      TASK_DELETE_HOLD_MS,
+      withTiming(1, {
+        duration: TASK_DELETE_COLLAPSE_MS,
+        // In rather than out: a row being taken out of the list shouldn't
+        // decelerate on the way, the way a completion settling into place does.
+        easing: Easing.in(Easing.quad),
+      })
+    );
+  }, [progress, dim, slidePx, slideScale]);
 
   const cancel = useCallback(() => {
     setCollapsing(false);
+    setDeleting(false);
     progress.value = withTiming(0, { duration: 150 });
+    dim.value = withTiming(0, { duration: 150 });
     // A write that failed gets no celebration.
     halo.value = 0;
     ringScale.value = withTiming(1, { duration: TASK_COMPLETE_ANTICIPATE_MS });
     if (sparkTimer.current) clearTimeout(sparkTimer.current);
     sparkProgress.value = 0;
     setSparking(false);
-  }, [progress, halo, ringScale, sparkProgress]);
+  }, [progress, dim, halo, ringScale, sparkProgress]);
 
   const spark = useCallback(() => {
     if (prefersReducedMotion()) return;
@@ -251,8 +312,10 @@ export function useCompletionExit(initiallyChecked: boolean): CompletionExit {
   return {
     style,
     collapsing,
+    deleting,
     onLayout,
     start,
+    startDelete,
     cancel,
     checkStyle,
     setChecked,

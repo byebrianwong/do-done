@@ -51,6 +51,9 @@ export async function POST(request: NextRequest) {
       const { data: scheduled } = await service
         .from("tasks")
         .select("id")
+        // Deleted tasks are not re-pushed: they have no place on a calendar,
+        // and the row is only still here so Undo can give it back.
+        .is("deleted_at", null)
         .eq("user_id", user.id)
         .not("scheduled_date", "is", null)
         .not("scheduled_time", "is", null)

@@ -716,6 +716,148 @@ background-image), so five pre-existing findings on completed titles went quiet
 without the rendering changing. Noted in `globals.css` — that contrast is ours
 to watch now, not axe's.
 
+## Deleting a task
+
+The other way a row leaves a list, and until recently the only one with no
+gesture at all: the row was there, the list came back one shorter, and nothing
+on screen said which. **Deletion is the completion gesture's opposite number**,
+not a red repaint of it, and the two must not be confusable at a glance:
+
+```
+completion   hold at full height reading as done, then slide RIGHT   filed
+deletion     dim and tint where it stands, then slide LEFT           removed
+```
+
+```
+  0 → 200   the row dims to 50% under a red wash    hold
+200 → 440   height closes as it slides 36px left    collapse
+```
+
+**Direction carries it.** Rightward continues mobile's swipe-right-to-complete;
+leftward continues the swipe that reveals Delete. A tap inherits each vector for
+free, and neither reads as the other even peripherally. The deletion is also
+*shorter* than the completion's 680ms and travels further: that hold is a beat
+to enjoy, this one only has to be long enough to see which row is going, and
+lingering would be the app savouring the one action nobody wants to repeat.
+
+Constants and their rationale live beside the completion's in
+`packages/shared/src/constants.ts`; `delete-motion.test.ts` asserts the
+relationships rather than the numbers — leftward against rightward, shorter
+against longer, and both envelopes comfortably inside the undo window.
+
+- **The row hears about its own deletion through a window event**
+  (`lib/task-delete-events.ts` on web). A completion is started by a control
+  *in* the row, so the row can animate itself; nothing about a deletion is. It
+  comes from the right-click menu, the editor modal — which may be open over a
+  different page entirely — the bulk bar and a keyboard shortcut, none of which
+  own a row and two of which act on rows that aren't mounted. The fan-out is
+  free with it: a task showing in two lists is two rows, and both are leaving.
+- **`useDeleteTasks` is the one door**, and it fixes the sequence at the door
+  rather than at four call sites: announce, write, toast, *then* refresh once
+  the envelope is spent, so the removal lands on an already-invisible row. Two
+  of those call sites used to show an undo toast, one showed nothing at all, and
+  deleting from the editor modal was a permanent delete with nothing offering it
+  back.
+- **The condemned wash outranks selection and hover both.** A row that is going
+  has nothing useful left to say about being picked or pointed at, and this is
+  the only moment red means "leaving" rather than "overdue".
+- **The dim holds its value through the collapse.** Letting it lapse there
+  multiplies a row fading to zero by one fading back to full, and the row
+  visibly *brightens* on its way out — which is why the travel layer carries two
+  transition durations, one per property.
+- **Mobile has no confirm dialog either.** It had one, and its stated reason
+  was the absence of an undo; that reason is gone. Asking first *and* offering
+  an undo afterwards is asking twice. `deleteTask` takes a `holdMs` so the
+  optimistic cache patch waits for the animation, exactly as `toggleComplete`
+  does.
+
+### Undo gives back the same task
+
+**Nothing is destroyed when you delete.** `tasks.deleted_at` is stamped, the
+row is hidden from every read, and `restore()` clears the column again — so
+the task that comes back is the same row: same id, same subtasks, same
+attachments, same location links, same pet history, and every `/task/<id>`
+link handed out before the delete still works.
+
+It used to recreate from a client-side snapshot (`create(toCreateInput(task))`),
+which gave back a *new* row wearing the old title. Its subtasks and its files
+had gone with the cascade the moment the hard delete landed, and nothing the
+client held could bring them back. The Undo button was quietly lying about what
+it did.
+
+| Method | What it does |
+| --- | --- |
+| `TasksApi.delete(id)` | Stamps `deleted_at` across the subtree. Returns the ids it touched. |
+| `TasksApi.restore(ids)` | Clears it again. One UPDATE, idempotent. |
+| `TasksApi.purgeDeleted()` | Hard-deletes anything past `TASK_TRASH_RETENTION_MS`, clearing the Storage bytes first. |
+
+- **The returned ids are the undo token.** They were computed against the
+  *live* tree, so a subtask deleted separately five minutes ago isn't in them
+  and the parent's undo correctly leaves it deleted. They also cover rows the
+  caller never knew about — a task's subtasks are not on screen, so undo can't
+  work off what the list handed it.
+- **Every read filters, and there is one place to forget it.**
+  `TasksApi.read()` is the private helper every one of the fifteen reads starts
+  from. The RLS select policy carries the same condition, but only as a
+  *backstop*: the MCP server holds a service-role client and RLS does not apply
+  to it at all. Reads outside `TasksApi` — busyness, project counts, the pet
+  tallies, the calendar re-push routes — each carry the filter explicitly,
+  because a deleted task that still counts against its project makes the
+  sidebar disagree with the list it opens.
+- **`restore()` never reads the rows it restores.** The select policy hides
+  them, so a read-then-write would find nothing to write; a policy's USING
+  clause is checked per command, so an UPDATE still reaches a row SELECT
+  cannot see. That is also why the migration touches `tasks_select` and
+  deliberately leaves `tasks_update` alone.
+- **The calendar trigger learned about it.** A soft delete is an UPDATE, so the
+  trigger's DELETE branch never fires and a deleted task's Google Calendar
+  event would have sat there forever. One clause — `deleted_at is null` — in
+  each syncable predicate turns a delete into the existing "enqueue a delete"
+  branch and a restore into the existing "enqueue an upsert" one. `isSyncable`
+  in the calendar worker carries the same clause and **must stay in step**, or
+  an upsert still queued from before the delete re-creates the event.
+- **This is not a trash can.** Nothing in either app lists deleted tasks or
+  offers a way to reach them, and `TASK_TRASH_RETENTION_MS` is an hour — close
+  to the undo window rather than comfortably past it, because "deleted" has to
+  keep meaning deleted. The window is slack for the purge sweep, not a feature.
+- **The purge is driven from the apps**, riding along with the status-sync
+  sweep on both platforms (web's `StatusSyncRunner`, mobile's
+  `sweepStatusSync`). Same shape, same reasoning: one filtered read that finds
+  nothing in the ordinary case, and no infrastructure a preview deploy won't
+  have. It never triggers a refresh — the rows it destroys have been invisible
+  since the moment they were deleted.
+- **The demo sandbox soft-deletes too**, and needs the filter in *two* places:
+  `DemoTasksApi`'s `tasks` getter, and `useDemoData` — the demo screens read
+  the store directly rather than calling `list()`, so without the second one a
+  deleted task simply stayed on screen. The real app has no equivalent gap; its
+  lists are server components that go through `TasksApi` like everything else.
+
+### The undo window
+
+`UNDO_TOAST_TTL_MS` is **9 seconds**, up from six, and both surfaces read it
+from `@do-done/shared` so the promise can't differ by platform. Six was measured
+against the wrong thing — the time it takes to *read* the toast, not the time it
+takes to notice the list is wrong, work out which row went, decide that wasn't
+what you meant, and get the pointer down there.
+
+The toast is the only door back from a deletion, so it stops being a white card
+on a white page:
+
+- **Dark on both themes**, above the page's palette entirely. It is the only
+  element on screen that is temporary and irreversible-if-missed.
+- **Undo is a filled control**, not a text link beside a message.
+- **The window is drawn draining** — a hairline bar under the button, linear
+  because it is reporting a fact rather than expressing a feeling. That is the
+  difference between "there is an Undo" and "there is an Undo *and you have
+  time*", which is the whole point of widening it. Web sets the CSS animation's
+  duration from the constant; mobile drives an `Animated.Value` from the same
+  mount as the dismiss timer. Either way the bar and the timer can't disagree.
+- **⌘Z takes it back** (web), bound only while a toast with an undo is up, and
+  never when the event target is an input, textarea or contenteditable — the
+  shortcut is a convenience over the button and must never be the reason a
+  half-typed title loses its last word. The binding is advertised on the button,
+  since one nobody is told about is one nobody presses.
+
 ## Swiping a task row (mobile)
 
 Swipe **right** for the single Done/Reopen action, which fires as it opens and
@@ -744,9 +886,12 @@ The toast waits for the write to land, and a failed undo says so instead of
 leaving a button that visibly does nothing. `Toast.undo` is therefore optional:
 a message-only toast renders without the button.
 
-Delete is the exception to all of it — a hard delete behind a confirm dialog,
-with no undo. `TasksApi.delete()` clears Storage bytes and cascades subtasks;
-there is no row left to restore.
+Delete is no longer the exception. It used to be a hard delete behind a confirm
+dialog with no undo — the dialog existed precisely *because* `TasksApi.delete()`
+cleared the Storage bytes and cascaded the subtasks, leaving no row to offer
+back. The delete is reversible now (see *Deleting a task* above), so the dialog
+is gone and the toast carries a real Undo, the same one every other destructive
+action here gets.
 ## The task row: two coloured slots (mobile)
 
 **The row has exactly two places colour is allowed, and each carries one

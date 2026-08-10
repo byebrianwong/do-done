@@ -20,7 +20,7 @@ import type {
   TasksApi,
   UserPrefsApi,
 } from "@do-done/api-client";
-import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
+import { TASK_COMPLETE_EXIT_MS, TASK_DELETE_EXIT_MS } from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
 import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
 
@@ -78,7 +78,22 @@ function byPriorityThenSort(a: Task, b: Task): number {
 }
 
 class DemoTasksApiImpl {
+  /**
+   * The live rows — which is every read in this class, because the sandbox
+   * soft-deletes exactly as the real API does.
+   *
+   * That is not fidelity for its own sake: undo *restores* now, so a sandbox
+   * that still filtered deleted rows out of the array would be demonstrating a
+   * different feature from the one that ships. It is also the one getter every
+   * method here already goes through, which makes the filter a single line
+   * rather than fifteen — the same argument as `TasksApi.read()`.
+   */
   private get tasks(): Task[] {
+    return getDemoState().tasks.filter((t) => !t.deleted_at);
+  }
+
+  /** Including the deleted ones. Only delete, restore and purge may look. */
+  private get allTasks(): Task[] {
     return getDemoState().tasks;
   }
 
@@ -90,14 +105,23 @@ class DemoTasksApiImpl {
    * A write the row plays an animation on top of.
    *
    * Crossing into or out of `done` starts the hold-then-collapse timeline in
-   * `useCompletionExit`, and the list must not re-render underneath it — see
+   * `useRowExit`, and the list must not re-render underneath it — see
    * `holdDemoNotifications`. The window is the animation's own envelope, and
    * since the write lands a tick after the click that started it, the list
    * always updates just *after* the row has finished leaving rather than during.
+   *
+   * Deleting needs the same quiet for the same reason, and it is the *only*
+   * thing standing between the sandbox and an instant disappearance: in the
+   * real app the deleter holds `router.refresh()` for the envelope, but here
+   * the write is the refresh and fires synchronously.
    */
-  private writeCompletion(tasks: Task[]) {
-    holdDemoNotifications(TASK_COMPLETE_EXIT_MS);
+  private writeAnimated(tasks: Task[], envelopeMs: number) {
+    holdDemoNotifications(envelopeMs);
     this.write(tasks);
+  }
+
+  private writeCompletion(tasks: Task[]) {
+    this.writeAnimated(tasks, TASK_COMPLETE_EXIT_MS);
   }
 
   async list(filters?: TaskFilterInput) {
@@ -227,7 +251,9 @@ class DemoTasksApiImpl {
   }
 
   async delete(id: string) {
-    // Children go with the parent, as the FK cascade does.
+    // Children go with the parent, as the FK cascade does — but nothing is
+    // destroyed, exactly as in the real API: the rows are stamped and hidden so
+    // undo can hand back the same tasks rather than copies of them.
     const doomed = new Set([id]);
     let grew = true;
     while (grew) {
@@ -239,8 +265,36 @@ class DemoTasksApiImpl {
         }
       }
     }
-    this.write(this.tasks.filter((t) => !doomed.has(t.id)));
+    const deletedAt = nowISO();
+    this.writeAnimated(
+      this.allTasks.map((t) =>
+        doomed.has(t.id) ? { ...t, deleted_at: deletedAt } : t
+      ),
+      TASK_DELETE_EXIT_MS
+    );
+    return { ids: [...doomed], error: null };
+  }
+
+  async restore(ids: string[]) {
+    const back = new Set(ids);
+    this.write(
+      this.allTasks.map((t) =>
+        back.has(t.id) ? { ...t, deleted_at: null } : t
+      )
+    );
     return { error: null };
+  }
+
+  /**
+   * The sandbox never purges.
+   *
+   * Its store is a per-tab array that dies with the tab, so there is nothing to
+   * reclaim and no bucket paying rent — but the method has to exist, because
+   * `api.test.ts` sweeps both prototypes and the sweeps that call this run on
+   * the demo routes too.
+   */
+  async purgeDeleted() {
+    return { purged: 0, error: null };
   }
 
   async bulkUpdate(

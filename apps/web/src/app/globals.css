@@ -382,6 +382,64 @@ body {
 }
 
 /*
+ * The undo toast, and the window it is promising.
+ *
+ * It rises rather than appearing, because it arrives while the row it is about
+ * is still leaving: two things fading in on the same frame at opposite ends of
+ * the screen read as one glitch, and the toast is the half the user has to act
+ * on. Short and slightly overshooting, so it registers in peripheral vision
+ * without pulling the eye off the list.
+ */
+@keyframes dd-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dd-toast {
+  animation: dd-toast-in 260ms cubic-bezier(0.34, 1.36, 0.64, 1) both;
+}
+
+/*
+ * The countdown under the Undo button: the window, drawn draining.
+ *
+ * Linear on purpose — every other easing in the app is about how something
+ * *feels*, and this one is reporting a fact. A window that appeared to slow
+ * down near the end would be lying about how much of it is left.
+ *
+ * `animation-duration` is set inline from `UNDO_TOAST_TTL_MS`, so the bar and
+ * the timer that actually dismisses the toast can never disagree.
+ */
+@keyframes dd-undo-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.dd-undo-countdown {
+  animation: dd-undo-countdown linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The toast still has to arrive — it is the message, not decoration. It just
+     arrives without travelling. */
+  .dd-toast {
+    animation: none;
+  }
+  /* The countdown is the one animation here that carries information rather
+     than motion, so it keeps running. It is a bar shortening, not a movement
+     across the screen, and removing it would take the fact away with it. */
+}
+
+/*
  * The drawn strike-through.
  *
  * `text-decoration-line` can't be animated — it is on or off — so the rule is

@@ -16,7 +16,7 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { toCreateInput } from "@/lib/task-create-input";
 import { isCopyLinkShortcut } from "@/lib/task-link";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
-import { useUndoToast } from "./undo-toast";
+import { useDeleteTasks } from "@/lib/use-delete-tasks";
 import {
   PRIORITY_OPTIONS,
   ESTIMATE_OPTIONS,
@@ -208,7 +208,7 @@ export function TaskContextMenu({
   onClose,
   onMutated,
 }: TaskContextMenuProps) {
-  const toast = useUndoToast();
+  const { deleteTasks } = useDeleteTasks();
   const copyLinkFor = useCopyTaskLink();
 
   // Optimistic copies so highlights update instantly before the refresh lands.
@@ -323,26 +323,13 @@ export function TaskContextMenu({
   }
 
   async function remove() {
+    // Close first: the menu is anchored over the row that is about to start
+    // leaving, and watching it animate out from under a menu is worse than not
+    // watching it at all.
     onClose();
-    try {
-      const tasks = await getClientTasksApi();
-      const { error } = await tasks.delete(task.id);
-      if (error) {
-        console.error("Delete failed:", error);
-        return;
-      }
-      onMutated?.();
-      toast.show({
-        message: `Deleted “${task.title}”`,
-        undo: async () => {
-          const api = await getClientTasksApi();
-          await api.create(toCreateInput(task, task.title));
-          onMutated?.();
-        },
-      });
-    } catch (e) {
-      console.error("Delete failed:", e);
-    }
+    // The menu owns none of this — not the row's exit, not the refresh, not the
+    // undo window. It knows which task and nothing else. See `useDeleteTasks`.
+    await deleteTasks([task]);
   }
 
   const activeEstimate = estimateBarIndex(duration);

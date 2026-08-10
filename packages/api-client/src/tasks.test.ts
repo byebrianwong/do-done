@@ -649,3 +649,256 @@ describe("TasksApi.update — leaving done", () => {
     expect(updates[0]).toEqual({ title: "Renamed" });
   });
 });
+
+// ── delete / restore / purge ───────────────────────────────────────────
+
+/**
+ * A recording query-builder stub with enough shape for the soft-delete paths:
+ * it captures every filter and payload, and answers reads from a fixed set of
+ * rows per table.
+ *
+ * Deliberately dumb about *matching* — these tests are about which statements
+ * the API issues and what it puts in them, which is the whole of the soft
+ * delete's correctness. Whether Postgres applies `.in()` properly is not ours
+ * to prove.
+ */
+function makeOpStub(rowsByTable: Record<string, unknown[]> = {}) {
+  const ops: {
+    table: string;
+    op: string;
+    payload?: Record<string, unknown>;
+    filters: { method: string; args: unknown[] }[];
+  }[] = [];
+  const removedPaths: string[][] = [];
+
+  const supabase = {
+    from(table: string) {
+      const entry = {
+        table,
+        op: "select",
+        payload: undefined as Record<string, unknown> | undefined,
+        filters: [] as { method: string; args: unknown[] }[],
+      };
+      ops.push(entry);
+      const proxy: Record<string, unknown> = {};
+      const chain =
+        (method: string) =>
+        (...args: unknown[]) => {
+          if (method === "update" || method === "insert") {
+            entry.op = method;
+            entry.payload = args[0] as Record<string, unknown>;
+          } else if (method === "delete") {
+            entry.op = "delete";
+          } else if (method !== "select") {
+            entry.filters.push({ method, args });
+          }
+          return proxy;
+        };
+      for (const m of [
+        "select", "update", "delete", "insert",
+        "eq", "in", "is", "not", "lt", "lte", "gte", "or", "order", "limit",
+        "range", "textSearch", "single", "maybeSingle",
+      ]) {
+        proxy[m] = chain(m);
+      }
+      proxy.then = (resolve: (v: { data: unknown; error: null }) => unknown) =>
+        resolve({ data: rowsByTable[table] ?? [], error: null });
+      return proxy;
+    },
+    storage: {
+      from: () => ({
+        remove: async (paths: string[]) => {
+          removedPaths.push(paths);
+          return { error: null };
+        },
+      }),
+    },
+  };
+  return { supabase, ops, removedPaths };
+}
+
+const tasksOps = (ops: ReturnType<typeof makeOpStub>["ops"]) =>
+  ops.filter((o) => o.table === "tasks");
+
+describe("TasksApi.delete — the row survives", () => {
+  it("stamps deleted_at instead of destroying anything", async () => {
+    const { supabase, ops } = makeOpStub({ tasks: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.delete("task-1");
+
+    // The single most important assertion in this file: a hard delete here is
+    // what made Undo a lie. Restoring the same task is only possible while the
+    // row is still there.
+    const writes = tasksOps(ops).filter((o) => o.op !== "select");
+    expect(writes.map((w) => w.op)).toEqual(["update"]);
+    expect(writes[0].payload?.deleted_at).toEqual(expect.any(String));
+    expect(tasksOps(ops).some((o) => o.op === "delete")).toBe(false);
+  });
+
+  it("leaves the attachment bytes exactly where they are", async () => {
+    // The old hard delete cleared the bucket first, which is why undo could
+    // never give the files back. Nothing may touch Storage until the purge.
+    const { supabase, removedPaths } = makeOpStub({
+      tasks: [],
+      task_attachments: [{ storage_path: "u/t/a.png" }],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.delete("task-1");
+
+    expect(removedPaths).toEqual([]);
+  });
+
+  it("takes the whole subtree, and reports which rows it took", async () => {
+    // The returned ids are the undo token — restore works off them rather than
+    // re-deriving a tree that is, by then, invisible.
+    const { supabase } = makeOpStub({ tasks: [{ id: "child-1" }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { ids } = await api.delete("task-1");
+
+    expect(ids[0]).toBe("task-1");
+    expect(ids).toContain("child-1");
+  });
+
+  it("walks the subtree over live rows only", async () => {
+    // A subtask deleted separately five minutes ago must not be swept into
+    // this delete — and so must not come back with the parent's undo.
+    const { supabase, ops } = makeOpStub({ tasks: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.delete("task-1");
+
+    const walk = tasksOps(ops).find((o) =>
+      o.filters.some((f) => f.method === "in" && f.args[0] === "parent_task_id")
+    );
+    expect(walk?.filters).toContainEqual({
+      method: "is",
+      args: ["deleted_at", null],
+    });
+  });
+});
+
+describe("TasksApi.restore", () => {
+  it("clears deleted_at on exactly the ids it was given", async () => {
+    const { supabase, ops } = makeOpStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.restore(["task-1", "child-1"]);
+
+    const write = tasksOps(ops).find((o) => o.op === "update");
+    expect(write?.payload).toEqual({ deleted_at: null });
+    expect(write?.filters).toContainEqual({
+      method: "in",
+      args: ["id", ["task-1", "child-1"]],
+    });
+  });
+
+  it("never reads the rows it is restoring", async () => {
+    // It can't: the RLS select policy hides deleted rows, so a read-then-write
+    // would find nothing to write. One blind UPDATE is the point.
+    const { supabase, ops } = makeOpStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.restore(["task-1"]);
+
+    expect(tasksOps(ops).every((o) => o.op === "update")).toBe(true);
+  });
+
+  it("does nothing at all for an empty list", async () => {
+    const { supabase, ops } = makeOpStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { error } = await api.restore([]);
+
+    expect(error).toBeNull();
+    expect(ops).toEqual([]);
+  });
+});
+
+describe("TasksApi.purgeDeleted", () => {
+  it("destroys only rows past the retention window", async () => {
+    const { supabase, ops } = makeOpStub({ tasks: [{ id: "old-1" }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { purged } = await api.purgeDeleted(60_000);
+
+    const find = tasksOps(ops)[0];
+    const cutoff = find.filters.find((f) => f.method === "lt");
+    expect(cutoff?.args[0]).toBe("deleted_at");
+    expect(Date.parse(cutoff?.args[1] as string)).toBeLessThanOrEqual(
+      Date.now() - 60_000
+    );
+    // And it is the one query in the class allowed to ask for deleted rows.
+    expect(find.filters).toContainEqual({
+      method: "not",
+      args: ["deleted_at", "is", null],
+    });
+    expect(purged).toBe(1);
+  });
+
+  it("clears the bytes before the rows", async () => {
+    // A row pointing at absent bytes renders as a permanently broken
+    // attachment; bytes with no row are merely invisible. So a failure between
+    // the two has to land on the invisible side.
+    const { supabase, ops, removedPaths } = makeOpStub({
+      tasks: [{ id: "old-1" }],
+      task_attachments: [{ storage_path: "u/t/a.png" }],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.purgeDeleted(60_000);
+
+    expect(removedPaths).toEqual([["u/t/a.png"]]);
+    expect(tasksOps(ops).some((o) => o.op === "delete")).toBe(true);
+  });
+
+  it("is a single read and nothing else when there is nothing to purge", async () => {
+    const { supabase, ops, removedPaths } = makeOpStub({ tasks: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { purged } = await api.purgeDeleted();
+
+    expect(purged).toBe(0);
+    expect(removedPaths).toEqual([]);
+    expect(ops).toHaveLength(1);
+  });
+});
+
+describe("TasksApi — deleted rows are invisible", () => {
+  it("filters every read, not just the ones someone remembered", async () => {
+    // The filter lives in one private helper precisely so this holds. A read
+    // that forgets it doesn't fail — it shows the user a task they deleted.
+    const { supabase, ops } = makeOpStub({ tasks: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.list();
+    await api.listTags();
+    await api.getById("task-1");
+    await api.listCompleted();
+    await api.listSubtasks("task-1");
+    await api.listUndated();
+    await api.listOverdue();
+    await api.search("milk");
+    await api.getToday();
+    await api.getUpcoming(7);
+    await api.getOverdue("2026-08-10");
+    await api.getDatedBetween("2026-08-01", "2026-08-31");
+
+    for (const op of tasksOps(ops)) {
+      expect(op.filters).toContainEqual({ method: "is", args: ["deleted_at", null] });
+    }
+  });
+});

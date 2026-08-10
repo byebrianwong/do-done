@@ -27,6 +27,11 @@ import {
   TASK_COMPLETE_STRIKE_DELAY_MS,
   TASK_COMPLETE_STRIKE_MS,
   TASK_COMPLETE_TITLE_DELAY_MS,
+  TASK_DELETE_COLLAPSE_MS,
+  TASK_DELETE_DIM_OPACITY,
+  TASK_DELETE_HOLD_MS,
+  TASK_DELETE_SLIDE_PX,
+  TASK_DELETE_SLIDE_SCALE,
   shouldSpark,
   formatCompletedDate,
   formatDuration,
@@ -38,7 +43,8 @@ import {
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
-import { useCompletionExit } from "@/lib/use-completion-exit";
+import { useRowExit } from "@/lib/use-row-exit";
+import { useTaskDeleting } from "@/lib/task-delete-events";
 import {
   useIsCompact,
   useKeepsCompleted,
@@ -658,9 +664,17 @@ export function TaskItem({
 }: TaskItemProps) {
   const router = useRouter();
   const [completed, setCompleted] = useState(task.status === "done");
-  // Completion is the one edit that removes the row from most lists, so it gets
-  // an exit rather than a disappearance. See `useCompletionExit`.
-  const exit = useCompletionExit();
+  // The two edits that take the row out of a list — completing it and deleting
+  // it — get an exit rather than a disappearance. Same shape, opposite
+  // directions; see `useRowExit`.
+  const exit = useRowExit();
+  // Deletion is started from somewhere the row can't see: a context menu, the
+  // editor modal, the bulk bar. The row's part is only to leave, which is why
+  // `onGone` is empty — the deleter owns the refresh that actually drops it.
+  useTaskDeleting(task.id, {
+    onStart: () => exit.start(() => {}, "delete"),
+    onCancel: () => exit.cancel(),
+  });
   const keepsCompleted = useKeepsCompleted();
   // Compact density trims the row's own padding and leading. It changes nothing
   // about what the row renders — every chip and control is still here — so the
@@ -939,19 +953,30 @@ export function TaskItem({
     startTransition(() => router.refresh());
   }
 
+  // Which exit is running, in the three numbers the shell needs. Read off
+  // `exit.kind` rather than branched at each use, so the two timelines can't
+  // half-mix — a leftward slide over a completion's 260ms would be neither.
+  const collapseMs = exit.deleting
+    ? TASK_DELETE_COLLAPSE_MS
+    : TASK_COMPLETE_COLLAPSE_MS;
+  const slidePx = exit.deleting ? TASK_DELETE_SLIDE_PX : TASK_COMPLETE_SLIDE_PX;
+  const slideScale = exit.deleting
+    ? TASK_DELETE_SLIDE_SCALE
+    : TASK_COMPLETE_SLIDE_SCALE;
+
   return (
     <>
-      {/* Collapse shell for the completion exit. `grid-template-rows: 1fr → 0fr`
+      {/* Collapse shell for the row's exit. `grid-template-rows: 1fr → 0fr`
           animates a height the row never had to measure, and because the row
           shrinks in place the ones below it slide up on their own — no list-level
           layout animation, nothing for dnd-kit to fight. Inert (`1fr`, no
-          transition running) until a completion actually starts. */}
+          transition running) until a completion or a deletion actually starts. */}
       <div
         className="grid transition-[grid-template-rows,opacity] ease-out motion-reduce:transition-none"
         style={{
           gridTemplateRows: exit.collapsing ? "0fr" : "1fr",
           opacity: exit.collapsing ? 0 : 1,
-          transitionDuration: `${TASK_COMPLETE_COLLAPSE_MS}ms`,
+          transitionDuration: `${collapseMs}ms`,
         }}
         aria-hidden={exit.collapsing || undefined}
       >
@@ -965,19 +990,28 @@ export function TaskItem({
           a split pane, a narrow sidebar) — not just on small screens. Below
           ~32rem (`@lg`) the title takes its own row.
 
-          It also carries the exit's *travel*. A pure height collapse is the
-          animation of removal, and a completed task hasn't been removed — it's
-          in the Completed view and undoable for another six seconds. Sliding it
-          out reads as filed instead. Transform costs no layout, so the height
-          collapse underneath it is unaffected, and the easing turns ease-*in*
-          because a row on its way out shouldn't decelerate. */}
+          It also carries the exit's *travel*, and which way it travels is what
+          tells the two exits apart. A completed task hasn't been removed — it's
+          in the Completed view and undoable for the length of the toast — so it
+          slides right and reads as filed. A deleted one is going, so it goes
+          left, further, and dims where it stands first. Transform costs no
+          layout, so the height collapse underneath is unaffected, and the easing
+          turns ease-*in* because a row on its way out shouldn't decelerate.
+
+          The dim rides here rather than on the shell above so it can run on its
+          own clock — it eases in across the *hold*, while the shell's opacity
+          stays reserved for the collapse — and so it can hold its value once
+          the collapse starts. Letting it lapse there multiplied a row fading to
+          zero by one fading back to full, and the row visibly brightened on its
+          way out. Hence the two durations, one per property. */}
       <div
-        className="@container transition-transform motion-reduce:transition-none"
+        className="@container transition-[transform,opacity] motion-reduce:transition-none"
         style={{
           transform: exit.collapsing
-            ? `translateX(${TASK_COMPLETE_SLIDE_PX}px) scale(${TASK_COMPLETE_SLIDE_SCALE})`
+            ? `translateX(${slidePx}px) scale(${slideScale})`
             : undefined,
-          transitionDuration: `${TASK_COMPLETE_COLLAPSE_MS}ms`,
+          opacity: exit.deleting ? TASK_DELETE_DIM_OPACITY : 1,
+          transitionDuration: `${collapseMs}ms, ${TASK_DELETE_HOLD_MS}ms`,
           transitionTimingFunction: "cubic-bezier(0.4, 0, 1, 1)",
         }}
       >
@@ -993,9 +1027,16 @@ export function TaskItem({
         className={`group/row flex cursor-pointer items-start rounded-lg px-3 transition-colors ${align.row} ${
           compact ? "gap-2.5 py-1 leading-4" : "gap-3 py-2.5"
         } ${
-          selected
-            ? "bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60"
-            : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+          /* The condemned wash. It outranks selection and hover both — a row
+             that is going has nothing useful left to say about being picked or
+             pointed at, and this is the only moment red means "leaving" rather
+             than "overdue". Held to a tint: the row still has to be readable,
+             because reading it is what the hold is for. */
+          exit.deleting
+            ? "bg-red-50 dark:bg-red-950/40"
+            : selected
+              ? "bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60"
+              : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
         }`}
         onMouseDown={(e) => {
           // Stop Shift-click from painting a native text selection across rows.

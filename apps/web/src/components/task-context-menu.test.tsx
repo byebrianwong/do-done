@@ -3,6 +3,13 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { TaskContextMenu } from "./task-context-menu";
 import { makeTask } from "./__stories__/mocks";
 
+// Delete goes through `useDeleteTasks`, which holds the route refresh for the
+// row's exit animation — so the menu now needs a router, the same way the row
+// itself does.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
 // The menu writes straight through the client tasks API; capture the patch so
 // tests can assert what a pick actually saved.
 const { updateSpy } = vi.hoisted(() => ({ updateSpy: vi.fn() }));

@@ -1,6 +1,5 @@
 import React, { useRef } from 'react';
 import {
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import {
   OVERDUE_COLOR,
   PRIORITY_CONFIG,
   TASK_COMPLETE_EXIT_MS,
+  TASK_DELETE_EXIT_MS,
   addDaysLocalISO,
   shouldSpark,
   rowEstimate,
@@ -28,6 +28,7 @@ import { claimStreakDay } from '@/lib/completion-streak';
 import { panelForSwipe } from '@/lib/swipe-actions';
 import {
   deleteTask,
+  restoreTasks,
   toggleComplete,
   updateTask,
   useParentTask,
@@ -36,9 +37,9 @@ import {
 import { useTaskSelection } from '@/lib/task-selection';
 import {
   prefersReducedMotion,
-  useCompletionExit,
+  useRowExit,
   useOptimisticCompleted,
-} from '@/lib/use-completion-exit';
+} from '@/lib/use-row-exit';
 import { CompletionSpark } from './CompletionSpark';
 import { StruckText } from './StruckText';
 import { useUndoToast } from './UndoToast';
@@ -147,7 +148,7 @@ function TaskItem({
   const [completed, setCompleted] = useOptimisticCompleted(
     task.status === 'done'
   );
-  const exit = useCompletionExit(task.status === 'done');
+  const exit = useRowExit(task.status === 'done');
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
 
@@ -287,19 +288,48 @@ function TaskItem({
     void updateTask(task.id, buildReschedule(task, target)).catch(() => {});
   }
 
-  function confirmDelete() {
-    const run = () => {
-      hapticMedium();
-      void deleteTask(task.id).catch(() => {});
-    };
-    Alert.alert(
-      'Delete task?',
-      `“${task.title}” will be permanently deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: run },
-      ]
-    );
+  /**
+   * Delete the task, with no confirmation and a real way back.
+   *
+   * The dialog that used to stand here existed for one stated reason: the
+   * delete was a hard delete, so there was no row left to offer back and
+   * nothing an Undo could have done. That is no longer true — the row survives
+   * and `restoreTasks` gives back *this* task, its subtasks and its files — so
+   * the dialog would now be a second question about something the toast can
+   * simply take back. Asking first and offering an undo afterwards is asking
+   * twice.
+   */
+  function handleDelete() {
+    hapticMedium();
+    // Paint first, the same way completing does: the row dims where it stands,
+    // then closes leftward, and the cache patch that drops it waits out that
+    // envelope. Before this the optimistic patch fired on the same tick as the
+    // tap, so the row simply stopped existing.
+    const animating = !prefersReducedMotion();
+    if (animating) exit.startDelete();
+    void deleteTask(task.id, { holdMs: animating ? TASK_DELETE_EXIT_MS : 0 })
+      .then((ids) => {
+        // The toast is the row's receipt, so it waits for the write — the same
+        // rule completion follows. Announcing up front would hand the user an
+        // Undo for something that never happened.
+        toast.show({
+          message: `Deleted “${task.title}”`,
+          undo: async () => {
+            try {
+              await restoreTasks(ids);
+            } catch {
+              toast.show({
+                message: `Couldn't bring “${task.title}” back`,
+              });
+            }
+          },
+        });
+      })
+      .catch(() => {
+        // The row is staying — put it back where it was.
+        exit.cancel();
+        toast.show({ message: `Couldn't delete “${task.title}”` });
+      });
   }
 
   // Swipe-right reveals a single complete/reopen action; a full swipe past the
@@ -346,8 +376,7 @@ function TaskItem({
         style={[styles.swipeAction, styles.swipeDeleteAction]}
         onPress={() => {
           swipeRef.current?.close();
-          hapticMedium();
-          confirmDelete();
+          handleDelete();
         }}
       >
         <Ionicons name="trash-outline" size={20} color="#fff" />
@@ -365,7 +394,7 @@ function TaskItem({
   const estimate = completed ? '' : rowEstimate(task);
 
   return (
-    // Collapse shell for the completion exit. The row shrinks its own height to
+    // Collapse shell for the row's exit. The row shrinks its own height to
     // zero, so the rows below travel up on their own — DraggableFlatList never
     // has to know anything happened. `overflow: hidden` is what makes the
     // clamped height actually crop rather than just overlap.
@@ -401,6 +430,10 @@ function TaskItem({
         styles.container,
         selected && styles.selectedRow,
         pressed && styles.pressed,
+        // Outranks selection and the press both — a row that is going has
+        // nothing useful left to say about being picked or held, and this is
+        // the only moment red means "leaving" rather than "overdue".
+        exit.deleting && styles.deletingRow,
       ]}
       onPress={handleRowPress}
       onLongPress={handleRowLongPress}
@@ -558,6 +591,9 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: '#f9fafb' },
   selectedRow: { backgroundColor: '#eef2ff' },
+  // Held to a tint: the row still has to be readable while it is condemned,
+  // because reading it is what the hold is for. red-50.
+  deletingRow: { backgroundColor: '#fef2f2' },
   swipeAction: {
     alignItems: 'center',
     justifyContent: 'center',

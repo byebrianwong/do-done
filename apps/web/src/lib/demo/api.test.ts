@@ -21,8 +21,11 @@ import { DEMO_BASE, isDemoPath } from "./mode";
 const INTERNAL = new Set([
   "nextSortOrder",
   "statusSyncContext",
-  // Walks a task's children before a delete so their attachment bytes can be
-  // cleared; nothing outside TasksApi.delete calls it.
+  // Where every read of `tasks` starts, so the deleted-row filter can't be
+  // forgotten. The demo does the same job in its own `tasks` getter.
+  "read",
+  // Walks a task's children before a delete, so the whole subtree is hidden
+  // together and comes back together; nothing outside TasksApi.delete calls it.
   "subtreeIds",
   // Resolves the owning user id for the Storage key.
   "ownerId",
@@ -98,14 +101,44 @@ describe("demo store writes", () => {
     expect(data?.completed_at).toBeNull();
   });
 
-  it("deletes a task's subtasks with it, as the FK cascade does", async () => {
+  it("hides a task's subtasks with it, as the FK cascade does", async () => {
     const parent = getDemoState().tasks.find((t) =>
       getDemoState().tasks.some((c) => c.parent_task_id === t.id)
     )!;
     await demoTasksApi.delete(parent.id);
-    const left = getDemoState().tasks;
-    expect(left.find((t) => t.id === parent.id)).toBeUndefined();
-    expect(left.filter((t) => t.parent_task_id === parent.id)).toHaveLength(0);
+
+    // Gone from every list...
+    const { data: listed } = await demoTasksApi.list({ limit: 500, offset: 0 });
+    expect(listed.find((t) => t.id === parent.id)).toBeUndefined();
+    expect(listed.filter((t) => t.parent_task_id === parent.id)).toHaveLength(0);
+
+    // ...but still *there*, which is the whole point: undo restores the same
+    // tasks rather than recreating likenesses of them.
+    const stored = getDemoState().tasks;
+    expect(stored.find((t) => t.id === parent.id)?.deleted_at).toEqual(
+      expect.any(String)
+    );
+  });
+
+  it("gives back the same task, subtasks and all, on restore", async () => {
+    const parent = getDemoState().tasks.find((t) =>
+      getDemoState().tasks.some((c) => c.parent_task_id === t.id)
+    )!;
+    const childIds = getDemoState()
+      .tasks.filter((t) => t.parent_task_id === parent.id)
+      .map((t) => t.id);
+
+    const { ids } = await demoTasksApi.delete(parent.id);
+    await demoTasksApi.restore(ids);
+
+    const { data: listed } = await demoTasksApi.list({ limit: 500, offset: 0 });
+    // Same id — not a copy — and the subtasks came back attached to it.
+    expect(listed.find((t) => t.id === parent.id)).toBeDefined();
+    for (const childId of childIds) {
+      expect(listed.find((t) => t.id === childId)?.parent_task_id).toBe(
+        parent.id
+      );
+    }
   });
 
   it("unfiles tasks when their project goes, rather than deleting them", async () => {
@@ -197,7 +230,7 @@ describe("a completion's write lands now and is announced later", () => {
   });
 
   it("announces immediately under reduced motion, since there is no exit to protect", async () => {
-    // `useCompletionExit` skips the whole timeline and drops the row on the
+    // `useRowExit` skips the whole timeline and drops the row on the
     // spot when motion is off. A list that then waited 680ms to agree would
     // put the row back on screen after it had already gone.
     const real = window.matchMedia;

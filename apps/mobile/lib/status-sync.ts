@@ -5,13 +5,19 @@ import { queryClient } from './query-client';
 import { taskKeys } from './task-queries';
 
 /**
- * The half of status ↔ schedule sync that no write can trigger: a task whose
- * scheduled date never moved, but whose *day* arrived. Nothing happens to that
- * row — so something has to go looking.
+ * The housekeeping no write can trigger.
  *
- * `syncScheduledToStatus()` is one filtered UPDATE and a no-op once converged,
- * and returns immediately when the feature is off (the default), so running it
- * on every resume costs a round trip and nothing else.
+ * **Status ↔ schedule sync**: a task whose scheduled date never moved, but
+ * whose *day* arrived. Nothing happens to that row, so something has to go
+ * looking. `syncScheduledToStatus()` is one filtered UPDATE and a no-op once
+ * converged, and returns immediately when the feature is off (the default), so
+ * running it on every resume costs a round trip and nothing else.
+ *
+ * **The trash purge**: deleting a task hides the row rather than destroying
+ * it, so Undo can give back the same task. `purgeDeleted()` is what eventually
+ * does the destroying — one filtered read that finds nothing in the ordinary
+ * case. It rides along here because it wants the same trigger and is no more
+ * worth its own listener than the sweep is.
  */
 
 // The day the last sweep ran for. Module state is right here: it's per JS
@@ -31,6 +37,9 @@ export async function sweepStatusSync(force = false): Promise<void> {
   try {
     const api = await getTasksApi();
     const { updated } = await api.syncScheduledToStatus();
+    // Nothing on screen depends on this — the rows it destroys have been
+    // invisible since the moment they were deleted — so it never invalidates.
+    await api.purgeDeleted().catch(() => {});
     lastRunDay = today;
     if (updated > 0) {
       void queryClient.invalidateQueries({ queryKey: taskKeys.all });

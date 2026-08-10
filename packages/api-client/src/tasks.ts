@@ -21,6 +21,7 @@ import {
   resolveStatusSyncHorizon,
   statusSyncPatch,
   statusesBelow,
+  TASK_TRASH_RETENTION_MS,
 } from "@do-done/shared";
 import { AttachmentsApi } from "./attachments.js";
 
@@ -103,6 +104,24 @@ export class TasksApi {
     private supabase: SupabaseClient,
     private userId?: string
   ) {}
+
+  /**
+   * Where every read of `tasks` starts.
+   *
+   * Deleting a task no longer destroys the row — it stamps `deleted_at` and the
+   * row goes on existing so Undo can hand back *the same task* (see `delete`
+   * below). The price of that is a rule every single read has to obey, and
+   * there are fifteen of them: a query that forgets it doesn't fail, it shows
+   * the user a task they deleted.
+   *
+   * So the filter isn't repeated fifteen times, it's the only way in. The RLS
+   * policy carries the same condition as a backstop — but only as a backstop,
+   * because the MCP server holds a service-role client and RLS does not apply
+   * to it at all.
+   */
+  private read<Q extends string = "*">(columns: Q = "*" as Q) {
+    return this.supabase.from("tasks").select(columns).is("deleted_at", null);
+  }
 
   // ── Status ↔ schedule auto-sync ──────────────────────
   //
@@ -195,6 +214,7 @@ export class TasksApi {
     let query = this.supabase
       .from("tasks")
       .update({ status: target })
+      .is("deleted_at", null)
       .lte("scheduled_date", ctx.horizonISO)
       .in("status", from);
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -211,7 +231,7 @@ export class TasksApi {
   }
 
   async list(filters?: TaskFilterInput): Promise<{ data: Task[]; error: Error | null }> {
-    let query = this.supabase.from("tasks").select("*");
+    let query = this.read();
 
     if (this.userId) query = query.eq("user_id", this.userId);
     if (filters?.status) query = query.eq("status", filters.status);
@@ -254,7 +274,7 @@ export class TasksApi {
    * MCP tool all count tags the one way.
    */
   async listTags(): Promise<{ data: TagSummary[]; error: Error | null }> {
-    let query = this.supabase.from("tasks").select("tags, status");
+    let query = this.read("tags, status");
     if (this.userId) query = query.eq("user_id", this.userId);
 
     const { data, error } = await query;
@@ -283,9 +303,7 @@ export class TasksApi {
   }
 
   async getById(id: string): Promise<{ data: Task | null; error: Error | null }> {
-    const { data, error } = await this.supabase
-      .from("tasks")
-      .select("*")
+    const { data, error } = await this.read()
       .eq("id", id)
       .single();
     return {
@@ -358,11 +376,7 @@ export class TasksApi {
     // transition from unset → set for energy feeding. One extra SELECT per
     // update is the price of stateless dedupe — the autosave hook fires at
     // most ~4/sec, well within Supabase headroom.
-    const prevRes = await this.supabase
-      .from("tasks")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+    const prevRes = await this.read().eq("id", id).maybeSingle();
     const prior = (prevRes.data as Task | null) ?? null;
     const priorStatus = prior?.status ?? null;
 
@@ -470,10 +484,7 @@ export class TasksApi {
     const ids = [id];
     let frontier = [id];
     for (let level = 0; level < 2 && frontier.length > 0; level++) {
-      let query = this.supabase
-        .from("tasks")
-        .select("id")
-        .in("parent_task_id", frontier);
+      let query = this.read("id").in("parent_task_id", frontier);
       if (this.userId) query = query.eq("user_id", this.userId);
       const { data } = await query;
       frontier = ((data as { id: string }[] | null) ?? []).map((r) => r.id);
@@ -482,24 +493,110 @@ export class TasksApi {
     return ids;
   }
 
-  async delete(id: string): Promise<{ error: Error | null }> {
-    // Hard delete. FKs handle cleanup: task_locations cascade,
-    // pet_events.task_id sets null, child tasks (parent_task_id) cascade —
-    // and `task_attachments` rows cascade too.
-    //
-    // What no FK reaches is the attachment BYTES in the Storage bucket: an
-    // object has no foreign key to follow, so the cascade would leave them
-    // paying rent forever with nothing in the app pointing at them. Clear them
-    // first, across the whole subtree, since the children go with the parent.
-    //
-    // Best-effort by design: a Storage hiccup must not block the delete the
-    // user asked for. The cost of failing here is orphaned bytes, which is
-    // strictly better than a task that won't die.
-    const attachments = new AttachmentsApi(this.supabase, this.userId);
-    await attachments.removeForTasks(await this.subtreeIds(id));
+  /**
+   * Delete a task and everything under it — reversibly.
+   *
+   * **Nothing is destroyed here.** The rows are stamped with `deleted_at` and
+   * disappear from every read; the subtasks stay subtasks, the attachment rows
+   * stay attached, the bytes stay in the bucket, the location links stay
+   * linked, and the id goes on being the id. `restore()` puts it all back by
+   * clearing one column, which is what makes Undo give back *the same task*
+   * rather than a copy wearing its title. `purgeDeleted()` is what eventually
+   * does the real destroying.
+   *
+   * This used to be a hard delete, and the reversal was `create()` from a
+   * client-side snapshot — a new row, a new id, no subtasks, no files, and
+   * every link handed out before the delete still broken afterwards.
+   *
+   * Returns the ids it touched, because that list *is* the undo token: it was
+   * computed against the live tree, so a subtask deleted separately five
+   * minutes ago is not in it and a restore correctly leaves it deleted.
+   */
+  async delete(
+    id: string
+  ): Promise<{ ids: string[]; error: Error | null }> {
+    const ids = await this.subtreeIds(id);
+    // Stamped client-side rather than with `now()` so the caller could reason
+    // about the batch if it ever needed to; the ids are what restore uses.
+    const deletedAt = new Date().toISOString();
 
-    const { error } = await this.supabase.from("tasks").delete().eq("id", id);
+    let query = this.supabase
+      .from("tasks")
+      .update({ deleted_at: deletedAt })
+      .in("id", ids);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { error } = await query;
+    return { ids, error: error as Error | null };
+  }
+
+  /**
+   * Undelete rows by id — the exact ids `delete()` returned.
+   *
+   * One UPDATE, and it never needs to *see* the rows it is restoring, which
+   * matters: the RLS select policy hides deleted rows, so a read-then-write
+   * would find nothing to write. A policy's USING clause is checked per
+   * command, so an UPDATE still reaches a row that SELECT cannot.
+   *
+   * Idempotent. Restoring a task that was already restored, or one the purge
+   * has since destroyed, writes nothing and reports no error — an Undo tapped
+   * twice must not turn into a failure the user has to think about.
+   */
+  async restore(ids: string[]): Promise<{ error: Error | null }> {
+    if (ids.length === 0) return { error: null };
+    let query = this.supabase
+      .from("tasks")
+      .update({ deleted_at: null })
+      .in("id", ids);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { error } = await query;
     return { error: error as Error | null };
+  }
+
+  /**
+   * Really destroy anything deleted longer ago than the retention window.
+   *
+   * This is where the hard delete went, and it still owns the one piece of
+   * cleanup no foreign key can do: the attachment **bytes**. A Storage object
+   * has no FK to follow, so a cascade reaches the `task_attachments` rows and
+   * leaves the files paying rent forever with nothing in the app pointing at
+   * them. Bytes first, rows second — an attachment row pointing at absent
+   * bytes renders as permanently broken, while bytes with no row are merely
+   * invisible, so a failure between the two lands on the invisible side.
+   *
+   * Best-effort on the Storage half by design: a bucket hiccup must not leave
+   * rows that can never be collected.
+   *
+   * Driven from the apps rather than a server timer (web's `StatusSyncRunner`,
+   * mobile's sweeps) — the same shape as `syncScheduledToStatus`, and for the
+   * same reason: it is one filtered read that returns nothing in the ordinary
+   * case, and it needs no infrastructure that a preview deploy won't have.
+   */
+  async purgeDeleted(
+    retentionMs: number = TASK_TRASH_RETENTION_MS
+  ): Promise<{ purged: number; error: Error | null }> {
+    const cutoff = new Date(Date.now() - retentionMs).toISOString();
+
+    // Deliberately not `this.read()` — this is the one query in the class that
+    // wants the deleted rows, and the only one that may say so.
+    let find = this.supabase
+      .from("tasks")
+      .select("id")
+      .not("deleted_at", "is", null)
+      .lt("deleted_at", cutoff);
+    if (this.userId) find = find.eq("user_id", this.userId);
+    const { data, error: findError } = await find;
+    if (findError) return { purged: 0, error: findError as Error };
+
+    const ids = ((data as { id: string }[] | null) ?? []).map((r) => r.id);
+    if (ids.length === 0) return { purged: 0, error: null };
+
+    const attachments = new AttachmentsApi(this.supabase, this.userId);
+    await attachments.removeForTasks(ids);
+
+    let destroy = this.supabase.from("tasks").delete().in("id", ids);
+    if (this.userId) destroy = destroy.eq("user_id", this.userId);
+    const { error } = await destroy;
+    return { purged: error ? 0 : ids.length, error: error as Error | null };
   }
 
   /**
@@ -587,9 +684,7 @@ export class TasksApi {
     limit?: number;
     before?: string;
   }): Promise<{ data: Task[]; error: Error | null }> {
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .eq("status", "done")
       .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
@@ -604,9 +699,7 @@ export class TasksApi {
   }
 
   async listSubtasks(parentId: string): Promise<{ data: Task[]; error: Error | null }> {
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .eq("parent_task_id", parentId)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
@@ -622,9 +715,7 @@ export class TasksApi {
     // Tasks with no scheduled_date AND no deadline_date that aren't in a terminal
     // state — unscheduled work. Used as a drag source in the Upcoming view
     // so the user can pull undated work onto a real day.
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .is("scheduled_date", null)
       .is("deadline_date", null)
       .not("status", "in", "(done,cancelled,archived)")
@@ -642,9 +733,7 @@ export class TasksApi {
     // Tasks whose scheduled_date OR deadline_date is strictly before today,
     // excluding done/cancelled. Mirrors isOverdue() in @do-done/shared.
     const today = todayLocalISO();
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .not("status", "in", "(done,cancelled,archived)")
       .or(`scheduled_date.lt.${today},deadline_date.lt.${today}`)
       .order("priority")
@@ -658,9 +747,7 @@ export class TasksApi {
   }
 
   async search(query: string): Promise<{ data: Task[]; error: Error | null }> {
-    const { data, error } = await this.supabase
-      .from("tasks")
-      .select("*")
+    const { data, error } = await this.read()
       .textSearch("fts", query)
       .limit(20);
     return {
@@ -681,9 +768,7 @@ export class TasksApi {
     // Crucially, inbox tasks with a scheduled_date set DO show up here —
     // scheduling a task no longer requires moving it out of inbox.
     const today = todayLocalISO();
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .not("status", "in", "(done,cancelled,archived)")
       .or(`scheduled_date.lte.${today},deadline_date.lte.${today}`)
       .order("priority")
@@ -718,9 +803,7 @@ export class TasksApi {
     const start = addDaysLocalISO(-1);
     const endDate = addDaysLocalISO(days);
 
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .not("status", "in", "(done,cancelled,archived)")
       .or(
         `and(scheduled_date.gte.${start},scheduled_date.lte.${endDate}),and(deadline_date.gte.${start},deadline_date.lte.${endDate})`
@@ -751,9 +834,7 @@ export class TasksApi {
     startISO: string,
     endISO: string
   ): Promise<{ data: Task[]; error: Error | null }> {
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .not("status", "in", "(done,cancelled,archived)")
       .or(
         `and(scheduled_date.gte.${startISO},scheduled_date.lte.${endISO}),and(deadline_date.gte.${startISO},deadline_date.lte.${endISO})`
@@ -779,9 +860,7 @@ export class TasksApi {
   async getOverdue(
     todayISO: string
   ): Promise<{ data: Task[]; error: Error | null }> {
-    let query = this.supabase
-      .from("tasks")
-      .select("*")
+    let query = this.read()
       .not("status", "in", "(done,cancelled,archived)")
       .or(`scheduled_date.lt.${todayISO},deadline_date.lt.${todayISO}`)
       .order("scheduled_date", { nullsFirst: false })
