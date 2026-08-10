@@ -1,22 +1,25 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, View, Text, StyleSheet, RefreshControl } from 'react-native';
-import DraggableFlatList, {
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import TaskItem from '@/components/TaskItem';
 import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import DisplaySheet from '@/components/DisplaySheet';
+import GroupedTaskList from '@/components/GroupedTaskList';
 import {
   ListError,
   ListSkeleton,
   UpdatingBar,
 } from '@/components/ListPlaceholder';
-import { invalidateTasks, reorderTasks, useInboxTasks } from '@/lib/task-queries';
+import {
+  invalidateTasks,
+  useInboxTasks,
+  useProjectsWithCounts,
+} from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
@@ -26,43 +29,40 @@ export default function InboxScreen() {
   const inboxQuery = useInboxTasks();
   const { data: tasks = [], refetch } = inboxQuery;
   const loadState = useListLoadState(inboxQuery);
-  const [order, setOrder] = useState<Task[]>([]);
+  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [editing, setEditing] = useState<Task | null>(null);
+  const [showDisplay, setShowDisplay] = useState(false);
+  const { config, setConfig, reset, isDefault } = useDisplayConfig('inbox');
 
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
-  // Mirror the server-derived list into a drag-reorderable copy. Key the
-  // re-sync on task *content*, not just ids: a field edit (e.g. priority) keeps
-  // the id list identical, so an id-only key left `order` rendering the
-  // pre-edit task objects after the query cache reconciled.
-  const sig = tasks.map((t) => JSON.stringify(t)).join('|');
-  useEffect(() => {
-    setOrder(tasks);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
-
-  function persistOrder(next: Task[]) {
-    setOrder(next);
-    void reorderTasks(next.map((t) => t.id)).catch(() => {});
-  }
-
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
-  const renderItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<Task>) => (
-      <View style={isActive ? styles.activeRow : undefined}>
-        <TaskItem task={item} onPress={handlePress} onDragHandle={drag} />
-      </View>
-    ),
-    [handlePress]
+  const projectList = useMemo(
+    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projectsWithCounts]
   );
+
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) for (const tag of t.tags) set.add(tag);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
 
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Inbox</Text>
         <View style={styles.topActions}>
+          <Pressable
+            onPress={() => setShowDisplay(true)}
+            hitSlop={8}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="options-outline" size={22} color="#6366f1" />
+            {!isDefault ? <View style={styles.activeDot} /> : null}
+          </Pressable>
           <Pressable
             onPress={() => router.push('/search' as never)}
             hitSlop={8}
@@ -74,11 +74,12 @@ export default function InboxScreen() {
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
 
-      <DraggableFlatList
-        data={order}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        onDragEnd={({ data }) => persistOrder(data)}
+      <GroupedTaskList
+        tasks={tasks}
+        projects={projectList}
+        config={config}
+        onConfigChange={setConfig}
+        onTaskPress={handlePress}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -103,6 +104,16 @@ export default function InboxScreen() {
         contentContainerStyle={styles.listContent}
       />
       <QuickAddBar defaultStatus="inbox" onCreated={invalidateTasks} />
+      <DisplaySheet
+        visible={showDisplay}
+        onClose={() => setShowDisplay(false)}
+        config={config}
+        onChange={setConfig}
+        onReset={reset}
+        isDefault={isDefault}
+        projects={projectList}
+        availableTags={availableTags}
+      />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
@@ -128,7 +139,15 @@ const styles = StyleSheet.create({
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 4 },
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
+  activeDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#6366f1',
+  },
   listContent: {
     paddingBottom: 140,
     flexGrow: 1,
