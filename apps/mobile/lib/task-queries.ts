@@ -14,6 +14,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { buildSuggestionIndex } from '@do-done/shared';
 import type {
   CreateProjectInput,
   Project,
@@ -53,6 +54,23 @@ export const taskKeys = {
 export const tagKeys = {
   all: ['tags'] as const,
   summary: () => [...tagKeys.all, 'summary'] as const,
+};
+
+/**
+ * Its own root, outside `taskKeys`, for the same reason `tagKeys` is: the
+ * optimistic `setQueriesData<Task[]>` sweeps rewrite everything under
+ * `taskKeys.all`, and this cache holds a `SuggestionIndex` — a pair of Maps,
+ * not an array of tasks.
+ *
+ * Deliberately **not** in `invalidateTasks()`, which is where it differs from
+ * tags. A tag count is an index of what exists and is wrong the moment a task
+ * moves; this is a guess from habit, and one more task changes it by about
+ * nothing. Refetching 800 rows after every create would be the most expensive
+ * write in the app, in service of a suggestion that would have been the same.
+ */
+export const suggestionKeys = {
+  all: ['suggestions'] as const,
+  index: () => [...suggestionKeys.all, 'index'] as const,
 };
 
 export const projectKeys = {
@@ -129,6 +147,31 @@ export function useTags() {
       const { data, error } = await api.listTags();
       if (error) throw error;
       return data ?? [];
+    },
+  });
+}
+
+/**
+ * The counted history behind quick-add's guesses.
+ *
+ * One fetch per session, held for it: `staleTime: Infinity` is what makes this
+ * a session-long read rather than something `useRefreshOnFocus` re-fires on
+ * every tab switch. The index it resolves to is a pair of Maps, built once
+ * here rather than per keystroke in the composer.
+ *
+ * Never call this from `QuickAddFields` — it has to keep working in the widget
+ * root, which has no QueryClientProvider. The hosts that *do* have one pass
+ * the index down; the widget root builds its own.
+ */
+export function useSuggestionIndex() {
+  return useQuery({
+    queryKey: suggestionKeys.index(),
+    staleTime: Infinity,
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.suggestionHistory();
+      if (error) throw error;
+      return buildSuggestionIndex(data ?? []);
     },
   });
 }
