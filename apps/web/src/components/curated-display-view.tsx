@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import {
   filterByConfig,
+  sortTasks,
   type DisplayConfig,
   type Project,
   type Task,
@@ -63,8 +64,18 @@ export function CuratedDisplayView({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [universe]);
 
+  // Sorted as well as filtered. A curated layout is only ever shown under
+  // manual sort (that's what `curatedWhen` asks for on both views), so this is
+  // `sort_order` — the one field carrying the order the user dragged rows
+  // into. Nothing else applied it: the generic branch sorts inside
+  // `applyDisplay`, but the curated branch handed these rows straight to the
+  // day columns in whatever order the query returned them, and `getUpcoming`
+  // orders by scheduled_date / deadline_date / priority with no mention of
+  // sort_order. So a drop wrote a new order and the refresh read the old one
+  // back — the row appeared where it was dropped, then slid to wherever
+  // priority put it a moment later.
   const filtered = useMemo(
-    () => filterByConfig(universe, config),
+    () => sortTasks(filterByConfig(universe, config), config.sort),
     [universe, config]
   );
 

@@ -290,10 +290,17 @@ export function DraggableTaskGroups({
       return;
     }
 
-    // Commit the final within-group position from the row we're hovering.
+    // Commit the final within-group position from the row we're hovering —
+    // and only for a drag that never left its group. A cross-group drag was
+    // already placed by handleDragOver, at the index the preview shows;
+    // re-deriving it from `over` here overrides that with an answer a slot off.
     const overId = String(over.id);
     let finalTasks = localTasks;
-    if (!overId.startsWith("g:") && overId !== activeId) {
+    if (
+      fromGroup.key === toGroup.key &&
+      !overId.startsWith("g:") &&
+      overId !== activeId
+    ) {
       const overGroup = findGroupOf(overId);
       if (overGroup?.key === toGroup.key) {
         const ids = toGroup.tasks.map((t) => t.id);

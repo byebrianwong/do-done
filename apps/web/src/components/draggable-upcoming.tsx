@@ -481,10 +481,20 @@ export function DraggableUpcoming({
       return;
     }
 
-    // Commit the final same-day position from the row we're hovering.
+    // Commit the final same-day position from the row we're hovering — and
+    // only for a drag that never left its day. A cross-day drag was already
+    // placed by handleDragOver, at exactly the index the preview is showing;
+    // re-deriving it from `over` here is a second opinion about a question
+    // already answered, and it lands a slot or two off. Dropping a task from
+    // Tomorrow onto the bottom of Today wrote it second-from-bottom, which is
+    // where the refresh then put it.
     const overId = String(over.id);
     let finalByDate = byDate;
-    if (!overId.startsWith("group:") && overId !== activeId) {
+    if (
+      fromDate === toDate &&
+      !overId.startsWith("group:") &&
+      overId !== activeId
+    ) {
       const overDate = findDateOf(overId);
       if (overDate === toDate) {
         const ids = [...(byDate.get(toDate) ?? [])];
@@ -555,23 +565,29 @@ export function DraggableUpcoming({
         setTasks(nextTasks);
       }
 
+      // The moved row's new day and its new place in that day are one write,
+      // not two. It appears in `toIds` as well, so a separate entry for the
+      // date made it the only row in the batch patched twice — two concurrent
+      // writes to one id, racing each other for a `sort_order` the other one
+      // doesn't carry. Same shape as draggable-today / draggable-task-groups.
       const updates: Array<{
         id: string;
         input: {
           sort_order?: number;
           scheduled_date?: string | null;
         };
-      }> = [
-        {
-          id: activeId,
-          input: toNoDate
-            ? { scheduled_date: null }
-            : { scheduled_date: nextScheduledDate as string },
-        },
-      ];
-      toIds.forEach((id, i) =>
-        updates.push({ id, input: { sort_order: (i + 1) * 1000 } })
-      );
+      }> = toIds.map((id, i) => ({
+        id,
+        input:
+          id === activeId
+            ? { scheduled_date: nextScheduledDate, sort_order: (i + 1) * 1000 }
+            : { sort_order: (i + 1) * 1000 },
+      }));
+      // A drop that somehow left the row out of the target's order still has to
+      // land its date, or the task keeps the day the user dragged it off.
+      if (!toIds.includes(activeId)) {
+        updates.push({ id: activeId, input: { scheduled_date: nextScheduledDate } });
+      }
       const { error } = await api.bulkUpdate(updates);
       if (error) {
         console.error("Move failed:", error);
