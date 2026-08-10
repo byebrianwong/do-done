@@ -699,8 +699,10 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
         >
           <PaperclipIcon className="h-3.5 w-3.5 shrink-0" />
           {count > 0 ? "Add another file" : "Attach a file"}
+          {/* neutral-500, not the 400 it wore inside the well: out here it is
+              on white, where 400 is 2.6:1 and fails contrast outright. */}
           <span
-            className={`text-[11px] font-normal text-neutral-400 ${
+            className={`text-[11px] font-normal text-neutral-500 dark:text-neutral-400 ${
               empty && !dragging ? "" : "ml-auto"
             }`}
           >
