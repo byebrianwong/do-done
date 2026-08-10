@@ -11,6 +11,7 @@ import { TaskEditorProvider } from "@/components/task-editor-provider";
 import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
+import { SuggestionProvider } from "@/lib/suggestions";
 import { DEMO_USER_ID } from "@/lib/demo/mode";
 import { resetDemoStore } from "@/lib/demo/store";
 import { useDemoData } from "@/lib/demo/use-demo-data";
@@ -35,17 +36,21 @@ export function DemoShell({ children }: { children: React.ReactNode }) {
         <TaskSelectionProvider>
           <TaskEditingHoldProvider>
             <QuickAddProvider projects={projects} userId={DEMO_USER_ID}>
-              <TaskEditorProvider>
-                <AppShell
-                  projects={projects}
-                  userEmail={null}
-                  sidebarFooter={<DemoSidebarFooter />}
-                >
-                  {children}
-                </AppShell>
-                <CommandPalette projects={projects} />
-                <QuickAddModal projects={projects} userId={DEMO_USER_ID} />
-              </TaskEditorProvider>
+              {/* The sandbox's own task list is the history quick-add guesses
+                from — thin, as a first week's would be, and honestly so. */}
+              <SuggestionProvider>
+                <TaskEditorProvider>
+                  <AppShell
+                    projects={projects}
+                    userEmail={null}
+                    sidebarFooter={<DemoSidebarFooter />}
+                  >
+                    {children}
+                  </AppShell>
+                  <CommandPalette projects={projects} />
+                  <QuickAddModal projects={projects} userId={DEMO_USER_ID} />
+                </TaskEditorProvider>
+              </SuggestionProvider>
             </QuickAddProvider>
           </TaskEditingHoldProvider>
           <BulkActionBar projects={projects} />

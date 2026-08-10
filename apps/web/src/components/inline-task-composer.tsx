@@ -5,7 +5,7 @@ import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
 import { useQuickAddContext } from "@/lib/quick-add-context";
 import { useIsCompact } from "@/lib/task-row-behavior";
 import type { QuickAddSeed } from "@/lib/quick-add";
-import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
+import { ParsedPreview, QuickAddChipRow, SuggestedFacets } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
 function PlusIcon() {
@@ -101,6 +101,9 @@ export function InlineTaskComposer({
     if (e.key === "Escape") {
       e.preventDefault();
       collapse(true);
+    } else if (e.key === "Tab" && !e.shiftKey && composer.acceptSuggestions()) {
+      // Only when there was something to take; otherwise Tab still moves focus.
+      e.preventDefault();
     }
   }
 
@@ -185,6 +188,13 @@ export function InlineTaskComposer({
               className="mt-1.5"
             />
           ) : null}
+          <SuggestedFacets
+            suggestions={composer.suggestions}
+            projects={ctx.projects}
+            onAcceptProject={composer.setProjectId}
+            onAcceptDuration={composer.setDuration}
+            className="mt-1.5"
+          />
         </div>
         {composer.error ? (
           <div className="mt-1 pl-9 text-xs text-red-500">{composer.error}</div>

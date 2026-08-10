@@ -138,6 +138,25 @@ class DemoTasksApiImpl {
     return ok(summarizeTags(this.tasks));
   }
 
+  /**
+   * The sandbox's seed is a couple of dozen tasks written to look like a real
+   * week, not a habit built up over months, so this is honestly answerable and
+   * honestly thin: `suggestFacets` will find almost nothing above its evidence
+   * thresholds and the chips will simply stay empty. That is the correct demo
+   * of the feature — a first-week user sees the same thing.
+   */
+  async suggestionHistory(opts?: { limit?: number }) {
+    return ok(
+      this.tasks
+        .slice(0, opts?.limit ?? 800)
+        .map((t) => ({
+          title: t.title,
+          project_id: t.project_id,
+          duration_minutes: t.duration_minutes,
+        }))
+    );
+  }
+
   async listByTag(tag: string, opts?: { limit?: number }) {
     return this.list({ tags: [tag], limit: opts?.limit ?? 500, offset: 0 });
   }

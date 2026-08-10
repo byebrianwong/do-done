@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useQuickAddComposer } from "@/lib/use-quick-add-composer";
 import { useQuickAddContext } from "@/lib/quick-add-context";
 import type { QuickAddSeed } from "@/lib/quick-add";
-import { ParsedPreview, QuickAddChipRow } from "./quick-add-chips";
+import { ParsedPreview, QuickAddChipRow, SuggestedFacets } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
 function PlusIcon() {
@@ -108,6 +108,13 @@ export function QuickAddBar({
             type="text"
             value={composer.input}
             onChange={(e) => composer.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              // Tab takes the offered guesses, and only when there are any —
+              // otherwise it has to keep moving focus, which is what Tab means
+              // everywhere else on this form.
+              if (e.key === "Tab" && !e.shiftKey && composer.acceptSuggestions())
+                e.preventDefault();
+            }}
             disabled={composer.submitting}
             aria-label="Add a task"
             placeholder={placeholder}
@@ -135,6 +142,13 @@ export function QuickAddBar({
                 className="px-4 pb-1"
               />
             ) : null}
+            <SuggestedFacets
+              suggestions={composer.suggestions}
+              projects={ctx.projects}
+              onAcceptProject={composer.setProjectId}
+              onAcceptDuration={composer.setDuration}
+              className="px-4 pb-1"
+            />
             <div className="flex flex-wrap items-center gap-2 border-t border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
               <QuickAddChipRow
                 priority={composer.priority}

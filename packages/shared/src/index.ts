@@ -16,5 +16,6 @@ export * from "./phosphor.js";
 export * from "./voice.js";
 export * from "./task-row.js";
 export * from "./tags.js";
+export * from "./suggest.js";
 export * from "./spark.js";
 export * from "./streak.js";
