@@ -738,26 +738,28 @@ export function QuickAddPickers({
       : []),
   ];
 
-  const priorityItems: MenuItem[] = [
-    ...PRIORITY_PICKER_OPTIONS.map((p) => ({
-      key: p.value,
-      label: p.label,
-      hint: p.code,
-      icon: 'flag' as const,
-      color: PRIORITY_COLORS[p.value],
-      selected: priority === p.value,
-    })),
-    ...(priority
-      ? [
-          {
-            key: 'none',
-            label: 'No priority',
-            icon: 'close-circle-outline' as const,
-            color: '#9ca3af',
-          },
-        ]
-      : []),
-  ];
+  /**
+   * The four ranks, and nothing else.
+   *
+   * There used to be a fifth row here, "No priority", offered once a rank was
+   * picked. It set the draft field to null so the create omitted `priority` —
+   * and `tasks.priority` is `not null default 'p4'`, so the task it made was a
+   * P4, exactly like choosing Low two rows above. Two labels, one outcome, and
+   * the one that got read named a state a task cannot be in: there is no null
+   * priority and never has been.
+   *
+   * Re-tapping the selected row still clears the chip, which is the same
+   * P4 by a different door — but that reads as undoing a choice rather than as
+   * a fifth option on the list.
+   */
+  const priorityItems: MenuItem[] = PRIORITY_PICKER_OPTIONS.map((p) => ({
+    key: p.value,
+    label: p.label,
+    hint: p.code,
+    icon: 'flag' as const,
+    color: PRIORITY_COLORS[p.value],
+    selected: priority === p.value,
+  }));
 
   const estimateItems: MenuItem[] = [
     ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
@@ -824,11 +826,10 @@ export function QuickAddPickers({
   };
 
   const selectPriority = (key: string) => {
-    // Picking the priority already on the draft clears it, so the chip is a
-    // toggle as well as a picker — the explicit "No priority" row stays for
-    // discoverability.
-    const cleared = key === 'none' || key === priority;
-    fields.setPriority(cleared ? null : (key as TaskPriority));
+    // Picking the rank already on the draft clears the chip, so it is a toggle
+    // as well as a picker. Clearing leaves the create with no `priority`, which
+    // the column defaults to p4 — the same task Low would have made.
+    fields.setPriority(key === priority ? null : (key as TaskPriority));
     fields.setMenu(null);
   };
 

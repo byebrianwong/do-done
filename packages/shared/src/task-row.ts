@@ -38,9 +38,12 @@ import {
  * everywhere has stopped being one. P3 is the lowest rank someone actually
  * chose, so it is the lowest one worth drawing.
  *
- * (The mobile picker calls P4 "No priority" while `PRIORITY_CONFIG` labels it
- * "Low" — one value doing two jobs. Splitting it into a real `none` would let
- * all four ranks draw; until then this is the honest line.)
+ * P4 is one value doing two jobs — the rank called "Low", and the absence of a
+ * choice — and nothing can tell them apart, because a task cannot *not* have a
+ * priority: the column is `not null default 'p4'`, there is no null and no
+ * `none`. Splitting the two apart would let all four ranks draw here, and it
+ * is a migration plus every priority surface; until someone wants that, this
+ * is the honest line.
  */
 export type RowGutter = "overdue" | "p1" | "p2" | "p3" | null;
 

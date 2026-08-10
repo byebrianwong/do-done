@@ -65,10 +65,12 @@ export const PRIORITY_CONFIG: Record<
   p1: { label: "Urgent", color: "#ef4444", score: 40 },
   p2: { label: "High", color: "#f97316", score: 30 },
   p3: { label: "Medium", color: "#64748b", score: 20 },
-  // Deliberately the quietest of the four: p4 is "no priority set", not a
-  // priority someone chose, so it reads as one dim bar next to the unlit ones.
-  // It is the one rank the task row's gutter draws nothing for — see
-  // `rowGutter` in task-row.ts for why that asymmetry is the honest one.
+  // Deliberately the quietest of the four. "Low" is the only name this rank
+  // has anywhere in the product, and the column is `not null default 'p4'`, so
+  // it is also what a task gets when nobody picks — which makes it both a rank
+  // and the absence of a choice, indistinguishably. That is why the task row's
+  // gutter is the one surface that draws nothing for it; see `rowGutter` in
+  // task-row.ts.
   p4: { label: "Low", color: "#a3a3a3", score: 10 },
 };
 
