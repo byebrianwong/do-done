@@ -170,6 +170,35 @@ pnpm --filter mobile start  # Start Expo dev server (then `a`=android, `i`=ios)
 pnpm --filter @do-done/mcp build  # Build MCP server
 ```
 
+### Running the app to look at it
+
+`.claude/launch.json` names the servers an agent starts with `preview_start`
+(`web`, `mobile`, `storybook`, `mcp`) — **never launch a dev server with a bare
+shell command**, or nothing can find it afterwards.
+
+**The `web` entry sets `"autoPort": true`, and that is deliberate.** Worktrees
+are a normal way to work here, so a second session is often already holding
+3000; without the flag the server simply refuses to start and there is no way
+to see the change at all. With it, 3000 is still used whenever it's free — the
+flag only engages in the case whose alternative is nothing.
+
+**The one thing it costs: connecting Google Calendar only works on port 3000.**
+`api/calendar/connect` builds its `redirectUri` from the request origin, and
+Google Cloud Console has only `http://localhost:3000/api/calendar/callback`
+registered, so any other port comes back `redirect_uri_mismatch`. Free 3000
+before testing that flow. Nothing else is port-sensitive: `APP_URL` is pinned
+to the deployed URL even locally, so the MCP OAuth issuer doesn't vary with the
+port, and the mismatch fails loudly on your *own* origin rather than quietly
+landing on the other session's server.
+
+Note that `README.md` and `docs/HANDOFF.md` both say `localhost:3000`, so the
+port the tool prints can disagree with the docs. The printed one is right.
+
+**Verify against `/demo`, not a login wall.** It needs no session and seeds its
+own data — see *The demo sandbox*. Copy `.env.local` and `apps/web/.env.local`
+in from the main checkout first; a worktree has neither, and without them the
+auth proxy 500s on every route including `/demo`.
+
 ## Code Style
 
 - Strict TypeScript everywhere. No `any`.

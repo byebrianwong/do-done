@@ -2,6 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "//": "autoPort lets this start when another worktree's session holds 3000; 3000 is still used when free. Cost: Google Calendar connect only works on 3000 (its redirect_uri is registered there). See CLAUDE.md → Running the app to look at it.",
       "name": "web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "web", "dev"],

@@ -161,7 +161,9 @@ pnpm install
 ./node_modules/.bin/turbo run test --force        # 9 tasks; 4 suites, 417 tests
 ./node_modules/.bin/turbo run typecheck --force   # 12 tasks
 pnpm --filter web lint                            # 0 errors, 19 known warnings
-pnpm --filter web dev                             # → localhost:3000
+pnpm --filter web dev                             # → localhost:3000 (agents go via
+                                                  #   preview_start "web", which has
+                                                  #   autoPort — trust the printed port)
 pnpm --filter mobile start                        # then a=android, i=ios
 pnpm --filter web storybook                       # → localhost:6006
 ```

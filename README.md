@@ -109,6 +109,13 @@ pnpm test                    # run all tests
 pnpm lint
 ```
 
+> **Port note.** An agent starting the web server through `.claude/launch.json`
+> has `autoPort` on, so when 3000 is already taken (a second worktree, say) it
+> lands on a free port instead of failing — trust the port it prints over the
+> `3000` above. The one flow that needs 3000 specifically is **connecting Google
+> Calendar**: its redirect URI is registered as
+> `http://localhost:3000/api/calendar/callback`, and any other port is rejected.
+
 **Environment variables** (`.env.example` → `.env.local`): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `POWERSYNC_URL`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (Calendar OAuth), and `DO_DONE_USER_ID` for the MCP server.
 
 ---
