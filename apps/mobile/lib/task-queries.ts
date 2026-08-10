@@ -44,6 +44,15 @@ export const taskKeys = {
   everything: () => [...taskKeys.lists(), 'all'] as const,
   completed: () => [...taskKeys.all, 'completed'] as const,
   search: (q: string) => [...taskKeys.all, 'search', q] as const,
+  // A tag list holds finished tasks too (the view's Display menu decides
+  // whether to show them), so it can't live under lists() — a completion
+  // must not optimistically drop the row out of a list that means to keep it.
+  tagged: (tag: string) => [...taskKeys.all, 'tag', tag] as const,
+};
+
+export const tagKeys = {
+  all: ['tags'] as const,
+  summary: () => [...tagKeys.all, 'summary'] as const,
 };
 
 export const projectKeys = {
@@ -99,6 +108,39 @@ export function useSearchTasks(query: string) {
     queryFn: async () => {
       const api = await getTasksApi();
       const { data, error } = await api.search(q);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+/**
+ * Every tag the user has, with its counts.
+ *
+ * Server-side rather than derived from a loaded list: the tags on the 100
+ * tasks Today happens to hold are not the user's tags, and an index that
+ * silently omits some is worse than no index.
+ */
+export function useTags() {
+  return useQuery({
+    queryKey: tagKeys.summary(),
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.listTags();
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+/** Every task carrying one tag — server-filtered, so nothing is off the page. */
+export function useTaggedTasks(tag: string) {
+  return useQuery({
+    queryKey: taskKeys.tagged(tag),
+    enabled: tag.length > 0,
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.listByTag(tag);
       if (error) throw error;
       return data ?? [];
     },
@@ -272,6 +314,11 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
 export function invalidateTasks() {
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // The tag summary is counts over tasks, so any write can move it — a tag
+  // added in the editor, a task completed, a task deleted. Kept out of
+  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
+  // it: its cached value is TagSummary[], not Task[].
+  queryClient.invalidateQueries({ queryKey: tagKeys.all });
   // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
   refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and

@@ -358,6 +358,71 @@ be reached, so it is a function both callers share rather than a comment.
 `/name` resolves against the same list; unmatched, it stays the bare name it
 always was (`parsed.project`), and only `parsed.project_id` ever reaches a task.
 
+## Seeing tags, and filtering by one
+
+**A tag is not a row anywhere.** `tasks.tags` is a bare `text[]` — no tag
+table, no join table, no per-user registry — so "the user's tags" is a
+question only the task list can answer, and a tag exists exactly as long as
+some task carries it. Everything below follows from that.
+
+`summarizeTags` in `packages/shared/src/tags.ts` is the single answer: rows in,
+one `TagSummary { tag, task_count, open_count }` per distinct tag out, ordered
+by open work then alphabetically. Web's index, mobile's, the demo sandbox and
+the MCP tool all call it, so a count can't mean one thing on the phone and
+another on the laptop.
+
+| Surface | Where |
+| --- | --- |
+| Web | `/tags` (sidebar) → `/tags/<tag>`; every tag chip on a row links to the latter |
+| Mobile | Projects tab ⟶ tag button, and Settings → Tags → `/tags/<tag>` |
+| MCP | `list_tags`, plus a `tags` filter on `list_tasks` |
+
+- **Matching is exact, including case.** `#Work` and `#work` are two tags —
+  in the column, in `applyDisplay`'s tag filter, and in PostgREST's
+  `overlaps`. Folding case in the *index alone* would make the count on a card
+  disagree with the list that card opens, which is the one thing an index of
+  counts must never do. Normalising tags where they are **written** is a real
+  change and a separate one; until then every reader agrees.
+- **The counts come from a sweep of the task rows, not from a loaded list.**
+  `TasksApi.listTags()` selects two narrow columns with no `.range()`, the same
+  shape and cost as `ProjectsApi.listWithCounts`. The per-view `availableTags`
+  feeding the Display menu's tag pills is a *different* thing and stays as it
+  was: it can only see the slice on screen, which is right for narrowing the
+  list you are looking at and useless as an index of what exists.
+- **`TasksApi.listByTag` goes through `overlaps("tags", …)`** — the first
+  caller of the `idx_tasks_tags` GIN index, which had been dead since it was
+  created. Filtering a fetched page in the client instead would silently miss
+  everything past the limit, which on a tag view is the entire point of the
+  page.
+- **A tag view is an ordinary list**, so web hands it to `TaskDisplayView` and
+  the whole Display menu works there. `viewKey` is the bare `"tag"` — one saved
+  config for the surface, not one per tag, or a preference would reset itself
+  every time a new tag was coined.
+- **No quick-add on a tag view, on either platform.** Nothing in the composer
+  seeds a *tag*, so a task typed there would be created without one and drop
+  straight out of the list it was typed into — the bug the Today bar had before
+  `contextFacets`.
+- **A missing tag is not a 404.** "Never existed" and "nothing carries it any
+  more" are the same state, so `/tags/<gone>` renders an empty view that
+  explains itself rather than an error; a link from a task someone just
+  untagged has to land somewhere.
+- **The tag chip is the one chip on a web row that navigates rather than
+  edits.** Every other one opens a popover in place, so this is a `Link` that
+  stops the click reaching the row — otherwise the editor would open over the
+  page it just navigated to. It draws its `#` back on now that it goes
+  somewhere. **Mobile rows still show no tags**: that row collapses everything
+  into `rowSubline`'s one line of prose by design (see *The task row*), and a
+  tappable chip would be the first thing to break the rule.
+- **Mobile's tag summary is its own query root** (`tagKeys`, not under
+  `taskKeys`). The optimistic `setQueriesData<Task[]>` sweeps rewrite anything
+  under `taskKeys.all`, and this cache holds `TagSummary[]`. `invalidateTasks()`
+  invalidates it explicitly, since any write can move a count.
+- **MCP can now read what it could already write.** `create_task`/`update_task`
+  have always taken `tags` while nothing could list or filter by them, so an
+  agent could only guess at spellings. `search_tasks` still won't find a tag —
+  tags are not in the `fts` vector — which is why `list_tags`' description says
+  so out loud.
+
 ## Linking to a task (web)
 
 Every task has an address, and the editor keeps the address bar honest:

@@ -6,10 +6,12 @@ import type {
   TaskFilterInput,
   PetEventActor,
   StatusSyncSettings,
+  TagSummary,
   TaskStatus,
   TrackedField,
 } from "@do-done/shared";
 import {
+  summarizeTags,
   TRACKED_FIELDS,
   todayLocalISO,
   addDaysLocalISO,
@@ -233,6 +235,51 @@ export class TasksApi {
       data: normalizeTasks((data as Task[]) ?? []),
       error: error as Error | null,
     };
+  }
+
+  /**
+   * Every tag the user has, with the work filed under each.
+   *
+   * There is no tag table to read — `tasks.tags` is a `text[]` — so the only
+   * honest answer comes from sweeping the task rows. This is why it is a
+   * dedicated method rather than something a view derives from the tasks it
+   * happens to have loaded: a per-view `availableTags` can only ever show the
+   * tags in that slice, which is fine for narrowing a list you are looking at
+   * and useless as an index of what exists.
+   *
+   * Two narrow columns and no `.range()`, mirroring
+   * `ProjectsApi.listWithCounts` — the same "count every row" shape, at the
+   * same cost, for the same reason. The aggregation itself is
+   * `summarizeTags` in `@do-done/shared`, so the demo sandbox, mobile and the
+   * MCP tool all count tags the one way.
+   */
+  async listTags(): Promise<{ data: TagSummary[]; error: Error | null }> {
+    let query = this.supabase.from("tasks").select("tags, status");
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query;
+    if (error) return { data: [], error: error as Error };
+    return {
+      data: summarizeTags(
+        (data as Array<{ tags: string[] | null; status: string }>) ?? []
+      ),
+      error: null,
+    };
+  }
+
+  /**
+   * Every task carrying `tag`, newest slice first.
+   *
+   * Goes through PostgREST's `overlaps`, which is what the `idx_tasks_tags`
+   * GIN index is there for — the alternative (fetch a page of tasks and
+   * filter in the client) silently misses anything past the page limit, which
+   * on a tag view is the whole point of the page.
+   */
+  async listByTag(
+    tag: string,
+    opts?: { limit?: number }
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    return this.list({ tags: [tag], limit: opts?.limit ?? 500, offset: 0 });
   }
 
   async getById(id: string): Promise<{ data: Task | null; error: Error | null }> {

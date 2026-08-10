@@ -47,6 +47,7 @@ import {
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { taskPath } from "@/lib/task-link";
+import { tagPath } from "@/lib/tag-link";
 import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
@@ -1201,13 +1202,23 @@ export function TaskItem({
               compact ? "gap-1.5" : "gap-2"
             }`}
           >
+            {/* The one chip in this row that navigates rather than edits.
+                Every other chip opens a popover in place, so this is a Link
+                and stops the click from also reaching the row (which would
+                open the editor over the page it just navigated to). The `#`
+                is drawn back on now the chip goes somewhere: it says this is
+                a tag rather than a word someone stuck on the task. */}
             {task.tags.map((tag) => (
-              <span
+              <Link
                 key={tag}
-                className={`${align.meta} rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400`}
+                href={tagPath(tag)}
+                onClick={(e) => e.stopPropagation()}
+                title={`Show everything tagged #${tag}`}
+                className={`${align.meta} rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 transition-colors hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900`}
               >
+                <span className="opacity-60">#</span>
                 {tag}
-              </span>
+              </Link>
             ))}
 
             {task.recurrence_rule && (

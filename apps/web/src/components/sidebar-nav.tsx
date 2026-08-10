@@ -120,6 +120,25 @@ const NAV_ITEMS = [
     ),
   },
   {
+    label: "Tags",
+    href: "/tags",
+    icon: (
+      <svg
+        className="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M7 7h.01M7 3h5a2 2 0 011.414.586l7 7a2 2 0 010 2.828l-5 5a2 2 0 01-2.828 0l-7-7A2 2 0 013 10V5a2 2 0 012-2z"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Completed",
     href: "/completed",
     icon: (

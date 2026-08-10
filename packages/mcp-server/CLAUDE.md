@@ -9,7 +9,8 @@ transports live elsewhere (`apps/mcp` for stdio, `apps/web` for HTTP).
 - `src/icon.ts` — the DoDone mark advertised as the server's `icons`
 - `src/tools/index.ts` — 9 task tools (list_tasks, create_task, update_task,
   complete_task, search_tasks, get_agenda, get_focus_tasks, get_weekly_summary,
-  organize_tasks) + 2 project tools (list_projects, reorder_projects)
+  organize_tasks) + 2 project tools (list_projects, reorder_projects) +
+  list_tags
 - `src/tools/pets.ts` — 5 pet tools: get_pet_state, propose_pet_goal,
   accept_pet_goal, narrate_task_completion, get_pet_history
 - `src/resources/index.ts` — 4 resources: tasks://inbox, tasks://today,
@@ -56,6 +57,18 @@ the stdio process sits through midnight.
 
 Date arithmetic in `src/dates.ts` parses `YYYY-MM-DD` at UTC midnight, so a DST
 boundary inside a span can't round a day count off by one.
+
+## Tags
+
+`list_tags` is the only way an agent learns the tags that exist: they are a
+bare `text[]` on the task with no table behind them, and **`search_tasks` does
+not find them** — the `fts` column covers title and description only. Its
+description says both, because a client that guesses `#Work` when the user
+writes `#work` gets an empty list and no hint why: matching is exact, right
+down through `list_tasks`' `tags` filter to PostgREST's `overlaps`.
+
+`create_task`/`update_task` have always accepted `tags`, so until now the
+server could write a facet it could not read back.
 
 ## Scoping
 
