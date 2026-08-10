@@ -203,10 +203,17 @@ export function DraggableToday({
       return;
     }
 
-    // Commit the final within-section position from the row we're hovering.
+    // Commit the final within-section position from the row we're hovering —
+    // and only for a drag that never left its section. A cross-section drag
+    // was already placed by handleDragOver, at the index the preview shows;
+    // re-deriving it from `over` here overrides that with an answer a slot off.
     const overId = String(over.id);
     let finalTasks = localTasks;
-    if (!overId.startsWith("g:") && overId !== activeId) {
+    if (
+      fromS.key === toS.key &&
+      !overId.startsWith("g:") &&
+      overId !== activeId
+    ) {
       const overS = findSectionOf(localTasks, overId);
       if (overS?.key === toS.key) {
         const ids = toS.tasks.map((t) => t.id);
