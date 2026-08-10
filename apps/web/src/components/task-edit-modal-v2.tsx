@@ -1122,6 +1122,12 @@ type WaveRun = {
 
 type SpanWave = {
   runs: WaveRun[];
+  /**
+   * The scheduled day's own cell — the last window in the same coordinate
+   * space, drawn over the cell rather than behind it. Null when the target
+   * isn't on this grid, in which case the span simply runs off the edge.
+   */
+  target: WaveRun | null;
   /** Total length of the span across every row, end to end. */
   totalWidth: number;
   bandWidth: number;
@@ -1138,9 +1144,10 @@ type SpanWave = {
  * to end they form one continuous space the band crosses exactly once, so the
  * wave reads as a single sweep rather than restarting on each row.
  *
- * The region stops at the target cell's left edge: the selected day is a solid
- * indigo fill that the band could not show through anyway, so the wave arrives
- * at it rather than under it.
+ * The span runs *through* the scheduled day, not up to it. That cell is
+ * returned again on its own as `target` so the overlay can draw the crest over
+ * the solid fill (see `.dd-wave-crest`); its offset is measured along the same
+ * space, so the two layers are one band rather than two in step.
  */
 function useSpanWave(
   gridRef: React.RefObject<HTMLDivElement | null>,
@@ -1163,7 +1170,7 @@ function useSpanWave(
     }
     const measure = () => {
       const base = el.getBoundingClientRect();
-      const dates = [fromDate, ...betweenKey.split(",")];
+      const dates = [fromDate, ...betweenKey.split(","), toDate];
       const rects: DOMRect[] = [];
       for (const d of dates) {
         const cell = el.querySelector<HTMLElement>(`[data-date="${d}"]`);
@@ -1176,9 +1183,13 @@ function useSpanWave(
         setWave(null);
         return;
       }
+      // Only a grid that got all the way to the scheduled day has a crest to
+      // draw; one the span merely crosses ends at its edge, as before.
+      const targetIdx = rects.length === dates.length ? rects.length - 1 : -1;
 
       // Group consecutive cells into per-row runs.
       const runs: WaveRun[] = [];
+      let target: WaveRun | null = null;
       let offset = 0;
       let i = 0;
       while (i < rects.length) {
@@ -1199,6 +1210,18 @@ function useSpanWave(
           height: first.height,
           offset,
         });
+        // The target is always the final cell, so it closes whichever run it
+        // lands in — its own window, offset by how far into that run it sits.
+        if (targetIdx >= i && targetIdx <= j) {
+          const cell = rects[targetIdx];
+          target = {
+            left: cell.left - base.left,
+            top: cell.top - base.top,
+            width: cell.width,
+            height: cell.height,
+            offset: offset + (cell.left - first.left),
+          };
+        }
         offset += width;
         i = j + 1;
       }
@@ -1218,7 +1241,7 @@ function useSpanWave(
         Math.max((totalWidth + bandWidth) * 7.5, 2200),
         7000
       );
-      setWave({ runs, totalWidth, bandWidth, durationMs });
+      setWave({ runs, target, totalWidth, bandWidth, durationMs });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -1234,40 +1257,53 @@ function useSpanWave(
  * come later in DOM order and are all positioned, paint on top of it — the band
  * glows through their translucent backgrounds instead of washing over the day
  * numbers.
+ *
+ * The crest is the exception, and `z-10` is what lifts it back over the one
+ * cell that is opaque. Both layers are mounted in the same commit and given the
+ * same duration, so they start together and stay one band.
+ *
+ * `cellRadius` has to match the cells the windows are cut from: the crest sits
+ * *on* the selected day, so a corner rounder than the cell's would paint white
+ * onto the grid behind it.
  */
-function SpanWaveOverlay({ wave }: { wave: SpanWave }) {
-  const { runs, totalWidth, bandWidth, durationMs } = wave;
+function SpanWaveOverlay({
+  wave,
+  cellRadius = "rounded-lg",
+}: {
+  wave: SpanWave;
+  cellRadius?: string;
+}) {
+  const { runs, target, totalWidth, bandWidth, durationMs } = wave;
+  const bandVars = {
+    "--dd-wave-width": `${bandWidth}px`,
+    "--dd-wave-travel": `${totalWidth + bandWidth}px`,
+    "--dd-wave-duration": `${durationMs}ms`,
+  } as React.CSSProperties;
+  /** One window onto the shared coordinate space, carrying one band layer. */
+  const renderWindow = (run: WaveRun, band: string, z: string) => (
+    <div
+      key={`${z}-${run.top}-${run.left}`}
+      className={`absolute overflow-hidden ${cellRadius} ${z}`}
+      style={{
+        left: run.left,
+        top: run.top,
+        width: run.width,
+        height: run.height,
+      }}
+    >
+      {/* Shifts this window into the span's shared coordinate space. */}
+      <div
+        className="absolute inset-y-0"
+        style={{ left: -run.offset, width: totalWidth }}
+      >
+        <div className={band} style={bandVars} />
+      </div>
+    </div>
+  );
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-      {runs.map((run) => (
-        <div
-          key={`${run.top}-${run.left}`}
-          className="absolute overflow-hidden rounded-lg"
-          style={{
-            left: run.left,
-            top: run.top,
-            width: run.width,
-            height: run.height,
-          }}
-        >
-          {/* Shifts this row's window into the span's shared coordinate space. */}
-          <div
-            className="absolute inset-y-0"
-            style={{ left: -run.offset, width: totalWidth }}
-          >
-            <div
-              className="dd-wave-band"
-              style={
-                {
-                  "--dd-wave-width": `${bandWidth}px`,
-                  "--dd-wave-travel": `${totalWidth + bandWidth}px`,
-                  "--dd-wave-duration": `${durationMs}ms`,
-                } as React.CSSProperties
-              }
-            />
-          </div>
-        </div>
-      ))}
+      {runs.map((run) => renderWindow(run, "dd-wave-band", ""))}
+      {target ? renderWindow(target, "dd-wave-crest", "z-10") : null}
     </div>
   );
 }
@@ -1328,7 +1364,7 @@ export function MonthGrid({
         digits like a strikethrough.
       */}
       <div ref={gridRef} className="relative grid grid-cols-7 gap-0.5">
-        {wave ? <SpanWaveOverlay wave={wave} /> : null}
+        {wave ? <SpanWaveOverlay wave={wave} cellRadius="rounded-md" /> : null}
         {cells.map((c, i) => {
           if (!c.date) {
             return <div key={`pad-${i}`} className="h-7" />;
