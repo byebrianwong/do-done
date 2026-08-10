@@ -387,6 +387,20 @@ export class TasksApi {
       patch.completed_at = null;
     }
 
+    // Re-parenting inherits the new parent's project, on the same terms as
+    // creation: only when the caller didn't name a project in the same write.
+    // Without this the two ways of making a task a subtask disagree — created
+    // under a parent it lands in the parent's project, moved under one it keeps
+    // whatever it had.
+    if (
+      input.parent_task_id &&
+      input.project_id === undefined &&
+      input.parent_task_id !== prior?.parent_task_id
+    ) {
+      const { data: parent } = await this.getById(input.parent_task_id);
+      if (parent?.project_id) patch.project_id = parent.project_id;
+    }
+
     // Status ↔ schedule auto-sync. Folded into the same UPDATE rather than
     // chased with a second write, so the row the caller gets back is already
     // the row the rule wants — no flicker, and no window where a concurrent
@@ -417,6 +431,22 @@ export class TasksApi {
       return { data: null, error: error as Error | null };
     }
     const updated = normalizeTask(data as Task);
+
+    // A parent's move carries its subtree with it. Filing a task into Finance
+    // and leaving its subtasks in whatever they were is the same bug the
+    // create-time inheritance above fixed, arriving a day later — the subtasks
+    // are the same work, and a project page that shows the parent without them
+    // is lying about what's left. Awaited, not fired and forgotten, so the
+    // caller's cache invalidation lands after the children have moved.
+    //
+    // Tested against the *result*, not the input, so a project acquired by
+    // re-parenting propagates too. A subtask that was deliberately filed
+    // elsewhere is overwritten: the parent moving is the more recent
+    // instruction, and the alternative — remembering which subtasks had been
+    // hand-filed — is state nothing on this surface can show the user.
+    if (prior && updated.project_id !== prior.project_id) {
+      await this.cascadeProject(id, updated.project_id);
+    }
 
     // Pet feeding — completion + edit are independent and may both fire on
     // the same write (e.g. user saves the task with a new description AND
@@ -480,6 +510,26 @@ export class TasksApi {
       ids.push(...frontier);
     }
     return ids;
+  }
+
+  /**
+   * Move every descendant of `id` into `projectId`. Best-effort: the parent's
+   * own move has already landed and there is nothing to roll back to, so a
+   * failure here leaves the subtree behind rather than failing the write the
+   * user actually asked for.
+   */
+  private async cascadeProject(
+    id: string,
+    projectId: string | null
+  ): Promise<void> {
+    const descendants = (await this.subtreeIds(id)).slice(1);
+    if (descendants.length === 0) return;
+    let query = this.supabase
+      .from("tasks")
+      .update({ project_id: projectId })
+      .in("id", descendants);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    await query;
   }
 
   async delete(id: string): Promise<{ error: Error | null }> {
