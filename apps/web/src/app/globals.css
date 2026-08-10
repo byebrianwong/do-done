@@ -479,9 +479,16 @@ body {
   42%, 88% { transform: scale(1); }
   96%, 100% { transform: scale(0); }
 }
+/* The ring fills with its own colour — which is the project's, since that is
+   what `--dd-ring` carries. Completion is a state, not a rank, so it looks the
+   same whatever the priority; filling with a flat neutral (as this did) was the
+   last place the hero still described the row the app stopped drawing. */
 @keyframes dd-tick-ring {
   0%, 34% { background-color: transparent; border-color: var(--dd-ring, #6366f1); }
-  42%, 88% { background-color: #d4d4d4; border-color: #d4d4d4; }
+  42%, 88% {
+    background-color: var(--dd-ring, #6366f1);
+    border-color: var(--dd-ring, #6366f1);
+  }
   96%, 100% { background-color: transparent; border-color: var(--dd-ring, #6366f1); }
 }
 @keyframes dd-tick-title {
