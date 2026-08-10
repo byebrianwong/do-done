@@ -40,14 +40,16 @@ function task(over: Partial<Task> = {}): Task {
 }
 
 describe("rowGutter", () => {
+  // P4 is the column default, so it is what an untriaged task carries — a
+  // mark there would appear on nearly every row and say nothing.
   it("draws nothing for the tasks nobody triaged", () => {
     expect(rowGutter(task({ priority: "p4" }), NOW)).toBeNull();
-    expect(rowGutter(task({ priority: "p3" }), NOW)).toBeNull();
   });
 
-  it("marks P1 and P2", () => {
+  it("marks every rank someone chose", () => {
     expect(rowGutter(task({ priority: "p1" }), NOW)).toBe("p1");
     expect(rowGutter(task({ priority: "p2" }), NOW)).toBe("p2");
+    expect(rowGutter(task({ priority: "p3" }), NOW)).toBe("p3");
   });
 
   // The gutter is one slot, and being late is the more actionable fact: a P1

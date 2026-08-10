@@ -12,6 +12,8 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  OVERDUE_COLOR,
+  PRIORITY_CONFIG,
   TASK_COMPLETE_EXIT_MS,
   addDaysLocalISO,
   shouldSpark,
@@ -50,19 +52,24 @@ export type Task = SharedTask;
  * one. Hue is a nominal channel — it says which, not how much — so it fits a
  * project, a label with no ordering, natively.
  *
- * The **gutter** is urgency: a red dot when the task is late, a short bar for
- * P1 and P2, and nothing at all otherwise. Priority is ordinal, so it is drawn
- * with position and length instead. P3 and P4 render nothing on purpose: a
- * mark that appears on every row has stopped saying anything, and almost every
- * task nobody triaged is a P4.
+ * The **gutter** is urgency: a red dot when the task is late, then a bar whose
+ * length falls with the rank. Priority is ordinal, so it is drawn with position
+ * and length instead of hue. P4 renders nothing on purpose — it is the column
+ * default, so it marks the tasks nobody triaged, and a mark that appears on
+ * every row has stopped saying anything.
+ *
+ * Only the geometry is local here: the colours come from the shared
+ * `PRIORITY_CONFIG`, so this column can never disagree with the picker that
+ * sets it or with the same row drawn on web and on the home screen.
  *
  * Everything else that used to be a chip is one muted line of prose under the
  * title (`rowSubline`), where an unset field takes no space at all.
  */
 const GUTTER_STYLE = {
-  overdue: { color: '#dc2626', size: 7, dot: true },
-  p1: { color: '#ef4444', size: 16, dot: false },
-  p2: { color: '#f97316', size: 10, dot: false },
+  overdue: { color: OVERDUE_COLOR, size: 7, dot: true },
+  p1: { color: PRIORITY_CONFIG.p1.color, size: 16, dot: false },
+  p2: { color: PRIORITY_CONFIG.p2.color, size: 10, dot: false },
+  p3: { color: PRIORITY_CONFIG.p3.color, size: 6, dot: false },
 } as const;
 
 /** The ring for a task with no project: chosen, not a missing value. */

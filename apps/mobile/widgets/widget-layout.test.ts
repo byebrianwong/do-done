@@ -130,12 +130,11 @@ describe('what a row says', () => {
     expect(row.project?.color).toBe('#f59e0b');
   });
 
-  it('draws no gutter mark for P3 and P4', () => {
-    for (const priority of ['p3', 'p4'] as const) {
-      expect(buildTaskRow(task({ priority }), DAY_GROUP, []).gutter).toBeNull();
-    }
+  it('draws no gutter mark for P4, the rank nobody chose', () => {
+    expect(buildTaskRow(task({ priority: 'p4' }), DAY_GROUP, []).gutter).toBeNull();
     expect(buildTaskRow(task({ priority: 'p1' }), DAY_GROUP, []).gutter).toBe('p1');
     expect(buildTaskRow(task({ priority: 'p2' }), DAY_GROUP, []).gutter).toBe('p2');
+    expect(buildTaskRow(task({ priority: 'p3' }), DAY_GROUP, []).gutter).toBe('p3');
   });
 
   it('lets a narrow widget drop the estimate column', () => {

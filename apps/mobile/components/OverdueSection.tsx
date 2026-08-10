@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import {
+  OVERDUE_COLOR,
   PRIORITY_CONFIG,
   addDaysLocalISO,
   resolveQuickSchedule,
@@ -117,7 +118,7 @@ export default function OverdueSection({
           <Text style={styles.headerCaret}>{collapsed ? '▶' : '▼'}</Text>
           <Text style={styles.headerTitle}>Overdue ({visible.length})</Text>
         </Pressable>
-        {busy && <ActivityIndicator color="#dc2626" size="small" />}
+        {busy && <ActivityIndicator color={OVERDUE_COLOR} size="small" />}
       </View>
       <View style={styles.bulkRow}>
         <Text style={styles.bulkRowLabel}>Reschedule all</Text>
@@ -293,7 +294,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: 10,
   },
-  bulkBtnEmphasis: { backgroundColor: '#dc2626' },
+  bulkBtnEmphasis: { backgroundColor: OVERDUE_COLOR },
   bulkBtnSoft: {
     backgroundColor: '#fee2e2',
     borderColor: '#fecaca',

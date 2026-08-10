@@ -37,6 +37,7 @@ import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
+  OVERDUE_COLOR,
   filterByConfig,
   groupCalendarEventsByDay,
   isCollapsed,
@@ -218,7 +219,7 @@ export default function UpcomingScreen() {
             <Ionicons
               name={collapsed ? 'chevron-forward' : 'chevron-down'}
               size={14}
-              color={section.key === 'overdue' ? '#ef4444' : '#9ca3af'}
+              color={section.key === 'overdue' ? OVERDUE_COLOR : '#9ca3af'}
             />
             <Text
               style={[
@@ -370,6 +371,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: '#6b7280',
   },
-  overdueText: { color: '#b91c1c' },
+  overdueText: { color: OVERDUE_COLOR },
   sectionCount: { color: '#9ca3af', fontWeight: '500' },
 });

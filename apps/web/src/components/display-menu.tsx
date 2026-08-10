@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   DENSITY_OPTIONS,
   GROUP_OPTIONS,
+  OVERDUE_COLOR,
   PRIORITY_CONFIG,
   SORT_OPTIONS,
   activeFilterCount,
@@ -197,7 +198,7 @@ export function DisplayMenu({
                 ))}
                 <Pill
                   active={hasFlagFilter(config, "overdue")}
-                  accent="#ef4444"
+                  accent={OVERDUE_COLOR}
                   onClick={() => onChange(toggleFlagFilter(config, "overdue"))}
                 >
                   Overdue

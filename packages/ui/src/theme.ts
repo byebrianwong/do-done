@@ -24,15 +24,12 @@ export const colors = {
     900: "#171717",
     950: "#0a0a0a",
   },
-  // Must stay in step with PRIORITY_CONFIG in @do-done/shared — see the note
-  // there for why P3 is indigo rather than yellow (contrast on white, and
-  // red/orange/yellow collapsing into one tone under deuteranopia).
-  priority: {
-    p1: "#ef4444",
-    p2: "#f59e0b",
-    p3: "#6366f1",
-    p4: "#a3a3a3",
-  },
+  // No `priority` ramp here on purpose. It lived here as a copy that had to be
+  // "kept in step with PRIORITY_CONFIG in @do-done/shared", which is another
+  // way of saying it was free to drift — and it did, all the way to a P2 and a
+  // P3 the task rows disagreed with. Import PRIORITY_CONFIG instead; this
+  // package has no dependency on @do-done/shared and shouldn't grow one just
+  // to restate four hex values.
   status: {
     success: "#22c55e",
     // Amber, not yellow: this is drawn on white too, and #eab308 doesn't
