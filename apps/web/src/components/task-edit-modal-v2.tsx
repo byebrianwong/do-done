@@ -17,7 +17,6 @@ import {
   extractTitleShortcuts,
   formatFullDate,
   formatRelativeDay,
-  formatScheduleHint,
   formatTimeOfDay,
   hashString,
   hexToRgb,
@@ -182,153 +181,92 @@ export const ESTIMATE_OPTIONS: {
   { minutes: 960, code: "XL", label: "16 hrs or more", short: "≥16h" },
 ];
 
-// Hitbox tuning — column hitbox is much larger than the visible bar so a
-// click anywhere in the vertical column (even above a short target) selects
-// that value. Previously bars were 4×17px → 68px² targets; now they're
-// 14×28px → 392px² each.
-const PRI_COL_WIDTH = 14;
-const PRI_COL_HEIGHT = 28;
-const PRI_BAR_HEIGHTS = ["h-[8px]", "h-[14px]", "h-[20px]", "h-[26px]"];
-
-const EST_COL_WIDTH = 14;
-const EST_COL_HEIGHT = 28;
-const EST_BAR_HEIGHTS = [
-  "h-[6px]",
-  "h-[11px]",
-  "h-[15px]",
-  "h-[19px]",
-  "h-[23px]",
-  "h-[26px]",
-];
-
-const PRIORITY_BAR_COUNTS = { p1: 4, p2: 3, p3: 2, p4: 1 } as const;
-const PRIORITY_BAR_COLORS = {
+/**
+ * The dot colour each rank wears wherever it is listed. Not
+ * `PRIORITY_CONFIG[p].color`: these are the same four Tailwind tones the task
+ * row's gutter and the modal's stripe already use, so the swatch in the list
+ * matches the mark the user clicked to open it.
+ */
+const PRIORITY_ACCENT: Record<TaskPriority, string> = {
   p1: "bg-red-500",
   p2: "bg-amber-500",
   p3: "bg-indigo-500",
   p4: "bg-neutral-400",
-} as const;
+};
 
-function PrioritySignal({
-  value,
-  hovered,
-  onChange,
-  onHover,
-}: {
-  value: TaskPriority;
-  hovered: TaskPriority | null;
-  onChange: (p: TaskPriority) => void;
-  onHover: (p: TaskPriority | null) => void;
-}) {
-  // While hovering, show what the priority WOULD look like if clicked
-  // (faded). Mouseleave restores the actual selection.
-  const display = hovered ?? value;
-  const litCount = PRIORITY_BAR_COUNTS[display];
-  const colorClass = PRIORITY_BAR_COLORS[display];
-  const previewing = hovered !== null && hovered !== value;
-  return (
-    <div
-      className="inline-flex items-end gap-[3px]"
-      role="radiogroup"
-      aria-label="Priority"
-      style={{ height: PRI_COL_HEIGHT }}
-      onMouseLeave={() => onHover(null)}
-    >
-      {[0, 1, 2, 3].map((i) => {
-        const p = (["p4", "p3", "p2", "p1"] as TaskPriority[])[i];
-        const lit = i < litCount;
-        return (
-          <button
-            key={i}
-            type="button"
-            onClick={() => onChange(p)}
-            onMouseEnter={() => onHover(p)}
-            aria-label={`Set priority ${PRIORITY_CONFIG[p].label}`}
-            aria-pressed={value === p}
-            title={`P${4 - i} · ${PRIORITY_CONFIG[p].label}`}
-            className="group flex items-end justify-center rounded-md p-0 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            style={{
-              width: PRI_COL_WIDTH,
-              height: PRI_COL_HEIGHT,
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <span
-              className={`block w-[6px] rounded-[2px] transition-all ${PRI_BAR_HEIGHTS[i]} ${
-                lit
-                  ? `${colorClass} ${previewing ? "opacity-50" : ""}`
-                  : "bg-neutral-200 dark:bg-neutral-800"
-              }`}
-            />
-          </button>
-        );
-      })}
-    </div>
-  );
+/**
+ * Priority and estimate are both picked from `PickerPopover` — the same list
+ * the task row, the quick-add chips and the context menu offer.
+ *
+ * They used to be little meters here: four (or six) 14px-wide bars you clicked
+ * one of, with a hover preview and a click-the-current-value-to-clear rule.
+ * Three things went wrong with that, and only one of them is fixable in
+ * isolation. The 3px gaps between columns are dead space, so a click that
+ * looks aimed lands on nothing; the hover preview means the meter under the
+ * pointer is showing a value that is *not* the task's, so "click what you
+ * see" sets what you were previewing; and re-picking the value the task
+ * already had silently demoted it to Low. A 32px-tall row naming its value
+ * has none of those failure modes, and it is the control the user has already
+ * met everywhere else in the app.
+ */
+function priorityOptions(
+  value: TaskPriority,
+  onPick: (p: TaskPriority) => void
+): PickerOption[] {
+  return PRIORITY_OPTIONS.map((p) => ({
+    key: p.value,
+    code: p.code,
+    label: p.label,
+    selected: p.value === value,
+    onSelect: () => onPick(p.value),
+    accentClass: PRIORITY_ACCENT[p.value],
+  }));
 }
 
-function EstimateEqualizer({
-  value,
-  hovered,
-  onChange,
-  onHover,
-}: {
-  value: number | null;
-  hovered: number | null;
-  onChange: (minutes: number) => void;
-  onHover: (minutes: number | null) => void;
-}) {
-  // While hovering, preview which bars WOULD light at faded opacity.
-  const displayMinutes = hovered ?? value;
-  const displayIdx = estimateBarIndex(displayMinutes);
+/** The estimate list, plus the row that clears one. Clearing needs to be an
+ *  option you can see: it used to be "click the bucket that's already lit",
+ *  which is indistinguishable from re-confirming it. */
+function estimateOptions(
+  value: number | null,
+  onPick: (minutes: number | null) => void
+): PickerOption[] {
   const activeIdx = estimateBarIndex(value);
-  const previewing = hovered !== null && hovered !== value;
-  return (
-    <div
-      className="inline-flex items-end gap-[3px]"
-      role="radiogroup"
-      aria-label="Estimate"
-      style={{ height: EST_COL_HEIGHT }}
-      onMouseLeave={() => onHover(null)}
-    >
-      {ESTIMATE_OPTIONS.map((b, i) => {
-        const lit = i <= displayIdx;
-        return (
-          <button
-            key={b.minutes}
-            type="button"
-            onClick={() => onChange(b.minutes)}
-            onMouseEnter={() => onHover(b.minutes)}
-            aria-label={`Set estimate to ${b.code} (${b.label})`}
-            aria-pressed={i === activeIdx}
-            title={`${b.code} · ${b.label}`}
-            className="group flex items-end justify-center rounded-md p-0 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            style={{
-              width: EST_COL_WIDTH,
-              height: EST_COL_HEIGHT,
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <span
-              className={`block w-[6px] rounded-[2px] transition-all ${EST_BAR_HEIGHTS[i]} ${
-                lit
-                  ? `bg-indigo-500 ${previewing ? "opacity-50" : ""}`
-                  : "bg-neutral-200 dark:bg-neutral-800"
-              }`}
-            />
-          </button>
-        );
-      })}
-    </div>
-  );
+  const options: PickerOption[] = ESTIMATE_OPTIONS.map((b, i) => ({
+    key: String(b.minutes),
+    code: b.code,
+    label: b.label,
+    selected: i === activeIdx,
+    onSelect: () => onPick(b.minutes),
+    accentClass: "bg-indigo-500",
+  }));
+  if (value != null) {
+    options.push({
+      key: "none",
+      code: "—",
+      label: "No estimate",
+      selected: false,
+      onSelect: () => onPick(null),
+      accentClass: "bg-neutral-300 dark:bg-neutral-700",
+    });
+  }
+  return options;
 }
 
 // ── Status ────────────────────────────────────────────────
 
+/**
+ * The status chip, on the title's own line.
+ *
+ * It had a whole band of the body to itself — a caps "STATUS" label, a
+ * hairline above and below — which is a lot of furniture for one word, and it
+ * sat several sections away from the completion circle that writes the same
+ * column. Beside the title it's the same control, next to the other thing
+ * that says what state this work is in, and the body loses a rule.
+ *
+ * The caps label went with the band: a dot the colour of the status, followed
+ * by its name and a chevron, doesn't need to be told what it is. The name is
+ * still spelled out for a screen reader on the button itself.
+ */
 function StatusField({
   value,
   onChange,
@@ -342,16 +280,15 @@ function StatusField({
   const cfg = STATUS_CONFIG[value];
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2.5">
-      <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-        Status
-      </span>
+    <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+        aria-label={`Status: ${cfg.label}`}
+        title={`Status: ${cfg.label}`}
+        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900"
       >
         <span
           className="h-2 w-2 rounded-full"
@@ -364,7 +301,10 @@ function StatusField({
         <div
           role="listbox"
           aria-label="Status options"
-          className="absolute left-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+          // Hung from the right edge: the chip sits at the right of the title
+          // row, and a left-anchored panel would run past the modal's own
+          // `overflow-hidden` and be cut in half.
+          className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
         >
           {STATUS_ORDER.map((s) => {
             const c = STATUS_CONFIG[s];
@@ -520,50 +460,59 @@ function TaskCover({
   const gradient = `linear-gradient(118deg, ${base}, ${shiftHue(base, 14, 0.16)})`;
 
   return (
-    <div
-      // A flex column ending at the bottom, rather than two absolutely
-      // positioned rows: the pill and the rail are both bottom-aligned, and
-      // stacking them means the rail's generous hit area can't creep up over
-      // the project button the way overlapping absolute boxes did.
-      className="relative flex h-16 shrink-0 flex-col justify-end overflow-hidden sm:h-[92px]"
-      style={{
-        backgroundImage: `${texture.image}, ${gradient}`,
-        backgroundSize: `${texture.size}, auto`,
-      }}
-    >
-      {/* Emoji watermark, bled off the top-right corner so it never competes
-          with the controls that sit along the cover's bottom edge. */}
-      {project?.icon ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-3.5 -top-4 flex select-none leading-none text-white opacity-30 drop-shadow-[0_4px_10px_rgba(0,0,0,0.2)] sm:-top-[18px]"
-          style={{ rotate: "-13deg" }}
-        >
-          {/* A drawn icon has no colours of its own, so on the cover it takes
-              white — the same treatment the controls beside it get. */}
-          <ProjectIcon icon={project.icon} size={86} />
-        </span>
-      ) : null}
-      {/* Darkens the bottom so white controls hold their contrast over a pale
-          project colour (amber and lime are the ones that would otherwise
-          wash out). */}
+    // Two layers, and the split is load-bearing: **the artwork clips, the
+    // controls don't**. The watermark bleeds off the corner and the texture
+    // runs to the edges, both of which need `overflow-hidden` — but every
+    // control down here (project, priority, estimate) opens a popover
+    // *downwards*, out of a box 92px tall, and one `overflow-hidden` on the
+    // shared parent clipped all three away to nothing. They opened, they were
+    // focusable, they were simply invisible, which is exactly what "clicking
+    // doesn't do anything" looks like from the outside.
+    <div className="relative h-16 shrink-0 sm:h-[92px]">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent to-[62%]"
-      />
-
-      <div className="relative flex items-end gap-2 px-3 pb-1">
-        <CoverProjectPill
-          project={project}
-          projects={projects}
-          userId={userId}
-          onChange={onChangeProject}
-          onCreated={onProjectCreated}
-        />
-        <CoverPriorityWord priority={priority} onChange={onChangePriority} />
+        className="absolute inset-0 overflow-hidden"
+        style={{
+          backgroundImage: `${texture.image}, ${gradient}`,
+          backgroundSize: `${texture.size}, auto`,
+        }}
+      >
+        {/* Emoji watermark, bled off the top-right corner so it never competes
+            with the controls that sit along the cover's bottom edge. */}
+        {project?.icon ? (
+          <span
+            className="pointer-events-none absolute -right-3.5 -top-4 flex select-none leading-none text-white opacity-30 drop-shadow-[0_4px_10px_rgba(0,0,0,0.2)] sm:-top-[18px]"
+            style={{ rotate: "-13deg" }}
+          >
+            {/* A drawn icon has no colours of its own, so on the cover it takes
+                white — the same treatment the controls beside it get. */}
+            <ProjectIcon icon={project.icon} size={86} />
+          </span>
+        ) : null}
+        {/* Darkens the bottom so white controls hold their contrast over a pale
+            project colour (amber and lime are the ones that would otherwise
+            wash out). */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent to-[62%]" />
       </div>
 
-      <EstimateRail value={estimateMinutes} onChange={onChangeEstimate} />
+      {/* A flex column ending at the bottom, rather than two absolutely
+          positioned rows: the pill and the rail are both bottom-aligned, and
+          stacking them means the rail's generous hit area can't creep up over
+          the project button the way overlapping absolute boxes did. */}
+      <div className="relative flex h-full flex-col justify-end">
+        <div className="flex items-end gap-2 px-3 pb-1">
+          <CoverProjectPill
+            project={project}
+            projects={projects}
+            userId={userId}
+            onChange={onChangeProject}
+            onCreated={onProjectCreated}
+          />
+          <CoverPriorityWord priority={priority} onChange={onChangePriority} />
+        </div>
+
+        <EstimateRail value={estimateMinutes} onChange={onChangeEstimate} />
+      </div>
     </div>
   );
 }
@@ -636,46 +585,30 @@ const PRIORITY_STRIPE_COLORS: Record<TaskPriority, string> = {
 };
 
 /**
- * Shared body for the priority popover — the same meter the editor has always
- * used, now reached from the stripe and the cover word rather than from a
- * cell in the body grid. Keeping the meter (rather than a plain list) keeps
- * the hover preview and the click-the-current-value-to-clear behaviour.
+ * The stripe and the cover word open the same list, so the value can be
+ * changed from whichever of the two the eye landed on.
  */
-function PriorityPopoverPanel({
+function PriorityPopover({
   value,
   onChange,
   align,
+  onClose,
 }: {
   value: TaskPriority;
   onChange: (p: TaskPriority) => void;
   align: "left" | "right";
+  onClose: () => void;
 }) {
-  const [hovered, setHovered] = useState<TaskPriority | null>(null);
-  const previewLabel =
-    hovered !== null && hovered !== value
-      ? PRIORITY_CONFIG[hovered].label
-      : null;
   return (
-    <div
-      role="dialog"
-      aria-label="Priority"
-      className={`absolute top-full z-40 mt-1.5 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
-        align === "left" ? "left-3" : "right-3"
-      }`}
-    >
-      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-        Priority
-      </span>
-      <PrioritySignal
-        value={value}
-        hovered={hovered}
-        onChange={onChange}
-        onHover={setHovered}
-      />
-      <span className="min-w-[5ch] text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
-        {previewLabel ?? PRIORITY_CONFIG[value].label}
-      </span>
-    </div>
+    <PickerPopover
+      ariaLabel="Priority options"
+      align={align}
+      options={priorityOptions(value, (p) => {
+        onChange(p);
+        onClose();
+      })}
+      onClose={onClose}
+    />
   );
 }
 
@@ -684,6 +617,11 @@ function PriorityPopoverPanel({
  * cover hasn't already spent — hue and texture belong to the project, so a
  * priority that reached for either would read as "something about the
  * project" instead.
+ *
+ * It is 7px tall, which is a fine *signal* and a poor *target*, so it is no
+ * longer the only way in: the word on the cover below is a real button at
+ * every rank now, and this is the shortcut for a pointer that happens to be up
+ * here already.
  */
 function PriorityStripe({
   value,
@@ -695,25 +633,24 @@ function PriorityStripe({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
-  // Clicking the current value clears to p4, matching the meter's own rule.
-  const handleChange = (p: TaskPriority) => onChange(p === value ? "p4" : p);
 
   return (
     <div ref={ref} className="relative shrink-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
+        aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Priority: ${PRIORITY_CONFIG[value].label}`}
         title={`Priority: ${PRIORITY_CONFIG[value].label}`}
         className={`block h-[7px] w-full transition-colors ${PRIORITY_STRIPE_COLORS[value]}`}
       />
       {open ? (
-        <PriorityPopoverPanel
+        <PriorityPopover
           value={value}
-          onChange={handleChange}
+          onChange={onChange}
           align="left"
+          onClose={() => setOpen(false)}
         />
       ) : null}
     </div>
@@ -721,11 +658,35 @@ function PriorityStripe({
 }
 
 /**
- * The word on the cover, shown only for Urgent and High. Most tasks on a
- * personal list never get a priority, and furniture that's empty on most
- * tasks is furniture that stops being read — so this appears by exception and
- * the stripe carries the quiet cases alone.
+ * The word on the cover — "Urgent priority", "Low priority", and the two in
+ * between — in the rank's own colour.
+ *
+ * It used to appear only for Urgent and High, on the argument that furniture
+ * which is empty on most tasks stops being read. True of a *label*; this is a
+ * control. Hiding it below High meant a Medium or Low task had no visible
+ * priority anywhere in the editor and no target to change one with except a
+ * 7px stripe, so the rank read as absent rather than as low. The exception
+ * rule still holds where it costs nothing to be quiet — the stripe above stays
+ * a hairline below High, and the task row's gutter still draws nothing at all
+ * for P4.
  */
+const PRIORITY_WORD_STYLES: Record<TaskPriority, string> = {
+  p1: "bg-red-500 text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]",
+  p2: "bg-amber-500 text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]",
+  // Medium and Low sit on the project's own colour, which can be anything —
+  // an indigo or a grey chip would vanish into half the palette. They wear the
+  // pill the project name wears, and carry their colour as the dot instead.
+  p3: "bg-black/25 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)] backdrop-blur-sm",
+  p4: "bg-black/25 text-white/90 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] backdrop-blur-sm",
+};
+
+const PRIORITY_WORD_DOTS: Record<TaskPriority, string> = {
+  p1: "bg-white",
+  p2: "bg-white",
+  p3: "bg-indigo-300",
+  p4: "bg-neutral-300",
+};
+
 function CoverPriorityWord({
   priority,
   onChange,
@@ -736,27 +697,33 @@ function CoverPriorityWord({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
-  const handleChange = (p: TaskPriority) => onChange(p === priority ? "p4" : p);
-
-  if (priority !== "p1" && priority !== "p2") return null;
-  const tone = priority === "p1" ? "bg-red-500" : "bg-amber-500";
+  const loud = priority === "p1" || priority === "p2";
 
   return (
     <div ref={ref} className="relative ml-auto shrink-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
+        aria-haspopup="listbox"
         aria-expanded={open}
-        className={`rounded-md px-2 py-1 text-[11px] font-extrabold uppercase tracking-wider text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)] ${tone}`}
+        aria-label={`Priority: ${PRIORITY_CONFIG[priority].label}`}
+        title={`Priority: ${PRIORITY_CONFIG[priority].label}`}
+        className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold tracking-wide transition-colors hover:brightness-110 ${PRIORITY_WORD_STYLES[priority]}`}
       >
-        {PRIORITY_CONFIG[priority].label}
+        {loud ? null : (
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_WORD_DOTS[priority]}`}
+          />
+        )}
+        {PRIORITY_CONFIG[priority].label} priority
       </button>
       {open ? (
-        <PriorityPopoverPanel
+        <PriorityPopover
           value={priority}
-          onChange={handleChange}
+          onChange={onChange}
           align="right"
+          onClose={() => setOpen(false)}
         />
       ) : null}
     </div>
@@ -782,22 +749,17 @@ function EstimateRail({
   onChange: (minutes: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   useClickOutside(ref, () => setOpen(false));
 
   const activeIdx = estimateBarIndex(value);
-  const handleChange = (minutes: number) =>
-    onChange(minutes === value ? null : minutes);
-  const previewLabel =
-    hovered !== null && hovered !== value ? formatEstimateShort(hovered) : null;
 
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
+        aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={
           value
@@ -824,24 +786,15 @@ function EstimateRail({
         </span>
       </button>
       {open ? (
-        <div
-          role="dialog"
-          aria-label="Estimate"
-          className="absolute right-3 top-full z-40 mt-1.5 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950"
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-            Estimate
-          </span>
-          <EstimateEqualizer
-            value={value}
-            hovered={hovered}
-            onChange={handleChange}
-            onHover={setHovered}
-          />
-          <span className="min-w-[5ch] text-center text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
-            {previewLabel ?? (value ? formatEstimateShort(value) : "—")}
-          </span>
-        </div>
+        <PickerPopover
+          ariaLabel="Estimate options"
+          align="right"
+          options={estimateOptions(value, (minutes) => {
+            onChange(minutes);
+            setOpen(false);
+          })}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
     </div>
   );
@@ -864,10 +817,15 @@ export function PickerPopover({
   options,
   onClose,
   ariaLabel,
+  align = "left",
 }: {
   options: PickerOption[];
   onClose: () => void;
   ariaLabel: string;
+  /** Which edge the panel hangs from. A control near the modal's right edge
+   *  needs "right", or the panel runs past it and the modal's own
+   *  `overflow-hidden` clips it. */
+  align?: "left" | "right";
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -888,9 +846,9 @@ export function PickerPopover({
     <div
       role="listbox"
       aria-label={ariaLabel}
-      className={`absolute left-0 top-full z-20 mt-2 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
-        hasHint ? "min-w-[240px]" : "min-w-[180px]"
-      }`}
+      className={`absolute top-full z-40 mt-2 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
+        align === "right" ? "right-0" : "left-0"
+      } ${hasHint ? "min-w-[240px]" : "min-w-[180px]"}`}
     >
       {options.map((opt) => (
         <button
@@ -1384,15 +1342,19 @@ type CalendarExpansion = "collapsed" | "two-weeks" | "months";
 
 function ScheduleCalendar({
   scheduledDate,
+  scheduledTime,
   deadlineDate,
   busyness,
   onPickDate,
+  onChangeScheduledTime,
   onChangeDeadlineDate,
 }: {
   scheduledDate: string | null;
+  scheduledTime: string | null;
   deadlineDate: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
+  onChangeScheduledTime: (v: string | null) => void;
   onChangeDeadlineDate: (v: string | null) => void;
 }) {
   // Near the weekend (Thu–Sat), default to the two-week view so the next
@@ -1413,13 +1375,6 @@ function ScheduleCalendar({
   }, []);
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
-  // "Next week" is a concrete date — exactly 7 days from today — not a soft
-  // bucket, so it survives as a real scheduled_date.
-  const nextWeekStr = useMemo(() => {
-    const d = new Date(today);
-    d.setDate(d.getDate() + 7);
-    return ymd(d);
-  }, [today]);
 
   // Special-date labels. Order = priority (active > today > tomorrow > …).
   // Each entry: { date: YYYY-MM-DD, label: short text }. The set is rendered
@@ -1617,7 +1572,14 @@ function ScheduleCalendar({
         })}
       </div>
 
-      {/* Action row: progressive expand + next week + deadline */}
+      {/* Action row: the three things you might want that the grid above
+          can't say. Reaching further out in time (common), pinning a time of
+          day (occasional), and setting a hard deadline (rare) — in that order,
+          and sized in that order too.
+          "Next week" used to sit in here as well, which made the row half
+          quick-pick and half tooling. It was also the one entry that
+          duplicated the grid: the same date is a cell in it, labelled "next
+          wk", one click away either way. */}
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {expanded !== "collapsed" ? (
           <button
@@ -1645,26 +1607,14 @@ function ScheduleCalendar({
             See more dates ⇣
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => onPickDate(nextWeekStr)}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-            scheduledDate === nextWeekStr
-              ? "bg-[rgb(var(--dd-accent)/0.18)] text-[rgb(var(--dd-accent-ink))] dark:bg-[rgb(var(--dd-accent)/0.28)] dark:text-[rgb(var(--dd-accent-ink-dark))]"
-              : "bg-neutral-50 text-neutral-700 hover:bg-white hover:ring-1 hover:ring-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          }`}
-        >
-          Next week
-          <span
-            className={
-              scheduledDate === nextWeekStr
-                ? "text-[rgb(var(--dd-accent-ink)/0.75)] dark:text-[rgb(var(--dd-accent-ink-dark)/0.7)]"
-                : "text-neutral-400 dark:text-neutral-500"
-            }
-          >
-            {formatScheduleHint(nextWeekStr)}
-          </span>
-        </button>
+        {/* A time of day is only meaningful once there's a day to hang it
+            off, so this appears with the date rather than standing empty. */}
+        {scheduledDate ? (
+          <ScheduledTimeField
+            value={scheduledTime}
+            onChange={onChangeScheduledTime}
+          />
+        ) : null}
         <DeadlineDateField
           value={deadlineDate}
           scheduledDate={scheduledDate}
@@ -2138,7 +2088,11 @@ function DeadlineDateField({
         }`}
       >
         <CheckeredFlagIcon className="h-3.5 w-3.5" />
-        {active ? <span>Deadline {formatDeadlineShort(value!)}</span> : null}
+        {/* Named even when unset. A bare flag was fine while this was one
+            control among several in a row of quick picks; now that the row is
+            three deliberate things, the rarest of them can't be the one that
+            makes you hover to find out what it is. */}
+        <span>{active ? `Deadline ${formatDeadlineShort(value!)}` : "Deadline"}</span>
       </button>
       {open ? (
         <div
@@ -3113,6 +3067,14 @@ function TaskEditModalBody({
               selectOnFocus={draft}
             />
           </div>
+          {/* Same top inset as the circle opposite, so both land on the
+              title's line and stay there when the tag row wraps under it. */}
+          <div className="shrink-0 pt-[7px]">
+            <StatusField
+              value={current.status}
+              onChange={(s) => setField("status", s)}
+            />
+          </div>
         </div>
 
         {/* Body */}
@@ -3140,36 +3102,12 @@ function TaskEditModalBody({
             </div>
             <ScheduleCalendar
               scheduledDate={current.scheduled_date}
+              scheduledTime={current.scheduled_time}
               deadlineDate={current.deadline_date}
               busyness={busyness}
               onPickDate={onPickDate}
+              onChangeScheduledTime={(v) => setField("scheduled_time", v)}
               onChangeDeadlineDate={(v) => setField("deadline_date", v)}
-            />
-            {/* Time-of-day for the chosen do date — only meaningful with a
-                scheduled_date, so it appears once a day is picked. */}
-            {current.scheduled_date ? (
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                  Time
-                </span>
-                <ScheduledTimeField
-                  value={current.scheduled_time}
-                  onChange={(v) => setField("scheduled_time", v)}
-                />
-              </div>
-            ) : null}
-          </div>
-
-          {/* Status is what's left of the old 4-up grid. Priority, estimate
-              and project all moved to the header, and none of them was left
-              behind here: a signal at the top plus a control at the bottom is
-              worse than either alone, because you read the value in one place
-              and then have to hunt for where to change it. The header marks
-              are the controls. */}
-          <div className="border-y border-neutral-100 py-2.5 dark:border-neutral-900">
-            <StatusField
-              value={current.status}
-              onChange={(s) => setField("status", s)}
             />
           </div>
 
