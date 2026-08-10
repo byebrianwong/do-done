@@ -191,6 +191,22 @@ describe("TaskItem — the strike-through is drawn, not switched on", () => {
     );
     expect(container.querySelector(".dd-check-halo")).toBeNull();
   });
+
+  it("offers the ghost check on an open row and withdraws it on a done one", () => {
+    // The hint is what tells a first-time visitor the ring is a button at all.
+    // It is a hint about an *available* action, though, so a completed row must
+    // not carry one: the real check is already sitting there, and a faint
+    // second one behind it only muddies which state the task is in. The
+    // appearing itself is CSS (`:hover`, untestable in jsdom) — what this
+    // pins is which rows have anything to appear.
+    const open = render(<TaskItem task={makeTask({ title: "Ship it" })} />);
+    expect(open.container.querySelector(".dd-check-ghost")).not.toBeNull();
+
+    const done = render(
+      <TaskItem task={makeTask({ title: "Ship it", status: "done" })} />
+    );
+    expect(done.container.querySelector(".dd-check-ghost")).toBeNull();
+  });
 });
 
 describe("TaskItem — the celebratory burst is gated", () => {
