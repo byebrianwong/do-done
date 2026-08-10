@@ -48,6 +48,7 @@ import {
 import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { taskPath } from "@/lib/task-link";
+import { tagPath } from "@/lib/tag-link";
 import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
@@ -1235,13 +1236,28 @@ export function TaskItem({
               compact ? "gap-1.5" : "gap-2"
             }`}
           >
+            {/* The one chip in this row that navigates rather than edits.
+                Every other chip opens a popover in place, so this is a Link
+                and stops the click from also reaching the row (which would
+                open the editor over the page it just navigated to).
+
+                Deliberately *not* prefixed with a `#`, though the tags index
+                and the tag page's heading both are. These chips share the
+                row's width with the title, which is already down to two lines
+                on a task carrying six of them; one more character per chip
+                took enough that the title collapsed to a character per line.
+                The pill says "tag" on its own here — the `#` is worth its
+                width only where there is width to spare. */}
             {task.tags.map((tag) => (
-              <span
+              <Link
                 key={tag}
-                className={`${align.meta} rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400`}
+                href={tagPath(tag)}
+                onClick={(e) => e.stopPropagation()}
+                title={`Show everything tagged #${tag}`}
+                className={`${align.meta} rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 transition-colors hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900`}
               >
                 {tag}
-              </span>
+              </Link>
             ))}
 
             {task.recurrence_rule && (

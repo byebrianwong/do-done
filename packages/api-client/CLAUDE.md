@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue
+- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
 
@@ -21,6 +21,13 @@ Supabase client wrapper and typed API classes.
   completion toast's Undo, which captured the row as it was) pass it; a bare
   uncheck has no earlier state and gets `not_started`. `done` is refused, or
   the Undo button would visibly do nothing.
+- **`listTags()` sweeps every task row, and has to.** Tags have no table — a
+  tag exists only while some task carries it — so counting them means reading
+  `tags, status` off all of them, exactly as `ProjectsApi.listWithCounts` does
+  for projects. The rollup itself is `summarizeTags` in `@do-done/shared`, so
+  web, mobile, the demo sandbox and MCP can't disagree about a count.
+  `listByTag()` filters server-side via `overlaps` (the GIN index), never by
+  paging tasks and filtering in the client.
 - Always check `.error` from Supabase responses
 - Return `{ data, error }` tuples from all methods
 - Use types from `@do-done/shared` for all return types

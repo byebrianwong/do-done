@@ -185,6 +185,11 @@ export default function SettingsScreen() {
       <Text style={styles.sectionHeader}>Tasks</Text>
       <View style={styles.section}>
         <SettingsRow
+          icon="pricetags-outline"
+          label="Tags"
+          onPress={() => router.push('/tags' as never)}
+        />
+        <SettingsRow
           icon="checkmark-done-circle-outline"
           label="Completed tasks"
           onPress={() => router.push('/completed' as never)}

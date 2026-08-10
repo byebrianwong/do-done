@@ -12,7 +12,7 @@ import type {
   UpdateProjectInput,
   UpdateTaskInput,
 } from "@do-done/shared";
-import { todayLocalISO, addDaysLocalISO } from "@do-done/shared";
+import { todayLocalISO, addDaysLocalISO, summarizeTags } from "@do-done/shared";
 import type {
   AttachmentsApi,
   BulkUpdateResult,
@@ -132,6 +132,14 @@ class DemoTasksApiImpl {
     rows.sort(bySortOrder);
     const offset = filters?.offset ?? 0;
     return ok(rows.slice(offset, offset + (filters?.limit ?? 50)));
+  }
+
+  async listTags() {
+    return ok(summarizeTags(this.tasks));
+  }
+
+  async listByTag(tag: string, opts?: { limit?: number }) {
+    return this.list({ tags: [tag], limit: opts?.limit ?? 500, offset: 0 });
   }
 
   async getById(id: string) {

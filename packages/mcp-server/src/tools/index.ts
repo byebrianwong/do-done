@@ -93,6 +93,14 @@ export function registerTools(
         .optional()
         .describe("Only tasks with a deadline on or before this date."),
       search_query: z.string().optional(),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Only tasks carrying at least one of these tags. Matched exactly, " +
+            "including case — call list_tags for the user's real tags rather " +
+            "than guessing at a spelling."
+        ),
       limit: z.number().int().positive().max(100).default(50),
     },
     async (params) => {
@@ -476,6 +484,31 @@ export function registerTools(
                     2
                   )
                 : "No projects yet.",
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
+    "list_tags",
+    "List every tag the user has, with how many tasks carry each (open and total), busiest first. " +
+      "Tags are a free-form label on a task — there is no tag list to pick from, so a tag only exists " +
+      "while some task carries it, and matching is exact including case (#Work and #work are two tags). " +
+      "Call this before filtering by tag with list_tasks: it is the only way to know the spellings the " +
+      "user actually uses. Tags are not indexed by search_tasks, so a tag name will not turn up there.",
+    {},
+    async () => {
+      const { data, error } = await tasks.listTags();
+      if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              data.length > 0
+                ? JSON.stringify({ count: data.length, tags: data }, null, 2)
+                : "No tags yet.",
           },
         ],
       };

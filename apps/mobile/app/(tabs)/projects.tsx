@@ -87,14 +87,27 @@ export default function ProjectsScreen() {
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topTitle}>Projects</Text>
-        <Pressable
-          onPress={() => setShowCreate(true)}
-          hitSlop={10}
-          style={styles.addBtn}
-          accessibilityLabel="New project"
-        >
-          <Ionicons name="add" size={24} color="#6366f1" />
-        </Pressable>
+        <View style={styles.topActions}>
+          {/* The other way the user's work is grouped. Settings also lists
+              Tags, but nobody looks for a browse surface in Settings — this
+              is the tab where "show me everything filed under X" lives. */}
+          <Pressable
+            onPress={() => router.push('/tags' as never)}
+            hitSlop={10}
+            style={styles.addBtn}
+            accessibilityLabel="Tags"
+          >
+            <Ionicons name="pricetags-outline" size={19} color="#6366f1" />
+          </Pressable>
+          <Pressable
+            onPress={() => setShowCreate(true)}
+            hitSlop={10}
+            style={styles.addBtn}
+            accessibilityLabel="New project"
+          >
+            <Ionicons name="add" size={24} color="#6366f1" />
+          </Pressable>
+        </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
 
@@ -148,6 +161,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   addBtn: {
     width: 36,
     height: 36,
