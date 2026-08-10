@@ -16,8 +16,9 @@ import {
  *
  * The row has exactly two coloured slots and each carries one variable. The
  * **ring** is identity — the project's colour, and its emoji when it has one.
- * The **gutter** is urgency — a red dot when the task is late, a short bar for
- * P1 and P2, nothing below. Priority used to colour the checkbox here, which
+ * The **gutter** is urgency — a red dot when the task is late, then a bar whose
+ * length falls with the rank, and nothing for a P4. Priority used to colour the
+ * checkbox here, which
  * put an ordinal variable in a nominal channel on the one DoDone surface that
  * never said which project a task belonged to.
  *
@@ -41,11 +42,13 @@ const GUTTER_MARK: Record<
   overdue: { width: 6, height: 6, radius: 3 },
   p1: { width: 3, height: 14, radius: 2 },
   p2: { width: 3, height: 9, radius: 2 },
+  p3: { width: 3, height: 5, radius: 2 },
 };
 
 function gutterColor(gutter: Exclude<RowGutter, null>, theme: WidgetTheme): string {
   if (gutter === 'overdue') return theme.overdue;
-  return gutter === 'p1' ? theme.p1 : theme.p2;
+  if (gutter === 'p1') return theme.p1;
+  return gutter === 'p2' ? theme.p2 : theme.p3;
 }
 
 /** Top bar: the view name and how much is left, plus a "+" for quick-add. */

@@ -28,11 +28,21 @@ import {
  *
  * Priority is ordinal, so it is encoded by position and length here rather
  * than by hue in the ring — hue is a nominal channel and the ring already
- * spends it on the project. P3 and P4 deliberately render nothing: a mark
- * that appears on every row tells you nothing, and roughly every task that
- * was never triaged is a P4.
+ * spends it on the project.
+ *
+ * **P4 deliberately renders nothing, and P3 does.** They are not a matched
+ * pair, whatever the names suggest: `tasks.priority` is `not null default
+ * 'p4'`, so P4 is what a task gets by *not* being triaged — the widget, a
+ * deep link and every MCP create land there. A mark for P4 would be a mark
+ * for absence, on very nearly every row in the app, and a signal that fires
+ * everywhere has stopped being one. P3 is the lowest rank someone actually
+ * chose, so it is the lowest one worth drawing.
+ *
+ * (The mobile picker calls P4 "No priority" while `PRIORITY_CONFIG` labels it
+ * "Low" — one value doing two jobs. Splitting it into a real `none` would let
+ * all four ranks draw; until then this is the honest line.)
  */
-export type RowGutter = "overdue" | "p1" | "p2" | null;
+export type RowGutter = "overdue" | "p1" | "p2" | "p3" | null;
 
 /**
  * Overdue outranks priority, and it is the only thing in this column that is
@@ -44,6 +54,7 @@ export function rowGutter(task: Task, now: Date = new Date()): RowGutter {
   if (isOverdue(task, now)) return "overdue";
   if (task.priority === "p1") return "p1";
   if (task.priority === "p2") return "p2";
+  if (task.priority === "p3") return "p3";
   return null;
 }
 

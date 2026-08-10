@@ -11,6 +11,8 @@
  * the gesture the product is named after.
  */
 
+import { PRIORITY_CONFIG } from "@do-done/shared";
+
 const NAV = [
   { label: "Inbox", count: 4 },
   { label: "Today", count: 7, active: true },
@@ -90,11 +92,16 @@ const REST: Row[] = [
   },
 ];
 
+/**
+ * The hero keys its rows by number rather than by `p1`…`p4`, but the colours
+ * are the app's own — restating them here is how this mock came to advertise a
+ * ramp the product had stopped drawing.
+ */
 const PRIORITY_COLOR = {
-  1: "#ef4444",
-  2: "#f59e0b",
-  3: "#6366f1",
-  4: "#a3a3a3",
+  1: PRIORITY_CONFIG.p1.color,
+  2: PRIORITY_CONFIG.p2.color,
+  3: PRIORITY_CONFIG.p3.color,
+  4: PRIORITY_CONFIG.p4.color,
 } as const;
 
 function PriorityBars({ priority }: { priority: 1 | 2 | 3 | 4 }) {

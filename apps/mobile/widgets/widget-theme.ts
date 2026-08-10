@@ -10,6 +10,7 @@
  * an argument to it.
  */
 
+import { OVERDUE_COLOR, PRIORITY_CONFIG } from '@do-done/shared';
 import type { Project } from '@do-done/shared';
 
 export interface WidgetTheme {
@@ -27,6 +28,11 @@ export interface WidgetTheme {
   overdue: string;
   p1: string;
   p2: string;
+  /**
+   * The lowest rank that draws. Cool, so it reads as ranked rather than urgent
+   * beside p1/p2 — and lifted on the dark card, where slate would sink into it.
+   */
+  p3: string;
   /** "+N more" and the signed-out prompt. */
   accent: string;
   plusBackground: string;
@@ -43,9 +49,10 @@ export const LIGHT_THEME: WidgetTheme = {
   titleDone: '#9ca3af',
   subline: '#9ca3af',
   groupLabel: '#9ca3af',
-  overdue: '#dc2626',
-  p1: '#ef4444',
-  p2: '#f97316',
+  overdue: OVERDUE_COLOR,
+  p1: PRIORITY_CONFIG.p1.color,
+  p2: PRIORITY_CONFIG.p2.color,
+  p3: PRIORITY_CONFIG.p3.color,
   accent: '#5b5ee0',
   plusBackground: '#eef2ff',
   plusGlyph: '#6366f1',
@@ -60,9 +67,14 @@ export const DARK_THEME: WidgetTheme = {
   titleDone: '#6d7381',
   subline: '#7c8291',
   groupLabel: '#757b8a',
+  // The one place a priority colour is not the shared value: these are the
+  // light ramp lifted toward white, the same treatment a project's colour gets
+  // below, because the dark card would otherwise swallow them. Same hues, same
+  // order — a lift, not a second opinion.
   overdue: '#f87171',
   p1: '#f87171',
   p2: '#fb923c',
+  p3: '#94a3b8',
   accent: '#9093f7',
   plusBackground: '#2c2f52',
   plusGlyph: '#a5b4fc',

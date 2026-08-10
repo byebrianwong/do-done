@@ -550,13 +550,26 @@ variable.** Everything else that used to be a chip is one muted line of prose.
 | Slot | Variable | Why that channel |
 | --- | --- | --- |
 | The **ring** (leading circle) | Project — its colour, and its `icon` emoji when set | Hue is a *nominal* channel: it says which, not how much. A project is a label with no ordering, so colour fits it natively. |
-| The **gutter** (10 px, left of the ring) | Urgency — a red dot when overdue, a short bar for P1 and P2, nothing below | Priority is *ordinal*, and the channels that carry order are position and length. Red–orange–yellow only reads as a ranking because traffic lights taught us, and that scale collapses the moment a user picks red for their "Home" project. |
+| The **gutter** (10 px, left of the ring) | Urgency — a red dot when overdue, then a bar whose length falls with the rank, nothing for a P4 | Priority is *ordinal*, and the channels that carry order are position and length. Red–orange–yellow only reads as a ranking because traffic lights taught us, and that scale collapses the moment a user picks red for their "Home" project. |
 
 The rules that make it work, all of them load-bearing:
 
-- **P3 and P4 draw nothing.** A mark on every row has stopped saying anything,
-  and nearly every task nobody triaged is a P4. The gutter is empty on most
-  rows *by design* — that is what makes the marks that are there mean something.
+- **P4 draws nothing, and P3 does.** They are not the matched pair the names
+  suggest: `tasks.priority` is `not null default 'p4'`, so P4 is what a task
+  gets by *not* being triaged — the widget, a deep link and every MCP create
+  land there. A mark for P4 would be a mark for absence on very nearly every
+  row, and a signal that fires everywhere has stopped being one. P3 is the
+  lowest rank someone actually chose, so it is the lowest one worth drawing,
+  and it is the only cool mark in the column: slate, so it reads as ranked
+  rather than urgent, and deliberately **not** the indigo accent, which means
+  *selected* everywhere else in the app.
+- **P4 is doing two jobs**, which is why the line falls there rather than
+  anywhere tidier: the mobile picker offers it as "No priority" while
+  `PRIORITY_CONFIG` labels it "Low". Splitting it into a real `none` would let
+  all four ranks draw — a migration plus every priority surface (the check
+  constraint, `TaskPriority`, the focus score, the `#p1`–`#p4` parser, display
+  grouping/filters, both pickers, the widget, the MCP enums), so until someone
+  wants that, this is the honest line.
 - **Overdue outranks priority** in the gutter, and is the only thing in that
   column that is ever red. Being late is said in the title's weight too, so it
   reads from further away than a coloured chip did.
@@ -594,8 +607,8 @@ StyleSheet), and they agree on the ring and the gutter — both call `rowGutter`
   subline that swaps back to editors on hover is a real option, and a separate
   change.
 
-Web-only detail: the gutter is also the priority editor's button, so a P3/P4
-row has an invisible control. A faint placeholder fades in under the pointer
+Web-only detail: the gutter is also the priority editor's button, so a P4 row
+has an invisible control. A faint placeholder fades in under the pointer
 (`group-hover/row`) to keep it discoverable.
 
 Two follow-ups deliberately left out: dropping the project from the subline
