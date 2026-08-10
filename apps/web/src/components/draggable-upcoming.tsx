@@ -481,20 +481,18 @@ export function DraggableUpcoming({
       return;
     }
 
-    // Commit the final same-day position from the row we're hovering — and
-    // only for a drag that never left its day. A cross-day drag was already
-    // placed by handleDragOver, at exactly the index the preview is showing;
-    // re-deriving it from `over` here is a second opinion about a question
-    // already answered, and it lands a slot or two off. Dropping a task from
-    // Tomorrow onto the bottom of Today wrote it second-from-bottom, which is
-    // where the refresh then put it.
+    // Commit the position the preview is showing — for a cross-day drop as
+    // much as a same-day one. Once handleDragOver has moved the row into the
+    // hovered day, dnd-kit's sortable strategy owns what is *on screen*: it
+    // displaces that day's rows by arrayMove(active → over). The index
+    // handleDragOver spliced the row in at is invisible, and typically a slot
+    // off from that. See draggable-task-groups for the long version. `over` is
+    // read only while it is a sibling row: dropping past the last row of a day
+    // reports the day itself (`group:`) and displaces nothing, so the bottom
+    // placement handleDragOver made is what stands.
     const overId = String(over.id);
     let finalByDate = byDate;
-    if (
-      fromDate === toDate &&
-      !overId.startsWith("group:") &&
-      overId !== activeId
-    ) {
+    if (!overId.startsWith("group:") && overId !== activeId) {
       const overDate = findDateOf(overId);
       if (overDate === toDate) {
         const ids = [...(byDate.get(toDate) ?? [])];

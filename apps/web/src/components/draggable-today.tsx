@@ -203,17 +203,16 @@ export function DraggableToday({
       return;
     }
 
-    // Commit the final within-section position from the row we're hovering —
-    // and only for a drag that never left its section. A cross-section drag
-    // was already placed by handleDragOver, at the index the preview shows;
-    // re-deriving it from `over` here overrides that with an answer a slot off.
+    // Commit the position the preview is showing — for a cross-section drop as
+    // much as a within-section one. Once handleDragOver has moved the row into
+    // the hovered section, dnd-kit's sortable strategy owns what is *on
+    // screen*: it displaces that section's rows by arrayMove(active → over).
+    // The index handleDragOver spliced the row in at is invisible, and
+    // typically a slot off from that. See draggable-task-groups for the long
+    // version. `over` is read only while it is a sibling row.
     const overId = String(over.id);
     let finalTasks = localTasks;
-    if (
-      fromS.key === toS.key &&
-      !overId.startsWith("g:") &&
-      overId !== activeId
-    ) {
+    if (!overId.startsWith("g:") && overId !== activeId) {
       const overS = findSectionOf(localTasks, overId);
       if (overS?.key === toS.key) {
         const ids = toS.tasks.map((t) => t.id);
