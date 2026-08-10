@@ -703,13 +703,21 @@ The rules that make it work, all of them load-bearing:
   and it is the only cool mark in the column: slate, so it reads as ranked
   rather than urgent, and deliberately **not** the indigo accent, which means
   *selected* everywhere else in the app.
-- **P4 is doing two jobs**, which is why the line falls there rather than
-  anywhere tidier: the mobile picker offers it as "No priority" while
-  `PRIORITY_CONFIG` labels it "Low". Splitting it into a real `none` would let
+- **A task cannot *not* have a priority.** `tasks.priority` is `not null
+  default 'p4'` — there is no null, no `none`, and no surface that offers one.
+  P4 is therefore doing two jobs indistinguishably: it is the rank called
+  "Low", and it is what a task carries when nobody chose. That is why the line
+  falls there rather than anywhere tidier. Splitting the two apart would let
   all four ranks draw — a migration plus every priority surface (the check
   constraint, `TaskPriority`, the focus score, the `#p1`–`#p4` parser, display
   grouping/filters, both pickers, the widget, the MCP enums), so until someone
   wants that, this is the honest line.
+- **"Low" is the only name that rank has**, on both platforms, in the editor,
+  the context menu and the quick-add chip. Mobile's composer briefly offered a
+  fifth row reading "No priority", which set the draft to null and so created
+  a P4 — the same task the Low row makes, under a name for a state that does
+  not exist. Re-tapping the selected rank still clears the chip, and that is
+  also a P4; it just reads as undoing a choice rather than as a fifth rank.
 - **Overdue outranks priority** in the gutter, and is the only thing in that
   column that is ever red. Being late is said in the title's weight too, so it
   reads from further away than a coloured chip did.
