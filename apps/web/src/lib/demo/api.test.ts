@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AttachmentsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
+import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
 import { demoAttachmentsApi, demoProjectsApi, demoTasksApi } from "./api";
 import { buildDemoSeed } from "./seed";
-import { resetDemoStore, getDemoState } from "./store";
+import { resetDemoStore, getDemoState, subscribeDemoStore } from "./store";
 import { DEMO_BASE, isDemoPath } from "./mode";
 
 /**
@@ -126,6 +127,104 @@ describe("demo store writes", () => {
     await demoTasksApi.create({ title: "Temporary", status: "inbox" });
     resetDemoStore();
     expect(getDemoState().tasks).toHaveLength(buildDemoSeed().tasks.length);
+  });
+});
+
+/**
+ * The sandbox is the one place where a write and a re-render are the same
+ * event, and completing a task is the one gesture where that difference is
+ * visible: the row plays a 680ms exit, and a list that re-renders during it
+ * takes the row away mid-animation. The real app is safe by construction —
+ * `task-item.tsx` holds `router.refresh()` until the row has gone — so these
+ * assertions are about the *timing* of the notification, never the data.
+ */
+describe("a completion's write lands now and is announced later", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetDemoStore();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  async function watch(run: () => Promise<unknown>) {
+    let notified = 0;
+    const stop = subscribeDemoStore(() => (notified += 1));
+    await run();
+    return { stop, at: () => notified };
+  }
+
+  it("keeps subscribers quiet for the row's whole exit envelope", async () => {
+    const target = getDemoState().tasks.find((t) => t.status !== "done")!;
+    const w = await watch(() => demoTasksApi.complete(target.id));
+
+    // The data is current immediately: a reload mid-animation, or anything that
+    // reads the store rather than subscribing to it, sees the truth.
+    expect(getDemoState().tasks.find((t) => t.id === target.id)?.status).toBe(
+      "done"
+    );
+    expect(w.at()).toBe(0);
+
+    vi.advanceTimersByTime(TASK_COMPLETE_EXIT_MS - 1);
+    expect(w.at()).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(w.at()).toBe(1);
+    w.stop();
+  });
+
+  it("extends the quiet for a second completion rather than cutting the first short", async () => {
+    const [a, b] = getDemoState().tasks.filter((t) => t.status !== "done");
+    const w = await watch(async () => {
+      await demoTasksApi.complete(a!.id);
+      vi.advanceTimersByTime(200);
+      await demoTasksApi.complete(b!.id);
+    });
+
+    // The first hold expires here, but the second row is 200ms into its own
+    // exit — releasing now would pull it out from under itself.
+    vi.advanceTimersByTime(TASK_COMPLETE_EXIT_MS - 200);
+    expect(w.at()).toBe(0);
+    vi.advanceTimersByTime(200);
+    expect(w.at()).toBe(1);
+    w.stop();
+  });
+
+  it("announces an ordinary edit on the spot", async () => {
+    const target = getDemoState().tasks.find((t) => t.status !== "done")!;
+    const w = await watch(() =>
+      demoTasksApi.update(target.id, { title: "Renamed" })
+    );
+    expect(w.at()).toBe(1);
+    w.stop();
+  });
+
+  it("announces immediately under reduced motion, since there is no exit to protect", async () => {
+    // `useCompletionExit` skips the whole timeline and drops the row on the
+    // spot when motion is off. A list that then waited 680ms to agree would
+    // put the row back on screen after it had already gone.
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) =>
+      ({
+        matches: q.includes("prefers-reduced-motion"),
+        media: q,
+        addEventListener() {},
+        removeEventListener() {},
+      }) as unknown as MediaQueryList) as typeof window.matchMedia;
+    try {
+      const target = getDemoState().tasks.find((t) => t.status !== "done")!;
+      const w = await watch(() => demoTasksApi.complete(target.id));
+      expect(w.at()).toBe(1);
+      w.stop();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  it("does not let a held hold swallow a reset", async () => {
+    const target = getDemoState().tasks.find((t) => t.status !== "done")!;
+    const w = await watch(() => demoTasksApi.complete(target.id));
+    expect(w.at()).toBe(0);
+    resetDemoStore();
+    expect(w.at()).toBe(1);
+    w.stop();
   });
 });
 
