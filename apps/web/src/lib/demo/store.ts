@@ -37,8 +37,62 @@ let state: DemoState = freshState();
 let hydrated = false;
 const listeners = new Set<() => void>();
 
-function emit() {
+/**
+ * How many holds are outstanding, and whether a write landed under one.
+ *
+ * A write and a re-render are two events in the real app and one here, and
+ * conflating them is what made the completion animation invisible in the
+ * sandbox. Completing a task writes to Postgres immediately, but the list is a
+ * server render: it changes only when `router.refresh()` runs, and
+ * `task-item.tsx` deliberately defers that until the row has finished
+ * collapsing. In the sandbox the write *was* the refresh, firing synchronously,
+ * so the row was pulled out from under its own exit — measured at 18ms into a
+ * 680ms envelope, with the halo and the sparks unmounted alongside it. On a
+ * surface that keeps completed rows the row survived but re-mounted, which
+ * reset both moments to nothing about 120ms in.
+ *
+ * So the notification is what waits, never the write: `state` and
+ * sessionStorage are current the whole time, and a reload mid-hold shows the
+ * truth. Only the subscribers are told late.
+ */
+let holds = 0;
+let missedEmit = false;
+
+function flush() {
+  missedEmit = false;
   for (const l of listeners) l();
+}
+
+function emit() {
+  if (holds > 0) {
+    missedEmit = true;
+    return;
+  }
+  flush();
+}
+
+/**
+ * Keep subscribers on the current snapshot for `ms`, then tell them everything
+ * at once.
+ *
+ * Held by the writes a row animates its way out of — see `DemoTasksApi`. Holds
+ * nest and each releases on its own timer, so a second completion moments later
+ * extends the quiet rather than cutting the first one short.
+ *
+ * A no-op under reduced motion: the hold exists only to protect an animation,
+ * and there isn't one to protect — `useCompletionExit` skips the whole timeline
+ * and drops the row on the spot, which a delayed list would then contradict by
+ * showing it again.
+ */
+export function holdDemoNotifications(ms: number): void {
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+  holds += 1;
+  setTimeout(() => {
+    holds -= 1;
+    if (holds === 0 && missedEmit) flush();
+  }, ms);
 }
 
 function persist() {
@@ -97,5 +151,9 @@ export function setDemoState(next: Partial<DemoState>): void {
 export function resetDemoStore(): void {
   state = freshState();
   persist();
-  emit();
+  // Whatever a held row was animating towards no longer exists, so the hold is
+  // abandoned rather than waited out — a reset the visitor asked for must not
+  // sit invisible behind someone else's exit timer.
+  holds = 0;
+  flush();
 }

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {
   GROUP_OPTIONS,
+  OVERDUE_COLOR,
   PRIORITY_CONFIG,
   SORT_OPTIONS,
   hasFlagFilter,
@@ -134,7 +135,7 @@ export default function DisplaySheet({
                 <Pill
                   label="Overdue"
                   active={hasFlagFilter(config, 'overdue')}
-                  accent="#ef4444"
+                  accent={OVERDUE_COLOR}
                   onPress={() => onChange(toggleFlagFilter(config, 'overdue'))}
                 />
               </View>

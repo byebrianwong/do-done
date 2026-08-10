@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  OVERDUE_COLOR,
   PRIORITY_CONFIG,
   STATUS_CONFIG,
   QUICK_SCHEDULE,
@@ -154,26 +155,32 @@ function SubtaskArrowIcon({ className }: { className?: string }) {
 }
 
 /**
- * Compact priority indicator: 4 vertical bars with increasing heights.
- * Bars lit count = 5 − priority number (so p1 lights all 4, p4 lights one).
- * Static, non-interactive — the editor uses the bigger PrioritySignal.
+ * The gutter's marks, keyed by what `rowGutter` decided: the shared ramp for
+ * the colour, and a length that falls with the rank.
+ *
+ * Only the geometry is local. The colours come from `PRIORITY_CONFIG`, which
+ * is what keeps this column in step with the picker that sets it — and the
+ * reason they are applied as inline hex rather than `bg-red-500` is that
+ * Tailwind v4's default palette is OKLCH and no longer lands on these values.
  */
 const GUTTER_MARK = {
-  overdue: { color: "#dc2626", className: "h-[7px] w-[7px] rounded-full" },
-  p1: { color: "#ef4444", className: "h-4 w-[3px] rounded-[2px]" },
-  p2: { color: "#f97316", className: "h-2.5 w-[3px] rounded-[2px]" },
+  overdue: { color: OVERDUE_COLOR, className: "h-[7px] w-[7px] rounded-full" },
+  p1: { color: PRIORITY_CONFIG.p1.color, className: "h-4 w-[3px] rounded-[2px]" },
+  p2: { color: PRIORITY_CONFIG.p2.color, className: "h-2.5 w-[3px] rounded-[2px]" },
+  p3: { color: PRIORITY_CONFIG.p3.color, className: "h-1.5 w-[3px] rounded-[2px]" },
 } as const;
 
 /**
- * The urgency column: a red dot when the task is late, a short bar for P1 and
- * P2, and nothing at all otherwise.
+ * The urgency column: a red dot when the task is late, then a bar whose length
+ * falls with the rank, and nothing at all for a P4.
  *
  * This replaces the four priority bars, which lit one segment for a P4 and so
  * put a mark on every row in the list — a signal that fires everywhere has
- * stopped being one, and nearly every task nobody triaged is a P4. Priority is
- * *ordinal*, so it belongs in position and length rather than in hue; the ring
- * beside it spends hue on the project, which is nominal. Same encoding as the
- * mobile row, decided by the same `rowGutter` in @do-done/shared.
+ * stopped being one, and P4 is what a task gets by never being triaged.
+ * Priority is *ordinal*, so it belongs in position and length rather than in
+ * hue; the ring beside it spends hue on the project, which is nominal. Same
+ * encoding as the mobile row, decided by the same `rowGutter` in
+ * @do-done/shared.
  *
  * The slot keeps its width whatever it draws, so the ring and the title never
  * shift between rows.
@@ -189,7 +196,7 @@ function PriorityBars({ task }: { task: Task }) {
         />
       ) : (
         /* Nothing at rest, but the row is where priority gets set, so a
-           placeholder appears under the pointer — otherwise a P3/P4 row has an
+           placeholder appears under the pointer — otherwise a P4 row has an
            invisible control and the affordance is lost. */
         <span className="h-2.5 w-[3px] rounded-[2px] bg-neutral-200 opacity-0 transition-opacity group-hover/row:opacity-100 dark:bg-neutral-700" />
       )}
@@ -1057,6 +1064,10 @@ export function TaskItem({
               style={
                 {
                   borderColor: ringColor,
+                  // What `currentColor` resolves to inside the ring: the halo
+                  // that rings out of it and the ghost check that previews a
+                  // click both take the project's hue from here.
+                  color: ringColor,
                   // Completion fills with the project's colour, the same way for
                   // every priority: done is a state, not a rank.
                   backgroundColor: completed ? ringColor : "transparent",
@@ -1073,23 +1084,44 @@ export function TaskItem({
                   `exit.pulse` / `exit.spark`. The halo rings on every
                   completion; the burst only on one that earned it. */}
               {exit.pulsing ? (
-                <span
-                  className="dd-check-halo"
-                  style={{ color: ringColor }}
-                  aria-hidden="true"
-                />
+                <span className="dd-check-halo" aria-hidden="true" />
               ) : null}
               {exit.sparking ? <CompletionSpark color={ringColor} /> : null}
               {/* The project's icon holds the ring until the task is done,
-                  when the check takes the space. A drawn icon inherits
-                  `ringColor` here; an emoji brings its own colours. */}
+                  when the check takes the space — or until a pointer arrives,
+                  when the ghost borrows it for as long as it hovers. A drawn
+                  icon inherits `ringColor` here; an emoji brings its own. */}
               {project?.icon && !completed ? (
                 <span
-                  className="flex items-center justify-center leading-none"
+                  className="dd-check-icon flex items-center justify-center leading-none"
+                  aria-hidden="true"
                   style={{ color: ringColor }}
                 >
                   <ProjectIcon icon={project.icon} size={11} />
                 </span>
+              ) : null}
+              {/* The hint that the ring is a button: the check this click would
+                  draw, faint and a size small, springing up under the pointer.
+                  Mounted only while there is something to hint at — on a done
+                  row the real check is already there, and a ghost of it would
+                  only muddy the state. Purely presentational, so it is hidden
+                  from the accessibility tree; the button's own label is what
+                  says what a click does. */}
+              {!completed ? (
+                <svg
+                  className="dd-check-ghost absolute h-3 w-3"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
               ) : null}
               <svg
                 className="absolute h-3 w-3 text-white transition-transform motion-reduce:transition-none"

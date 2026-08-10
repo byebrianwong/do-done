@@ -92,12 +92,8 @@ export const Color: Story = {
       <section className="mb-10">
         <SectionTitle>Priority</SectionTitle>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Object.entries(colors.priority).map(([k, v]) => (
-            <Swatch
-              key={k}
-              name={`${k} · ${PRIORITY_CONFIG[k as keyof typeof PRIORITY_CONFIG].label}`}
-              value={v}
-            />
+          {Object.entries(PRIORITY_CONFIG).map(([k, cfg]) => (
+            <Swatch key={k} name={`${k} · ${cfg.label}`} value={cfg.color} />
           ))}
         </div>
       </section>

@@ -203,15 +203,99 @@ body {
     transform var(--dd-anticipate-ms, 90ms) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/*
+ * The invitation: a ghost of the check the click is about to draw.
+ *
+ * An empty circle is only obviously a control once you already know the app.
+ * Nothing else in the row says the ring is clickable — it carries the project's
+ * colour and emoji, which reads as a label — so the affordance has to be the
+ * ring showing its own answer at a quarter volume and springing to full size,
+ * on the same overshoot curve the real check uses. What you see on hover is
+ * literally what you get on click.
+ *
+ * It takes the ring's colour through `currentColor` rather than a grey: the
+ * ghost previews *this* task's completed state, and the ring is already the
+ * project's hue. The filled check stays white, because by then it sits on that
+ * hue rather than beside it.
+ *
+ * Unlike the halo and the burst this is a *state*, not a moment, so it is plain
+ * CSS on a permanently mounted element — nothing here is worth a React render
+ * per pointer crossing, and hover has to answer faster than one anyway.
+ *
+ * The 140ms is written here rather than in `@do-done/shared` because, unlike
+ * every other timing in this section, it has no second implementation to drift
+ * from: a phone has no pointer to hover with. It is deliberately well under the
+ * check's own 220ms — an affordance that takes as long as the action reads as
+ * lag, where the action taking that long reads as weight.
+ */
+.dd-check-ghost,
+.dd-check-icon {
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.dd-check-ghost {
+  opacity: 0;
+  transform: scale(0.55);
+}
+
+/*
+ * Gated on a device that can actually hover. A touch browser emulating `:hover`
+ * leaves the ghost stuck on the last row tapped, which is a check-mark sitting
+ * in an open task's circle claiming it's done.
+ *
+ * `:focus-visible` is outside that gate on purpose — a keyboard user reaching
+ * the button needs the same hint, and gets it on any device.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .dd-check-btn:hover .dd-check-ghost {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  /* The emoji and the ghost want the same 20px. The project has the ring at
+     rest; the pointer borrows it, and gives it back on the way out. */
+  .dd-check-btn:hover .dd-check-icon {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  .dd-check-btn:hover .dd-ring {
+    transform: scale(1.06);
+  }
+}
+
+.dd-check-btn:focus-visible .dd-check-ghost {
+  opacity: 0.45;
+  transform: scale(1);
+}
+
+.dd-check-btn:focus-visible .dd-check-icon {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+/* Declared after the hover rule so a press still wins the shared `transform`:
+   the ring swells under the pointer and gives way under the finger. */
 .dd-check-btn:active .dd-ring {
   transform: scale(var(--dd-anticipate-scale, 0.86));
 }
 
+/* Last, so it can switch off everything above it. */
 @media (prefers-reduced-motion: reduce) {
   .dd-ring {
     transition: none;
   }
+  /* The ring holds still under both the pointer and the finger. */
+  .dd-check-btn:hover .dd-ring,
   .dd-check-btn:active .dd-ring {
+    transform: none;
+  }
+  /* The hint itself stays — it is an affordance, not decoration, and someone
+     who turned motion off still has to be able to tell the ring is a button.
+     It arrives rather than springing. */
+  .dd-check-ghost,
+  .dd-check-icon {
+    transition: none;
     transform: none;
   }
 }

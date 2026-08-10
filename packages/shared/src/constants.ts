@@ -24,42 +24,61 @@ export const TASK_DESCRIPTION_MAX_LENGTH = 50_000;
 /**
  * Priority.
  *
+ * **This is the only place a priority colour is written down.** Every surface
+ * that draws one — the row's gutter, the editor's bar meter, the week view's
+ * busyness dots, the command palette, bulk actions, the quick-add chip, the
+ * Android widget — reads it from here. There have been three hand-kept copies
+ * of this ramp at various times and they were never all in agreement; the row
+ * and the picker two inches from it drew different colours for the same task.
+ *
  * The ramp used to be red → orange → yellow → grey, which is the one an
  * English speaker reaches for and the one that fails hardest in practice:
  *
- * - **Yellow can't be seen on white.** `#eab308` lands near 1.9:1 against a
- *   white surface, well under the 3:1 a non-text indicator needs — and every
- *   surface that draws priority (the row's bar meter, the calendar's busyness
- *   dots, the flag in the context menu) draws it small and on white.
+ * - **Yellow can't be seen on white.** `#eab308` lands at 1.92:1 against a
+ *   white surface, well under the 3:1 a non-text indicator needs — and most
+ *   surfaces here draw priority small and on white.
  * - **Red, orange and yellow are one hue family.** Under deuteranopia, the
  *   most common form of red-green colour blindness, the first three collapse
  *   into a single warm smear, so the ramp carries no information at all for
  *   roughly one man in sixteen.
  *
- * Indigo at P3 breaks the warm family: the ramp now separates by lightness as
- * well as hue, so it survives both colour blindness and a greyscale
- * screenshot. Amber clears 3:1 where yellow doesn't.
+ * Slate at P3 breaks the warm family, so the ramp separates by temperature as
+ * well as lightness and survives both colour blindness and a greyscale
+ * screenshot. It is deliberately **not** indigo, which it was until this ramp
+ * was unified: `#6366f1` is the app's accent, the colour that means *selected*
+ * on every other control, so a middling priority was wearing the one hue that
+ * already had a job.
  *
- * These four are also what the editor's bar meters and the calendar's
- * busyness dots already drew from their own local maps — this constant was
- * the odd one out, so anything reading it (the task row, week view, command
- * palette, bulk actions, the Android widget) was quietly on a different ramp
- * from the editor beside it.
- *
- * Colour is never the only channel: every surface pairs it with lit-bar count
- * or a label, because no ramp survives being screenshotted in greyscale.
+ * **P2 is under 3:1 on white and there is no warm colour that isn't** — orange
+ * `#f97316` is 2.80:1, amber `#f59e0b` 2.15:1, yellow 1.92:1. (An earlier note
+ * here claimed amber cleared 3:1. It does not; it is barely better than the
+ * yellow it replaced.) Orange is the best of them and is what both task rows
+ * already drew, so the unified ramp adopts the row's value rather than the
+ * picker's. This is exactly why colour is never the only channel: every
+ * surface pairs it with bar length, lit-bar count or a label, because no ramp
+ * survives being screenshotted in greyscale either.
  */
 export const PRIORITY_CONFIG: Record<
   TaskPriority,
   { label: string; color: string; score: number }
 > = {
   p1: { label: "Urgent", color: "#ef4444", score: 40 },
-  p2: { label: "High", color: "#f59e0b", score: 30 },
-  p3: { label: "Medium", color: "#6366f1", score: 20 },
+  p2: { label: "High", color: "#f97316", score: 30 },
+  p3: { label: "Medium", color: "#64748b", score: 20 },
   // Deliberately the quietest of the four: p4 is "no priority set", not a
   // priority someone chose, so it reads as one dim bar next to the unlit ones.
+  // It is the one rank the task row's gutter draws nothing for — see
+  // `rowGutter` in task-row.ts for why that asymmetry is the honest one.
   p4: { label: "Low", color: "#a3a3a3", score: 10 },
 };
+
+/**
+ * Late, which is not a priority and so does not live in the ramp above.
+ *
+ * A deeper red than P1's, because it outranks it: in the row's gutter these
+ * two can never appear together, and the one that wins is this one.
+ */
+export const OVERDUE_COLOR = "#dc2626";
 
 export const STATUS_CONFIG: Record<
   TaskStatus,
