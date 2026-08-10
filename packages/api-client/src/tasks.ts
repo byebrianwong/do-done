@@ -6,6 +6,7 @@ import type {
   TaskFilterInput,
   PetEventActor,
   StatusSyncSettings,
+  SuggestionRow,
   TagSummary,
   TaskStatus,
   TrackedField,
@@ -63,6 +64,16 @@ export interface BulkUpdateResult {
 // React Native does not, which is why a big multi-select bulk action was the
 // thing that fell over. Cap the fan-out instead of relying on the platform.
 const BULK_CONCURRENCY = 8;
+
+/**
+ * How far back `suggestionHistory` looks.
+ *
+ * Three text-and-integer columns, so this is a small payload even at the top
+ * of the range, and it is fetched once per session rather than per keystroke.
+ * Large enough that a habit is visible; small enough that a user who has been
+ * here for years isn't having last year's project layout counted as evidence.
+ */
+const SUGGESTION_HISTORY_LIMIT = 800;
 
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */
 async function mapWithLimit<T, R>(
@@ -258,6 +269,36 @@ export class TasksApi {
   }
 
   /**
+   * The past tasks a quick-add suggestion is inferred from.
+   *
+   * Three narrow columns and no `*`: this is read once per session to build an
+   * index the composer then queries on every keystroke, and a row's title, its
+   * project and its estimate are the whole of what the index counts. Selecting
+   * the rest would multiply the payload for fields nothing reads.
+   *
+   * Bounded and newest-first, unlike `listTags`, which has to sweep everything
+   * because a tag it misses simply doesn't exist to the app. A suggestion has
+   * no such duty — it is a guess from recent habit, and older rows both weigh
+   * less and describe a project list that has since moved on.
+   *
+   * The aggregation is `buildSuggestionIndex` in `@do-done/shared`, so the
+   * demo sandbox and any future mobile caller guess the same way.
+   */
+  async suggestionHistory(opts?: {
+    limit?: number;
+  }): Promise<{ data: SuggestionRow[]; error: Error | null }> {
+    let query = this.read("title, project_id, duration_minutes");
+    if (this.userId) query = query.eq("user_id", this.userId);
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(opts?.limit ?? SUGGESTION_HISTORY_LIMIT);
+
+    if (error) return { data: [], error: error as Error };
+    return { data: (data as SuggestionRow[]) ?? [], error: null };
+  }
+
+  /**
    * Every tag the user has, with the work filed under each.
    *
    * There is no tag table to read — `tasks.tags` is a `text[]` — so the only
@@ -401,6 +442,20 @@ export class TasksApi {
       patch.completed_at = null;
     }
 
+    // Re-parenting inherits the new parent's project, on the same terms as
+    // creation: only when the caller didn't name a project in the same write.
+    // Without this the two ways of making a task a subtask disagree — created
+    // under a parent it lands in the parent's project, moved under one it keeps
+    // whatever it had.
+    if (
+      input.parent_task_id &&
+      input.project_id === undefined &&
+      input.parent_task_id !== prior?.parent_task_id
+    ) {
+      const { data: parent } = await this.getById(input.parent_task_id);
+      if (parent?.project_id) patch.project_id = parent.project_id;
+    }
+
     // Status ↔ schedule auto-sync. Folded into the same UPDATE rather than
     // chased with a second write, so the row the caller gets back is already
     // the row the rule wants — no flicker, and no window where a concurrent
@@ -431,6 +486,22 @@ export class TasksApi {
       return { data: null, error: error as Error | null };
     }
     const updated = normalizeTask(data as Task);
+
+    // A parent's move carries its subtree with it. Filing a task into Finance
+    // and leaving its subtasks in whatever they were is the same bug the
+    // create-time inheritance above fixed, arriving a day later — the subtasks
+    // are the same work, and a project page that shows the parent without them
+    // is lying about what's left. Awaited, not fired and forgotten, so the
+    // caller's cache invalidation lands after the children have moved.
+    //
+    // Tested against the *result*, not the input, so a project acquired by
+    // re-parenting propagates too. A subtask that was deliberately filed
+    // elsewhere is overwritten: the parent moving is the more recent
+    // instruction, and the alternative — remembering which subtasks had been
+    // hand-filed — is state nothing on this surface can show the user.
+    if (prior && updated.project_id !== prior.project_id) {
+      await this.cascadeProject(id, updated.project_id);
+    }
 
     // Pet feeding — completion + edit are independent and may both fire on
     // the same write (e.g. user saves the task with a new description AND
@@ -491,6 +562,26 @@ export class TasksApi {
       ids.push(...frontier);
     }
     return ids;
+  }
+
+  /**
+   * Move every descendant of `id` into `projectId`. Best-effort: the parent's
+   * own move has already landed and there is nothing to roll back to, so a
+   * failure here leaves the subtree behind rather than failing the write the
+   * user actually asked for.
+   */
+  private async cascadeProject(
+    id: string,
+    projectId: string | null
+  ): Promise<void> {
+    const descendants = (await this.subtreeIds(id)).slice(1);
+    if (descendants.length === 0) return;
+    let query = this.supabase
+      .from("tasks")
+      .update({ project_id: projectId })
+      .in("id", descendants);
+    if (this.userId) query = query.eq("user_id", this.userId);
+    await query;
   }
 
   /**

@@ -24,9 +24,13 @@ const INTERNAL = new Set([
   // Where every read of `tasks` starts, so the deleted-row filter can't be
   // forgotten. The demo does the same job in its own `tasks` getter.
   "read",
-  // Walks a task's children before a delete, so the whole subtree is hidden
-  // together and comes back together; nothing outside TasksApi.delete calls it.
+  // Walks a task's children — for a delete (so the whole subtree is hidden
+  // together and comes back together) and for a project move. Only TasksApi's
+  // own methods call it.
   "subtreeIds",
+  // Moves a task's descendants into its new project; only TasksApi.update
+  // calls it, and the demo folds the same walk into its own update().
+  "cascadeProject",
   // Resolves the owning user id for the Storage key.
   "ownerId",
 ]);

@@ -218,19 +218,28 @@ export const NoTagsAffordance: Story = {
 };
 
 /**
- * Freezes the travelling band partway along the span.
+ * Freezes the travelling band `ms` into its sweep.
  *
  * Chromatic pauses CSS animations at their first frame, and at t=0 the band is
  * still parked off the left edge — so without this the wave would never appear
  * in a snapshot. A negative delay plus `paused` pins it to a fixed, repeatable
  * moment mid-sweep instead.
+ *
+ * Both layers are pinned by the same rule: the crest on the scheduled day is
+ * the same band at the same phase, and freezing one without the other would
+ * snapshot a sweep torn in half.
  */
-const frozenMidSweep: Decorator = (Story) => (
-  <>
-    <style>{`.dd-wave-band { animation-delay: -1150ms !important; animation-play-state: paused !important; }`}</style>
-    <Story />
-  </>
-);
+const frozenAt = (ms: number): Decorator =>
+  function FrozenSweep(Story) {
+    return (
+      <>
+        <style>{`.dd-wave-band, .dd-wave-crest { animation-delay: -${ms}ms !important; animation-play-state: paused !important; }`}</style>
+        <Story />
+      </>
+    );
+  };
+
+const frozenMidSweep = frozenAt(1150);
 
 /**
  * The today → task-date span as a wave: a soft band of light travelling from
@@ -239,6 +248,30 @@ const frozenMidSweep: Decorator = (Story) => (
  */
 export const SpanWaveInWeek: Story = {
   decorators: [frozenMidSweep],
+  args: {
+    task: makeTask({
+      title: "Draft the offsite agenda",
+      priority: "p2",
+      scheduled_date: twoDaysOut,
+      tags: ["planning"],
+    }),
+    open: true,
+    onClose: () => {},
+  },
+};
+
+/**
+ * The far end of the same sweep, frozen as the band crosses the scheduled day
+ * itself.
+ *
+ * The runway band travels *behind* the cells so it can glow up through them;
+ * the selected day is the one opaque cell, so on that square the band is drawn
+ * over the top instead, in white. Without it the wave arrived a day short of
+ * the date it was pointing at.
+ */
+export const SpanWaveOnTheDate: Story = {
+  // Late enough in a ~3s sweep to put the band's own centre over the cell's.
+  decorators: [frozenAt(2130)],
   args: {
     task: makeTask({
       title: "Draft the offsite agenda",

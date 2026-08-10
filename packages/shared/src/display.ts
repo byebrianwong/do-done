@@ -109,6 +109,15 @@ export const DisplayConfigSchema = z.object({
   sort: z.array(SortRuleSchema).default([{ field: "manual", dir: "asc" }]),
   filters: z.array(FilterRuleSchema).default([]),
   showCompleted: z.boolean().default(false),
+  // Whether subtasks appear as rows of their own. They always have — a list is
+  // a flat query and a subtask is an ordinary row in it, wearing a "↳ parent"
+  // breadcrumb — which is right for a checklist someone is working through and
+  // noise for a parent whose six steps bury everything else on the page.
+  //
+  // A field of its own rather than a `filters` clause: it is a default about
+  // what a list *is*, not a narrowing the user applied, so it must be able to
+  // default to on without lighting the "N filters" badge on every view.
+  showSubtasks: z.boolean().default(true),
   // Row height / spacing. Render-only (see Density).
   density: Density.default("comfortable"),
   // Group keys (e.g. "status:next") the user has collapsed in this view. Purely
@@ -128,6 +137,7 @@ export const DEFAULT_DISPLAY: DisplayConfig = {
   sort: [{ field: "manual", dir: "asc" }],
   filters: [],
   showCompleted: false,
+  showSubtasks: true,
   density: "comfortable",
   collapsed: [],
 };
@@ -457,6 +467,7 @@ function filterTasks(
     ) {
       return false;
     }
+    if (!config.showSubtasks && t.parent_task_id !== null) return false;
     return config.filters.every((f) => matchesFilter(t, f, today));
   });
 }

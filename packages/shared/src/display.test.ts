@@ -74,6 +74,7 @@ describe("parseDisplayConfig", () => {
       sort: [{ field: "priority", dir: "asc" }],
       filters: [],
       showCompleted: false,
+      showSubtasks: true,
       density: "comfortable",
       collapsed: [],
     };
@@ -139,6 +140,11 @@ describe("parseDisplayConfig", () => {
     const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
     expect(cfg.density).toBe("comfortable");
   });
+
+  it("shows subtasks for configs saved before the toggle existed", () => {
+    const cfg = parseDisplayConfig({ group: "status", sort: [{ field: "manual" }] });
+    expect(cfg.showSubtasks).toBe(true);
+  });
 });
 
 describe("density", () => {
@@ -182,6 +188,36 @@ describe("filtering", () => {
     expect(flat(hidden)).toHaveLength(1);
     const shown = applyDisplay(tasks, { ...DEFAULT_DISPLAY, showCompleted: true }, ctx());
     expect(flat(shown)).toHaveLength(3);
+  });
+
+  it("hides subtasks when showSubtasks is off, and shows them by default", () => {
+    const tasks = [
+      task({ status: "next" }),
+      task({ status: "next", parent_task_id: "00000000-0000-0000-0000-00000000aaaa", depth: 1 }),
+    ];
+    // Default is on: every list has always shown subtasks as rows of their
+    // own, and turning that off for everyone would silently change what a
+    // saved view means.
+    expect(flat(applyDisplay(tasks, DEFAULT_DISPLAY, ctx()))).toHaveLength(2);
+    const hidden = applyDisplay(tasks, { ...DEFAULT_DISPLAY, showSubtasks: false }, ctx());
+    expect(flat(hidden)).toHaveLength(1);
+    expect(flat(hidden)[0].parent_task_id).toBeNull();
+  });
+
+  it("hides subtasks in the curated (ungrouped) path too", () => {
+    const tasks = [
+      task({ status: "next" }),
+      task({ status: "next", parent_task_id: "00000000-0000-0000-0000-00000000aaaa", depth: 1 }),
+    ];
+    expect(
+      filterByConfig(tasks, { ...DEFAULT_DISPLAY, showSubtasks: false }, ctx())
+    ).toHaveLength(1);
+  });
+
+  it("doesn't count as an applied filter", () => {
+    // It's a default about what a list is, not a narrowing the user typed, so
+    // the "Filter · N" badge must stay quiet.
+    expect(activeFilterCount({ ...DEFAULT_DISPLAY, showSubtasks: false })).toBe(0);
   });
 
   it("filters by priority (is / is_not)", () => {

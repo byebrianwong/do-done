@@ -146,28 +146,32 @@ const activeBelow = {
 };
 
 /**
- * Play a whole drag: pick up, cross into `over`, drop on it. Each step goes
- * through `act` because the handler that runs the next one is re-created on
- * the render its predecessor's setState causes — which is also the order the
- * browser does it in, a frame apart.
+ * Play a whole drag: pick up, hover each `over` in turn, drop on the last one.
+ * Each step goes through `act` because the handler that runs the next one is
+ * re-created on the render its predecessor's setState causes — which is also
+ * the order the browser does it in, a frame apart.
  */
-async function dragOnto(over: { id: string; rect: unknown }) {
+async function dragOver(...overs: Array<{ id: string; rect: unknown }>) {
   await act(async () => {
     handlers.onDragStart!({ active: { id: "x" } } as unknown as DragStartEvent);
   });
-  await act(async () => {
-    handlers.onDragOver!({
-      active: activeBelow,
-      over,
-    } as unknown as DragOverEvent);
-  });
+  for (const over of overs) {
+    await act(async () => {
+      handlers.onDragOver!({
+        active: activeBelow,
+        over,
+      } as unknown as DragOverEvent);
+    });
+  }
   await act(async () => {
     await handlers.onDragEnd!({
       active: activeBelow,
-      over,
+      over: overs[overs.length - 1],
     } as unknown as DragEndEvent);
   });
 }
+
+const dragOnto = (over: { id: string; rect: unknown }) => dragOver(over);
 
 function ordersFrom(): RowPatch[] {
   expect(bulkUpdate).toHaveBeenCalledTimes(1);
@@ -181,20 +185,41 @@ describe("DraggableUpcoming — what a cross-day drop writes", () => {
     handlers = {};
   });
 
-  it("writes the order the drag previewed, not one re-derived from the drop", async () => {
+  it("writes the slot the hovered row is giving up, not the one the crossing spliced into", async () => {
     renderTwoDays();
-    // Crossing into Today under its last row places X at the bottom — that is
-    // the preview the user is looking at when they let go. The drop then
-    // reports a row as `over`, and re-deriving the position from it used to
-    // move X back up a slot: dropped at the bottom, second from the bottom a
-    // moment later.
+    // Crossing into Today splices X in by geometry — under `c`, here. Nobody
+    // sees that: dnd-kit's sortable strategy is what's on screen, and it
+    // displaces the day's rows by arrayMove(active → over), showing X in c's
+    // slot with c pushed down. Honouring the splice landed X a slot below the
+    // gap the user was looking at.
     await dragOnto(overRow("c"));
 
     const updates = ordersFrom();
-    expect(updates.map((u) => u.id)).toEqual(["a", "b", "c", "x"]);
+    expect(updates.map((u) => u.id)).toEqual(["a", "b", "x", "c"]);
     expect(updates.map((u) => u.input.sort_order)).toEqual([
       1000, 2000, 3000, 4000,
     ]);
+  });
+
+  it("keeps following the pointer once the row is in the day", async () => {
+    renderTwoDays();
+    // The bug this suite exists for: the first hover is what moved X into
+    // Today, and every hover after it is a same-day one, which handleDragOver
+    // leaves alone. The preview still tracks the pointer all the way to the
+    // top of the day, so the drop has to as well.
+    await dragOver(overRow("c"), overRow("a"));
+
+    expect(ordersFrom().map((u) => u.id)).toEqual(["x", "a", "b", "c"]);
+  });
+
+  it("keeps the crossing's placement when the drop lands on the day itself", async () => {
+    renderTwoDays();
+    // A drop past the last row reports the day, not a row — nothing is
+    // displaced, so there is no preview to read and the bottom placement
+    // handleDragOver made is the one on screen.
+    await dragOnto({ id: `group:${TODAY}`, rect: overRow("c").rect });
+
+    expect(ordersFrom().map((u) => u.id)).toEqual(["a", "b", "c", "x"]);
   });
 
   it("patches the moved row once, with its new day and its new place together", async () => {
@@ -204,7 +229,7 @@ describe("DraggableUpcoming — what a cross-day drop writes", () => {
     const updates = ordersFrom();
     const forX = updates.filter((u) => u.id === "x");
     expect(forX).toHaveLength(1);
-    expect(forX[0].input).toEqual({ scheduled_date: TODAY, sort_order: 4000 });
+    expect(forX[0].input).toEqual({ scheduled_date: TODAY, sort_order: 3000 });
   });
 
   it("clears the date when the target is the No-date column", async () => {

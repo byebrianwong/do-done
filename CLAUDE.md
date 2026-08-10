@@ -105,6 +105,149 @@ The rule the chips make legible, on web (`buildCreateInput` +
   gives the universal quick-add (sidebar, palette, `q`) the same context the
   page's own bar has — project pages, Today, Inbox — and nothing anywhere else.
 
+## A subtask goes where its parent goes
+
+A subtask is the same piece of work as its parent, one level down, so it lives
+in the parent's project unless somebody says otherwise. Three moments, all of
+them in `TasksApi` (`packages/api-client/src/tasks.ts`) rather than in a UI —
+that's the one door web, mobile and MCP all write through, and the rule would
+otherwise have to be re-implemented at each of the surfaces that can make a
+subtask:
+
+| Moment | What happens |
+| --- | --- |
+| Created under a parent | `create` copies the parent's `project_id`, unless the caller named one |
+| Moved under a parent | `update` does the same, on the same terms |
+| The parent changes project | `update` cascades to the whole subtree |
+
+- **The cascade is tested against the *result*, not the input.** A project
+  arrived at by re-parenting propagates the same way one typed into the chip
+  does, and a write that merely re-states the project the task already had
+  costs nothing.
+- **A hand-filed subtask is overwritten when its parent moves.** The parent's
+  move is the later instruction, and the alternative — remembering which
+  subtasks had been filed by hand — is state nothing on the row or in the
+  editor could show the user. Filing a subtask elsewhere still works; it just
+  doesn't survive the parent being moved.
+- **`subtreeIds` bounds the walk at the depth-2 ceiling** the DB trigger
+  enforces, so the cascade is two queries, not an open recursion — and one
+  query for a childless task, which is the overwhelmingly common case. It is
+  awaited, so a caller's cache invalidation lands after the children have
+  moved.
+- **It is best-effort.** The parent's own write has already landed and there is
+  nothing to roll back to, so a failed cascade leaves the subtree behind rather
+  than failing the write the user asked for.
+- `apps/web/src/lib/demo/api.ts` hand-mirrors all three, the same way it
+  mirrors the create-time half.
+
+### Hiding them
+
+Every list is a flat query and a subtask is an ordinary row in it wearing a
+"↳ parent" breadcrumb — right for a checklist someone is working through, noise
+for a parent whose six steps bury the rest of the page. `showSubtasks` on
+`DisplayConfig` is the switch, beside "Show completed" in both Display menus.
+
+- **A top-level field, not a `filters` clause.** It's a default about what a
+  list *is*, not a narrowing the user applied, so it has to be able to default
+  to *on* without lighting the "Filter · N" badge on every view.
+- **It defaults to on**, and `parseDisplayConfig` backfills that for every
+  config saved before it existed — turning it off for everyone would silently
+  change what a saved view means.
+- One branch in `filterTasks`, so grouped lists (`applyDisplay`) and the
+  curated Today/Upcoming layouts (`filterByConfig`) both get it. The four
+  mobile screens that still bypass the display engine — Inbox, Project, Tag,
+  Completed — don't have it, same as they don't have any other display option.
+
+## A fourth voice: what your own past tasks say
+
+Below the three tiers above sits one more — the history — and it is the only
+one that is **offered rather than applied**. As a title is typed, its words are
+scored against the user's own task list and the project (and estimate) that
+kind of task has gone to before appears under the composer. Tab takes it.
+
+**The training set is the history and nothing else.** A keyword table mapping
+"gym" to "Health" is a guess about a project list we can see, and it is wrong
+for everyone whose projects are named differently — which is everyone.
+(`suggestCategories` in `packages/task-engine` is exactly that table, and has
+been dead since it was written.) What the history says is checkable instead —
+"the last four tasks with `standup` went to Work" — which is also what makes a
+suggestion explainable to the person reading it: `because` carries those words
+into the pill's tooltip.
+
+**Nothing here reaches `buildCreateInput`.** Accepting a suggestion calls the
+same setter the chip's own picker does, so from that instant it *is* an
+explicit pick. The failure modes are not symmetrical: an ignored suggestion
+costs a glance, while a silently applied one files the task into a project the
+user never chose and will not think to look in. Auto-applying above some
+confidence would be a fourth tier in `contextFacets` instead — a real option,
+and a different decision from this one.
+
+Every threshold in `packages/shared/src/suggest.ts` is set on that asymmetry: a
+word must have been seen twice (one coincidence would otherwise score a perfect
+1.0), the winner must score a whole vote *and* hold 60% of the evidence, and a
+title whose words point two ways resolves to **silence** — that being exactly
+the case where the user would have stopped to think, and a confident wrong chip
+is what stops them.
+
+- **Each qualifying word splits *one* vote** across the values it has been seen
+  with, so a word that always means the same thing carries a whole vote and a
+  word meaning four things carries a quarter each. Without that normalisation
+  the winner is whichever project simply has the most tasks — a suggestion that
+  ignores the title.
+- **Project and estimate only.** `tasks.priority` is `not null default 'p4'`,
+  so the history cannot tell "chose Low" from "never triaged" — the same
+  collapse that makes P4 draw nothing in the row gutter — and a frequency model
+  over it would suggest `p4` for nearly everything. A date is about *when you
+  are* rather than what the words say, and the parser already reads "friday"
+  out of a title far better than a count could.
+- **It renders below the input, beside `ParsedPreview`, never inside a chip.**
+  A chip's one click already means "open the picker", so a ghosted value in one
+  would have to mean two things at once, and the reading that lost would be the
+  one the user wanted. `SuggestedFacets` gives each guess its own dashed pill
+  whose only job is to be taken.
+- **Only into an *empty* chip.** A facet with a value has been answered by
+  someone with a better claim than the history.
+- **Two calls, because they run at different rates.** `buildSuggestionIndex`
+  counts a bounded sweep once per session (`SuggestionProvider`, mounted beside
+  `CompletionStreakProvider` in the app shell and `DemoShell` alike);
+  `suggestFacets` runs against it per keystroke, off the *parsed* title so a
+  `#project` already typed isn't fed back as evidence for the answer it just
+  gave. State rather than a ref, unlike the streak — the chips have to fill in
+  when the history lands.
+- `TasksApi.suggestionHistory()` selects three narrow columns, newest-first and
+  bounded, unlike `listTags`, which has to sweep everything because a tag it
+  misses doesn't exist to the app. A suggestion has no such duty.
+
+**Both platforms, one scorer, and the difference between them is the keyboard.**
+Web binds Tab to accept (only when there is something to accept, so it still
+moves focus otherwise); a phone has no Tab, so a tap is the whole interaction.
+
+Mobile obeys the rule the rest of `QuickAddFields.tsx` already lives under:
+**it may not call a query hook or reach for the API**, because the widget root
+mounts its own React tree with no `QueryClientProvider`. So the index is handed
+in by the host exactly as `projects` is — `useSuggestionIndex()` on the two
+in-app hosts, a direct `TasksApi` read on `quick-add-root.tsx`. That read uses
+the *same* bound as everywhere else and not a cheaper one tuned for a launcher
+activity: a shorter history is a different history, and the widget would then
+guess differently from the in-app bar for the same title, which is the drift a
+shared scorer exists to prevent.
+
+`suggestionsFor(title)` takes the title rather than holding it, because the
+hosts own that state — the same shape as `buildInput(raw)` and
+`absorbTags(value)`. It scores the title directly with no parse: mobile's
+absorber has already stripped every `#token` on the way in, and a leftover date
+word costs nothing because the parser strips those before a task is ever saved,
+so no historical title carries one.
+
+`suggestionKeys` is its own query root, not under `taskKeys` — the optimistic
+`setQueriesData<Task[]>` sweeps rewrite everything under `taskKeys.all`, and
+this cache holds a pair of Maps. It is deliberately **not** in
+`invalidateTasks()`, which is where it differs from `tagKeys`: a tag count is
+an index of what exists and is wrong the moment a task moves, while this is a
+guess from habit that one more task changes by about nothing. Refetching the
+history after every create would be the most expensive write in the app in
+service of a suggestion that would have been identical.
+
 ## Status ↔ schedule auto-sync
 
 An opt-in rule (two independent halves, both off by default) that keeps a
@@ -169,6 +312,35 @@ pnpm --filter web dev     # Start web app only
 pnpm --filter mobile start  # Start Expo dev server (then `a`=android, `i`=ios)
 pnpm --filter @do-done/mcp build  # Build MCP server
 ```
+
+### Running the app to look at it
+
+`.claude/launch.json` names the servers an agent starts with `preview_start`
+(`web`, `mobile`, `storybook`, `mcp`) — **never launch a dev server with a bare
+shell command**, or nothing can find it afterwards.
+
+**The `web` entry sets `"autoPort": true`, and that is deliberate.** Worktrees
+are a normal way to work here, so a second session is often already holding
+3000; without the flag the server simply refuses to start and there is no way
+to see the change at all. With it, 3000 is still used whenever it's free — the
+flag only engages in the case whose alternative is nothing.
+
+**The one thing it costs: connecting Google Calendar only works on port 3000.**
+`api/calendar/connect` builds its `redirectUri` from the request origin, and
+Google Cloud Console has only `http://localhost:3000/api/calendar/callback`
+registered, so any other port comes back `redirect_uri_mismatch`. Free 3000
+before testing that flow. Nothing else is port-sensitive: `APP_URL` is pinned
+to the deployed URL even locally, so the MCP OAuth issuer doesn't vary with the
+port, and the mismatch fails loudly on your *own* origin rather than quietly
+landing on the other session's server.
+
+Note that `README.md` and `docs/HANDOFF.md` both say `localhost:3000`, so the
+port the tool prints can disagree with the docs. The printed one is right.
+
+**Verify against `/demo`, not a login wall.** It needs no session and seeds its
+own data — see *The demo sandbox*. Copy `.env.local` and `apps/web/.env.local`
+in from the main checkout first; a worktree has neither, and without them the
+auth proxy 500s on every route including `/demo`.
 
 ## Code Style
 
@@ -1267,7 +1439,24 @@ pnpm --filter web build-storybook  # static build to storybook-static/
 pnpm --filter web chromatic        # publish to Chromatic
 ```
 
-Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~18 `*.stories.tsx` files under `apps/web/src/components/`).
+Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~20 `*.stories.tsx` files under `apps/web/src/components/`).
+
+**The marketing page is covered too, and that is not optional.** `/` is the
+only route a stranger sees, and its hero is *hand-built markup* imitating the
+Today view — so it does not move when the real row moves. It twice went on
+advertising a row design the app had replaced, and nothing caught it either
+time, because it had no snapshot. `Marketing/*` is that snapshot.
+
+Those stories all take `withSettledMotion`
+(`components/landing/__stories__/settled.tsx`), which renders the page in the
+state it already ships for `prefers-reduced-motion` — a real code path, so the
+baseline is not a Storybook-only fiction. It settles three things a snapshot
+would otherwise catch mid-flight, and **all three are needed**: the CSS (a copy
+of the reduced-motion block in `globals.css`, which it must track),
+`matchMedia` (the quick-add typewriter asks it directly, and no stylesheet
+reaches that), and `IntersectionObserver` (both animated pieces wait to be on
+screen, and in a full-page shot the quick-add section is below the fold — so
+whether it has typed depends on how Chromatic scrolls while capturing).
 
 **Chromatic** publishes Storybook on every push/PR and detects visual regressions:
 

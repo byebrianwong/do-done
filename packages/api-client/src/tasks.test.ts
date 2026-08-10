@@ -650,6 +650,199 @@ describe("TasksApi.update — leaving done", () => {
   });
 });
 
+// ── update: a subtask follows its parent's project ─────────────────────
+
+/**
+ * A task-table stand-in that keeps rows in a map, so a write is visible to the
+ * reads that follow it. `update()` reads the prior row, may read a new parent,
+ * writes the patch, then walks the subtree — the settled state is the whole
+ * point here, which a call-recording stub can't show.
+ *
+ * Reads hand back **clones**: `update` compares the row it wrote against the
+ * row it read, and sharing one object would make that comparison vacuously
+ * true.
+ */
+function makeTreeStub(rows: Task[]) {
+  const byId = new Map(rows.map((r) => [r.id, { ...r }]));
+  const writes: { ids: string[]; patch: Record<string, unknown> }[] = [];
+  const supabase = {
+    from(table: string) {
+      const state: {
+        op: "select" | "update";
+        patch: Record<string, unknown>;
+        eqId: string | null;
+        inIds: string[] | null;
+        inParents: string[] | null;
+      } = { op: "select", patch: {}, eqId: null, inIds: null, inParents: null };
+
+      const settle = () => {
+        if (table !== "tasks") return { data: null, error: null };
+        if (state.op === "update") {
+          const ids = state.inIds ?? (state.eqId ? [state.eqId] : []);
+          writes.push({ ids, patch: state.patch });
+          for (const id of ids) {
+            const row = byId.get(id);
+            if (row) byId.set(id, { ...row, ...(state.patch as Partial<Task>) });
+          }
+          const first = ids[0] ? byId.get(ids[0]) : null;
+          return { data: first ? { ...first } : null, error: null };
+        }
+        if (state.inParents) {
+          const kids = [...byId.values()].filter(
+            (r) => r.parent_task_id && state.inParents!.includes(r.parent_task_id)
+          );
+          return { data: kids.map((k) => ({ id: k.id })), error: null };
+        }
+        const hit = state.eqId ? byId.get(state.eqId) : null;
+        return { data: hit ? { ...hit } : null, error: null };
+      };
+
+      const proxy: unknown = new Proxy(
+        {},
+        {
+          get(_t, prop: string) {
+            switch (prop) {
+              case "update":
+                return (patch: Record<string, unknown>) => {
+                  state.op = "update";
+                  state.patch = patch;
+                  return proxy;
+                };
+              case "eq":
+                return (col: string, val: string) => {
+                  if (col === "id") state.eqId = val;
+                  return proxy;
+                };
+              case "in":
+                return (col: string, vals: string[]) => {
+                  if (col === "id") state.inIds = vals;
+                  if (col === "parent_task_id") state.inParents = vals;
+                  return proxy;
+                };
+              case "single":
+              case "maybeSingle":
+                return () => Promise.resolve(settle());
+              case "then":
+                return (resolve: (v: unknown) => unknown) => resolve(settle());
+              default:
+                return () => proxy;
+            }
+          },
+        }
+      );
+      return proxy;
+    },
+  };
+  return { supabase, byId, writes };
+}
+
+const TREE = [
+  makeTask({ id: "p", title: "Parent", project_id: null }),
+  makeTask({ id: "c1", title: "Child 1", parent_task_id: "p", depth: 1 }),
+  makeTask({ id: "c2", title: "Child 2", parent_task_id: "p", depth: 1 }),
+  makeTask({ id: "g1", title: "Grandchild", parent_task_id: "c1", depth: 2 }),
+  makeTask({ id: "other", title: "Unrelated", project_id: "proj-x" }),
+];
+
+describe("TasksApi.update — a project change carries the subtree", () => {
+  it("moves children and grandchildren into the parent's new project", async () => {
+    const { supabase, byId } = makeTreeStub(TREE);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("p", { project_id: "proj-9" });
+
+    expect(byId.get("p")?.project_id).toBe("proj-9");
+    expect(byId.get("c1")?.project_id).toBe("proj-9");
+    expect(byId.get("c2")?.project_id).toBe("proj-9");
+    // Depth 2 is the ceiling the DB trigger enforces, and the walk has to
+    // reach all of it — a grandchild left behind is the same bug one level
+    // further down.
+    expect(byId.get("g1")?.project_id).toBe("proj-9");
+    expect(byId.get("other")?.project_id).toBe("proj-x");
+  });
+
+  it("carries them out again when the parent is un-filed", async () => {
+    const { supabase, byId } = makeTreeStub(
+      TREE.map((t) => ({ ...t, project_id: "proj-9" }))
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("p", { project_id: null });
+
+    expect(byId.get("c1")?.project_id).toBeNull();
+    expect(byId.get("g1")?.project_id).toBeNull();
+  });
+
+  it("leaves the subtree alone on a write that doesn't move the project", async () => {
+    const { supabase, writes } = makeTreeStub(TREE);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("p", { title: "Renamed" });
+
+    // One write, and no subtree walk: the cascade costs a query, so it must
+    // only run when the project actually moved.
+    expect(writes).toHaveLength(1);
+    expect(writes[0].ids).toEqual(["p"]);
+  });
+
+  it("doesn't re-file the subtree when the project was already that one", async () => {
+    const { supabase, writes } = makeTreeStub(
+      TREE.map((t) => (t.id === "p" ? { ...t, project_id: "proj-9" } : t))
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("p", { project_id: "proj-9" });
+
+    expect(writes).toHaveLength(1);
+  });
+});
+
+describe("TasksApi.update — re-parenting inherits", () => {
+  it("takes the new parent's project when the write names none", async () => {
+    const { supabase, byId } = makeTreeStub([
+      makeTask({ id: "p", project_id: "proj-9" }),
+      makeTask({ id: "loose", title: "Loose", project_id: null }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("loose", { parent_task_id: "p" });
+
+    expect(byId.get("loose")?.project_id).toBe("proj-9");
+  });
+
+  it("keeps an explicitly chosen project over the new parent's", async () => {
+    const { supabase, byId } = makeTreeStub([
+      makeTask({ id: "p", project_id: "proj-9" }),
+      makeTask({ id: "loose", title: "Loose", project_id: null }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("loose", { parent_task_id: "p", project_id: "proj-1" });
+
+    expect(byId.get("loose")?.project_id).toBe("proj-1");
+  });
+
+  it("carries the moved task's own subtree along with it", async () => {
+    const { supabase, byId } = makeTreeStub([
+      makeTask({ id: "p", project_id: "proj-9" }),
+      makeTask({ id: "loose", title: "Loose", project_id: null }),
+      makeTask({ id: "kid", parent_task_id: "loose", depth: 1, project_id: null }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.update("loose", { parent_task_id: "p" });
+
+    expect(byId.get("kid")?.project_id).toBe("proj-9");
+  });
+});
+
 // ── delete / restore / purge ───────────────────────────────────────────
 
 /**
@@ -886,6 +1079,7 @@ describe("TasksApi — deleted rows are invisible", () => {
 
     await api.list();
     await api.listTags();
+    await api.suggestionHistory();
     await api.getById("task-1");
     await api.listCompleted();
     await api.listSubtasks("task-1");

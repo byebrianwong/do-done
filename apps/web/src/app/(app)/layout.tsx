@@ -10,6 +10,7 @@ import { StatusSyncRunner } from "@/components/status-sync-runner";
 import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
+import { SuggestionProvider } from "@/lib/suggestions";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { PIP_HIDDEN_COOKIE } from "@/lib/pip-visibility";
 import { ProjectsApi } from "@do-done/api-client";
@@ -44,19 +45,23 @@ export default async function AppLayout({
         <TaskSelectionProvider>
           <TaskEditingHoldProvider>
             <QuickAddProvider projects={projects} userId={user?.id ?? null}>
-              {/* Owns the task editor for the whole app, and mirrors it onto the
-                URL — so an open task always has a link to share. */}
-              <TaskEditorProvider>
-                <AppShell
-                  projects={projects}
-                  userEmail={user?.email ?? null}
-                  pipHidden={pipHidden}
-                >
-                  {children}
-                </AppShell>
-                <CommandPalette projects={projects} />
-                <QuickAddModal projects={projects} userId={user?.id ?? null} />
-              </TaskEditorProvider>
+              {/* One count of the task history for every quick-add surface, so
+                the chips can guess a project without a round-trip per keystroke. */}
+              <SuggestionProvider>
+                {/* Owns the task editor for the whole app, and mirrors it onto
+                  the URL — so an open task always has a link to share. */}
+                <TaskEditorProvider>
+                  <AppShell
+                    projects={projects}
+                    userEmail={user?.email ?? null}
+                    pipHidden={pipHidden}
+                  >
+                    {children}
+                  </AppShell>
+                  <CommandPalette projects={projects} />
+                  <QuickAddModal projects={projects} userId={user?.id ?? null} />
+                </TaskEditorProvider>
+              </SuggestionProvider>
             </QuickAddProvider>
           </TaskEditingHoldProvider>
           <BulkActionBar projects={projects} />

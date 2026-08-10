@@ -9,9 +9,17 @@
  *
  * The one moving part is the top task ticking itself off on a loop, which is
  * the gesture the product is named after.
+ *
+ * **It draws the row the way the app draws it**, which is the whole job of a
+ * mock: two coloured slots, each carrying one variable — the ring is the
+ * project, the gutter is urgency. It spent a while advertising the encoding
+ * *before* that (a priority-coloured ring, four bars lit by rank), so the
+ * design a visitor was sold was not the one they got when they signed up.
+ * Anything that changes in `task-item.tsx`'s row has to be answered here.
  */
 
-import { PRIORITY_CONFIG } from "@do-done/shared";
+import { OVERDUE_COLOR, PRIORITY_CONFIG } from "@do-done/shared";
+import type { TaskPriority } from "@do-done/shared";
 
 const NAV = [
   { label: "Inbox", count: 4 },
@@ -32,7 +40,8 @@ interface Row {
   estimate?: string;
   when?: string;
   whenTone?: "today" | "overdue" | "plain";
-  priority: 1 | 2 | 3 | 4;
+  /** The app's own key, so the mock can't invent a rank the product lacks. */
+  priority: TaskPriority;
   tag?: string;
   /** The row that completes itself on a loop. */
   ticking?: boolean;
@@ -45,7 +54,7 @@ const FOCUS: Row[] = [
     estimate: "30m",
     when: "Overdue",
     whenTone: "overdue",
-    priority: 1,
+    priority: "p1",
     ticking: true,
   },
   {
@@ -54,7 +63,7 @@ const FOCUS: Row[] = [
     estimate: "1h 30m",
     when: "9:30",
     whenTone: "today",
-    priority: 1,
+    priority: "p1",
     tag: "#writing",
   },
   {
@@ -63,7 +72,7 @@ const FOCUS: Row[] = [
     estimate: "10m",
     when: "Today",
     whenTone: "today",
-    priority: 2,
+    priority: "p2",
   },
 ];
 
@@ -73,7 +82,7 @@ const REST: Row[] = [
     project: PROJECTS[0],
     when: "14:00",
     whenTone: "today",
-    priority: 2,
+    priority: "p2",
   },
   {
     title: "Run — 5k easy",
@@ -81,45 +90,59 @@ const REST: Row[] = [
     estimate: "40m",
     when: "18:00",
     whenTone: "today",
-    priority: 3,
+    priority: "p3",
   },
   {
     title: "Book the dentist",
     project: PROJECTS[2],
     when: "Today",
     whenTone: "today",
-    priority: 3,
+    priority: "p3",
   },
 ];
 
 /**
- * The hero keys its rows by number rather than by `p1`…`p4`, but the colours
- * are the app's own — restating them here is how this mock came to advertise a
- * ramp the product had stopped drawing.
+ * The urgency gutter, matching `GUTTER_MARK` in `task-item.tsx` mark for mark:
+ * a dot when the task is late, then a bar whose length falls with the rank,
+ * and nothing at all for a P4.
+ *
+ * The rule is restated rather than imported because `rowGutter` takes a `Task`
+ * and these rows are six object literals with no ids, timestamps or dates —
+ * the point of a mock. The *values* are still the app's, so only the geometry
+ * could ever drift, and a row that draws the wrong length is visible on the
+ * page rather than silent.
  */
-const PRIORITY_COLOR = {
-  1: PRIORITY_CONFIG.p1.color,
-  2: PRIORITY_CONFIG.p2.color,
-  3: PRIORITY_CONFIG.p3.color,
-  4: PRIORITY_CONFIG.p4.color,
+const GUTTER_MARK = {
+  overdue: { color: OVERDUE_COLOR, className: "h-[7px] w-[7px] rounded-full" },
+  p1: { color: PRIORITY_CONFIG.p1.color, className: "h-4 w-[3px] rounded-[2px]" },
+  p2: { color: PRIORITY_CONFIG.p2.color, className: "h-2.5 w-[3px] rounded-[2px]" },
+  p3: { color: PRIORITY_CONFIG.p3.color, className: "h-1.5 w-[3px] rounded-[2px]" },
 } as const;
 
-function PriorityBars({ priority }: { priority: 1 | 2 | 3 | 4 }) {
-  const lit = 5 - priority;
-  const heights = ["h-1", "h-1.5", "h-2", "h-2.5"];
+/** Overdue outranks priority, and P4 draws nothing — same order as `rowGutter`. */
+function gutterFor(row: Row): keyof typeof GUTTER_MARK | null {
+  if (row.whenTone === "overdue") return "overdue";
+  if (row.priority === "p4") return null;
+  return row.priority;
+}
+
+/**
+ * The slot keeps its width whatever it draws, so the ring and the title line up
+ * down the list whether or not a row has anything to say here.
+ */
+function GutterMark({ row }: { row: Row }) {
+  const mark = gutterFor(row);
   return (
-    <span className="inline-flex shrink-0 items-end gap-[2px]" aria-hidden>
-      {[0, 1, 2, 3].map((i) => (
+    <span
+      className="inline-flex h-4 w-[7px] shrink-0 items-center justify-center"
+      aria-hidden
+    >
+      {mark ? (
         <span
-          key={i}
-          className={`block w-[3px] rounded-[1px] ${heights[i]} ${
-            i < lit ? "" : "bg-neutral-200 dark:bg-neutral-700"
-          }`}
-          style={
-            i < lit ? { backgroundColor: PRIORITY_COLOR[priority] } : undefined
-          }
+          className={GUTTER_MARK[mark].className}
+          style={{ backgroundColor: GUTTER_MARK[mark].color }}
         />
-      ))}
+      ) : null}
     </span>
   );
 }
@@ -141,19 +164,26 @@ function WhenChip({ label, tone }: { label: string; tone: Row["whenTone"] }) {
 }
 
 function TaskRow({ row }: { row: Row }) {
+  // Identity, not rank. A task with no project gets the app's own deliberate
+  // neutral rather than a missing ring.
+  const ringColor = row.project?.color ?? "#94a3b8";
   return (
     <div className="flex items-center gap-2.5 rounded-lg px-2 py-[7px]">
-      {/* The completion circle. On the ticking row, three synchronised
-          keyframe tracks draw the check, fill the ring and strike the title
-          out together — see `globals.css`. */}
+      <GutterMark row={row} />
+
+      {/* The completion circle, carrying the project's colour. On the ticking
+          row, three synchronised keyframe tracks draw the check, fill the ring
+          and strike the title out together — see `globals.css`. The fill is
+          the project's colour too, the same way for every priority: done is a
+          state, not a rank. */}
       <span
         className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 ${
           row.ticking ? "dd-tick-ring" : ""
         }`}
         style={
           {
-            borderColor: PRIORITY_COLOR[row.priority],
-            "--dd-ring": PRIORITY_COLOR[row.priority],
+            borderColor: ringColor,
+            "--dd-ring": ringColor,
           } as React.CSSProperties
         }
         aria-hidden
@@ -170,8 +200,6 @@ function TaskRow({ row }: { row: Row }) {
         </svg>
       </span>
 
-      <PriorityBars priority={row.priority} />
-
       <span
         className={`min-w-0 flex-1 truncate text-[13px] text-neutral-800 dark:text-neutral-100 ${
           row.ticking ? "dd-tick-title" : ""
@@ -186,12 +214,10 @@ function TaskRow({ row }: { row: Row }) {
         </span>
       ) : null}
 
+      {/* No colour dot: the ring has already said which project this is, and
+          the app's own chip dropped it for exactly that reason. */}
       {row.project ? (
         <span className="hidden shrink-0 items-center gap-1 text-[11px] text-neutral-500 sm:inline-flex dark:text-neutral-400">
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ backgroundColor: row.project.color }}
-          />
           {row.project.name}
         </span>
       ) : null}

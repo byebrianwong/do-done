@@ -1434,9 +1434,24 @@ export function TaskItem({
         {/* Always visible on touch (no hover); reveal on hover for pointer
             devices to keep the desktop list calm. Scoped to the row's own
             `group/row` so hovering one row never reveals a sibling's controls
-            (an outer section may also be a `group`). */}
+            (an outer section may also be a `group`).
+
+            The width is fixed at the two-action maximum (`w-12` = two 22px
+            buttons and the 4px between them), and the strip is right-aligned
+            inside it. Reveal is by opacity, so this strip occupies its width
+            on every row whether or not the pointer is anywhere near it — and
+            "Find a time" is conditional (`canSchedule`: an estimate, no
+            schedule). So a one-action row reserved 26px less than a two-action
+            one, and since the date chip is placed by `ml-auto` *against this
+            strip*, the column it is trying to form stepped 26px left and back
+            again down the list, on a difference nothing on screen explains.
+            Padding out the shorter case is what makes the edge a column.
+
+            Add a third action and this number has to grow with it: the buttons
+            are `shrink-0`, so they will spill left over the date chip rather
+            than quietly widening the strip. */}
         <div
-          className={`flex shrink-0 items-center gap-1 opacity-100 transition-opacity ${align.band} md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
+          className={`flex w-12 shrink-0 items-center justify-end gap-1 opacity-100 transition-opacity ${align.band} md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
           onClick={(e) => e.stopPropagation()}
         >
           {canSchedule && duration && (

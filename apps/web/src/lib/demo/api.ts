@@ -162,6 +162,25 @@ class DemoTasksApiImpl {
     return ok(summarizeTags(this.tasks));
   }
 
+  /**
+   * The sandbox's seed is a couple of dozen tasks written to look like a real
+   * week, not a habit built up over months, so this is honestly answerable and
+   * honestly thin: `suggestFacets` will find almost nothing above its evidence
+   * thresholds and the chips will simply stay empty. That is the correct demo
+   * of the feature — a first-week user sees the same thing.
+   */
+  async suggestionHistory(opts?: { limit?: number }) {
+    return ok(
+      this.tasks
+        .slice(0, opts?.limit ?? 800)
+        .map((t) => ({
+          title: t.title,
+          project_id: t.project_id,
+          duration_minutes: t.duration_minutes,
+        }))
+    );
+  }
+
   async listByTag(tag: string, opts?: { limit?: number }) {
     return this.list({ tags: [tag], limit: opts?.limit ?? 500, offset: 0 });
   }
@@ -217,14 +236,46 @@ class DemoTasksApiImpl {
       input.status !== undefined &&
       input.status !== "done" &&
       prior.status === "done";
+    // Re-parenting inherits the new parent's project, and a project change
+    // carries the subtree with it — both mirroring TasksApi.update.
+    const reparent =
+      input.parent_task_id && input.parent_task_id !== prior.parent_task_id
+        ? this.tasks.find((t) => t.id === input.parent_task_id)
+        : undefined;
+    const inherited =
+      reparent && input.project_id === undefined && reparent.project_id
+        ? { project_id: reparent.project_id }
+        : {};
     const updated: Task = {
       ...prior,
       ...input,
+      ...inherited,
       updated_at: nowISO(),
       ...(becomingDone ? { completed_at: nowISO() } : {}),
       ...(leavingDone ? { completed_at: null } : {}),
     };
-    const next = this.tasks.map((t) => (t.id === id ? updated : t));
+    const moved = new Set<string>();
+    if (updated.project_id !== prior.project_id) {
+      let grew = true;
+      moved.add(id);
+      while (grew) {
+        grew = false;
+        for (const t of this.tasks) {
+          if (t.parent_task_id && moved.has(t.parent_task_id) && !moved.has(t.id)) {
+            moved.add(t.id);
+            grew = true;
+          }
+        }
+      }
+      moved.delete(id);
+    }
+    const next = this.tasks.map((t) =>
+      t.id === id
+        ? updated
+        : moved.has(t.id)
+          ? { ...t, project_id: updated.project_id, updated_at: nowISO() }
+          : t
+    );
     if (becomingDone || leavingDone) this.writeCompletion(next);
     else this.write(next);
     return ok(updated);

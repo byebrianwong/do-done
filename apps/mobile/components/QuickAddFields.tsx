@@ -53,8 +53,11 @@ import {
   formatScheduleHint,
   projectIconText,
   resolveQuickSchedule,
+  suggestFacets,
   type CreateTaskInput,
+  type FacetSuggestions,
   type Project,
+  type SuggestionIndex,
   type TaskPriority,
 } from '@do-done/shared';
 import {
@@ -153,6 +156,15 @@ export interface QuickAddFields {
   setRowOffset: (x: number) => void;
   calendarOpen: boolean;
   setCalendarOpen: (open: boolean) => void;
+  /**
+   * What the user's own past tasks say about the title typed so far — offered,
+   * never applied. Takes the title because this hook doesn't hold it; the host
+   * does, exactly as {@link buildInput} and {@link absorbTags} already work.
+   *
+   * A facet the chips already carry comes back null: it has been answered by
+   * someone with a better claim than the history.
+   */
+  suggestionsFor: (title: string) => FacetSuggestions;
   /** True once the user has chosen anything — keeps a surface expanded. */
   anySet: boolean;
   /** Back to the seed: what a surface does after a successful create. */
@@ -181,10 +193,15 @@ export interface QuickAddFields {
  *   there instead of tagging it. Omit and the Project chip hides and every
  *   `#token` stays a tag — which is what a surface still loading its list
  *   looks like for the first frame, not a permanent state of any surface.
+ * @param suggestionIndex  The counted task history quick-add guesses from,
+ *   handed in for the same reason `hostProjects` is: this module cannot reach
+ *   for the API or a query hook, because the widget root has no
+ *   QueryClientProvider. Omit and nothing is ever suggested.
  */
 export function useQuickAddFields(
   seed: QuickAddSeed = {},
-  hostProjects?: Project[]
+  hostProjects?: Project[],
+  suggestionIndex?: SuggestionIndex
 ): QuickAddFields {
   const seedProjectId = seed.projectId ?? null;
   const seedScheduledDate = seed.scheduledDate ?? null;
@@ -373,6 +390,25 @@ export function useQuickAddFields(
     };
   };
 
+  /**
+   * Scored against the title as it stands, which on this platform is already
+   * shortcut-free: `absorbTags` strips every `#token` on the way in, so unlike
+   * web there is no parse to run first. A stray date word ("friday") costs
+   * nothing either — the parser strips those before a task is saved, so no
+   * historical title carries one and the token matches nothing.
+   */
+  const suggestionsFor = (title: string): FacetSuggestions => {
+    const none: FacetSuggestions = { project_id: null, duration_minutes: null };
+    if (!suggestionIndex || !title.trim()) return none;
+    const scored = suggestFacets(title, suggestionIndex, {
+      projectIds: projects?.map((p) => p.id),
+    });
+    return {
+      project_id: projectId == null ? scored.project_id : null,
+      duration_minutes: duration == null ? scored.duration_minutes : null,
+    };
+  };
+
   // What the *user* has set, not what the chips show: a seeded chip must not
   // hold its surface open forever.
   const anySet =
@@ -408,6 +444,7 @@ export function useQuickAddFields(
     setRowOffset,
     calendarOpen,
     setCalendarOpen,
+    suggestionsFor,
     anySet,
     reset,
     buildInput,
@@ -659,6 +696,74 @@ export function QuickAddChipRow({
         onPress={() => fields.toggleMenu('estimate')}
         onLayout={fields.anchorFor('estimate')}
       />
+    </View>
+  );
+}
+
+/**
+ * The app's guesses at a facet the user hasn't filled in, from their own past
+ * tasks. Sits directly above the chip row and renders nothing when there is
+ * nothing to offer, which is most of the time.
+ *
+ * Offered, never applied: tapping one calls the same setter the chip's own
+ * picker does, so from that instant it is an ordinary explicit pick. An
+ * ignored suggestion costs a glance; a silently applied one files the task
+ * into a project the user never chose and will not think to look in.
+ *
+ * There is no Tab on a phone, so a tap is the whole interaction — no keyboard
+ * accelerator to explain, and nothing competing with the IME for a key.
+ */
+export function QuickAddSuggestionRow({
+  fields,
+  title,
+  style,
+}: {
+  fields: QuickAddFields;
+  /** The composer's current text — the host holds it, so it comes in as a prop. */
+  title: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const suggestions = fields.suggestionsFor(title);
+  const project = suggestions.project_id
+    ? fields.projects?.find((p) => p.id === suggestions.project_id!.value) ?? null
+    : null;
+  const minutes = suggestions.duration_minutes?.value ?? null;
+
+  if (!project && minutes == null) return null;
+
+  return (
+    <View style={[styles.suggestRow, style]}>
+      <Text style={styles.suggestLabel}>Suggested</Text>
+      {project ? (
+        <Pressable
+          style={styles.suggestChip}
+          onPress={() => fields.setProjectId(project.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`File in ${project.name}`}
+          accessibilityHint={`Suggested from ${suggestions.project_id!.because.join(', ')} in past tasks`}
+          hitSlop={4}
+        >
+          <View
+            style={[styles.suggestDot, { backgroundColor: project.color }]}
+          />
+          <Text style={styles.suggestChipText} numberOfLines={1}>
+            {`${projectIconText(project.icon)} ${project.name}`.trim()}
+          </Text>
+        </Pressable>
+      ) : null}
+      {minutes != null ? (
+        <Pressable
+          style={styles.suggestChip}
+          onPress={() => fields.setDuration(minutes)}
+          accessibilityRole="button"
+          accessibilityLabel={`Estimate ${durationLabel(minutes)}`}
+          accessibilityHint={`Suggested from ${suggestions.duration_minutes!.because.join(', ')} in past tasks`}
+          hitSlop={4}
+        >
+          <Ionicons name="time-outline" size={13} color="#6b7280" />
+          <Text style={styles.suggestChipText}>{durationLabel(minutes)}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -974,6 +1079,43 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
+  },
+  suggestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  suggestLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+  // Dashed and unfilled, so it never reads as a chip that has been set — the
+  // chips below it are the ones that say what the task will be.
+  suggestChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#d1d5db',
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    maxWidth: 180,
+  },
+  suggestDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    opacity: 0.75,
+  },
+  suggestChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
   },
   chip: {
     flexDirection: 'row',

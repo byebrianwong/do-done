@@ -6,6 +6,7 @@ import {
   QUICK_SCHEDULE,
   formatScheduleHint,
   resolveQuickSchedule,
+  type FacetSuggestions,
   type ParsedTask,
   type Project,
   type TaskPriority,
@@ -488,6 +489,92 @@ export function QuickAddChipRow({
       ) : null}
       <EstimateChip value={duration} onChange={setDuration} />
     </>
+  );
+}
+
+/**
+ * The app's guesses at a facet the user hasn't filled in, offered rather than
+ * applied.
+ *
+ * It sits below the input, next to `ParsedPreview`, and deliberately *not* in
+ * the chip row. A chip is an editor — its one click opens a picker — so a
+ * ghosted value shown inside one would have to mean two things at once, and
+ * the reading that lost would be the one the user wanted. Down here each guess
+ * is its own button whose only job is to be taken, and the whole strip can be
+ * ignored by continuing to type.
+ *
+ * The word "Suggested" carries real weight: every other value on this surface
+ * is something the user typed, picked, or navigated to, and this is the one
+ * place the app is speaking on its own account. Saying so is what makes an
+ * occasional wrong guess a wrong guess rather than a bug.
+ */
+export function SuggestedFacets({
+  suggestions,
+  projects,
+  onAcceptProject,
+  onAcceptDuration,
+  className = "",
+}: {
+  suggestions: FacetSuggestions;
+  projects: Project[];
+  onAcceptProject: (id: string) => void;
+  onAcceptDuration: (minutes: number) => void;
+  className?: string;
+}) {
+  const project = suggestions.project_id
+    ? projects.find((p) => p.id === suggestions.project_id!.value) ?? null
+    : null;
+  const estimate = suggestions.duration_minutes
+    ? ESTIMATE_OPTIONS.find(
+        (o) => o.minutes === suggestions.duration_minutes!.value
+      ) ?? null
+    : null;
+
+  // A suggested project that no longer resolves to a real one renders nothing:
+  // `suggestFacets` is already given the live ids, so this only fires in the
+  // gap between a project being deleted and the page picking that up.
+  if (!project && !estimate) return null;
+
+  // "because you filed 'standup' here before" — the whole of the explanation,
+  // and the reason a suggestion is checkable rather than mysterious.
+  const why = (words: string[]) =>
+    words.length ? `from “${words.join("”, “")}” in past tasks` : undefined;
+
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 ${className}`}
+    >
+      <span className="text-neutral-400 dark:text-neutral-500">Suggested</span>
+      {project ? (
+        <button
+          type="button"
+          onClick={() => onAcceptProject(project.id)}
+          title={why(suggestions.project_id!.because)}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-neutral-300 px-2 py-0.5 text-neutral-500 transition-colors hover:border-solid hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-neutral-600 dark:text-neutral-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-950 dark:hover:text-indigo-300"
+        >
+          <span
+            className="h-2 w-2 rounded-full opacity-70"
+            style={{ backgroundColor: project.color }}
+          />
+          <ProjectLabel icon={project.icon} name={project.name} size={11} />
+        </button>
+      ) : null}
+      {estimate ? (
+        <button
+          type="button"
+          onClick={() => onAcceptDuration(estimate.minutes)}
+          title={why(suggestions.duration_minutes!.because)}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-neutral-300 px-2 py-0.5 text-neutral-500 transition-colors hover:border-solid hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-neutral-600 dark:text-neutral-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-950 dark:hover:text-indigo-300"
+        >
+          {estimate.short}
+        </button>
+      ) : null}
+      {/* The key is bound on the input, not here — Tab from a focused pill has
+          to keep meaning "next control", or this strip becomes a focus trap. */}
+      <kbd className="rounded border border-neutral-200 px-1 font-sans text-[10px] text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+        Tab
+      </kbd>
+    </div>
   );
 }
 
