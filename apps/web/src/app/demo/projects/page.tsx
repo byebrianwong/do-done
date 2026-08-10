@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
+import { ProjectLabel } from "@/components/project-icon";
 
 const CLOSED = new Set(["done", "cancelled", "archived"]);
 
@@ -38,8 +39,7 @@ export default function DemoProjectsPage() {
                 style={{ backgroundColor: p.color }}
               />
               <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                {p.icon ? `${p.icon} ` : ""}
-                {p.name}
+                <ProjectLabel icon={p.icon} name={p.name} size={14} />
               </h2>
             </div>
             <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500">

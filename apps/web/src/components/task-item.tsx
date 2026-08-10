@@ -50,6 +50,7 @@ import { taskPath } from "@/lib/task-link";
 import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
+import { ProjectIcon } from "./project-icon";
 import { ScheduleButton } from "./schedule-button";
 import {
   TaskEditModalV2,
@@ -1079,11 +1080,15 @@ export function TaskItem({
                 />
               ) : null}
               {exit.sparking ? <CompletionSpark color={ringColor} /> : null}
-              {/* The project's emoji holds the ring until the task is done,
-                  when the check takes the space. */}
+              {/* The project's icon holds the ring until the task is done,
+                  when the check takes the space. A drawn icon inherits
+                  `ringColor` here; an emoji brings its own colours. */}
               {project?.icon && !completed ? (
-                <span className="text-[9px] leading-none" aria-hidden="true">
-                  {project.icon}
+                <span
+                  className="flex items-center justify-center leading-none"
+                  style={{ color: ringColor }}
+                >
+                  <ProjectIcon icon={project.icon} size={11} />
                 </span>
               ) : null}
               <svg

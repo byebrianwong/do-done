@@ -63,3 +63,38 @@ export const IconPickerSymbols: Story = {
     await userEvent.click(await canvas.findByRole("button", { name: "Symbols" }));
   },
 };
+
+// The Icons tab: the curated Phosphor set, drawn in the project's own colour,
+// with the weight selector above it. Each weight's label is drawn *in* that
+// weight, which is the only honest way to say what "Light fill" means.
+export const IconPickerIcons: Story = {
+  name: "Edit (icon picker, Phosphor)",
+  args: {
+    project: {
+      ...SAMPLE_PROJECTS[0],
+      name: "Engineering",
+      icon: "ph:briefcase:fill",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /change/i }));
+  },
+};
+
+// The same grid in Light fill (Phosphor's duotone) — the weight whose second
+// layer is a 20% wash behind the line work.
+export const IconPickerLightFill: Story = {
+  name: "Edit (icon picker, light fill)",
+  args: {
+    project: {
+      ...SAMPLE_PROJECTS[2],
+      name: "Home",
+      icon: "ph:house:duotone",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /change/i }));
+  },
+};

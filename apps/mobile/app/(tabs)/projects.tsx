@@ -18,6 +18,7 @@ import {
   ListSkeleton,
   UpdatingBar,
 } from '@/components/ListPlaceholder';
+import { ProjectIcon } from '@/components/ProjectIcon';
 
 type ProjectRow = Project & { task_count: number; open_count: number };
 
@@ -67,7 +68,7 @@ export default function ProjectsScreen() {
         <View style={[styles.colorDot, { backgroundColor: item.color }]} />
         <View style={styles.info}>
           <View style={styles.nameRow}>
-            {item.icon ? <Text style={styles.icon}>{item.icon}</Text> : null}
+            <ProjectIcon icon={item.icon} size={15} color={item.color} />
             <Text style={styles.projectName}>{item.name}</Text>
           </View>
           <Text style={styles.taskCount}>

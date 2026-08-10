@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   PROJECT_ICONS,
   PROJECT_ICON_GROUPS,
-  PROJECT_ICON_MAX_LENGTH,
+  PROJECT_EMOJI_MAX_LENGTH,
   firstGrapheme,
   normalizeProjectIcon,
   searchProjectIcons,
@@ -14,11 +14,11 @@ describe("the catalogue", () => {
     for (const icon of PROJECT_ICONS) {
       // JS length is what `z.string().max(10)` measures…
       expect(icon.char.length, icon.name).toBeLessThanOrEqual(
-        PROJECT_ICON_MAX_LENGTH
+        PROJECT_EMOJI_MAX_LENGTH
       );
       // …and code points are what Postgres' char_length() measures.
       expect(Array.from(icon.char).length, icon.name).toBeLessThanOrEqual(
-        PROJECT_ICON_MAX_LENGTH
+        PROJECT_EMOJI_MAX_LENGTH
       );
     }
   });

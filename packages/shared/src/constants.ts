@@ -106,6 +106,24 @@ export const FOCUS_SCORES = {
 export const QUICK_WIN_MAX_MINUTES = 15;
 export const QUICK_WIN_PARTIAL_MAX_MINUTES = 30;
 
+/**
+ * How long `projects.icon` may be — the `char_length(icon) <= 64` check on the
+ * column and the `z.string().max()` in `ProjectSchema` both read this.
+ *
+ * It was ten while the column held only a character. It now also holds a
+ * Phosphor token (`ph:briefcase:fill`), and sixty-four is roomy for the longest
+ * of those while staying far too short to be somewhere anyone stores prose.
+ *
+ * The *emoji* budget is a different number and did not move:
+ * `PROJECT_EMOJI_MAX_LENGTH` in `project-icons.ts` is still ten, because that
+ * one is about what fits legibly in a 20 px ring, not about the column.
+ *
+ * It lives here rather than beside the Phosphor code so that `schemas.ts` can
+ * read it without pulling the generated path data — 245 KB — into every
+ * consumer of a Zod schema.
+ */
+export const PROJECT_ICON_MAX_LENGTH = 64;
+
 // ─── Project colour ─────────────────────────────────────
 //
 // A project's colour is the row's *identity* channel — the ring on every task

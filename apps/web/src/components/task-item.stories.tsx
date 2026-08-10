@@ -548,3 +548,35 @@ export const Gallery: Story = {
     </div>
   ),
 };
+
+/**
+ * The ring drawing a Phosphor icon rather than an emoji — one row per weight,
+ * each in its project's own colour. This is the size the choice is actually
+ * seen at: 20 px of ring, 11 of glyph.
+ */
+export const PhosphorProjectIcons: Story = {
+  name: "Project icons (Phosphor weights)",
+  render: () => {
+    const projects: Project[] = [
+      { ...SAMPLE_PROJECTS[0], id: "ph-1", name: "Outline", color: "#6366f1", icon: "ph:briefcase:bold" },
+      { ...SAMPLE_PROJECTS[0], id: "ph-2", name: "Fill", color: "#15803d", icon: "ph:house:fill" },
+      { ...SAMPLE_PROJECTS[0], id: "ph-3", name: "Light fill", color: "#c2410c", icon: "ph:wallet:duotone" },
+      // An emoji beside them: both kinds share one ring and one column.
+      { ...SAMPLE_PROJECTS[0], id: "ph-4", name: "Emoji", color: "#0f766e", icon: "🚀" },
+      // A token this build has no paths for falls back to a bare ring rather
+      // than printing itself at the user.
+      { ...SAMPLE_PROJECTS[0], id: "ph-5", name: "Unknown icon", color: "#9d174d", icon: "ph:not-a-real-icon:fill" },
+    ];
+    return (
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+        {projects.map((p) => (
+          <TaskItem
+            key={p.id}
+            task={makeTask({ title: `Draft the Q3 planning doc — ${p.name}`, priority: "p3", project_id: p.id })}
+            projects={projects}
+          />
+        ))}
+      </div>
+    );
+  },
+};

@@ -6,6 +6,7 @@ import { QuickAddBar } from "@/components/quick-add-bar";
 import { ProjectActions } from "./project-actions";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi, TasksApi } from "@do-done/api-client";
+import { ProjectIcon } from "@/components/project-icon";
 
 export default async function ProjectDetailPage({
   params,
@@ -50,8 +51,10 @@ export default async function ProjectDetailPage({
             className="h-4 w-4 shrink-0 rounded-full"
             style={{ backgroundColor: project.color }}
           />
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-            {project.icon ? `${project.icon} ` : ""}
+          <h1 className="flex items-center gap-2 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+            <span style={{ color: project.color }}>
+              <ProjectIcon icon={project.icon} size={24} />
+            </span>
             {project.name}
           </h1>
         </div>

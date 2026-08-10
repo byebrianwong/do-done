@@ -2,6 +2,7 @@ import Link from "next/link";
 import { NewProjectButton, NewProjectMount } from "./projects-list-client";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi } from "@do-done/api-client";
+import { ProjectIcon } from "@/components/project-icon";
 
 export default async function ProjectsPage() {
   const supabase = await createServerSupabase();
@@ -42,8 +43,10 @@ export default async function ProjectsPage() {
                     className="h-3 w-3 shrink-0 rounded-full"
                     style={{ backgroundColor: p.color }}
                   />
-                  <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                    {p.icon ? `${p.icon} ` : ""}
+                  <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                    <span style={{ color: p.color }}>
+                      <ProjectIcon icon={p.icon} size={14} />
+                    </span>
                     {p.name}
                   </h2>
                 </div>

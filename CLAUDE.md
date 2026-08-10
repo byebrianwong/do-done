@@ -912,18 +912,59 @@ from a shared menu rather than typed.
   "new project" forms use — web's project popover, mobile's quick-add chip.
   Four wrapped rows of dots is fine in a dialog and a wall in a popover over a
   keyboard, and capture is not where a colour gets chosen carefully.
-- **`packages/shared/src/project-icons.ts`** is the icon catalogue: ten emoji
-  groups plus **Symbols**, which are not emoji at all. `projects.icon` has
-  always been a free string rendered as text, so ★ and ◆ work and take the
-  row's own text colour — the group exists to say so, since nothing did.
-- **Two length budgets, and the catalogue satisfies both.** The column is
-  `char_length(icon) <= 10` (code points) and `ProjectSchema` is
-  `z.string().max(10)` (UTF-16 units), so a ZWJ family — 7 code points, 11
-  units — passes Postgres and is rejected by the client. Rather than let them
-  disagree, sequences that long are not offered, and `normalizeProjectIcon`
-  drops one rather than truncating it (half a ZWJ sequence renders as two
-  unrelated emoji). `firstGrapheme` is the cluster reader, spelled out by hand
-  because `Intl.Segmenter` is not dependable on Hermes.
+- **`packages/shared/src/project-icons.ts`** is the emoji catalogue: ten groups
+  plus **Symbols**, which are not emoji at all. `projects.icon` has always
+  accepted a free string rendered as text, so ★ and ◆ work and take the row's
+  own text colour — the group exists to say so, since nothing did.
+- **Two length budgets, and the emoji catalogue satisfies both.** Postgres
+  counts code points and `ProjectSchema` counts UTF-16 units, so a ZWJ family —
+  7 and 11 — passes the column and is rejected by the client. Sequences that
+  long are not offered, and `normalizeProjectIcon` drops one rather than
+  truncating it (half a ZWJ sequence renders as two unrelated emoji).
+  `firstGrapheme` is the cluster reader, spelled out by hand because
+  `Intl.Segmenter` is not dependable on Hermes. That budget is
+  `PROJECT_EMOJI_MAX_LENGTH` (10) and is about the glyph, **not** the column —
+  `PROJECT_ICON_MAX_LENGTH` (64) is the column, and they are different numbers
+  for different reasons.
+
+### `projects.icon` holds two kinds of thing
+
+The picker has an **Icons** tab (a curated Phosphor set, MIT) beside the emoji
+one, and the column stores whichever was chosen:
+
+| Stored value        | What it is                                   |
+| ------------------- | -------------------------------------------- |
+| `🚀`                | A character. Printed as text.                 |
+| `ph:briefcase:fill` | A Phosphor icon, drawn from `PHOSPHOR_PATHS`. |
+
+**`parseProjectIcon` in `packages/shared/src/phosphor.ts` is the only thing
+allowed to decide which**, and every surface on both apps and in the widget goes
+through it. The failure mode of guessing is spectacular: a row that mistakes a
+token for a glyph renders the literal text `ph:briefcase:fill` inside a 20 px
+ring. The handful of places that genuinely need a `string` — a chip label, a
+menu row — call `projectIconText`, which yields the character or nothing.
+
+- **An unknown name is `none`, not an emoji.** A token this build has no paths
+  for (a trimmed catalogue, an older client, a hand-written row) draws a bare
+  coloured ring, which is the only failure here that still looks deliberate.
+- **The weight rides in the token**, so it belongs to the project rather than to
+  a setting elsewhere. That is what lets the picker offer it beside the grid,
+  where the choice is being made, and it means a row needs no second read to
+  draw itself. The app names the three weights for what they *are* — Phosphor's
+  `bold` is **Outline**, `fill` is **Fill**, `duotone` is **Light fill** —
+  because "Bold" beside "Fill" reads as two points on one scale.
+- **Fill is the default.** The glyph in the ring is 11–12 px and Phosphor draws
+  on a 256 px grid, so a line weight lands under a device pixel there while a
+  solid shape survives.
+- **`phosphor-data.generated.ts` is generated, ~245 KB, and shared by all three
+  renderers.** Web builds `<svg>` elements, mobile builds `react-native-svg`
+  ones, and the widget takes **markup** from `phosphorSvgMarkup` because the
+  launcher's host draws none of React Native — the same reason the Quick Add
+  tile ships as a string. Regenerate it with `tools/phosphor/emit.mjs` against
+  `@phosphor-icons/core`; the curated list is `tools/phosphor/catalogue.mjs` beside it.
+- **`react-native-svg` is a new native module.** Mobile draws nothing for a
+  Phosphor icon until a fresh `eas build` is installed — it will not arrive over
+  OTA, the same way attachments and voice didn't. Emoji are unaffected.
 
 The picker **expands in flow on both surfaces, and never floats**: web's
 dialog is `overflow-hidden` (that's what rounds its header and footer), so an
@@ -932,7 +973,7 @@ mobile an Android `Modal` would open a second window and drop the IME. The
 form grows and its body scrolls instead.
 
 Mobile has no project *edit* screen at all — only create (`ProjectFormSheet`)
-and the detail view — so the full palette and the icon grid reach it there.
+and the detail view — so the full palette and both icon tabs reach it there.
 
 ## Testing
 

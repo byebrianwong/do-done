@@ -20,6 +20,7 @@ import { invalidateTasks, useProject, useProjectTasks } from '@/lib/task-queries
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
+import { ProjectIcon } from '@/components/ProjectIcon';
 
 type Section = { title: string; data: Task[] };
 
@@ -70,7 +71,7 @@ export default function ProjectDetailScreen() {
           headerTitle: () => (
             <View style={styles.headerTitle}>
               {project?.icon ? (
-                <Text style={styles.headerIcon}>{project.icon}</Text>
+                <ProjectIcon icon={project.icon} size={17} color={project.color} />
               ) : project ? (
                 <View
                   style={[styles.headerDot, { backgroundColor: project.color }]}

@@ -21,6 +21,7 @@ import {
   useClickOutside,
 } from "./task-edit-modal-v2";
 import { ProjectPickerPopover } from "./project-picker";
+import { ProjectLabel } from "@/components/project-icon";
 
 export const PRIORITY_DOT: Record<TaskPriority, string> = {
   p1: "bg-red-500",
@@ -416,9 +417,11 @@ export function ProjectChip({
           )
         }
       >
-        {selected
-          ? `${selected.icon ? `${selected.icon} ` : ""}${selected.name}`
-          : "Project"}
+        {selected ? (
+          <ProjectLabel icon={selected.icon} name={selected.name} size={12} />
+        ) : (
+          "Project"
+        )}
       </ChipButton>
       {open ? (
         <ProjectPickerPopover
