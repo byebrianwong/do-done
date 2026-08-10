@@ -290,17 +290,19 @@ export function DraggableTaskGroups({
       return;
     }
 
-    // Commit the final within-group position from the row we're hovering —
-    // and only for a drag that never left its group. A cross-group drag was
-    // already placed by handleDragOver, at the index the preview shows;
-    // re-deriving it from `over` here overrides that with an answer a slot off.
+    // Commit the position the preview is showing — for a cross-group drop as
+    // much as a within-group one. Once handleDragOver has moved the row into
+    // the hovered group, dnd-kit's sortable strategy owns what is *on screen*:
+    // it displaces the group's rows by arrayMove(active → over), and keeps
+    // doing so as the pointer moves on. The index handleDragOver spliced the
+    // row in at is invisible, and typically a slot off from that — so honouring
+    // it landed the row somewhere other than the gap the user was looking at.
+    // `over` is read only while it is a sibling row: a drop on the group itself
+    // (`g:`) or back on the dragged row displaces nothing, so there is no
+    // preview to match and handleDragOver's placement stands.
     const overId = String(over.id);
     let finalTasks = localTasks;
-    if (
-      fromGroup.key === toGroup.key &&
-      !overId.startsWith("g:") &&
-      overId !== activeId
-    ) {
+    if (!overId.startsWith("g:") && overId !== activeId) {
       const overGroup = findGroupOf(overId);
       if (overGroup?.key === toGroup.key) {
         const ids = toGroup.tasks.map((t) => t.id);
