@@ -131,12 +131,18 @@ body {
   }
 }
 
-.dd-wave-band {
+.dd-wave-band,
+.dd-wave-crest {
   position: absolute;
   top: 0;
   bottom: 0;
   left: calc(-1 * var(--dd-wave-width, 80px));
   width: var(--dd-wave-width, 80px);
+  animation: dd-wave-sweep var(--dd-wave-duration, 3.4s) linear infinite;
+  will-change: transform;
+}
+
+.dd-wave-band {
   /* `--dd-accent` is the task's project colour, set on the editor's root, so
      the band sweeps in the same hue as the runway it crosses. It falls back to
      the app accent for any surface that doesn't set it. */
@@ -148,8 +154,32 @@ body {
     rgb(var(--dd-accent, 99 102 241) / 0.1) 72%,
     rgb(var(--dd-accent, 99 102 241) / 0) 100%
   );
-  animation: dd-wave-sweep var(--dd-wave-duration, 3.4s) linear infinite;
-  will-change: transform;
+}
+
+/*
+ * The crest — the same band, clipped to the scheduled day's own cell and drawn
+ * *over* it rather than behind it.
+ *
+ * The runway band passes behind the day cells, which is exactly what lets it
+ * glow up through their translucent tints. The scheduled day is the one cell
+ * that isn't translucent — a solid accent fill — so behind it the band was
+ * simply invisible, and a sweep that was travelling to that date appeared to
+ * stop a day short of arriving. This is the same band, in the same coordinate
+ * space, at the same phase; only the ink changes, to white, because that is
+ * what reads against the fill instead of dissolving into it.
+ *
+ * White in both themes for the same reason: the cell beneath is the accent
+ * colour on light and dark alike.
+ */
+.dd-wave-crest {
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0) 0%,
+    rgb(255 255 255 / 0.14) 28%,
+    rgb(255 255 255 / 0.34) 50%,
+    rgb(255 255 255 / 0.14) 72%,
+    rgb(255 255 255 / 0) 100%
+  );
 }
 
 @media (prefers-color-scheme: dark) {
@@ -170,7 +200,8 @@ body {
  * already shows the span, so reduced motion simply drops the moving band.
  */
 @media (prefers-reduced-motion: reduce) {
-  .dd-wave-band {
+  .dd-wave-band,
+  .dd-wave-crest {
     display: none;
   }
 }
