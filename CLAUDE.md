@@ -1204,7 +1204,24 @@ pnpm --filter web build-storybook  # static build to storybook-static/
 pnpm --filter web chromatic        # publish to Chromatic
 ```
 
-Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~18 `*.stories.tsx` files under `apps/web/src/components/`).
+Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~20 `*.stories.tsx` files under `apps/web/src/components/`).
+
+**The marketing page is covered too, and that is not optional.** `/` is the
+only route a stranger sees, and its hero is *hand-built markup* imitating the
+Today view — so it does not move when the real row moves. It twice went on
+advertising a row design the app had replaced, and nothing caught it either
+time, because it had no snapshot. `Marketing/*` is that snapshot.
+
+Those stories all take `withSettledMotion`
+(`components/landing/__stories__/settled.tsx`), which renders the page in the
+state it already ships for `prefers-reduced-motion` — a real code path, so the
+baseline is not a Storybook-only fiction. It settles three things a snapshot
+would otherwise catch mid-flight, and **all three are needed**: the CSS (a copy
+of the reduced-motion block in `globals.css`, which it must track),
+`matchMedia` (the quick-add typewriter asks it directly, and no stylesheet
+reaches that), and `IntersectionObserver` (both animated pieces wait to be on
+screen, and in a full-page shot the quick-add section is below the fold — so
+whether it has typed depends on how Chromatic scrolls while capturing).
 
 **Chromatic** publishes Storybook on every push/PR and detects visual regressions:
 
