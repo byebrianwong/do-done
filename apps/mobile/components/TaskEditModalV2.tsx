@@ -40,7 +40,6 @@ import {
   extractTitleShortcuts,
   formatFullDate,
   formatRelativeDay,
-  formatScheduleHint,
   formatTimeOfDay,
   hashString,
   TASK_DELETE_EXIT_MS,
@@ -331,7 +330,11 @@ function TaskCover({
   const base = project?.color ?? NO_PROJECT_COLOR;
   const bands = coverBands(base);
   const blobs = coverBlobs(project?.id ?? null);
-  const showPriorityWord = priority === "p1" || priority === "p2";
+  // Urgent and High wear their own colour; Medium and Low wear the pill the
+  // project name wears, with the rank's colour as a dot. Those two sit on the
+  // project's colour, which can be anything — a solid slate or grey chip
+  // vanishes into half the palette.
+  const loudPriority = priority === "p1" || priority === "p2";
 
   return (
     <View style={styles.cover}>
@@ -398,22 +401,37 @@ function TaskCover({
             {project ? project.name : "No project"}
           </Text>
         </Pressable>
-        {showPriorityWord ? (
-          <Pressable
-            onPress={onPressPriority}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Priority: ${PRIORITY_CONFIG[priority].label}`}
-            style={[
-              styles.coverPriWord,
-              { backgroundColor: PRIORITY_COLORS[priority] },
-            ]}
-          >
-            <Text style={styles.coverPriWordText}>
-              {PRIORITY_CONFIG[priority].label.toUpperCase()}
-            </Text>
-          </Pressable>
-        ) : null}
+        {/* The rank, named, at every level — not only the loud two. Showing it
+            by exception left a Medium or Low task saying nothing about its
+            priority anywhere on the cover, so the rank read as absent rather
+            than as low; and this is the *control*, so hiding it hid the way to
+            change one. It replaces the Priority field that used to sit in the
+            body: a name on the cover plus a second named control below it is
+            the duplication the marks were removed for. */}
+        <Pressable
+          onPress={onPressPriority}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Priority: ${PRIORITY_CONFIG[priority].label}`}
+          style={[
+            styles.coverPriWord,
+            loudPriority
+              ? { backgroundColor: PRIORITY_COLORS[priority] }
+              : styles.coverPriWordQuiet,
+          ]}
+        >
+          {loudPriority ? null : (
+            <View
+              style={[
+                styles.coverPriWordDot,
+                { backgroundColor: PRIORITY_COLORS[priority] },
+              ]}
+            />
+          )}
+          <Text style={styles.coverPriWordText}>
+            {PRIORITY_CONFIG[priority].label} priority
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -835,13 +853,19 @@ function SpanWaveRun({
 
 function ScheduleCalendarImpl({
   scheduledDate,
+  scheduledTime,
   busyness,
   onPickDate,
+  onChangeScheduledTime,
   onRangeChange,
 }: {
   scheduledDate: string | null;
+  /** Time of day for the chosen date. Omitted by callers that don't offer one
+   *  (quick-add), which is also what hides the chip. */
+  scheduledTime?: string | null;
   busyness: DayBusyness[];
   onPickDate: (date: string) => void;
+  onChangeScheduledTime?: (t: string | null) => void;
   /**
    * Called with the [start, end] YYYY-MM-DD range the calendar wants busyness
    * for whenever the full-month view navigates to a new month. The parent can
@@ -869,13 +893,6 @@ function ScheduleCalendarImpl({
   }, []);
   const weekStart = useMemo(() => startOfWeek(today), [today]);
   const todayStr = ymd(today);
-  // "Next week" is a concrete date — exactly 7 days from today — not a soft
-  // bucket, so it survives as a real scheduled_date.
-  const nextWeekStr = useMemo(() => {
-    const d = new Date(today);
-    d.setDate(d.getDate() + 7);
-    return ymd(d);
-  }, [today]);
 
   // The month shown in month mode. Seeded from the selected date (so opening
   // the picker lands on the month you already scheduled) or today.
@@ -1146,30 +1163,19 @@ function ScheduleCalendarImpl({
         <Pressable onPress={openMonth} style={styles.monthChip}>
           <Text style={styles.monthChipText}>📅 Full calendar</Text>
         </Pressable>
-        <Pressable
-          onPress={() => onPickDate(nextWeekStr)}
-          style={[
-            styles.bucketChip,
-            scheduledDate === nextWeekStr && styles.bucketChipActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.bucketChipText,
-              scheduledDate === nextWeekStr && styles.bucketChipTextActive,
-            ]}
-          >
-            Next week
-          </Text>
-          <Text
-            style={[
-              styles.bucketChipHint,
-              scheduledDate === nextWeekStr && styles.bucketChipTextActive,
-            ]}
-          >
-            {formatScheduleHint(nextWeekStr)}
-          </Text>
-        </Pressable>
+        {/* A time of day is only meaningful once there's a day to hang it off,
+            so it appears with the date rather than standing empty — and here,
+            beside the two ways of reaching further out, rather than under a
+            caption of its own.
+            A "Next week" chip used to sit in this row. It was the one entry
+            that duplicated the grid above: the same date is a cell in it, one
+            tap away either way. */}
+        {scheduledDate && onChangeScheduledTime ? (
+          <ScheduledTimeField
+            value={scheduledTime ?? null}
+            onChange={onChangeScheduledTime}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -1237,16 +1243,26 @@ export function ScheduledTimeField({
   };
 
   return (
+    // A chip in the row under the calendar, sized like the ones beside it. It
+    // was a labelled field on a line of its own — a caption saying "TIME" over
+    // a control that already says "Add time", for a field most tasks never
+    // set.
     <View style={styles.timeFieldRow}>
-      <Text style={styles.sectionLabel}>Time</Text>
-      <Pressable onPress={() => setOpen(true)} style={styles.timeField}>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={
+          value ? `Time: ${formatTimeOfDay(value)}` : "Add a time"
+        }
+        style={[styles.timeField, !!value && styles.timeFieldActive]}
+      >
         <Text style={styles.timeFieldIcon}>🕐</Text>
         <Text
           style={[styles.timeFieldText, !value && styles.timeFieldTextMuted]}
+          numberOfLines={1}
         >
           {value ? formatTimeOfDay(value) : "Add time"}
         </Text>
-        <Text style={styles.projectFieldChevron}>▾</Text>
       </Pressable>
       {value ? (
         <Pressable
@@ -2282,6 +2298,15 @@ function Inner({
     },
     [setField]
   );
+  // Same reason: the time chip lives in the calendar's own action row now, so
+  // an inline arrow here would hand `ScheduleCalendar` a new prop on every
+  // keystroke and defeat the memo it exists behind.
+  const onChangeScheduledTime = useCallback(
+    (t: string | null) => {
+      setField("scheduled_time", t);
+    },
+    [setField]
+  );
 
   // Projects created via the picker are merged locally so the field reflects
   // them immediately; the query invalidate in createProject reconciles.
@@ -2653,35 +2678,33 @@ function Inner({
           </View>
           <ScheduleCalendar
             scheduledDate={current.scheduled_date}
+            scheduledTime={current.scheduled_time}
             busyness={busyness}
             onPickDate={onPickDate}
+            onChangeScheduledTime={onChangeScheduledTime}
             onRangeChange={fetchRange}
           />
-          {current.scheduled_date ? (
-            <ScheduledTimeField
-              value={current.scheduled_time}
-              onChange={(t) => setField("scheduled_time", t)}
-            />
-          ) : null}
         </View>
 
-        {/* Priority and estimate. Both name themselves and both open the same
-            pickers the banner's marks used to — see MetaField for why the
-            marks alone weren't enough. */}
+        {/* Estimate and status, side by side and equally wide. Priority left
+            this row for the cover, where it now names itself at every rank —
+            keeping a second named control down here would be the duplication
+            the banner's old marks were removed for. Status arrives from a
+            labelled row of its own below the pickers, which is a lot of
+            furniture for one word. */}
         <View style={styles.metaFieldsRow}>
-          <MetaField
-            label="Priority"
-            value={PRIORITY_CONFIG[current.priority].label}
-            dotColor={PRIORITY_COLORS[current.priority]}
-            muted={current.priority === "p4"}
-            onPress={() => setPriPickerOpen(true)}
-          />
           <MetaField
             label="Estimate"
             value={estimateLabel(current.duration_minutes)}
             dotColor={current.duration_minutes ? "#6366f1" : "#d1d5db"}
             muted={!current.duration_minutes}
             onPress={() => setEstPickerOpen(true)}
+          />
+          <MetaField
+            label="Status"
+            value={STATUS_CONFIG[current.status].label}
+            dotColor={STATUS_CONFIG[current.status].color}
+            onPress={() => setStatusPickerOpen(true)}
           />
         </View>
 
@@ -2718,11 +2741,10 @@ function Inner({
             }))}
             selectedKey={current.priority}
             onSelect={(key) => {
-              // Re-picking the current row clears to p4, as the bars do.
-              setField(
-                "priority",
-                key === current.priority ? "p4" : (key as TaskPriority)
-              );
+              // Re-picking the row the task already has leaves it there. It
+              // used to clear to p4, which meant confirming an Urgent task was
+              // Urgent silently demoted it to Low.
+              setField("priority", key as TaskPriority);
               setPriPickerOpen(false);
             }}
             onClose={() => setPriPickerOpen(false)}
@@ -2739,9 +2761,10 @@ function Inner({
                 code: b.code,
                 label: b.label,
               })),
-              // Priority clears by re-picking its current row; an estimate has
-              // no such row to re-pick, so without this there was no way back
-              // to "unestimated" once a value had been set.
+              // The only way back to "unestimated" once a value has been set,
+              // and the only clear either picker offers: a row you can see
+              // beats re-picking the row that's already ticked, which is
+              // indistinguishable from confirming it.
               ...(current.duration_minutes
                 ? [{ key: "none", code: "", label: "No estimate" }]
                 : []),
@@ -2761,28 +2784,6 @@ function Inner({
             onClose={() => setEstPickerOpen(false)}
           />
         ) : null}
-
-        {/* Status is what's left of the old field pair — Project moved to the
-            banner's pill, where it's also the thing giving the sheet its
-            colour. */}
-        <View style={styles.statusFieldRow}>
-          <Text style={styles.sectionLabel}>Status</Text>
-          <Pressable
-            onPress={() => setStatusPickerOpen(true)}
-            style={styles.projectField}
-          >
-            <View
-              style={[
-                styles.projectFieldDot,
-                { backgroundColor: STATUS_CONFIG[current.status].color },
-              ]}
-            />
-            <Text style={styles.projectFieldText} numberOfLines={1}>
-              {STATUS_CONFIG[current.status].label}
-            </Text>
-            <Text style={styles.projectFieldChevron}>▾</Text>
-          </Pressable>
-        </View>
 
         {statusPickerOpen ? (
           <PickerSheet
@@ -3041,7 +3042,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    maxWidth: "70%",
+    // Shrinks rather than pushing the priority chip off the edge: the chip is
+    // a fixed handful of characters and the project name is the elastic one,
+    // and it truncates legibly where the chip could not.
+    flexShrink: 1,
+    maxWidth: "62%",
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
@@ -3061,14 +3066,22 @@ const styles = StyleSheet.create({
   coverPillText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   coverPriWord: {
     marginLeft: "auto",
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
+  // Medium and Low: the project pill's own treatment, so the chip reads on any
+  // project colour and the rank is carried by the dot.
+  coverPriWordQuiet: { backgroundColor: "rgba(0,0,0,0.25)" },
+  coverPriWordDot: { width: 6, height: 6, borderRadius: 3 },
   coverPriWordText: {
     fontSize: 10.5,
     fontWeight: "800",
-    letterSpacing: 0.8,
+    letterSpacing: 0.4,
     color: "#fff",
   },
   menuDotOnCover: {
@@ -3079,12 +3092,6 @@ const styles = StyleSheet.create({
   },
   statusTextOnCover: { color: "rgba(255,255,255,0.92)" },
   whenBig: { fontSize: 23, fontWeight: "800", letterSpacing: -0.6 },
-  statusFieldRow: {
-    marginTop: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
   metaFieldsRow: { marginTop: 18, flexDirection: "row", gap: 10 },
   // Equal halves, so neither field's width tells you anything about the value
   // inside it.
@@ -3429,46 +3436,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   monthChipText: { color: "#4338ca", fontSize: 11, fontWeight: "700" },
-  bucketChip: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-    borderRadius: 7,
-    paddingVertical: 7,
-    alignItems: "center",
-  },
-  bucketChipActive: { backgroundColor: "#eef2ff" },
-  bucketChipText: { fontSize: 11, color: "#374151", fontWeight: "500" },
-  bucketChipTextActive: { color: "#4338ca", fontWeight: "700" },
-  bucketChipHint: { fontSize: 10, color: "#9ca3af", fontWeight: "400", marginTop: 1 },
 
+  // Sits inside the calendar's action row, so it is a flex child of it rather
+  // than a row of its own.
   timeFieldRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginTop: 12,
+    gap: 4,
   },
   timeField: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "center",
+    gap: 5,
     backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    borderRadius: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
   },
-  timeFieldIcon: { fontSize: 13 },
+  timeFieldActive: { backgroundColor: "#eef2ff" },
+  timeFieldIcon: { fontSize: 11 },
   timeFieldText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
     color: "#4338ca",
   },
-  timeFieldTextMuted: { color: "#9ca3af", fontWeight: "500" },
+  timeFieldTextMuted: { color: "#6b7280", fontWeight: "500" },
   timeClearBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 7,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#f3f4f6",

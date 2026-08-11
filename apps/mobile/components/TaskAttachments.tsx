@@ -459,15 +459,23 @@ function AttachmentsSectionImpl({
   );
 
   const count = attachments.length + pending.length;
+  // Nothing attached yet, and nothing being recorded — which is most tasks,
+  // most of the time. A caps heading over an empty tray announces a section
+  // with nothing in it; here that costs a heading, a tray and the padding
+  // around both, for three buttons that say what they do. The tray comes back
+  // with the first file.
+  const empty = count === 0 && !recorderOpen && !savingNote;
 
   return (
     <View style={{ marginTop: 18 }}>
-      <View style={styles.rowHead}>
-        <Text style={styles.sectionLabel}>Attachments</Text>
-        {count > 0 ? <Text style={styles.sectionCount}>{count}</Text> : null}
-      </View>
+      {empty ? null : (
+        <View style={styles.rowHead}>
+          <Text style={styles.sectionLabel}>Attachments</Text>
+          {count > 0 ? <Text style={styles.sectionCount}>{count}</Text> : null}
+        </View>
+      )}
 
-      <View style={styles.container}>
+      <View style={empty ? styles.containerEmpty : styles.container}>
         {attachments.map((a) => (
           <AttachmentCard
             key={a.id}
@@ -504,20 +512,28 @@ function AttachmentsSectionImpl({
           }} />
         ) : null}
 
+        {/* White-on-grey inside the tray; without it they'd be white on white,
+            so the empty state swaps the fill for the tray's own. */}
         <View style={styles.addRow}>
           {voice.supported ? (
             <Pressable
-              style={styles.addButton}
+              style={[styles.addButton, empty && styles.addButtonBare]}
               onPress={() => void startRecording()}
               disabled={recorderOpen}
             >
               <Text style={styles.addButtonText}>🎙  Record</Text>
             </Pressable>
           ) : null}
-          <Pressable style={styles.addButton} onPress={() => void pickPhoto()}>
+          <Pressable
+            style={[styles.addButton, empty && styles.addButtonBare]}
+            onPress={() => void pickPhoto()}
+          >
             <Text style={styles.addButtonText}>🖼  Photo</Text>
           </Pressable>
-          <Pressable style={styles.addButton} onPress={() => void pickDocument()}>
+          <Pressable
+            style={[styles.addButton, empty && styles.addButtonBare]}
+            onPress={() => void pickDocument()}
+          >
             <Text style={styles.addButtonText}>📎  File</Text>
           </Pressable>
         </View>
@@ -574,6 +590,9 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 8,
   },
+  // The same tray with its walls taken away: the buttons keep their row, and
+  // nothing draws a box around a section that is empty.
+  containerEmpty: { gap: 8 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 10,
@@ -678,6 +697,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f3f4f6",
   },
+  addButtonBare: { backgroundColor: "#f9fafb", borderColor: "#e5e7eb" },
   addButtonText: { fontSize: 12.5, fontWeight: "600", color: "#6b7280" },
 
   error: { marginTop: 6, fontSize: 12, color: "#ef4444" },
