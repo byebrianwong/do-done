@@ -34,12 +34,30 @@ interface Props {
   tasks: Task[];
   projects?: DisplayProject[];
   config: DisplayConfig;
-  onTaskPress: (t: Task) => void;
+  /** Omitted on a read-only list (Completed), where a row opens nothing. */
+  onTaskPress?: (t: Task) => void;
   /** Lets a drag in a *sorted* view convert it to manual sort. Without it, a
    *  drag under a non-manual sort just snaps back. */
   onConfigChange?: (next: DisplayConfig) => void;
+  /** Every row belongs to the project in the title bar (the project screen), so
+   *  the subline saying so on all of them would be pure repetition. */
+  hideProject?: boolean;
+  /** Open tasks in the project this whole list is, for the celebration gate. */
+  openInProject?: number;
+  /**
+   * Whether a section's open count answers "was that the last one?".
+   *
+   * True everywhere a section is a slice of one axis of one list. False on a
+   * tag view, which cuts across projects and statuses — its "Open" section is
+   * not a section of *work*, so a count taken from it would fire the spark on
+   * a guess. Passing nothing is how a surface says it can't tell (see
+   * `sparkReason`), which is exactly what `false` produces here.
+   */
+  sectionCounts?: boolean;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: object;
+  /** Shown when the list is empty — skeleton, error, or the view's own copy. */
+  ListEmptyComponent?: React.ReactElement | null;
 }
 
 /** Translate a group's drop target into the task patch a cross-section drop implies. */
@@ -74,8 +92,12 @@ export default function GroupedTaskList({
   config,
   onTaskPress,
   onConfigChange,
+  hideProject,
+  openInProject,
+  sectionCounts = true,
   refreshControl,
   contentContainerStyle,
+  ListEmptyComponent,
 }: Props) {
   const { sections, meta } = useMemo(() => {
     const groups = applyDisplay(tasks, config, { projects });
@@ -214,11 +236,13 @@ export default function GroupedTaskList({
           onPress={onTaskPress}
           onDragHandle={drag}
           keepsCompleted={keepsCompleted}
-          openInSection={openCount(section.data)}
+          hideProject={hideProject}
+          openInSection={sectionCounts ? openCount(section.data) : undefined}
+          openInProject={openInProject}
         />
       </View>
     ),
-    [onTaskPress, keepsCompleted]
+    [onTaskPress, keepsCompleted, hideProject, sectionCounts, openInProject]
   );
 
   return (
@@ -230,6 +254,7 @@ export default function GroupedTaskList({
       onMove={onMove}
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}
+      ListEmptyComponent={ListEmptyComponent}
     />
   );
 }

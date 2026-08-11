@@ -154,9 +154,38 @@ for a parent whose six steps bury the rest of the page. `showSubtasks` on
   config saved before it existed — turning it off for everyone would silently
   change what a saved view means.
 - One branch in `filterTasks`, so grouped lists (`applyDisplay`) and the
-  curated Today/Upcoming layouts (`filterByConfig`) both get it. The four
-  mobile screens that still bypass the display engine — Inbox, Project, Tag,
-  Completed — don't have it, same as they don't have any other display option.
+  curated Today/Upcoming layouts (`filterByConfig`) both get it.
+
+### Every mobile list is a Display view now
+
+Inbox, Project, Tag and Completed used to hand-roll their own list — a
+`DraggableFlatList` or a `SectionList` over an Open/Done split — which is why
+they had no Display menu, and so no way to hide a subtask. They now go through
+`useDisplayConfig` + `GroupedTaskList` like All/Today/Upcoming, reusing web's
+`viewKey`s (`inbox`, `project`, `tag`, `completed`) so a preference set on the
+laptop is the one the phone opens with.
+
+- **`project` and `tag` are one config each, not one per project or tag** —
+  same as web. A per-id key would reset itself every time a tag was coined.
+- **Their defaults are web's defaults**, which is a visible change on two
+  screens: a project page opens grouped by status rather than Open/Done, and
+  neither it nor a tag page shows completed tasks until "Show completed" is
+  switched on. Both were previously implicit in the hand-rolled Open/Done split.
+- **`GroupedTaskList` grew the three props those screens needed** rather than
+  each one keeping its own list to keep its own behaviour: `hideProject` and
+  `openInProject` (the project screen — every row is the title bar's project,
+  and the project's open count answers both celebration rules), and
+  `sectionCounts={false}` (the tag screen — a tag cuts across projects and
+  statuses, so its sections aren't sections of *work* and a count taken from
+  one would fire the spark on a guess). `ListEmptyComponent` came with them:
+  a list that renders nothing when empty is fine for All and wrong for Inbox,
+  which has something to say there.
+- **Completed keeps its day buckets**, on Upcoming's curated/override shape:
+  the engine has no group key for "the day it was finished" (`completed_at` is
+  a sort field), so the view's own grouping renders the buckets and picking any
+  other grouping hands the list to `GroupedTaskList`. Either way `filterByConfig`
+  runs first, which is what gets that screen the switch — a parent whose six
+  steps were ticked off together otherwise buries the rest of the day.
 
 ## A fourth voice: what your own past tasks say
 

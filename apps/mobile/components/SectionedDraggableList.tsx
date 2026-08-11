@@ -79,6 +79,10 @@ interface Props {
   ListHeaderComponent?: React.ComponentProps<
     typeof DraggableFlatList
   >["ListHeaderComponent"];
+  /** Shown when there are no rows at all — skeleton, error, or "nothing here". */
+  ListEmptyComponent?: React.ComponentProps<
+    typeof DraggableFlatList
+  >["ListEmptyComponent"];
 }
 
 export default function SectionedDraggableList({
@@ -90,6 +94,7 @@ export default function SectionedDraggableList({
   refreshControl,
   contentContainerStyle,
   ListHeaderComponent,
+  ListEmptyComponent,
 }: Props) {
   const [rows, setRows] = useState<Row[]>(() => flatten(sections));
 
@@ -160,6 +165,7 @@ export default function SectionedDraggableList({
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}
       ListHeaderComponent={ListHeaderComponent}
+      ListEmptyComponent={ListEmptyComponent}
     />
   );
 }
