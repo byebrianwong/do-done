@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, type LayoutChangeEvent } from 'react-native';
+import {
+  AccessibilityInfo,
+  type LayoutChangeEvent,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
 import {
   type SharedValue,
   useAnimatedStyle,
@@ -9,6 +14,7 @@ import {
   withSpring,
   withTiming,
   Easing,
+  type AnimatedStyle,
 } from 'react-native-reanimated';
 import {
   SPARK_MS,
@@ -72,7 +78,7 @@ const UNCLAMPED = 10_000;
 
 export interface RowExit {
   /** Spread onto the row's outermost `Animated.View`. */
-  style: ReturnType<typeof useAnimatedStyle>;
+  style: AnimatedStyle<ViewStyle>;
   /**
    * True once the row is shrinking. Drives `overflow: 'hidden'`, which is what
    * makes the clamped height crop rather than just overlap — and which must be
@@ -101,7 +107,7 @@ export interface RowExit {
   /** Snap back to full height — for a write that failed. */
   cancel: () => void;
   /** Scale for the check mark; 0 when open, springs to 1 when completed. */
-  checkStyle: ReturnType<typeof useAnimatedStyle>;
+  checkStyle: AnimatedStyle<TextStyle>;
   /** Drive the check from the row's (optimistic) completed state. */
   setChecked: (checked: boolean) => void;
   /**
@@ -114,9 +120,9 @@ export interface RowExit {
    * exactly the moment a press-driven squash would be visible, and swipe-to-
    * complete has no press to anticipate from at all.
    */
-  ringStyle: ReturnType<typeof useAnimatedStyle>;
+  ringStyle: AnimatedStyle<ViewStyle>;
   /** A hairline ring expanding out of the checkbox. Spread onto the halo view. */
-  haloStyle: ReturnType<typeof useAnimatedStyle>;
+  haloStyle: AnimatedStyle<ViewStyle>;
   /**
    * Squash-and-spring the ring, and ring the halo once.
    *
