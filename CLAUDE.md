@@ -999,17 +999,26 @@ it did.
   work off what the list handed it.
 - **Every read filters, and there is one place to forget it.**
   `TasksApi.read()` is the private helper every one of the fifteen reads starts
-  from. The RLS select policy carries the same condition, but only as a
-  *backstop*: the MCP server holds a service-role client and RLS does not apply
-  to it at all. Reads outside `TasksApi` — busyness, project counts, the pet
-  tallies, the calendar re-push routes — each carry the filter explicitly,
-  because a deleted task that still counts against its project makes the
-  sidebar disagree with the list it opens.
-- **`restore()` never reads the rows it restores.** The select policy hides
-  them, so a read-then-write would find nothing to write; a policy's USING
-  clause is checked per command, so an UPDATE still reaches a row SELECT
-  cannot see. That is also why the migration touches `tasks_select` and
-  deliberately leaves `tasks_update` alone.
+  from, and it is the *whole* mechanism — **`tasks_select` is the plain
+  `user_id = auth.uid()` and must stay that way**. Reads outside `TasksApi` —
+  busyness, project counts, the pet tallies, the calendar re-push routes — each
+  carry the filter explicitly, because a deleted task that still counts against
+  its project makes the sidebar disagree with the list it opens.
+- **A select policy may not hide a deleted row, and this was tried.**
+  `20260810000002` added `and deleted_at is null` to `tasks_select` as a
+  backstop, and it made deleting impossible: Postgres applies SELECT policies
+  to an UPDATE's *result* rows when the statement has a RETURNING clause, and
+  PostgREST's UPDATE always has one — it reads the count back out of a CTE even
+  under `Prefer: return=minimal`. The write landed, the resulting row had
+  `deleted_at` set, the policy rejected it on the way back, and every delete on
+  both apps came home 403. The USING clause being checked against the row as it
+  *was* is true and is the other half of the sentence. It also killed
+  `purgeDeleted()`, whose `not deleted_at is null` lookup runs over the anon key
+  from the apps and matched nothing. `20260811000001` reverts it; the reasoning
+  is written out there.
+- **`restore()` still never reads the rows it restores** — it is one UPDATE by
+  id, which is what makes it idempotent and lets it run without the caller
+  holding anything but the ids `delete()` returned.
 - **The calendar trigger learned about it.** A soft delete is an UPDATE, so the
   trigger's DELETE branch never fires and a deleted task's Google Calendar
   event would have sat there forever. One clause — `deleted_at is null` — in
