@@ -300,3 +300,28 @@ describe("AttachmentsSection — image lightbox", () => {
     window.removeEventListener("keydown", editorEscape);
   });
 });
+
+describe("AttachmentsSection — nothing attached yet", () => {
+  // Most tasks, most of the time. A caps heading over an empty bordered well
+  // announces a section with nothing in it; a task with no files should cost
+  // one line, and that line is the button.
+  it("is a button, with no heading and no well", async () => {
+    const { api } = makeApi({ attachments: [] });
+    render(<AttachmentsSection taskId="task-1" api={api} />);
+
+    expect(
+      await screen.findByText("Attach a file", { exact: false })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Attachments")).toBeNull();
+  });
+
+  it("names the section again once something is in it", async () => {
+    const { api } = makeApi({
+      attachments: [makeAttachment({ id: "a1", file_name: "shot.png" })],
+      urls: { a1: "https://signed.example/shot.png" },
+    });
+    render(<AttachmentsSection taskId="task-1" api={api} />);
+
+    expect(await screen.findByText("Attachments")).toBeInTheDocument();
+  });
+});

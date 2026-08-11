@@ -133,21 +133,29 @@ describe("TaskEditModalV2 — fits and scrolls on small screens", () => {
   });
 });
 
-describe("Priority bars", () => {
-  // The meter moved out of the body grid and behind the top-edge stripe, so
-  // reaching it costs one click. The stripe is the control, not a read-only
-  // signal — these assert that it opens the same meter with the same rules.
-  function openMeterAt(priority: "p1" | "p2" | "p3" | "p4") {
+describe("Priority", () => {
+  // Two controls write this column — the stripe along the modal's top edge and
+  // the word on the cover — and both open the same list of named ranks. The
+  // list replaced a four-bar meter whose failure modes these now guard
+  // against: a click landing in the gap between columns, and a click on the
+  // rank the task already had being read as "clear".
+  function openPriorityList(
+    priority: "p1" | "p2" | "p3" | "p4",
+    from: "stripe" | "word" = "word"
+  ) {
     render(
       <TaskEditModalV2 task={makeTask({ priority })} open onClose={vi.fn()} />
     );
     const label = { p1: "Urgent", p2: "High", p3: "Medium", p4: "Low" }[
       priority
     ];
-    fireEvent.click(screen.getByLabelText(`Priority: ${label}`));
+    const controls = screen.getAllByLabelText(`Priority: ${label}`);
+    // The stripe is first in the DOM, the cover word last.
+    fireEvent.click(from === "stripe" ? controls[0] : controls.at(-1)!);
+    return within(screen.getByRole("listbox", { name: "Priority options" }));
   }
 
-  it("the stripe reports the task's current priority", () => {
+  it("the stripe and the cover word both report the current priority", () => {
     render(
       <TaskEditModalV2
         task={makeTask({ priority: "p1" })}
@@ -155,19 +163,38 @@ describe("Priority bars", () => {
         onClose={vi.fn()}
       />
     );
-    expect(screen.getByLabelText("Priority: Urgent")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Priority: Urgent")).toHaveLength(2);
   });
 
-  it("clicking the priority the task already has clears it to p4", () => {
-    openMeterAt("p2");
-    fireEvent.click(screen.getByLabelText("Set priority High"));
-    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p4");
+  it("names the rank on the cover below High too, not only the loud two", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ priority: "p4" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Low priority")).toBeInTheDocument();
   });
 
-  it("clicking a different bar sets that priority", () => {
-    openMeterAt("p2");
-    fireEvent.click(screen.getByLabelText("Set priority Urgent"));
+  it("picking a different rank writes it", () => {
+    const list = openPriorityList("p2");
+    fireEvent.click(list.getByText("Urgent"));
     expect(setFieldSpy).toHaveBeenCalledWith("priority", "p1");
+  });
+
+  it("the stripe opens the same list", () => {
+    const list = openPriorityList("p2", "stripe");
+    fireEvent.click(list.getByText("Medium"));
+    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p3");
+  });
+
+  it("re-picking the rank the task already has leaves it there", () => {
+    // The meter read that click as "clear to p4", so confirming an Urgent task
+    // was Urgent silently demoted it to Low.
+    const list = openPriorityList("p2");
+    fireEvent.click(list.getByText("High"));
+    expect(setFieldSpy).toHaveBeenCalledWith("priority", "p2");
   });
 });
 
@@ -183,6 +210,7 @@ describe("Estimate rail", () => {
     fireEvent.click(
       screen.getByLabelText(minutes ? /^Estimate: / : "Set an estimate")
     );
+    return within(screen.getByRole("listbox", { name: "Estimate options" }));
   }
 
   it("names the estimate it's showing, and says so when there isn't one", () => {
@@ -197,15 +225,68 @@ describe("Estimate rail", () => {
   });
 
   it("picking a bucket writes it", () => {
-    openRail(null);
-    fireEvent.click(screen.getByLabelText(/^Set estimate to M /));
+    const list = openRail(null);
+    fireEvent.click(list.getByText("~2 hr"));
     expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", 120);
   });
 
-  it("picking the current bucket clears the estimate", () => {
-    openRail(120);
-    fireEvent.click(screen.getByLabelText(/^Set estimate to M /));
+  it("clearing is a row of its own", () => {
+    // It used to be "click the bucket that's already lit", which is
+    // indistinguishable from re-confirming it.
+    const list = openRail(120);
+    fireEvent.click(list.getByText("No estimate"));
     expect(setFieldSpy).toHaveBeenCalledWith("duration_minutes", null);
+  });
+
+  it("offers no clear row when there is nothing to clear", () => {
+    const list = openRail(null);
+    expect(list.queryByText("No estimate")).toBeNull();
+  });
+});
+
+describe("Status", () => {
+  it("sits on the title's line rather than in a band of its own", () => {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ status: "in_progress" })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+    // The caps "STATUS" caption went with the band; the chip names the value.
+    expect(screen.queryByText("Status")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Status: In progress"));
+    const list = within(
+      screen.getByRole("listbox", { name: "Status options" })
+    );
+    fireEvent.click(list.getByText("Done"));
+    expect(setFieldSpy).toHaveBeenCalledWith("status", "done");
+  });
+});
+
+describe("The row under the calendar", () => {
+  function renderScheduled(scheduled_date: string | null) {
+    render(
+      <TaskEditModalV2
+        task={makeTask({ scheduled_date, scheduled_time: null })}
+        open
+        onClose={vi.fn()}
+      />
+    );
+  }
+
+  it("is see-more-dates, a time, and a deadline — no 'Next week' quick pick", () => {
+    renderScheduled(isoFromToday(0));
+    expect(screen.getByText("See more dates ⇣")).toBeInTheDocument();
+    expect(screen.getByText("Add time")).toBeInTheDocument();
+    expect(screen.getByText("Deadline")).toBeInTheDocument();
+    // The date it offered is a cell in the grid above, labelled "next wk".
+    expect(screen.queryByText("Next week")).toBeNull();
+  });
+
+  it("offers a time only once there's a day to hang it off", () => {
+    renderScheduled(null);
+    expect(screen.queryByText("Add time")).toBeNull();
   });
 });
 

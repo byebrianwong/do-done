@@ -604,17 +604,25 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
   );
 
   const count = attachments.length + pending.length;
+  // Nothing attached yet — which is most tasks, most of the time. A caps
+  // heading over an empty bordered well announces a section that has nothing
+  // in it; a task with no files should cost one line, and that line is the
+  // button. The well comes back the moment there's something to put in it,
+  // and appears mid-drag either way so there's still a target to aim at.
+  const empty = count === 0;
 
   return (
     <div>
-      <div className="mb-2 flex items-baseline gap-2.5">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-          Attachments
-        </span>
-        {count > 0 ? (
-          <span className="text-[11px] font-medium text-neutral-500">{count}</span>
-        ) : null}
-      </div>
+      {empty ? null : (
+        <div className="mb-2 flex items-baseline gap-2.5">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+            Attachments
+          </span>
+          <span className="text-[11px] font-medium text-neutral-500">
+            {count}
+          </span>
+        </div>
+      )}
 
       <div
         onDragEnter={(e) => {
@@ -633,10 +641,12 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
           setDragging(false);
           void addFiles(Array.from(e.dataTransfer.files));
         }}
-        className={`space-y-2 rounded-lg border p-2 transition-colors ${
+        className={`rounded-lg transition-colors ${
           dragging
-            ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-700 dark:bg-indigo-950/30"
-            : "border-neutral-100 bg-neutral-50/60 dark:border-neutral-900 dark:bg-neutral-900/40"
+            ? "space-y-2 border border-indigo-300 bg-indigo-50/60 p-2 dark:border-indigo-700 dark:bg-indigo-950/30"
+            : empty
+              ? ""
+              : "space-y-2 border border-neutral-100 bg-neutral-50/60 p-2 dark:border-neutral-900 dark:bg-neutral-900/40"
         }`}
       >
         {attachments.map((a) => (
@@ -681,11 +691,21 @@ export function AttachmentsSection({ taskId, api }: AttachmentsSectionProps) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-neutral-500 transition-colors hover:bg-white hover:text-indigo-600 dark:hover:bg-neutral-900 dark:hover:text-indigo-400"
+          className={`flex items-center gap-2 rounded-md text-left text-[12px] font-medium text-neutral-500 transition-colors hover:text-indigo-600 dark:hover:text-indigo-400 ${
+            empty && !dragging
+              ? "border border-neutral-200 px-2.5 py-1.5 hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+              : "w-full px-2 py-1.5 hover:bg-white dark:hover:bg-neutral-900"
+          }`}
         >
           <PaperclipIcon className="h-3.5 w-3.5 shrink-0" />
           {count > 0 ? "Add another file" : "Attach a file"}
-          <span className="ml-auto text-[11px] font-normal text-neutral-400">
+          {/* neutral-500, not the 400 it wore inside the well: out here it is
+              on white, where 400 is 2.6:1 and fails contrast outright. */}
+          <span
+            className={`text-[11px] font-normal text-neutral-500 dark:text-neutral-400 ${
+              empty && !dragging ? "" : "ml-auto"
+            }`}
+          >
             or drop one here
           </span>
         </button>
