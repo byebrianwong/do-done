@@ -4,9 +4,8 @@ import { useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { TaskPriority, UpdateTaskInput } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
-import { toCreateInput } from "@/lib/task-create-input";
 import { useTaskSelection } from "@/lib/task-selection";
-import { useUndoToast } from "@/components/undo-toast";
+import { useDeleteTasks } from "@/lib/use-delete-tasks";
 
 export interface BulkActions {
   count: number;
@@ -32,7 +31,9 @@ export interface BulkActions {
 export function useBulkActions(): BulkActions {
   const selection = useTaskSelection();
   const router = useRouter();
-  const toast = useUndoToast();
+  // Deleting is the one bulk action with its own gesture and its own undo
+  // window, and it is the same one a single row gets — see `useDeleteTasks`.
+  const { deleteTasks, pending: deleting } = useDeleteTasks();
   const [pending, startTransition] = useTransition();
 
   const applyPatch = useCallback(
@@ -58,37 +59,20 @@ export function useBulkActions(): BulkActions {
   );
 
   const remove = useCallback(async () => {
-    // Snapshot the full task objects *before* clearing so undo can recreate
-    // them (delete is a hard delete; there's no server-side trash).
+    // Snapshot the full task objects *before* clearing: the deleter needs them
+    // whole, because undo recreates rather than restores (delete is a hard
+    // delete, and there's no server-side trash to un-empty).
     const tasks = selection.getSelectedTasks();
-    const ids = [...selection.selectedIds];
-    if (ids.length === 0) return;
-
-    const api = await getClientTasksApi();
-    const results = await Promise.all(ids.map((id) => api.delete(id)));
-    const failed = results.find((r) => r.error);
-    if (failed?.error) console.error("Bulk delete failed:", failed.error);
-
+    if (tasks.length === 0) return;
+    // Clear first so the bulk bar goes with the rows rather than hanging over
+    // the list counting tasks that are on their way out.
     selection.clear();
-    startTransition(() => router.refresh());
-
-    if (tasks.length > 0) {
-      toast.show({
-        message: `Deleted ${tasks.length} task${tasks.length > 1 ? "s" : ""}`,
-        undo: async () => {
-          const recreate = await getClientTasksApi();
-          await Promise.all(
-            tasks.map((t) => recreate.create(toCreateInput(t, t.title)))
-          );
-          startTransition(() => router.refresh());
-        },
-      });
-    }
-  }, [selection, router, toast]);
+    await deleteTasks(tasks);
+  }, [selection, deleteTasks]);
 
   return {
     count: selection.count,
-    pending,
+    pending: pending || deleting,
     setProject: (projectId) => applyPatch({ project_id: projectId }),
     setPriority: (priority) => applyPatch({ priority }),
     schedule: (date) =>

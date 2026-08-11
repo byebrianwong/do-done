@@ -132,6 +132,9 @@ export class ProjectsApi {
       this.supabase
         .from("tasks")
         .select("project_id, status")
+        // A deleted task must stop counting against its project the moment it
+        // is hidden, or the sidebar disagrees with the list it opens.
+        .is("deleted_at", null)
         .not("project_id", "is", null),
     ]);
 

@@ -1,10 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { Project } from "@do-done/shared";
-import { SPARK_COUNT } from "@do-done/shared";
+import {
+  SPARK_COUNT,
+  TASK_DELETE_COLLAPSE_MS,
+  TASK_DELETE_DIM_OPACITY,
+  TASK_DELETE_HOLD_MS,
+  TASK_DELETE_SLIDE_PX,
+} from "@do-done/shared";
 import { SectionOpenProvider } from "@/lib/task-row-behavior";
 import { CompletionStreakProvider } from "@/lib/completion-streak";
 import { addDaysLocalISO } from "@do-done/shared";
+import {
+  announceDeleteCancelled,
+  announceDeleting,
+} from "@/lib/task-delete-events";
 import { TaskItem } from "./task-item";
 import { makeTask, SAMPLE_PROJECTS } from "./__stories__/mocks";
 
@@ -378,5 +388,84 @@ describe("TaskItem — the streak rule", () => {
     listCompleted.mockReturnValue(new Promise(() => {}));
     const { container } = renderRow();
     expect(await clickComplete(container)).toBe(0);
+  });
+});
+
+describe("TaskItem — a deleted row leaves rather than vanishing", () => {
+  // The exit is a timeline, so it has to be driven rather than waited on.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * Deleting is started from somewhere the row can't see — a context menu, the
+   * editor modal, the bulk bar — so the row hears about it through
+   * `announceDeleting`. What is pinned here is that hearing it makes the row
+   * *play* something: before this, the only frame that ever showed a deletion
+   * was the one after the list came back one row shorter.
+   */
+  function condemnedRow(container: HTMLElement) {
+    return container.querySelector<HTMLElement>("[data-task-row]")!;
+  }
+
+  it("condemns the row at full height before it starts closing", () => {
+    const task = makeTask({ title: "Ship it" });
+    const { container } = render(<TaskItem task={task} />);
+
+    // The shell holds the collapse; the row itself holds the wash.
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell.style.gridTemplateRows).toBe("1fr");
+    expect(condemnedRow(container).className).not.toContain("bg-red-50");
+
+    act(() => announceDeleting([task.id]));
+
+    // Still occupying its space — this is the beat where the row says which
+    // one is going, which is the entire reason the hold exists.
+    expect(shell.style.gridTemplateRows).toBe("1fr");
+    expect(condemnedRow(container).className).toContain("bg-red-50");
+  });
+
+  it("leaves the other way from a completion", () => {
+    const task = makeTask({ title: "Ship it" });
+    const { container } = render(<TaskItem task={task} />);
+
+    act(() => announceDeleting([task.id]));
+    act(() => void vi.advanceTimersByTime(TASK_DELETE_HOLD_MS));
+
+    // Leftward, and on the deletion's own clock. A completion slides right on
+    // a longer one, and the two must never be confusable at a glance.
+    const travel = container.querySelector<HTMLElement>(".\\@container")!;
+    expect(travel.style.transform).toContain(
+      `translateX(${TASK_DELETE_SLIDE_PX}px)`
+    );
+    // Transform on the collapse's clock, opacity on the hold's — the dim has
+    // to be at its condemned value by the frame the collapse starts, and has to
+    // stay there rather than lapsing back and brightening the row on its way
+    // out.
+    expect(travel.style.transitionDuration).toBe(
+      `${TASK_DELETE_COLLAPSE_MS}ms, ${TASK_DELETE_HOLD_MS}ms`
+    );
+    expect(travel.style.opacity).toBe(String(TASK_DELETE_DIM_OPACITY));
+  });
+
+  it("ignores a deletion announced for some other task", () => {
+    const { container } = render(<TaskItem task={makeTask({ title: "Ship it" })} />);
+    act(() => announceDeleting(["a-different-task"]));
+    expect(condemnedRow(container).className).not.toContain("bg-red-50");
+  });
+
+  it("stands the row back up when the delete is taken back", () => {
+    // Undo, tapped while the row is still on screen — the toast goes up as the
+    // row leaves, so this is the common case rather than a corner one.
+    const task = makeTask({ title: "Ship it" });
+    const { container } = render(<TaskItem task={task} />);
+
+    act(() => announceDeleting([task.id]));
+    act(() => void vi.advanceTimersByTime(TASK_DELETE_HOLD_MS));
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell.style.gridTemplateRows).toBe("0fr");
+
+    act(() => announceDeleteCancelled([task.id]));
+    expect(shell.style.gridTemplateRows).toBe("1fr");
+    expect(condemnedRow(container).className).not.toContain("bg-red-50");
   });
 });

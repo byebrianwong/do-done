@@ -365,8 +365,9 @@ export const TASK_COMPLETE_TITLE_DELAY_MS = 90;
  * How far the row travels as it leaves.
  *
  * A pure height collapse is the animation of *removal* — it is what a deleted
- * row does. But a completed task hasn't gone anywhere: it is in the Completed
- * view, it fed the pet, and it is undoable for the next six seconds. Sliding
+ * row does (see the deletion block below, which is exactly that). But a
+ * completed task hasn't gone anywhere: it is in the Completed view, it fed the
+ * pet, and it is undoable for the length of {@link UNDO_TOAST_TTL_MS}. Sliding
  * it out says "filed", which is what actually happened.
  *
  * Rightward is not arbitrary on mobile, where swipe-*right* is already the
@@ -377,6 +378,107 @@ export const TASK_COMPLETE_SLIDE_PX = 26;
 
 /** And shrinks a touch as it goes, so it reads as lifting off the list. */
 export const TASK_COMPLETE_SLIDE_SCALE = 0.972;
+
+// ─── Task deletion feedback ─────────────────────────────────────────────────
+//
+// Deleting had no gesture at all: the row was there, and then the list was one
+// row shorter. On web the only frame that ever showed the change was the one
+// after `router.refresh()`; on mobile the optimistic cache patch dropped the
+// row on the same tick as the tap. Nothing said *which* row went, so the only
+// way to find out was to read the toast — and the toast is the fallback, not
+// the feedback.
+//
+// It is deliberately **not** the completion gesture wearing red. Two things are
+// being said, and they must not be confusable at a glance:
+//
+//   completion  hold at full height reading as done, then slide RIGHT — filed.
+//   deletion    dim where it stands, then slide LEFT as it closes — removed.
+//
+// Direction carries it. Rightward continues the swipe that completes a task on
+// mobile; leftward continues the swipe that reveals Delete. The tap inherits
+// each vector for free, and neither reads as the other even peripherally.
+
+/**
+ * How long the row sits there condemned — dimmed, tinted, still at full height
+ * — before it starts to close.
+ *
+ * Shorter than the completion hold on purpose. That hold is a beat to enjoy: a
+ * state the task passed through on its way to being done. This one is only long
+ * enough to see which row is going, and lingering on a deletion would be the
+ * app savouring the one action nobody wants to repeat.
+ */
+export const TASK_DELETE_HOLD_MS = 200;
+
+/** Height → 0. The rows below travel for exactly this long. */
+export const TASK_DELETE_COLLAPSE_MS = 240;
+
+/**
+ * When the row is finally gone and the data layer may drop it — the deletion's
+ * counterpart to {@link TASK_COMPLETE_EXIT_MS}, and the same contract: every
+ * removal (web's `router.refresh()`, mobile's cache patch) waits this long so
+ * it lands on an already-invisible row.
+ */
+export const TASK_DELETE_EXIT_MS =
+  TASK_DELETE_HOLD_MS + TASK_DELETE_COLLAPSE_MS;
+
+/**
+ * How far the row travels as it goes, and it is negative: **leftward**, against
+ * the completion's rightward "filed".
+ *
+ * Further than the completion's nudge, too. A completed row is being put
+ * somewhere and stays recognisable; a deleted one is being taken out of the
+ * list, so it may leave like it means it.
+ */
+export const TASK_DELETE_SLIDE_PX = -36;
+
+/** And shrinks harder than a completion, for the same reason. */
+export const TASK_DELETE_SLIDE_SCALE = 0.94;
+
+/**
+ * How far the row fades while it is condemned but still at full height.
+ *
+ * Not to zero: the row has to stay readable through the hold, because reading
+ * it is the entire point of the hold. The rest of the fade happens under the
+ * collapse.
+ */
+export const TASK_DELETE_DIM_OPACITY = 0.5;
+
+// ─── Undo ───────────────────────────────────────────────────────────────────
+
+/**
+ * How long an undo toast stays up, and therefore how long a destructive action
+ * can be taken back.
+ *
+ * Six seconds was the old value and it was measured against the wrong thing:
+ * the time it takes to *read* the toast, not the time it takes to notice the
+ * list is wrong, work out which row went, decide that wasn't what you meant,
+ * and get the pointer down there. Deletion is where that gap bites — there is
+ * no Completed view to recover from, so the toast is the only door — so the
+ * window is now half again as long, and the toast draws it draining rather than
+ * asking the user to guess how much of it is left.
+ *
+ * Both surfaces read it from here so the promise can't differ by platform.
+ */
+export const UNDO_TOAST_TTL_MS = 9000;
+
+/**
+ * How long a deleted task's row survives before it is really destroyed.
+ *
+ * Deleting sets `tasks.deleted_at` and hides the row; `TasksApi.purgeDeleted()`
+ * comes along afterwards and hard-deletes anything older than this, clearing
+ * the attachment bytes on the way. That gap is what lets Undo hand back *the
+ * same task* — same id, same subtasks, same files — rather than a recreated
+ * likeness of it.
+ *
+ * An hour, and the number is deliberately close to the undo window rather than
+ * comfortably past it. **This is not a trash can**: nothing in either app lists
+ * deleted tasks or offers a way to reach them, so a longer window would buy the
+ * user nothing and cost them a promise — "deleted" has to keep meaning deleted.
+ * An hour is only slack for the purge sweep, which runs when an app is open
+ * rather than on a server timer, so a device that is closed the moment after a
+ * delete still converges the next time it is opened.
+ */
+export const TASK_TRASH_RETENTION_MS = 60 * 60 * 1000;
 
 /**
  * How many Google calendars DoDone will read events from per page load. Each

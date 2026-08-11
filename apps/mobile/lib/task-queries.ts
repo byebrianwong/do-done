@@ -520,22 +520,103 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   }
 }
 
-/** Delete a task, optimistically removing it from every cached list. */
-export async function deleteTask(id: string) {
+export interface DeleteTaskOptions {
+  /**
+   * Keep the row in the cache for this long so the caller's exit animation can
+   * play over it.
+   *
+   * Without it the optimistic patch drops the row on the same tick as the tap,
+   * which is the whole reason a deletion had no gesture: the row was there, and
+   * then it wasn't. Zero (the default) is the old behaviour, and is what a
+   * caller with nothing on screen to animate should pass.
+   */
+  holdMs?: number;
+}
+
+/**
+ * Delete a task, optimistically removing it from every cached list.
+ *
+ * Nothing is destroyed — `TasksApi.delete` stamps the rows and hides them —
+ * so the returned ids are an undo token: hand them to {@link restoreTasks} and
+ * the same tasks come back, subtasks and attachments included. See the
+ * deletion notes in `packages/api-client/src/tasks.ts`.
+ */
+export async function deleteTask(
+  id: string,
+  options: DeleteTaskOptions = {}
+): Promise<string[]> {
+  const holdMs = options.holdMs ?? 0;
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.filter((t) => t.id !== id)
-  );
+  const dropFromLists = () =>
+    queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+      old?.filter((t) => t.id !== id)
+    );
+
+  if (holdMs === 0) dropFromLists();
+
+  const startedAt = Date.now();
+  let ids: string[];
   try {
     const api = await getTasksApi();
-    const { error } = await api.delete(id);
-    if (error) throw error;
+    const result = await api.delete(id);
+    if (result.error) throw result.error;
+    ids = result.ids;
   } catch (e) {
+    // A no-op when we never dropped anything, which is exactly right — the
+    // caller un-collapses the row and it was never missing from the list.
     restoreTaskLists(prev);
+    invalidateTasks();
     throw e;
+  }
+
+  if (holdMs > 0) {
+    // Measured from the tap, not from here: a slow write has already spent part
+    // of the animation's runtime, and waiting the full envelope on top of it
+    // would leave a finished row sitting there at zero height.
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    dropFromLists();
+  }
+  // Held until now on purpose: a refetch landing mid-animation would report the
+  // task as still present and pull the row back out from under its own exit.
+  invalidateTasks();
+  return ids;
+}
+
+/**
+ * Undo a delete: the same rows, back where they were.
+ *
+ * No optimistic patch, deliberately. The cache dropped these rows and has no
+ * copy of them to put back — the *server* is the only thing that still holds
+ * the task, which is the entire point of the soft delete — so the invalidate
+ * is what makes them reappear, with everything that hung off them intact.
+ */
+export async function restoreTasks(ids: string[]) {
+  if (ids.length === 0) return;
+  try {
+    const api = await getTasksApi();
+    const { error } = await api.restore(ids);
+    if (error) throw error;
   } finally {
     invalidateTasks();
+  }
+}
+
+/**
+ * Destroy anything whose retention window has run out.
+ *
+ * Fire-and-forget housekeeping: nothing on screen depends on it, since these
+ * rows have been invisible since the moment they were deleted. Driven from the
+ * app's sweeps rather than a server timer — the same shape, and the same
+ * reasoning, as `syncScheduledToStatus`.
+ */
+export async function purgeDeletedTasks() {
+  try {
+    const api = await getTasksApi();
+    await api.purgeDeleted();
+  } catch {
+    // The next launch tries again.
   }
 }
 

@@ -39,6 +39,7 @@ import { getAttachmentsApiFor } from "@/lib/supabase/attachments-client";
 import { isCopyLinkShortcut } from "@/lib/task-link";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
+import { useDeleteTasks } from "@/lib/use-delete-tasks";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
 import { AttachmentsSection } from "./task-attachments";
@@ -2637,6 +2638,7 @@ function TaskEditModalBody({
 }) {
   const router = useRouter();
   const tasksApi = useMemo(() => getTasksApiFor(task.user_id), [task.user_id]);
+  const { deleteTasks } = useDeleteTasks();
   const attachmentsApi = useMemo(
     () => getAttachmentsApiFor(task.user_id),
     [task.user_id]
@@ -2857,18 +2859,21 @@ function TaskEditModalBody({
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
-    const { error } = await tasksApi.delete(task.id);
-    if (error) {
-      console.error("Delete failed:", error);
-      setDeleting(false);
-      setConfirmingDelete(false);
-      return;
-    }
+    // Close before the write, not after it. The row this task has in the list
+    // behind the modal is about to start leaving, and the whole point of that
+    // animation is being seen — held until the delete resolved, the modal would
+    // still be covering the list for the first half of it.
+    //
     // `closeNow`, not `handleClose`: the row is gone, so there is no unsaved
     // edit left to warn about — prompting to rescue a deleted task's notes
     // would be nonsense.
     closeNow();
-  }, [tasksApi, task.id, closeNow]);
+    // Deleting from here used to be the one delete in the app with no undo
+    // toast at all: the modal shut and the task was gone, permanently, with
+    // nothing offering it back. It goes through the same door as every other
+    // delete now.
+    await deleteTasks([current]);
+  }, [deleteTasks, current, closeNow]);
 
   // Reset the confirmations and overflow menu whenever the modal closes
   // so none of them reappear pre-opened on the next launch.

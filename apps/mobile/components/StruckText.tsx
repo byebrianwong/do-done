@@ -18,7 +18,7 @@ import {
   TASK_COMPLETE_STRIKE_MS,
 } from '@do-done/shared';
 import { LinkifiedText } from './LinkifiedText';
-import { prefersReducedMotion } from '../lib/use-completion-exit';
+import { prefersReducedMotion } from '../lib/use-row-exit';
 
 interface StruckTextProps {
   text: string;

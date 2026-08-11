@@ -6,14 +6,25 @@ import { todayLocalISO } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 
 /**
- * The half of status ↔ schedule sync that no write can trigger: a task whose
- * scheduled date never moved, but whose *day* arrived. Nothing happens to that
- * row — so something has to go looking.
+ * The two pieces of housekeeping that no write can trigger.
  *
- * Runs on mount, when the tab regains focus, and when the local date rolls
- * over while the tab is open. `syncScheduledToStatus()` is one filtered UPDATE
- * and a no-op once converged, so an extra pass costs a round trip and nothing
- * else; it returns 0 immediately when the feature is off, which is the default.
+ * **Status ↔ schedule sync**: a task whose scheduled date never moved, but
+ * whose *day* arrived. Nothing happens to that row, so something has to go
+ * looking. `syncScheduledToStatus()` is one filtered UPDATE and a no-op once
+ * converged, and it returns 0 immediately when the feature is off (the
+ * default).
+ *
+ * **The trash purge**: deleting a task now hides the row rather than
+ * destroying it, so Undo can give back the same task. Something has to come
+ * along afterwards and do the destroying, and `purgeDeleted()` is it — one
+ * filtered read that finds nothing in the ordinary case, then the hard delete
+ * and the Storage clear for anything past the retention window.
+ *
+ * They ride together because they want the same trigger: mount, tab focus, and
+ * a slow tick for a tab left open. Neither is worth its own listener set, and
+ * the purge is deliberately driven from the app rather than a server timer —
+ * same reasoning as the sweep, and it needs no infrastructure a preview deploy
+ * won't have.
  *
  * Renders nothing. Mounted once in the app layout rather than per view, so the
  * sweep doesn't fire again on every client-side navigation.
@@ -36,6 +47,10 @@ export function StatusSyncRunner() {
       try {
         const api = await getClientTasksApi();
         const { updated } = await api.syncScheduledToStatus();
+        // Nothing on screen depends on this one — the rows it destroys have
+        // been invisible since the moment they were deleted — so it never
+        // forces a refresh, and a failure is as quiet as the sweep's.
+        await api.purgeDeleted().catch(() => {});
         if (cancelled) return;
         lastRunDay.current = today;
         // Only pay for a refresh when something actually moved.

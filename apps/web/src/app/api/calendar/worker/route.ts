@@ -102,8 +102,14 @@ async function markFailed(
 function isSyncable(task: Task): boolean {
   // Only a date is required: no time → all-day event; time without an estimate
   // → a default 1h block (handled in taskToEvent).
+  //
+  // A deleted task is not syncable, and this clause must match the one in
+  // `tasks_calendar_enqueue` exactly: the soft delete enqueues a `delete` op
+  // off the back of that predicate, and an `upsert` still queued from before it
+  // would otherwise race back and re-create the event we just removed.
   return (
     !!task.scheduled_date &&
+    !task.deleted_at &&
     task.status !== "done" &&
     task.status !== "cancelled"
   );

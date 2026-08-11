@@ -43,6 +43,7 @@ import {
   formatScheduleHint,
   formatTimeOfDay,
   hashString,
+  TASK_DELETE_EXIT_MS,
   hexToRgb,
   shiftHue,
   type Project,
@@ -58,7 +59,14 @@ import {
   type TasksApi,
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
-import { createProject, invalidateTasks, useProjects } from "@/lib/task-queries";
+import {
+  createProject,
+  deleteTask,
+  invalidateTasks,
+  restoreTasks,
+  useProjects,
+} from "@/lib/task-queries";
+import { useUndoToast } from "./UndoToast";
 import {
   useTaskLocations,
   type TaskLocationLink,
@@ -2143,6 +2151,10 @@ function Inner({
     return new AttachmentsApi(supabase, task.user_id);
   }, [task.user_id]);
 
+  // The sheet closes before the delete lands, so the toast has to come from the
+  // provider in `_layout` rather than from anything inside this tree.
+  const toast = useUndoToast();
+
   // Parent task, resolved when the open task is a subtask, so the header can
   // offer a way back up. Doubles as the navigation target (no extra fetch on tap).
   // Starts null every mount; the sheet body is keyed on the task id, so
@@ -2401,31 +2413,40 @@ function Inner({
     return () => registerCloseGuard(null);
   }, [closeWouldLoseWork, promptDiscard, registerCloseGuard]);
 
+  /**
+   * Delete from the editor: no confirmation, and a real way back.
+   *
+   * It used to ask, because the delete was a hard delete and there would have
+   * been nothing to offer afterwards. The row survives now, so the toast can
+   * simply take it back — and the delete goes through `deleteTask` rather than
+   * the API directly, which is what patches the cache and gives the row behind
+   * the sheet its exit.
+   */
   const confirmDelete = useCallback(() => {
-    Alert.alert(
-      "Delete task?",
-      `“${current.title}” will be permanently deleted.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            const { error } = await tasksApiMemo.delete(task.id);
-            if (error) {
-              console.error("Delete failed:", error);
-              return;
+    // Stand the guard down first: the task is going, so there's no unsaved edit
+    // left to rescue, and prompting to save a deleted task's notes would be
+    // nonsense.
+    registerCloseGuard(null);
+    onClose();
+    const title = current.title;
+    void deleteTask(task.id, { holdMs: TASK_DELETE_EXIT_MS })
+      .then((ids) => {
+        toast.show({
+          message: `Deleted “${title}”`,
+          undo: async () => {
+            try {
+              await restoreTasks(ids);
+            } catch {
+              toast.show({ message: `Couldn't bring “${title}” back` });
             }
-            // Stand the guard down first: the row is gone, so there's no
-            // unsaved edit left to rescue, and prompting to save a deleted
-            // task's notes would be nonsense.
-            registerCloseGuard(null);
-            onClose();
           },
-        },
-      ]
-    );
-  }, [current.title, tasksApiMemo, task.id, onClose, registerCloseGuard]);
+        });
+      })
+      .catch((e) => {
+        console.error("Delete failed:", e);
+        toast.show({ message: `Couldn't delete “${title}”` });
+      });
+  }, [current.title, task.id, onClose, registerCloseGuard, toast]);
 
   // Drives the completion circle beside the title. STATUS_CONFIG[status] can be
   // undefined for an unmigrated DB still serving legacy values — guard before

@@ -80,7 +80,7 @@ function emit() {
  * extends the quiet rather than cutting the first one short.
  *
  * A no-op under reduced motion: the hold exists only to protect an animation,
- * and there isn't one to protect — `useCompletionExit` skips the whole timeline
+ * and there isn't one to protect — `useRowExit` skips the whole timeline
  * and drops the row on the spot, which a delayed list would then contradict by
  * showing it again.
  */

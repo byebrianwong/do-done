@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory
+- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
 
@@ -21,6 +21,17 @@ Supabase client wrapper and typed API classes.
   completion toast's Undo, which captured the row as it was) pass it; a bare
   uncheck has no earlier state and gets `not_started`. `done` is refused, or
   the Undo button would visibly do nothing.
+- **Deleting is reversible, and every read has to know.** `delete()` stamps
+  `deleted_at` across the subtree and returns the ids it touched; `restore(ids)`
+  clears it; `purgeDeleted()` does the real destroying once the retention
+  window has passed, clearing the Storage bytes before the rows. That is what
+  makes Undo hand back *the same task* — same id, same subtasks, same files —
+  instead of recreating a likeness of it. **Every read goes through the private
+  `read()` helper**, which carries the `deleted_at is null` filter; the RLS
+  policy carries it too, but only as a backstop, since the MCP server's
+  service-role client bypasses RLS entirely. Reads that live outside this class
+  (`BusynessApi`, `ProjectsApi.listWithCounts`, the pet tallies) carry it
+  explicitly for the same reason.
 - **`listTags()` sweeps every task row, and has to.** Tags have no table — a
   tag exists only while some task carries it — so counting them means reading
   `tags, status` off all of them, exactly as `ProjectsApi.listWithCounts` does

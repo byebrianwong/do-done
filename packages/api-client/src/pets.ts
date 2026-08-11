@@ -556,7 +556,10 @@ export class PetsApi {
     const pet = ensured.data;
 
     // Top project by task count.
-    let projectsQuery = this.supabase.from("tasks").select("project_id");
+    let projectsQuery = this.supabase
+      .from("tasks")
+      .select("project_id")
+      .is("deleted_at", null);
     if (this.userId) projectsQuery = projectsQuery.eq("user_id", this.userId);
     const tasksRes = await projectsQuery;
     if (tasksRes.error) {
@@ -598,7 +601,7 @@ export class PetsApi {
 
     // Most common tag — separate query because Supabase doesn't aggregate
     // array columns with .select(), so we pull tag arrays and tally.
-    let tagsQuery = this.supabase.from("tasks").select("tags");
+    let tagsQuery = this.supabase.from("tasks").select("tags").is("deleted_at", null);
     if (this.userId) tagsQuery = tagsQuery.eq("user_id", this.userId);
     const tagsRes = await tagsQuery;
     if (!tagsRes.error) {

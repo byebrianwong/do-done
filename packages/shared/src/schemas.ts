@@ -76,6 +76,20 @@ export const TaskSchema = z
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     completed_at: z.string().datetime().nullable(),
+    /**
+     * When the task was deleted; null means live.
+     *
+     * A deleted task is still a row — that is the entire point, and what makes
+     * Undo give back *the same task* rather than a copy of it. See
+     * `TasksApi.delete` / `restore` / `purgeDeleted`.
+     *
+     * Optional, unlike every other column here, and deliberately: **a `Task` in
+     * hand is always a live one.** Every read filters the column out of
+     * existence, so no surface can ever be looking at a value in it, and making
+     * it required would only oblige every fixture and seed in the repo to
+     * declare a field none of them can observe.
+     */
+    deleted_at: z.string().datetime().nullable().optional(),
   });
 export type Task = z.infer<typeof TaskSchema>;
 

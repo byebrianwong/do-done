@@ -116,6 +116,7 @@ export class BusynessApi {
       .select(
         "id, title, scheduled_date, duration_minutes, priority, status, depth"
       )
+      .is("deleted_at", null)
       .not("scheduled_date", "is", null)
       .gte("scheduled_date", startDate)
       .lte("scheduled_date", endDate)

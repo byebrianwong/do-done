@@ -22,8 +22,10 @@ vi.mock("./query-client", () => ({ queryClient }));
 
 const complete = vi.fn();
 const reopen = vi.fn();
+const remove = vi.fn();
+const restore = vi.fn();
 vi.mock("./supabase", () => ({
-  getTasksApi: async () => ({ complete, reopen }),
+  getTasksApi: async () => ({ complete, reopen, delete: remove, restore }),
   getProjectsApi: async () => ({}),
 }));
 
@@ -33,7 +35,9 @@ const scheduleGeofenceSync = vi.fn();
 vi.mock("./widgets", () => ({ refreshTaskWidgets }));
 vi.mock("./location-queries", () => ({ scheduleGeofenceSync }));
 
-const { taskKeys, toggleComplete } = await import("./task-queries");
+const { taskKeys, toggleComplete, deleteTask, restoreTasks } = await import(
+  "./task-queries"
+);
 
 /**
  * A fresh id per test. Completion writes are serialized per task id, so a test
@@ -55,14 +59,18 @@ const listIds = () =>
 
 /** A write we can leave in flight for as long as the test needs. */
 function deferredWrite() {
-  let settle!: (v: { data: null; error: Error | null }) => void;
-  const promise = new Promise<{ data: null; error: Error | null }>((res) => {
+  let settle!: (v: { data: null; ids: string[]; error: Error | null }) => void;
+  const promise = new Promise<{
+    data: null;
+    ids: string[];
+    error: Error | null;
+  }>((res) => {
     settle = res;
   });
   return {
     promise,
-    ok: () => settle({ data: null, error: null }),
-    fail: () => settle({ data: null, error: new Error("offline") }),
+    ok: (ids: string[] = []) => settle({ data: null, ids, error: null }),
+    fail: () => settle({ data: null, ids: [], error: new Error("offline") }),
   };
 }
 
@@ -74,6 +82,8 @@ beforeEach(() => {
   queryClient.clear();
   complete.mockReset();
   reopen.mockReset();
+  remove.mockReset();
+  restore.mockReset();
   invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 });
 afterEach(() => {
@@ -290,5 +300,142 @@ describe("toggleComplete — undo while the completion is in flight", () => {
     await vi.advanceTimersByTimeAsync(HOLD);
 
     expect(listIds()).toEqual(["other"]);
+  });
+});
+
+/**
+ * The same four guarantees, for the deletion exit.
+ *
+ * Deleting had none of this: the optimistic patch dropped the row on the tick
+ * of the tap, so there was no window for a row to animate in even if one had
+ * wanted to. `holdMs` is what opens it, and — exactly as with the completion —
+ * the ordering is the part a device can't show you.
+ */
+describe("deleteTask — the exit hold", () => {
+  it("writes immediately, before the hold has run", async () => {
+    seedList(TASK_ID, "other");
+    const write = deferredWrite();
+    remove.mockReturnValue(write.promise);
+
+    void deleteTask(TASK_ID, { holdMs: HOLD }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Kill the app here and the delete is already on its way to the server.
+    expect(remove).toHaveBeenCalledWith(TASK_ID);
+  });
+
+  it("keeps the row in the list for the whole hold", async () => {
+    seedList(TASK_ID, "other");
+    const write = deferredWrite();
+    remove.mockReturnValue(write.promise);
+
+    void deleteTask(TASK_ID, { holdMs: HOLD }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    write.ok();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The write has landed but the row must stay — it's mid-animation, and
+    // dropping it here is precisely the vanishing this exists to stop.
+    expect(listIds()).toEqual([TASK_ID, "other"]);
+
+    await vi.advanceTimersByTimeAsync(HOLD - 1);
+    expect(listIds()).toEqual([TASK_ID, "other"]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listIds()).toEqual(["other"]);
+  });
+
+  it("does not invalidate until the row is gone", async () => {
+    seedList(TASK_ID);
+    const write = deferredWrite();
+    remove.mockReturnValue(write.promise);
+
+    void deleteTask(TASK_ID, { holdMs: HOLD }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    write.ok();
+    await vi.advanceTimersByTimeAsync(HOLD - 1);
+
+    // A refetch landing here would report the task as still present and pull
+    // the row back out from under its own exit.
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(invalidateSpy).toHaveBeenCalled();
+  });
+
+  it("leaves the list untouched when the write fails", async () => {
+    seedList(TASK_ID, "other");
+    const write = deferredWrite();
+    remove.mockReturnValue(write.promise);
+
+    const call = deleteTask(TASK_ID, { holdMs: HOLD });
+    await vi.advanceTimersByTimeAsync(0);
+    write.fail();
+    await expect(call).rejects.toThrow();
+
+    // The row never left, so there is nothing to put back — and the caller
+    // un-collapses it on the same rejection.
+    await vi.advanceTimersByTimeAsync(HOLD * 2);
+    expect(listIds()).toEqual([TASK_ID, "other"]);
+  });
+
+  it("drops the row on the spot with no hold asked for", async () => {
+    // The old behaviour, and still the right one for a caller with no row on
+    // screen to animate.
+    seedList(TASK_ID, "other");
+    remove.mockResolvedValue({ data: null, error: null });
+
+    void deleteTask(TASK_ID);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listIds()).toEqual(["other"]);
+  });
+});
+
+/**
+ * Undo after a delete.
+ *
+ * The point of the soft delete is that the *server* still holds the task, so
+ * there is nothing in the cache to put back optimistically and the invalidate
+ * is what makes the rows reappear — with their subtasks and files, which no
+ * client-side snapshot ever had.
+ */
+describe("deleteTask → restoreTasks", () => {
+  it("hands back the ids the delete actually touched", async () => {
+    // Including the subtree. A parent's subtasks are rows the list never showed
+    // and the caller has no idea exist, so the ids have to come from the write.
+    seedList(TASK_ID);
+    const write = deferredWrite();
+    remove.mockReturnValue(write.promise);
+
+    const call = deleteTask(TASK_ID);
+    await vi.advanceTimersByTimeAsync(0);
+    write.ok([TASK_ID, "child-1"]);
+
+    expect(await call).toEqual([TASK_ID, "child-1"]);
+  });
+
+  it("restores by id and refetches", async () => {
+    restore.mockResolvedValue({ error: null });
+
+    await restoreTasks(["task-1", "child-1"]);
+
+    expect(restore).toHaveBeenCalledWith(["task-1", "child-1"]);
+    // No optimistic patch to make: the cache dropped these rows and has no copy
+    // of them. The refetch is what brings the real ones back.
+    expect(invalidateSpy).toHaveBeenCalled();
+  });
+
+  it("refetches even when the restore fails", async () => {
+    // The list must not be left disagreeing with the server about a row the
+    // user just tried to recover.
+    restore.mockResolvedValue({ error: new Error("offline") });
+
+    await expect(restoreTasks(["task-1"])).rejects.toThrow();
+    expect(invalidateSpy).toHaveBeenCalled();
+  });
+
+  it("does nothing for an empty list", async () => {
+    await restoreTasks([]);
+    expect(restore).not.toHaveBeenCalled();
   });
 });

@@ -2,8 +2,11 @@ import type { CreateTaskInput, Task } from "@do-done/shared";
 
 /**
  * Build a `CreateTaskInput` from an existing task, dropping null/empty fields
- * (the create schema is `.optional()`, not `.nullable()`). Used by Duplicate
- * and by the delete undo paths (single + bulk), which recreate the task.
+ * (the create schema is `.optional()`, not `.nullable()`).
+ *
+ * Used by Duplicate. It is *not* how a delete is undone any more: that restores
+ * the original row rather than recreating it, which is the only way the task's
+ * id, subtasks and attachments survive.
  */
 export function toCreateInput(t: Task, title: string): CreateTaskInput {
   const input: CreateTaskInput = { title, priority: t.priority };
