@@ -28,17 +28,34 @@ export function AuthCard({
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
+  /** Signing up succeeds without signing you in, so it needs somewhere to say
+   *  so that isn't the red box the failures use. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNotice(null);
 
     const { error } =
       mode === "signin"
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              // The confirmation link must come back to /auth/callback, the
+              // only route that exchanges the code for a session. Unset,
+              // Supabase falls back to the project's Site URL, which lands a
+              // brand-new account on the landing page with an unspent code in
+              // the query string and no session — signup silently does
+              // nothing. The origin has to be allow-listed in the project's
+              // redirect URLs or Supabase quietly falls back anyway.
+              emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+            },
+          });
 
     setLoading(false);
 
@@ -48,9 +65,7 @@ export function AuthCard({
     }
 
     if (mode === "signup") {
-      setError(
-        "Check your email for a confirmation link (or disable email confirm in Supabase dashboard)."
-      );
+      setNotice("Check your email for a link to confirm your address.");
       return;
     }
 
@@ -161,6 +176,12 @@ export function AuthCard({
           </div>
         )}
 
+        {notice && (
+          <div className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300">
+            {notice}
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={loading}
@@ -177,6 +198,7 @@ export function AuthCard({
           onClick={() => {
             setMode(mode === "signin" ? "signup" : "signin");
             setError(null);
+            setNotice(null);
           }}
           className="font-medium text-indigo-500 hover:text-indigo-600"
         >

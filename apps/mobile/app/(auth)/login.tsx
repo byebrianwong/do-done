@@ -41,7 +41,7 @@ export default function LoginScreen() {
     if (mode === 'signup') {
       Alert.alert(
         'Check your email',
-        'Confirm your email to finish signing up (or disable email confirm in Supabase).'
+        'We sent you a link to confirm your address. Open it to finish signing up.'
       );
     }
   }
