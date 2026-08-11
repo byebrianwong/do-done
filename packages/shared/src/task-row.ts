@@ -148,6 +148,12 @@ export interface RowSublineContext {
  * no longer actionable and printing it would label most of a Completed list
  * "3 days ago", which says nothing about the work.
  */
+/**
+ * The labels `formatCompletedDate` returns that are words rather than dates,
+ * and so read as part of the sentence "Done …" rather than as a date.
+ */
+const RELATIVE_COMPLETED = new Set(["Today", "Yesterday"]);
+
 export function rowSubline(
   task: Task,
   ctx: RowSublineContext = {}
@@ -159,7 +165,11 @@ export function rowSubline(
     const when = task.completed_at
       ? formatCompletedDate(task.completed_at, now)
       : "";
-    parts.push(when ? `Done ${when.toLowerCase()}` : "Done");
+    // "Done today" reads better than "Done Today", but only the relative
+    // words are a sentence fragment — lowercasing everything turned a real
+    // date into "Done fri, aug 7", which reads as a typo sitting directly
+    // above a correctly-cased one.
+    parts.push(when ? `Done ${RELATIVE_COMPLETED.has(when) ? when.toLowerCase() : when}` : "Done");
   } else if (task.status === "cancelled") {
     parts.push("Cancelled");
   } else {

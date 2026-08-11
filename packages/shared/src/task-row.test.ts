@@ -160,6 +160,20 @@ describe("rowSubline", () => {
     ]);
   });
 
+  // "Done today" is a sentence; "Done fri, aug 7" is a mangled date. Only the
+  // relative words get lowercased, and a Completed list shows both at once.
+  it("lowercases a relative completion label but not a real date", () => {
+    const on = (d: Date) =>
+      rowSubline(task({ status: "done", completed_at: d.toISOString() }), {
+        now: NOW,
+      })[0];
+
+    expect(on(new Date(2026, 7, 12, 9, 12))).toBe("Done today");
+    expect(on(new Date(2026, 7, 11, 9, 12))).toBe("Done yesterday");
+    expect(on(new Date(2026, 7, 7, 9, 12))).toBe("Done Fri, Aug 7");
+    expect(on(new Date(2026, 6, 30, 9, 12))).toBe("Done Jul 30");
+  });
+
   it("keeps quiet about the statuses that are defaults", () => {
     expect(rowSubline(task({ status: "not_started" }), { now: NOW })).toEqual([]);
     expect(rowSubline(task({ status: "inbox" }), { now: NOW })).toEqual([]);

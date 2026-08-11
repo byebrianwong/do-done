@@ -96,6 +96,7 @@ export default function TagDetailScreen() {
         // count is how a surface says "I can't tell", which keeps the
         // celebration rules from firing on a guess.
         sectionCounts={false}
+        hideEmptyGroups
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

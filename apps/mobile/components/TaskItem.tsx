@@ -682,7 +682,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  title: { fontSize: 15, lineHeight: 20, color: '#111827', flex: 1 },
+  // No `flex: 1` here. This style is handed to `StruckText`, which wraps the
+  // text in a View of its own — a *column* container — so `flex: 1` stops
+  // meaning "fill the row" and starts meaning `flexBasis: 0` on the vertical
+  // axis, collapsing the title to height 0. Filling the row is `StruckText`'s
+  // root's job, and it does it. (This was left behind when the title stopped
+  // being a bare Text directly inside `titleRow`; every row without a second
+  // element in that row — i.e. every row without a ★ — rendered no title at
+  // all, on every screen.)
+  title: { fontSize: 15, lineHeight: 20, color: '#111827' },
   titleOverdue: { fontWeight: '600' },
   // No `textDecorationLine` — the rule is drawn by `StruckText` so it can be
   // animated, which the platform's own decoration cannot be.

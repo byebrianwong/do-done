@@ -110,6 +110,7 @@ export default function ProjectDetailScreen() {
         // project's remaining work is the one count that answers both
         // celebration rules on this screen.
         hideProject
+        hideEmptyGroups
         openInProject={openInProject}
         refreshControl={
           <RefreshControl

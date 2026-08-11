@@ -133,6 +133,13 @@ function sameLines(a: TextLayoutLine[], b: TextLayoutLine[]): boolean {
 }
 
 const styles = StyleSheet.create({
+  // This view is the one that fills the row, so `flex: 1` belongs *here* — its
+  // parent (`titleRow`) lays out horizontally, so that means width.
+  //
+  // It must not also be on the text style handed in as `style`: this root is a
+  // column container, so a `flex: 1` on the Text inside it reads as
+  // `flexBasis: 0` **vertically** and collapses the title to zero height. See
+  // the note on `title` in TaskItem.
   root: { flex: 1 },
   clip: {
     position: 'absolute',

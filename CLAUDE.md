@@ -180,6 +180,14 @@ laptop is the one the phone opens with.
   one would fire the spark on a guess). `ListEmptyComponent` came with them:
   a list that renders nothing when empty is fine for All and wrong for Inbox,
   which has something to say there.
+- **`hideEmptyGroups` on the project and tag screens.** `applyDisplay` emits
+  every non-terminal status column even when empty, deliberately — they are
+  drop targets, so a task can be dragged into a status nothing currently has.
+  That pays for itself on All and costs on a project page, where a handful of
+  tasks sat under "INBOX (0)" and "LATER (0)". Those two screens listed only
+  non-empty sections before they adopted the engine, so the flag restores what
+  they showed; the trade, theirs alone, is that you can no longer drag into a
+  status that is empty *there*. The engine and web are untouched.
 - **Completed keeps its day buckets**, on Upcoming's curated/override shape:
   the engine has no group key for "the day it was finished" (`completed_at` is
   a sort field), so the view's own grouping renders the buckets and picking any

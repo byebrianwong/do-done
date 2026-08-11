@@ -54,6 +54,20 @@ interface Props {
    * `sparkReason`), which is exactly what `false` produces here.
    */
   sectionCounts?: boolean;
+  /**
+   * Drop groups with no tasks in them.
+   *
+   * `applyDisplay` emits every non-terminal status column even when empty, on
+   * purpose: they are drop targets, so a task can be dragged into a status
+   * nothing currently has. That pays for itself on All, where most columns are
+   * populated — and costs on a project or tag page, where a handful of tasks
+   * sit under two or three empty headers ("INBOX (0)", "LATER (0)") that push
+   * the actual work down the screen. Those two screens listed only non-empty
+   * sections before they adopted the display engine, so this restores what
+   * they showed. The trade is theirs alone: you can no longer drag a task into
+   * a status that is empty *there*, which is also what they did before.
+   */
+  hideEmptyGroups?: boolean;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: object;
   /** Shown when the list is empty — skeleton, error, or the view's own copy. */
@@ -95,12 +109,18 @@ export default function GroupedTaskList({
   hideProject,
   openInProject,
   sectionCounts = true,
+  hideEmptyGroups,
   refreshControl,
   contentContainerStyle,
   ListEmptyComponent,
 }: Props) {
   const { sections, meta } = useMemo(() => {
-    const groups = applyDisplay(tasks, config, { projects });
+    const all = applyDisplay(tasks, config, { projects });
+    // Filtered on the group's own tasks, not on what gets rendered: a
+    // collapsed section renders no rows and must still keep its header.
+    const groups = hideEmptyGroups
+      ? all.filter((g) => g.tasks.length > 0)
+      : all;
     const sections: DraggableSection[] = groups.map((g) => ({
       key: g.key,
       title: g.label,
@@ -110,7 +130,7 @@ export default function GroupedTaskList({
       groups.map((g) => [g.key, { color: g.color, drop: g.drop, count: g.count }])
     );
     return { sections, meta };
-  }, [tasks, config, projects]);
+  }, [tasks, config, projects, hideEmptyGroups]);
 
   // What the list actually renders: collapsed sections keep their header but
   // drop their rows. The full `sections` (above) still drive the freeze/convert
