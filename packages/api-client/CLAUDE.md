@@ -27,11 +27,13 @@ Supabase client wrapper and typed API classes.
   window has passed, clearing the Storage bytes before the rows. That is what
   makes Undo hand back *the same task* — same id, same subtasks, same files —
   instead of recreating a likeness of it. **Every read goes through the private
-  `read()` helper**, which carries the `deleted_at is null` filter; the RLS
-  policy carries it too, but only as a backstop, since the MCP server's
-  service-role client bypasses RLS entirely. Reads that live outside this class
-  (`BusynessApi`, `ProjectsApi.listWithCounts`, the pet tallies) carry it
-  explicitly for the same reason.
+  `read()` helper**, which carries the `deleted_at is null` filter, and that is
+  the only thing hiding a deleted task: `tasks_select` is the plain owner check
+  and **must not be narrowed to `deleted_at is null`**, or every delete 403s
+  (PostgREST's UPDATE returns its rows, so the select policy is applied to the
+  row the write just produced — see `20260811000001`). Reads that live outside
+  this class (`BusynessApi`, `ProjectsApi.listWithCounts`, the pet tallies)
+  carry the filter explicitly for the same reason.
 - **`listTags()` sweeps every task row, and has to.** Tags have no table — a
   tag exists only while some task carries it — so counting them means reading
   `tags, status` off all of them, exactly as `ProjectsApi.listWithCounts` does
