@@ -32,7 +32,23 @@ function makeSupabaseStub() {
       calls.push({ method, args });
       return builder;
     };
-  for (const m of ["from", "select", "not", "or", "order", "eq", "is", "gte", "lte"]) {
+  for (const m of [
+    "from",
+    "select",
+    "not",
+    "or",
+    "order",
+    "eq",
+    "is",
+    "gte",
+    "lte",
+    "in",
+    "update",
+    "limit",
+    "range",
+    "textSearch",
+    "overlaps",
+  ]) {
     builder[m] = chain(m);
   }
   // Thenable: `await query` yields an empty success result.
@@ -1094,5 +1110,162 @@ describe("TasksApi — deleted rows are invisible", () => {
     for (const op of tasksOps(ops)) {
       expect(op.filters).toContainEqual({ method: "is", args: ["deleted_at", null] });
     }
+  });
+});
+
+// ── Shopping lists: the isolation is in the query ──────────────────────
+
+describe("the task universe excludes list items", () => {
+  /** Every `eq` the builder was handed, as "column=value" strings. */
+  function eqs(calls: { method: string; args: unknown[] }[]): string[] {
+    return calls
+      .filter((c) => c.method === "eq")
+      .map((c) => `${String(c.args[0])}=${String(c.args[1])}`);
+  }
+
+  it("filters is_list_item on every listing read", async () => {
+    // The whole point of routing the fifteen reads through read(): none of
+    // them had to be changed, and none of them can forget.
+    for (const call of [
+      (a: TasksApi) => a.list(),
+      (a: TasksApi) => a.getInbox(),
+      (a: TasksApi) => a.getToday(),
+      (a: TasksApi) => a.getUpcoming(30),
+      (a: TasksApi) => a.listUndated(),
+      (a: TasksApi) => a.listOverdue(),
+      (a: TasksApi) => a.listCompleted(),
+      (a: TasksApi) => a.search("milk"),
+      (a: TasksApi) => a.listTags(),
+    ]) {
+      const { supabase, calls } = makeSupabaseStub();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await call(new TasksApi(supabase as any));
+      expect(eqs(calls)).toContain("is_list_item=false");
+    }
+  });
+
+  it("does NOT filter it on a read by id", async () => {
+    // A shopping item is a real row with a real id — it has a /task/<id>
+    // link and it opens in the editor. Filtering here would 404 a row the
+    // app itself just linked to.
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).single = () => Promise.resolve({ data: null, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any).getById("abc");
+    expect(eqs(calls)).not.toContain("is_list_item=false");
+    expect(eqs(calls)).toContain("id=abc");
+  });
+
+  it("asks for items only when reading a list", async () => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any).listItems("list-1");
+    expect(eqs(calls)).toContain("is_list_item=true");
+    expect(eqs(calls)).toContain("project_id=list-1");
+  });
+
+  it("still excludes deleted rows from both doors", async () => {
+    // read() and readItems() both go through base(), so the soft-delete rule
+    // cannot be lost by adding the second door.
+    for (const call of [
+      (a: TasksApi) => a.list(),
+      (a: TasksApi) => a.listItems("list-1"),
+    ]) {
+      const { supabase, calls } = makeSupabaseStub();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await call(new TasksApi(supabase as any));
+      const isCalls = calls
+        .filter((c) => c.method === "is")
+        .map((c) => `${String(c.args[0])}=${String(c.args[1])}`);
+      expect(isCalls).toContain("deleted_at=null");
+    }
+  });
+});
+
+describe("TasksApi.listCounts", () => {
+  function stubReturning(rows: unknown[]) {
+    const calls: { method: string; args: unknown[] }[] = [];
+    const builder: Record<string, unknown> = {};
+    const chain = (method: string) =>
+      (...args: unknown[]) => {
+        calls.push({ method, args });
+        return builder;
+      };
+    for (const m of ["from", "select", "not", "or", "order", "eq", "is", "in"]) {
+      builder[m] = chain(m);
+    }
+    builder.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+      resolve({ data: rows, error: null });
+    return { supabase: builder, calls };
+  }
+
+  it("splits open from bought, per list", async () => {
+    const { supabase } = stubReturning([
+      { project_id: "groceries", status: "inbox" },
+      { project_id: "groceries", status: "inbox" },
+      { project_id: "groceries", status: "done" },
+      { project_id: "amazon", status: "cancelled" },
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await new TasksApi(supabase as any).listCounts();
+    expect(data.get("groceries")).toEqual({ open: 2, got: 1 });
+    // Cancelled counts as bought — it is a terminal status, same as done.
+    expect(data.get("amazon")).toEqual({ open: 0, got: 1 });
+  });
+
+  it("returns an empty map rather than throwing when there is nothing", async () => {
+    const { supabase } = stubReturning([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await new TasksApi(supabase as any).listCounts();
+    expect(error).toBeNull();
+    expect(data.size).toBe(0);
+  });
+});
+
+describe("TasksApi.clearGot", () => {
+  it("soft-deletes only the ticked items and returns them as an undo token", async () => {
+    const calls: { method: string; args: unknown[] }[] = [];
+    const builder: Record<string, unknown> = {};
+    const chain = (method: string) =>
+      (...args: unknown[]) => {
+        calls.push({ method, args });
+        return builder;
+      };
+    for (const m of ["from", "select", "eq", "is", "in", "update", "not", "order"]) {
+      builder[m] = chain(m);
+    }
+    let resolveWith: unknown[] = [{ id: "a" }, { id: "b" }];
+    builder.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+      resolve({ data: resolveWith, error: null });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await new TasksApi(builder as any).clearGot("groceries");
+
+    expect(error).toBeNull();
+    expect(data).toEqual(["a", "b"]);
+
+    // Soft, not hard: the row survives so the nine-second undo can hand back
+    // the same items rather than a copy of them.
+    const update = calls.find((c) => c.method === "update");
+    expect(update).toBeDefined();
+    expect(Object.keys(update!.args[0] as object)).toEqual(["deleted_at"]);
+    expect(calls.some((c) => c.method === "delete")).toBe(false);
+
+    // Scoped to the ticked rows of this one list.
+    const inCall = calls.find((c) => c.method === "in" && c.args[0] === "status");
+    expect(inCall!.args[1]).toEqual(["done", "cancelled"]);
+
+    resolveWith = [];
+  });
+
+  it("is a no-op when nothing is ticked", async () => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await new TasksApi(supabase as any).clearGot("groceries");
+    expect(data).toEqual([]);
+    expect(error).toBeNull();
+    // No write at all, rather than an UPDATE matching no rows.
+    expect(calls.some((c) => c.method === "update")).toBe(false);
   });
 });

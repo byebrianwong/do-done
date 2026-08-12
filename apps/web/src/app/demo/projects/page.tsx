@@ -4,12 +4,17 @@ import Link from "next/link";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
 import { ProjectLabel } from "@/components/project-icon";
+import { splitProjects } from "@do-done/shared";
 
 const CLOSED = new Set(["done", "cancelled", "archived"]);
 
 export default function DemoProjectsPage() {
-  const { tasks, projects, ready } = useDemoData();
+  const { tasks, projects: allProjects, ready } = useDemoData();
   if (!ready) return <DemoLoading rows={4} />;
+
+  // Shopping lists have their own index at /demo/lists. Left in here they
+  // would all read "0 open", since `tasks` excludes their items by design.
+  const { projects } = splitProjects(allProjects);
 
   const withCounts = projects.map((p) => {
     const mine = tasks.filter((t) => t.project_id === p.id);

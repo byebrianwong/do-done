@@ -37,6 +37,18 @@ export type TaskDepth = z.infer<typeof TaskDepth>;
 export const TriggerType = z.enum(["enter", "exit"]);
 export type TriggerType = z.infer<typeof TriggerType>;
 
+/**
+ * What a project is for.
+ *
+ * `tasks` is an ordinary project. `list` is a shopping list — its tasks are
+ * things to buy, and they are excluded from every task view (see
+ * `tasks.is_list_item`). The distinction is deliberately on the *container*
+ * rather than the item: a thing to buy is a perfectly ordinary small task, but
+ * a shopping list is standing where a task is finished once.
+ */
+export const ProjectKind = z.enum(["tasks", "list"]);
+export type ProjectKind = z.infer<typeof ProjectKind>;
+
 export const ThemeMode = z.enum(["light", "dark", "system"]);
 export type ThemeMode = z.infer<typeof ThemeMode>;
 
@@ -90,6 +102,21 @@ export const TaskSchema = z
      * declare a field none of them can observe.
      */
     deleted_at: z.string().datetime().nullable().optional(),
+    /**
+     * True when this task is an item on a shopping list — i.e. its project has
+     * `kind = 'list'`.
+     *
+     * Derived, never written by a caller: a DB trigger sets it from the
+     * project on every insert and every re-parent, and converting a project to
+     * a list re-flags everything in it. Treat it as read-only.
+     *
+     * Optional for the same reason `deleted_at` is: `TasksApi.read()` filters
+     * it out of the task universe entirely, so the overwhelming majority of
+     * code holds a `Task` that cannot have it set, and requiring it would
+     * oblige every fixture in the repo to declare a field it can't observe.
+     * Undefined means false.
+     */
+    is_list_item: z.boolean().optional(),
   });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -101,10 +128,39 @@ export const ProjectSchema = z.object({
   icon: z.string().max(PROJECT_ICON_MAX_LENGTH).nullable(),
   parent_project_id: z.string().uuid().nullable(),
   sort_order: z.number().int().default(0),
+  /**
+   * Ordinary project, or shopping list. Optional on read for the same reason
+   * the app tolerates a task with no `is_list_item`: a deploy that lands ahead
+   * of its migration must not fail to parse every project it reads. Undefined
+   * means `"tasks"` — read it through `projectKind()` rather than testing the
+   * field, so that default lives in one place.
+   */
+  kind: ProjectKind.optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
+
+/**
+ * A project's kind, with the pre-migration default applied.
+ *
+ * Every caller that branches on list-ness goes through this rather than
+ * reading `.kind` directly: an absent value means an older row (or an older
+ * client), and defaulting it to `"list"` anywhere would hide a whole project's
+ * tasks from the app.
+ */
+export function projectKind(
+  project: Pick<Project, "kind"> | null | undefined
+): ProjectKind {
+  return project?.kind === "list" ? "list" : "tasks";
+}
+
+/** True when the project is a shopping list. */
+export function isListProject(
+  project: Pick<Project, "kind"> | null | undefined
+): boolean {
+  return projectKind(project) === "list";
+}
 
 export const LocationSchema = z.object({
   id: z.string().uuid(),
@@ -334,6 +390,9 @@ export const CreateProjectInput = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#6366f1"),
   icon: z.string().max(PROJECT_ICON_MAX_LENGTH).optional(),
   parent_project_id: z.string().uuid().optional(),
+  // Omitted means an ordinary project — the column defaults to 'tasks', so
+  // only the list surfaces ever pass this.
+  kind: ProjectKind.optional(),
 });
 export type CreateProjectInput = z.infer<typeof CreateProjectInput>;
 
@@ -349,6 +408,10 @@ export const UpdateProjectInput = z.object({
   icon: z.string().max(PROJECT_ICON_MAX_LENGTH).nullable().optional(),
   parent_project_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().optional(),
+  // Converting between a project and a list is supported and cascades to every
+  // task in it (`project_cascade_kind`), which is why the trigger exists rather
+  // than the column being immutable.
+  kind: ProjectKind.optional(),
 });
 export type UpdateProjectInput = z.infer<typeof UpdateProjectInput>;
 

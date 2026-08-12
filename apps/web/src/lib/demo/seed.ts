@@ -24,12 +24,20 @@ function demoId(n: number): string {
   return `d0d0d0d0-0000-4000-8000-${String(n).padStart(12, "0")}`;
 }
 
-const PROJECT_SEED: Array<Pick<Project, "name" | "color" | "icon">> = [
+const PROJECT_SEED: Array<
+  Pick<Project, "name" | "color" | "icon"> & { kind?: Project["kind"] }
+> = [
   { name: "Work", color: "#6366f1", icon: "💼" },
   { name: "Home", color: "#10b981", icon: "🏠" },
   { name: "Health", color: "#f43f5e", icon: "🏃" },
   { name: "Side project", color: "#f59e0b", icon: "🚀" },
   { name: "Reading", color: "#8b5cf6", icon: "📚" },
+  // Two shopping lists, so the sandbox shows the thing the Lists section is
+  // for — and, more usefully, shows that the eight grocery items below are
+  // nowhere to be seen in Today, Inbox or All. A demo where lists were absent
+  // would be a demo of the feature's least interesting half.
+  { name: "Groceries", color: "#22c55e", icon: "🛒", kind: "list" },
+  { name: "Amazon", color: "#f59e0b", icon: "📦", kind: "list" },
 ];
 
 /** Index into PROJECT_SEED, by name, for readable task definitions below. */
@@ -39,6 +47,8 @@ const P = {
   health: 2,
   side: 3,
   reading: 4,
+  groceries: 5,
+  amazon: 6,
 } as const;
 
 interface TaskSeed {
@@ -355,6 +365,25 @@ const TASK_SEED: TaskSeed[] = [
     doneDaysAgo: 4,
     minutes: 90,
   },
+
+  // ── Shopping lists ────────────────────────────────────────────────
+  //
+  // Undated and unprioritised on purpose: a thing to buy has no day and no
+  // rank, and giving these any would be seeding the exact confusion the
+  // `is_list_item` flag exists to prevent. None of them appear in Today,
+  // Inbox, Upcoming or All — that absence is the feature, and it is visible
+  // in the sandbox precisely because these rows exist.
+  { title: "Whole milk", project: P.groceries },
+  { title: "Bananas", project: P.groceries },
+  { title: "Greek yoghurt", project: P.groceries },
+  { title: "Sourdough", project: P.groceries },
+  { title: "Paper towels", project: P.groceries },
+  { title: "Parmesan", project: P.groceries },
+  { title: "Eggs", project: P.groceries, status: "done", doneDaysAgo: 0 },
+  { title: "Butter", project: P.groceries, status: "done", doneDaysAgo: 0 },
+  { title: "USB-C cable, 2m", project: P.amazon },
+  { title: "Replacement kettle filter", project: P.amazon },
+  { title: "Birthday card", project: P.amazon },
 ];
 
 export interface DemoSeed {
@@ -380,6 +409,7 @@ export function buildDemoSeed(today: string = todayLocalISO()): DemoSeed {
     icon: p.icon,
     parent_project_id: null,
     sort_order: i * 1000,
+    kind: p.kind ?? "tasks",
     created_at: stamp(40),
     updated_at: stamp(40),
   }));
@@ -408,6 +438,11 @@ export function buildDemoSeed(today: string = todayLocalISO()): DemoSeed {
       depth: parentId ? 1 : 0,
       sort_order: i * 100,
       focus_override: s.focus ?? null,
+      // What the DB trigger derives. Computed from the seeded project rather
+      // than declared per row, so a task moved between the two seed lists
+      // can't be flagged wrongly.
+      is_list_item:
+        s.project !== undefined && projects[s.project]!.kind === "list",
       created_at: stamp(Math.min(30, i + 2)),
       updated_at: stamp(Math.min(30, i + 1)),
       completed_at:

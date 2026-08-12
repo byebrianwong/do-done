@@ -221,7 +221,12 @@ function TaskItem({
       // that would have sparked for another reason. Asking only when the other
       // rules missed would let a second completion moments later claim the
       // same day again.
-      const streakDay = claimStreakDay();
+      //
+      // Unconditional within the task universe, that is. Buying milk must not
+      // hold a run of working days alive — and unlike the burst, which
+      // `sparkReason` gates internally, claiming has a side effect, so the
+      // list item has to be turned away before the call rather than after it.
+      const streakDay = task.is_list_item ? false : claimStreakDay();
       // …and the burst on top, for the completions that earned one. Read now,
       // not at render time: by the time the write lands the row has already
       // told its list it is done.

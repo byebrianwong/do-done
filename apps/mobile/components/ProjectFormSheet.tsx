@@ -16,14 +16,19 @@ import {
 } from 'react-native';
 import { PROJECT_COLOR_OPTIONS, DEFAULT_PROJECT_COLORS } from '@do-done/shared';
 import { createProject } from '@/lib/task-queries';
+import type { ProjectKind } from '@do-done/shared';
 import { ProjectIconPicker } from '@/components/ProjectIconPicker';
 
 export function ProjectFormSheet({
   visible,
   onClose,
+  // A shopping list is the same row with a different `kind`, so this is the
+  // same sheet with different words on it rather than a copy of it.
+  kind = 'tasks',
 }: {
   visible: boolean;
   onClose: () => void;
+  kind?: ProjectKind;
 }) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
@@ -31,6 +36,7 @@ export function ProjectFormSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput | null>(null);
+  const noun = kind === 'list' ? 'list' : 'project';
 
   // Reset every time the sheet opens/closes; focus the name field on open.
   useEffect(() => {
@@ -56,12 +62,15 @@ export function ProjectFormSheet({
         name: trimmed,
         color,
         icon: icon.trim() || undefined,
+        kind,
       });
       setSaving(false);
       onClose();
     } catch (e) {
       setSaving(false);
-      setError(e instanceof Error ? e.message : 'Could not create project');
+      setError(
+        e instanceof Error ? e.message : `Could not create ${noun}`
+      );
     }
   };
 
@@ -76,14 +85,14 @@ export function ProjectFormSheet({
     >
       <Pressable onPress={onClose} style={styles.backdrop}>
         <Pressable onPress={() => {}} style={styles.sheet}>
-          <Text style={styles.title}>New project</Text>
+          <Text style={styles.title}>New {noun}</Text>
 
           <TextInput
             ref={inputRef}
             value={name}
             onChangeText={setName}
             onSubmitEditing={submit}
-            placeholder="Project name…"
+            placeholder={kind === 'list' ? 'Groceries, Amazon…' : 'Project name…'}
             placeholderTextColor="#9ca3af"
             maxLength={100}
             style={styles.input}

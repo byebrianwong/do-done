@@ -12,7 +12,13 @@ import type {
   UpdateProjectInput,
   UpdateTaskInput,
 } from "@do-done/shared";
-import { todayLocalISO, addDaysLocalISO, summarizeTags } from "@do-done/shared";
+import {
+  todayLocalISO,
+  addDaysLocalISO,
+  summarizeTags,
+  isListProject,
+  splitProjects,
+} from "@do-done/shared";
 import type {
   AttachmentsApi,
   BulkUpdateResult,
@@ -89,7 +95,27 @@ class DemoTasksApiImpl {
    * rather than fifteen — the same argument as `TasksApi.read()`.
    */
   private get tasks(): Task[] {
+    return this.liveTasks.filter((t) => t.is_list_item !== true);
+  }
+
+  /**
+   * Live rows of both kinds. Mirrors `TasksApi.base()` — the two doors below
+   * split it, and nothing else may use it.
+   */
+  private get liveTasks(): Task[] {
     return getDemoState().tasks.filter((t) => !t.deleted_at);
+  }
+
+  /**
+   * Shopping-list items. The other door, and the mirror of
+   * `TasksApi.readItems()`.
+   *
+   * The sandbox has to carry the isolation itself: `useDemoData` reads the
+   * store directly rather than calling `list()`, so a rule enforced only in
+   * the real API would show the demo's groceries in the demo's Today.
+   */
+  private get itemRows(): Task[] {
+    return this.liveTasks.filter((t) => t.is_list_item === true);
   }
 
   /** Including the deleted ones. Only delete, restore and purge may look. */
@@ -99,6 +125,20 @@ class DemoTasksApiImpl {
 
   private write(tasks: Task[]) {
     setDemoState({ tasks });
+  }
+
+  /**
+   * The `task_sync_is_list_item` trigger, in TypeScript.
+   *
+   * A task is an item exactly when its project is a list. Derived on write
+   * rather than read so the flag on the row is the truth, matching the real
+   * schema — a demo that computed it at read time would disagree with the app
+   * the first time something held a task across a project change.
+   */
+  private derivedListFlag(projectId: string | null): boolean {
+    if (!projectId) return false;
+    const project = getDemoState().projects.find((p) => p.id === projectId);
+    return isListProject(project);
   }
 
   /**
@@ -223,13 +263,26 @@ class DemoTasksApiImpl {
       created_at: nowISO(),
       updated_at: nowISO(),
       completed_at: null,
+      is_list_item: false,
     };
-    this.write([...this.tasks, task]);
+    // Stands in for `task_sync_is_list_item`: the flag is derived from the
+    // project, never passed in, on the way in and on every re-parent.
+    task.is_list_item = this.derivedListFlag(task.project_id);
+    // `allTasks`, not `tasks`: `write` replaces the whole array, so building
+    // it from a *filtered* getter destroys everything the filter hid. That was
+    // already quietly true of deleted rows — creating a task made the previous
+    // delete un-undoable — and became true of every shopping-list item the
+    // moment `tasks` learned to exclude them.
+    this.write([...this.allTasks, task]);
     return ok(task);
   }
 
   async update(id: string, input: UpdateTaskInput) {
-    const prior = this.tasks.find((t) => t.id === id);
+    // liveTasks, not tasks: a write by id reaches both kinds. Mirrors the real
+    // API using base() rather than read() here — ticking milk off a list is an
+    // update by id, and looking it up through the task-universe filter would
+    // come back "Task not found".
+    const prior = this.liveTasks.find((t) => t.id === id);
     if (!prior) return { data: null, error: new Error("Task not found") };
     const becomingDone = input.status === "done" && prior.status !== "done";
     const leavingDone =
@@ -254,6 +307,9 @@ class DemoTasksApiImpl {
       ...(becomingDone ? { completed_at: nowISO() } : {}),
       ...(leavingDone ? { completed_at: null } : {}),
     };
+    // Re-derive on every write, as the BEFORE trigger does: moving a task into
+    // a list makes it an item, and moving it out makes it a task again.
+    updated.is_list_item = this.derivedListFlag(updated.project_id);
     const moved = new Set<string>();
     if (updated.project_id !== prior.project_id) {
       let grew = true;
@@ -269,7 +325,9 @@ class DemoTasksApiImpl {
       }
       moved.delete(id);
     }
-    const next = this.tasks.map((t) =>
+    // allTasks — see create: a write built from a filtered getter destroys
+    // whatever the filter hid.
+    const next = this.allTasks.map((t) =>
       t.id === id
         ? updated
         : moved.has(t.id)
@@ -286,7 +344,8 @@ class DemoTasksApiImpl {
   }
 
   async reopen(id: string, restoreStatus?: TaskStatus) {
-    const prior = this.tasks.find((t) => t.id === id);
+    // liveTasks — see update. Un-ticking an item is a write by id.
+    const prior = this.liveTasks.find((t) => t.id === id);
     if (!prior) return { data: null, error: new Error("Task not found") };
     const updated: Task = {
       ...prior,
@@ -297,7 +356,8 @@ class DemoTasksApiImpl {
     };
     // Reopening leaves a Completed list the same way completing leaves an open
     // one, so it gets the same quiet.
-    this.writeCompletion(this.tasks.map((t) => (t.id === id ? updated : t)));
+    // allTasks — see create.
+    this.writeCompletion(this.allTasks.map((t) => (t.id === id ? updated : t)));
     return ok(updated);
   }
 
@@ -309,7 +369,8 @@ class DemoTasksApiImpl {
     let grew = true;
     while (grew) {
       grew = false;
-      for (const t of this.tasks) {
+      // liveTasks: a delete reaches the whole subtree whatever it is made of.
+      for (const t of this.liveTasks) {
         if (t.parent_task_id && doomed.has(t.parent_task_id) && !doomed.has(t.id)) {
           doomed.add(t.id);
           grew = true;
@@ -375,6 +436,45 @@ class DemoTasksApiImpl {
         .filter((t) => t.parent_task_id === parentId)
         .sort((a, b) => bySortOrder(a, b) || a.created_at.localeCompare(b.created_at))
     );
+  }
+
+  // ── Shopping lists ─────────────────────────────────
+  // The only reads here that look at `itemRows`.
+
+  async listItems(listId: string) {
+    return ok(
+      this.itemRows
+        .filter((t) => t.project_id === listId)
+        .sort((a, b) => bySortOrder(a, b) || a.created_at.localeCompare(b.created_at))
+    );
+  }
+
+  async listCounts() {
+    const counts = new Map<string, { open: number; got: number }>();
+    for (const t of this.itemRows) {
+      if (!t.project_id) continue;
+      const entry = counts.get(t.project_id) ?? { open: 0, got: 0 };
+      if (isOpen(t)) entry.open += 1;
+      else entry.got += 1;
+      counts.set(t.project_id, entry);
+    }
+    return { data: counts, error: null };
+  }
+
+  async clearGot(listId: string) {
+    const ids = this.itemRows
+      .filter((t) => t.project_id === listId && !isOpen(t))
+      .map((t) => t.id);
+    if (ids.length === 0) return { data: [], error: null };
+    const doomed = new Set(ids);
+    const deletedAt = nowISO();
+    this.writeAnimated(
+      this.allTasks.map((t) =>
+        doomed.has(t.id) ? { ...t, deleted_at: deletedAt } : t
+      ),
+      TASK_DELETE_EXIT_MS
+    );
+    return { data: ids, error: null };
   }
 
   async listUndated() {
@@ -463,6 +563,11 @@ class DemoProjectsApiImpl {
     return ok([...this.projects].sort((a, b) => a.sort_order - b.sort_order));
   }
 
+  async listByKind() {
+    const { data } = await this.list();
+    return { ...splitProjects(data), error: null };
+  }
+
   async getById(id: string) {
     return ok(this.projects.find((p) => p.id === id) ?? null);
   }
@@ -476,6 +581,7 @@ class DemoProjectsApiImpl {
       icon: input.icon ?? null,
       parent_project_id: input.parent_project_id ?? null,
       sort_order: Math.max(0, ...this.projects.map((p) => p.sort_order)) + 1000,
+      kind: input.kind ?? "tasks",
       created_at: nowISO(),
       updated_at: nowISO(),
     };
@@ -487,8 +593,21 @@ class DemoProjectsApiImpl {
     const prior = this.projects.find((p) => p.id === id);
     if (!prior) return { data: null, error: new Error("Project not found") };
     const updated: Project = { ...prior, ...input, updated_at: nowISO() };
+    const kindChanged = isListProject(updated) !== isListProject(prior);
     setDemoState({
       projects: this.projects.map((p) => (p.id === id ? updated : p)),
+      // `project_cascade_kind`: converting a project to a list re-flags
+      // everything in it, and back again. Only written when the kind actually
+      // moved, so an ordinary rename doesn't rewrite every task.
+      ...(kindChanged
+        ? {
+            tasks: getDemoState().tasks.map((t) =>
+              t.project_id === id
+                ? { ...t, is_list_item: isListProject(updated) }
+                : t
+            ),
+          }
+        : {}),
     });
     return ok(updated);
   }

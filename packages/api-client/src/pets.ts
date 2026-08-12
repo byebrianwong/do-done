@@ -555,11 +555,14 @@ export class PetsApi {
     }
     const pet = ensured.data;
 
-    // Top project by task count.
+    // Top project by task count. Shopping lists are excluded from every tally
+    // below: the pet is a picture of the user's work, and a list that refills
+    // every week would win "top project" outright and dye the pet its colour.
     let projectsQuery = this.supabase
       .from("tasks")
       .select("project_id")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .eq("is_list_item", false);
     if (this.userId) projectsQuery = projectsQuery.eq("user_id", this.userId);
     const tasksRes = await projectsQuery;
     if (tasksRes.error) {
@@ -601,7 +604,13 @@ export class PetsApi {
 
     // Most common tag — separate query because Supabase doesn't aggregate
     // array columns with .select(), so we pull tag arrays and tally.
-    let tagsQuery = this.supabase.from("tasks").select("tags").is("deleted_at", null);
+    let tagsQuery = this.supabase
+      .from("tasks")
+      .select("tags")
+      .is("deleted_at", null)
+      // Store hints ride in `tags` (`at:Costco`), so without this the pet's
+      // "most common tag" would eventually be a supermarket.
+      .eq("is_list_item", false);
     if (this.userId) tagsQuery = tagsQuery.eq("user_id", this.userId);
     const tagsRes = await tagsQuery;
     if (!tagsRes.error) {
@@ -716,6 +725,10 @@ export class PetsApi {
     let query = this.supabase
       .from("tasks")
       .select("updated_at")
+      // Adding milk to a list is activity, but it is not the kind this proxy
+      // stands in for — the pet decays on neglected *work*, and a weekly shop
+      // would keep it fed forever without a single task being touched.
+      .eq("is_list_item", false)
       .order("updated_at", { ascending: false })
       .limit(1);
     if (this.userId) query = query.eq("user_id", this.userId);

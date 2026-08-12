@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
+import { splitProjects } from "@do-done/shared";
 import { openQuickAdd } from "@/lib/quick-add-events";
 import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
 import { NavPendingDot } from "./nav-pending-dot";
@@ -185,6 +186,10 @@ const NAV_ITEMS = [
 
 export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
   const pathname = usePathname();
+  // One read upstream, two sections here. Shopping lists sit *below* projects
+  // and never above: a list is the drawer you open on purpose, not the thing
+  // the sidebar greets you with.
+  const { projects: workProjects, lists } = splitProjects(projects);
   // The demo runs the whole app under `/demo`, so every nav link has to stay
   // inside it — a bare `/today` would bounce a signed-out visitor to the login
   // wall the demo exists to get around. Derived from the path rather than
@@ -248,7 +253,32 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
           Projects
         </Link>
       </div>
-      <SortableProjectList projects={projects} />
+      <SortableProjectList projects={workProjects} />
+
+      {/*
+        The Lists section renders only once there is a list. An empty heading
+        would be a permanent advertisement for a feature on every screen of an
+        app whose whole argument here is that shopping must not take up room
+        when you are looking at your work. `/lists` is reachable from Settings
+        and from the command palette until the first one exists.
+      */}
+      {lists.length > 0 && (
+        <>
+          <div className="mt-6 px-3 py-1">
+            <Link
+              href={`${base}/lists`}
+              className={`text-xs font-semibold uppercase tracking-wider ${
+                pathname === `${base}/lists`
+                  ? "text-indigo-600 dark:text-indigo-400"
+                  : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+              }`}
+            >
+              Lists
+            </Link>
+          </div>
+          <SortableProjectList projects={lists} segment="lists" />
+        </>
+      )}
     </nav>
   );
 }
