@@ -778,6 +778,38 @@ The other half of a drag's aftermath is the refresh spinner, and that's fixed
 one section up: every one of these invalidates used to drop `RefreshControl`'s
 circle over the list, landing it on the row the finger had just let go of.
 
+### Every optimistic sweep goes through `patchTaskLists`
+
+**Not every cache under `taskKeys.all` holds a `Task[]`.** `useParentTask`
+caches a *single* task under `taskKeys.detail(id)` — the "↳ parent" breadcrumb
+on a subtask row — and `{ queryKey: taskKeys.all }` matches it by prefix. Every
+optimistic updater in `lib/task-queries.ts` is array-shaped (`old.map`,
+`old.filter`, `.sort`), so all of them met it with `is not a function`.
+
+That throw leaves *no trace whatsoever*. It comes out of `setQueriesData`
+synchronously — before the `try` that owns the write and before the `finally`
+that invalidates — and every caller swallows the rejection. `setQueriesData`
+walks the cache in insertion order, so the lists it reached first kept their
+optimistic patch. The row left its list, nothing was ever sent, and the task
+was still sitting where it started when the next screen was opened. One subtask
+row anywhere on screen was enough, and the detail cache then outlived it
+(`gcTime` is 24h, and it is persisted), so swipe-to-Tomorrow, delete and every
+bulk action stayed dead for the rest of the session.
+
+- **`patchTaskLists(updater, scope?)` is the one door**, and it skips anything
+  that isn't an array; `cachedTaskLists()` is the read side. A guard rather
+  than a narrower key filter, because the invariant is one any future query can
+  break again just by caching a task on its own.
+- **`taskKeys.detail` is named beside the list keys** so the exception is
+  visible next to the rule it breaks, instead of spelled out inline at the hook.
+- **A skipped cache is reconciled by `invalidateTasks()`** like everything else,
+  so the breadcrumb still follows a renamed parent.
+- **The swipe panel's Today / Tomorrow now says when a write fails.** The row
+  leaving the list is the entire feedback that gesture gives, so a silent
+  `.catch(() => {})` there made a reschedule that sent nothing at all look
+  exactly like one that worked. `lib/task-cache-shape.test.ts` is the
+  regression, and it asserts the *write went out*, not just the settled cache.
+
 ## The task editor sheet (mobile)
 
 **Everything under the finger runs on the UI thread.** The sheet's rise, its

@@ -49,6 +49,16 @@ export const taskKeys = {
   // whether to show them), so it can't live under lists() — a completion
   // must not optimistically drop the row out of a list that means to keep it.
   tagged: (tag: string) => [...taskKeys.all, 'tag', tag] as const,
+  /**
+   * One task on its own — a subtask's parent, for the "↳ parent" breadcrumb.
+   *
+   * **The only cache under this root that isn't a `Task[]`.** Every optimistic
+   * sweep filters on `taskKeys.all`, which matches this by prefix, so they all
+   * go through `patchTaskLists` and skip anything that isn't a list. Named here
+   * rather than spelled out at the hook so the exception is visible next to the
+   * rule it breaks.
+   */
+  detail: (id: string) => [...taskKeys.all, 'detail', id] as const,
 };
 
 export const tagKeys = {
@@ -223,12 +233,11 @@ export function useProject(projectId: string) {
  */
 export function useParentTask(parentId: string | null) {
   return useQuery({
-    queryKey: [...taskKeys.all, 'detail', parentId ?? 'none'] as const,
+    queryKey: taskKeys.detail(parentId ?? 'none'),
     enabled: !!parentId,
     queryFn: async () => {
-      const cached = queryClient
-        .getQueriesData<Task[]>({ queryKey: taskKeys.all })
-        .flatMap(([, list]) => list ?? [])
+      const cached = cachedTaskLists()
+        .flat()
         .find((t) => t.id === parentId);
       if (cached) return cached;
       const api = await getTasksApi();
@@ -286,6 +295,47 @@ function restoreTaskLists(prev: TaskListSnapshot) {
 }
 
 /**
+ * Apply an array-shaped updater to every cached task **list** in `scope`,
+ * passing over any cache that doesn't hold one.
+ *
+ * Not everything under `taskKeys.all` is a list. `useParentTask` caches a
+ * single `Task` under `taskKeys.detail(id)` for a subtask's "↳ parent"
+ * breadcrumb, and a `{ queryKey: taskKeys.all }` filter matches it by prefix —
+ * so every one of these sweeps met it with `old.map` / `old.filter` and threw
+ * `is not a function`.
+ *
+ * That throw came out of `setQueriesData` **synchronously**, i.e. before the
+ * `try` that owns the write and the reconciling `invalidateTasks()`, and every
+ * caller swallows the rejection (`.catch(() => {})`). `setQueriesData` walks
+ * the cache in insertion order, so the lists it reached first kept their
+ * optimistic patch: the row left the list it was in, nothing was ever sent, and
+ * the task stayed exactly where it was. One subtask row anywhere on screen was
+ * enough, and the detail cache then outlived it — swipe-to-Tomorrow, delete and
+ * every bulk action were dead for the rest of the session.
+ *
+ * A guard rather than a narrower filter, because the invariant these helpers
+ * rely on ("everything here is a `Task[]`") is one a future query can break
+ * again just by caching a task on its own. Skipped caches are reconciled by
+ * `invalidateTasks()` like everything else.
+ */
+function patchTaskLists(
+  updater: (old: Task[]) => Task[],
+  scope: readonly unknown[] = taskKeys.all
+) {
+  queryClient.setQueriesData<Task[]>({ queryKey: scope }, (old) =>
+    Array.isArray(old) ? updater(old) : old
+  );
+}
+
+/** Every cached task list, ignoring the caches that hold something else. */
+function cachedTaskLists(): Task[][] {
+  return queryClient
+    .getQueriesData<Task[]>({ queryKey: taskKeys.all })
+    .map(([, list]) => list)
+    .filter((list): list is Task[] => Array.isArray(list));
+}
+
+/**
  * The cached copy of each id, taken before a bulk write patches it. Keyed by id
  * (first cache hit wins) so a partial failure can put back exactly the rows that
  * didn't land, instead of reverting the whole cache — including the writes that
@@ -293,10 +343,8 @@ function restoreTaskLists(prev: TaskListSnapshot) {
  */
 function snapshotTasksById(ids: Set<string>): Map<string, Task> {
   const byId = new Map<string, Task>();
-  for (const [, list] of queryClient.getQueriesData<Task[]>({
-    queryKey: taskKeys.all,
-  })) {
-    for (const t of list ?? []) {
+  for (const list of cachedTaskLists()) {
+    for (const t of list) {
       if (ids.has(t.id) && !byId.has(t.id)) byId.set(t.id, t);
     }
   }
@@ -306,8 +354,8 @@ function snapshotTasksById(ids: Set<string>): Map<string, Task> {
 /** Merge a per-id patch into every cached list. */
 function patchCachedTasks(patches: Map<string, UpdateTaskInput>) {
   if (patches.size === 0) return;
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.map((t) => {
+  patchTaskLists((old) =>
+    old.map((t) => {
       const input = patches.get(t.id);
       return input ? ({ ...t, ...input } as Task) : t;
     })
@@ -334,23 +382,21 @@ function rankFor(index: number): number {
 function patchCachedOrder(orderedIds: string[]) {
   if (orderedIds.length === 0) return;
   const ranks = new Map(orderedIds.map((id, i) => [id, rankFor(i)]));
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
+  patchTaskLists((old) =>
     old
-      ? old
-          .map((t) => {
-            const rank = ranks.get(t.id);
-            return rank === undefined ? t : ({ ...t, sort_order: rank } as Task);
-          })
-          .sort((a, b) => a.sort_order - b.sort_order)
-      : old
+      .map((t) => {
+        const rank = ranks.get(t.id);
+        return rank === undefined ? t : ({ ...t, sort_order: rank } as Task);
+      })
+      .sort((a, b) => a.sort_order - b.sort_order)
   );
 }
 
 /** Put the pre-write copy back for `ids` only; every other row keeps its patch. */
 function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   if (ids.size === 0) return;
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.map((t) => (ids.has(t.id) ? prevById.get(t.id) ?? t : t))
+  patchTaskLists((old) =>
+    old.map((t) => (ids.has(t.id) ? prevById.get(t.id) ?? t : t))
   );
 }
 
@@ -452,13 +498,12 @@ async function runToggleComplete(
   const dropFromLists = () => {
     if (complete) {
       // Drop from active lists (today / inbox / project).
-      queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (old) =>
-        old?.filter((t) => t.id !== id)
-      );
+      patchTaskLists((old) => old.filter((t) => t.id !== id), taskKeys.lists());
     } else {
       // Reopening removes the row from the completed list.
-      queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.completed() }, (old) =>
-        old?.filter((t) => t.id !== id)
+      patchTaskLists(
+        (old) => old.filter((t) => t.id !== id),
+        taskKeys.completed()
       );
     }
   };
@@ -505,8 +550,8 @@ async function runToggleComplete(
 export async function updateTask(id: string, input: UpdateTaskInput) {
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
-  queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-    old?.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
+  patchTaskLists((old) =>
+    old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
   );
   try {
     const api = await getTasksApi();
@@ -549,9 +594,7 @@ export async function deleteTask(
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
   const dropFromLists = () =>
-    queryClient.setQueriesData<Task[]>({ queryKey: taskKeys.all }, (old) =>
-      old?.filter((t) => t.id !== id)
-    );
+    patchTaskLists((old) => old.filter((t) => t.id !== id));
 
   if (holdMs === 0) dropFromLists();
 
@@ -714,9 +757,7 @@ async function bulkRemoveTasks(
   await queryClient.cancelQueries({ queryKey: taskKeys.all });
   const prev = snapshotTaskLists();
   const idSet = new Set(ids);
-  queryClient.setQueriesData<Task[]>({ queryKey: scope }, (old) =>
-    old?.filter((t) => !idSet.has(t.id))
-  );
+  patchTaskLists((old) => old.filter((t) => !idSet.has(t.id)), scope);
 
   let failedIds: string[];
   try {
