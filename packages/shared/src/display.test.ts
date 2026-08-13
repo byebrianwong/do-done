@@ -651,3 +651,62 @@ describe("config mutation helpers", () => {
     expect(flat(groups)[0].priority).toBe("p1");
   });
 });
+
+describe("shopping-list items are not tasks", () => {
+  // The isolation rule. `TasksApi.read()` already excludes these at the query,
+  // so this is the second lock on that door — and the *first* one for anything
+  // that assembles a list without going through the API (the demo sandbox
+  // reads its store directly; Storybook builds fixtures by hand).
+  const mixed = () => [
+    task({ title: "Send the forecast" }),
+    task({ title: "Whole milk", is_list_item: true }),
+    task({ title: "Bananas", is_list_item: true }),
+  ];
+
+  it("drops them from applyDisplay by default", () => {
+    const groups = applyDisplay(mixed(), DEFAULT_DISPLAY, ctx());
+    expect(flat(groups).map((t) => t.title)).toEqual(["Send the forecast"]);
+  });
+
+  it("drops them from filterByConfig, so curated views get it too", () => {
+    // Today and Upcoming lay themselves out and only borrow the filters.
+    const kept = filterByConfig(mixed(), DEFAULT_DISPLAY);
+    expect(kept.map((t) => t.title)).toEqual(["Send the forecast"]);
+  });
+
+  it("keeps them when the surface explicitly asks", () => {
+    const groups = applyDisplay(mixed(), DEFAULT_DISPLAY, {
+      ...ctx(),
+      includeListItems: true,
+    });
+    expect(flat(groups)).toHaveLength(3);
+  });
+
+  it("treats an absent flag as an ordinary task", () => {
+    // Every fixture and every pre-migration row omits the field.
+    const kept = filterByConfig([task({ title: "Untouched" })], DEFAULT_DISPLAY);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("hides them regardless of what else the config says", () => {
+    // Not a filter clause: showing completed, showing subtasks and clearing
+    // every filter must still not surface someone's groceries.
+    const cfg: DisplayConfig = {
+      ...DEFAULT_DISPLAY,
+      showCompleted: true,
+      showSubtasks: true,
+      filters: [],
+    };
+    const items = [
+      task({ title: "Bought milk", status: "done", is_list_item: true }),
+      task({ title: "Real task", status: "done" }),
+    ];
+    expect(filterByConfig(items, cfg).map((t) => t.title)).toEqual(["Real task"]);
+  });
+
+  it("does not count as an active filter", () => {
+    // Or every view in the app would open wearing a "Filter · 1" badge.
+    expect(activeFilterCount(DEFAULT_DISPLAY)).toBe(0);
+    expect(isDisplayDefault(DEFAULT_DISPLAY, DEFAULT_DISPLAY)).toBe(true);
+  });
+});

@@ -27,6 +27,16 @@ import { NavPendingDot } from "./nav-pending-dot";
 
 export interface SortableProjectListProps {
   projects: Project[];
+  /**
+   * Which section these rows link into — `projects` or `lists`.
+   *
+   * The two sidebar sections are the same control over different rows, so they
+   * are the same component with a different destination rather than a copy of
+   * it: drag-to-reorder, the pending dot, the demo `/demo` prefix and the
+   * hydration-safe static-then-sortable swap all have to behave identically,
+   * and a second copy is where that stops being true.
+   */
+  segment?: "projects" | "lists";
 }
 
 /**
@@ -132,7 +142,10 @@ function SortableProjectRow({
   );
 }
 
-export function SortableProjectList({ projects }: SortableProjectListProps) {
+export function SortableProjectList({
+  projects,
+  segment = "projects",
+}: SortableProjectListProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -161,7 +174,7 @@ export function SortableProjectList({ projects }: SortableProjectListProps) {
   // Demo routes mirror the app one level down, so project links have to stay
   // inside `/demo` too. See `SidebarNav`.
   const base = isDemoPath(pathname) ? DEMO_BASE : "";
-  const hrefFor = (p: Project) => `${base}/projects/${p.id}`;
+  const hrefFor = (p: Project) => `${base}/${segment}/${p.id}`;
   const isActive = (p: Project) => pathname === hrefFor(p);
 
   async function handleDragEnd(e: DragEndEvent) {

@@ -10,6 +10,15 @@ import {
 
 export interface DemoData extends DemoState {
   /**
+   * Shopping-list items, kept out of `tasks` and offered separately.
+   *
+   * Two fields rather than one flag to filter by, because every existing
+   * screen reads `tasks` and every one of them means the task universe — so
+   * the split is what makes the isolation the default rather than something
+   * each caller has to remember.
+   */
+  items: import("@do-done/shared").Task[];
+  /**
    * False until the saved sandbox has been adopted on the client.
    *
    * The seed is dated from the *reader's* calendar day, and the server's day
@@ -34,6 +43,11 @@ export interface DemoData extends DemoState {
  *
  * The real app has no equivalent gap, because its lists are server components
  * that go through `TasksApi` like everything else.
+ *
+ * **Shopping-list items are filtered out for exactly the same reason**, and
+ * `items` carries them separately for the surfaces that want them. A demo
+ * screen reading `tasks` gets the task universe, which is what every one of
+ * them means.
  */
 export function useDemoData(): DemoData {
   const state = useSyncExternalStore(
@@ -46,9 +60,17 @@ export function useDemoData(): DemoData {
     hydrateDemoStore();
     setReady(true);
   }, []);
-  const tasks = useMemo(
+  const live = useMemo(
     () => state.tasks.filter((t) => !t.deleted_at),
     [state.tasks]
   );
-  return { ...state, tasks, ready };
+  const tasks = useMemo(
+    () => live.filter((t) => t.is_list_item !== true),
+    [live]
+  );
+  const items = useMemo(
+    () => live.filter((t) => t.is_list_item === true),
+    [live]
+  );
+  return { ...state, tasks, items, ready };
 }

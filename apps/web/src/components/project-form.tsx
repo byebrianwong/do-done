@@ -7,7 +7,8 @@ import {
   DEFAULT_PROJECT_COLORS,
   projectColorName,
 } from "@do-done/shared";
-import type { Project } from "@do-done/shared";
+import type { Project, ProjectKind } from "@do-done/shared";
+import { projectKind } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
@@ -15,9 +16,23 @@ import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 interface ProjectFormProps {
   project?: Project; // present = edit mode, absent = create mode
   onClose: () => void;
+  /**
+   * What is being created. A shopping list is the same row with a different
+   * `kind`, so this is the same form with different words on it — the colour,
+   * the icon picker and the delete confirmation are all identical, and forking
+   * the component would mean maintaining two of each.
+   *
+   * Ignored in edit mode: the row already knows what it is, and converting
+   * between the two is a deliberate action from the list's own menu rather
+   * than a dropdown someone can brush past while renaming.
+   */
+  kind?: ProjectKind;
 }
 
-export function ProjectForm({ project, onClose }: ProjectFormProps) {
+export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
+  const effectiveKind: ProjectKind = project ? projectKind(project) : kind ?? "tasks";
+  const isList = effectiveKind === "list";
+  const noun = isList ? "list" : "project";
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [name, setName] = useState(project?.name ?? "");
@@ -47,6 +62,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
           name: name.trim(),
           color,
           icon: icon || undefined,
+          kind: effectiveKind,
         });
 
     setSaving(false);
@@ -62,7 +78,9 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
     if (!project) return;
     if (
       !confirm(
-        `Delete project "${project.name}"? Tasks in it will be unassigned.`
+        isList
+          ? `Delete list "${project.name}"? Everything on it will be unfiled.`
+          : `Delete project "${project.name}"? Tasks in it will be unassigned.`
       )
     )
       return;
@@ -73,7 +91,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
       return;
     }
     onClose();
-    startTransition(() => router.push("/projects"));
+    startTransition(() => router.push(isList ? "/lists" : "/projects"));
   }
 
   const backdrop = useBackdropDismiss<HTMLDivElement>(onClose);
@@ -89,7 +107,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
       >
         <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3 dark:border-neutral-800">
           <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            {project ? "Edit project" : "New project"}
+            {project ? `Edit ${noun}` : `New ${noun}`}
           </h2>
           <button
             onClick={onClose}
@@ -124,7 +142,9 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              placeholder="Engineering, Personal, …"
+              placeholder={
+                isList ? "Groceries, Amazon, …" : "Engineering, Personal, …"
+              }
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             />
           </div>

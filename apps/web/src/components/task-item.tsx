@@ -820,7 +820,12 @@ export function TaskItem({
       // starts today, including one that would have sparked for some other
       // reason. Asking only when the other rules missed would let a second
       // completion moments later claim the same day again.
-      const streakDay = streak.claimStreakDay();
+      //
+      // Unconditional within the task universe, that is. Buying milk must not
+      // hold a run of working days alive — and unlike the burst, which
+      // `sparkReason` gates internally, claiming has a side effect, so the
+      // list item has to be turned away before the call rather than after it.
+      const streakDay = task.is_list_item ? false : streak.claimStreakDay();
       if (
         shouldSpark(task, {
           openInSection: sectionOpen,

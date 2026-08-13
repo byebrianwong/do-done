@@ -131,7 +131,32 @@ export class TasksApi {
    * to it at all.
    */
   private read<Q extends string = "*">(columns: Q = "*" as Q) {
+    return this.base(columns).eq("is_list_item", false);
+  }
+
+  /**
+   * Live rows, list items and tasks alike. Not for general use — the two
+   * doors below are, and they are the only callers.
+   */
+  private base<Q extends string = "*">(columns: Q = "*" as Q) {
     return this.supabase.from("tasks").select(columns).is("deleted_at", null);
+  }
+
+  /**
+   * The other door: rows that *are* shopping-list items.
+   *
+   * The task universe and the shopping lists are disjoint, and `read()` above
+   * carries the `is_list_item = false` half of that on every one of the fifteen
+   * reads without any of them having to know. This is the deliberate opt-in for
+   * the handful of surfaces that want the other half — the list page, its
+   * counts, and the widget tile.
+   *
+   * Same shape as the `deleted_at` rule it sits beside, and for the same
+   * reason: a read that forgets the condition doesn't fail, it shows someone
+   * their groceries in Today.
+   */
+  private readItems<Q extends string = "*">(columns: Q = "*" as Q) {
+    return this.base(columns).eq("is_list_item", true);
   }
 
   // ── Status ↔ schedule auto-sync ──────────────────────
@@ -343,8 +368,15 @@ export class TasksApi {
     return this.list({ tags: [tag], limit: opts?.limit ?? 500, offset: 0 });
   }
 
+  /**
+   * `base()`, not `read()`: the isolation rule is about *lists* of tasks, not
+   * about addressing one. A shopping item is a real row with a real id — it
+   * has a `/task/<id>` link, it opens in the editor, and a location reminder's
+   * notification carries its id — so a by-id read that filtered list items out
+   * would 404 on a row the app itself had just linked to.
+   */
   async getById(id: string): Promise<{ data: Task | null; error: Error | null }> {
-    const { data, error } = await this.read()
+    const { data, error } = await this.base()
       .eq("id", id)
       .single();
     return {
@@ -417,7 +449,11 @@ export class TasksApi {
     // transition from unset → set for energy feeding. One extra SELECT per
     // update is the price of stateless dedupe — the autosave hook fires at
     // most ~4/sec, well within Supabase headroom.
-    const prevRes = await this.read().eq("id", id).maybeSingle();
+    // base(), not read() — same reason as getById: ticking an item off a
+    // shopping list is an update by id, and reading its prior state through
+    // the task-universe filter would find nothing and lose the status
+    // transition that stamps completed_at.
+    const prevRes = await this.base().eq("id", id).maybeSingle();
     const prior = (prevRes.data as Task | null) ?? null;
     const priorStatus = prior?.status ?? null;
 
@@ -555,7 +591,9 @@ export class TasksApi {
     const ids = [id];
     let frontier = [id];
     for (let level = 0; level < 2 && frontier.length > 0; level++) {
-      let query = this.read("id").in("parent_task_id", frontier);
+      // base(): a delete has to reach the whole subtree whatever it is made
+      // of, and restore's undo token is computed from these ids.
+      let query = this.base("id").in("parent_task_id", frontier);
       if (this.userId) query = query.eq("user_id", this.userId);
       const { data } = await query;
       frontier = ((data as { id: string }[] | null) ?? []).map((r) => r.id);
@@ -800,6 +838,105 @@ export class TasksApi {
       data: normalizeTasks((data as Task[]) ?? []),
       error: error as Error | null,
     };
+  }
+
+  // ── Shopping lists ───────────────────────────────────
+  //
+  // The only reads in the class that go through `readItems()`. Everything
+  // above this point is the task universe and cannot see an item at all.
+
+  /**
+   * Every item on one list, bought and unbought, oldest first.
+   *
+   * Ascending `created_at` rather than `sort_order`: a shopping list is
+   * append-only in practice — you say things in the order they occur to you —
+   * and the first thing anyone does after adding an item is look for it at the
+   * bottom. Manual reordering still works and still wins, because
+   * `sort_order` leads the ordering; it just isn't what decides ties.
+   */
+  async listItems(
+    listId: string
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    let query = this.readItems()
+      .eq("project_id", listId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
+  /**
+   * Open and bought counts per list, for the sidebar and the lists index.
+   *
+   * Two narrow columns and no `.range()`, the same shape and cost as
+   * `ProjectsApi.listWithCounts` — and deliberately a separate call from it,
+   * because that one counts the task universe and this one counts what the
+   * universe excludes. Merging them would mean one query that has to remember
+   * which side of the isolation each row falls on.
+   */
+  async listCounts(): Promise<{
+    data: Map<string, { open: number; got: number }>;
+    error: Error | null;
+  }> {
+    let query = this.readItems("project_id, status").not(
+      "project_id",
+      "is",
+      null
+    );
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    if (error) return { data: new Map(), error: error as Error };
+
+    const counts = new Map<string, { open: number; got: number }>();
+    for (const row of (data ?? []) as Array<{
+      project_id: string;
+      status: TaskStatus;
+    }>) {
+      const entry = counts.get(row.project_id) ?? { open: 0, got: 0 };
+      if (row.status === "done" || row.status === "cancelled") entry.got += 1;
+      else entry.open += 1;
+      counts.set(row.project_id, entry);
+    }
+    return { data: counts, error: null };
+  }
+
+  /**
+   * Clear the bought items off a list — the action at the end of a shop.
+   *
+   * A soft delete of exactly the rows that are already ticked, which is what
+   * makes a list *standing* rather than disposable: the list survives, its
+   * history doesn't pile up in it, and the whole sweep is one undo token
+   * because `restore()` takes ids.
+   *
+   * Deliberately not a hard delete. "Clear" reads as tidying, not destroying,
+   * and someone who clears before noticing they mis-ticked something has the
+   * same nine seconds back that every other deletion in the app offers.
+   */
+  async clearGot(
+    listId: string
+  ): Promise<{ data: string[]; error: Error | null }> {
+    let find = this.readItems("id")
+      .eq("project_id", listId)
+      .in("status", ["done", "cancelled"]);
+    if (this.userId) find = find.eq("user_id", this.userId);
+    const { data: rows, error: findError } = await find;
+    if (findError) return { data: [], error: findError as Error };
+
+    const ids = ((rows as { id: string }[] | null) ?? []).map((r) => r.id);
+    if (ids.length === 0) return { data: [], error: null };
+
+    const stamp = new Date().toISOString();
+    let wipe = this.supabase
+      .from("tasks")
+      .update({ deleted_at: stamp })
+      .in("id", ids);
+    if (this.userId) wipe = wipe.eq("user_id", this.userId);
+    const { error } = await wipe;
+    return { data: error ? [] : ids, error: (error as Error) ?? null };
   }
 
   async listUndated(): Promise<{ data: Task[]; error: Error | null }> {

@@ -925,6 +925,152 @@ background-image), so five pre-existing findings on completed titles went quiet
 without the rendering changing. Noted in `globals.css` — that contrast is ours
 to watch now, not axe's.
 
+## Shopping lists
+
+A list of things to buy is not a project and not a note. People keep them in
+Apple Notes and Google Keep because a task app makes twenty words cost twenty
+rows of ceremony — and then pay a different tax, because the grocery list sits
+in the same drawer as everything they are trying to think about.
+
+**An item is a task. A list is a project with a `kind`.**
+
+```
+projects.kind = 'tasks' | 'list'
+tasks.is_list_item        derived from it, by trigger
+```
+
+A thing you are going to buy genuinely *is* a small task: it gets ticked off, it
+can carry a photo of the label, it can be moved, and it has to come back when
+you tap it by mistake while walking. All of that exists and is already careful.
+A list is *not* a task — a task is finished once, and a shopping list is
+**standing**: it empties and refills forever. As a task it would be a
+permanently open row or a recurrence pretending this Saturday's groceries are
+last Saturday's work.
+
+`TasksApi` being the one door web, mobile and MCP write through is what decided
+it. Undo, the optimistic cache patch, the 680 ms completion gesture, offline
+persistence, attachments, the widgets — a `list_items` table doesn't cost a
+migration, it costs re-deciding all of those and re-deciding them again each
+time one changes. And `matchProject` means `milk #groceries` filed into a list
+the day the column landed.
+
+### The isolation is one flag, carried by one door
+
+`tasks.is_list_item` is **derived, never written by a caller**:
+`task_sync_is_list_item` sets it from the project on insert and on every
+re-parent, and `project_cascade_kind` re-flags a whole project when its kind
+changes. Denormalised rather than joined because PostgREST cannot express
+"where the project's kind is not 'list'" — an embedded `projects!inner(kind)`
+drops every task with no project at all — and because *a rule you can forget is
+a rule that shows someone their groceries in Today*.
+
+`TasksApi` grew a third door beside `read()`:
+
+| | Sees |
+| --- | --- |
+| `base()` | live rows of both kinds. Only the two below may call it. |
+| `read()` | the task universe. All fifteen existing reads, unchanged. |
+| `readItems()` | shopping-list items. `listItems`, `listCounts`, `clearGot`. |
+
+**Reads by *id* deliberately use `base()`.** The isolation is about lists of
+tasks, not about addressing one: an item has a `/task/<id>` link and opens in
+the editor, so `getById`, `update`'s prior-state read and `subtreeIds` would
+otherwise 404 on rows the app itself had just linked to.
+
+Four rules that aren't in that function:
+
+- **An item never enters the task universe** — not Inbox, Today, Upcoming, All
+  or Focus. `filterTasks` carries the same condition as a second lock, and as
+  the *first* one for anything that builds a list without the API (the demo
+  sandbox reads its store directly). `DisplayContext.includeListItems` is the
+  explicit opt-in; it is **not** a `DisplayConfig` field, so it can never light
+  the "Filter · N" badge or be persisted into a saved view.
+- **A list is one row, never forty.** The only way a list reaches Today is a
+  trip you deliberately scheduled.
+- **Buying bananas does not celebrate.** `sparkReason` returns null for an item
+  — `openInProject === 1` is the last item of *every* grocery run, forever, so
+  the most repeated action in the app would become the most celebrated one. The
+  gate is inside that function so neither row component can forget it. The
+  streak is gated at the two call sites instead, because `claimStreakDay()` has
+  a side effect and has to be turned away *before* the call.
+- **Lists don't count.** `busyness`, the pet's project and tag tallies and its
+  last-activity proxy all carry `is_list_item = false` explicitly, since none of
+  them go through `TasksApi.read()`.
+
+The calendar trigger learned the same clause: a dated item re-parented into a
+list would otherwise leave a live event pointing at a tin of tomatoes.
+
+### Store hints sort; they never filter
+
+What matters to someone shopping is not partitioning by shop — it is **not
+missing an item because it was filed under the shop they aren't standing in**.
+Every partition scheme fails that silently, so: one list per *kind of shopping*
+(Groceries, Amazon, Hardware — these genuinely differ), and the shop is an
+optional per-item hint.
+
+`orderForShop` puts unhinted items and this shop's items together, and sinks
+the rest into a collapsed **Better elsewhere** that still shows its count. A
+hint records a *preference* ("the bread is better at TJ's"); treating it as a
+filter turns a mild preference into a missed item. With no shop known — the
+ordinary case — nothing is elsewhere and the list is simply itself, which is
+how the feature degrades to a plain list when location is declined or absent.
+
+Hints ride in `tags` under an `at:` prefix (`STORE_TAG_PREFIX`) rather than a
+column: tags already round-trip through every capture surface and MCP, and a
+column would be nullable on every task in the app to describe a field only
+items can have. `sameStore` matches on a normalised key and lets either side
+contain the other, because the hint is typed by a person ("trader joes") and
+the shop name comes from OpenStreetMap ("Trader Joe's #142").
+
+### The surfaces
+
+Both apps go through `@do-done/shared/lists` — `openItems`, `gotItems`,
+`summarizeList`, `listSubline`, `splitProjects` — so a count can't mean one
+thing on the laptop and another on the phone. An empty list says **"Nothing on
+it"**, not "0 items": empty is a shopping list's resting state, not a number
+worth printing.
+
+| | Where |
+| --- | --- |
+| Web | `Lists` under Projects in the sidebar → `/lists` → `/lists/<id>` |
+| Mobile | Projects tab ⟶ cart button → `/lists` → `/lists/<id>` |
+
+Neither list screen uses the app's list machinery — not `TaskDisplayView`, not
+`GroupedTaskList`. Every axis those exist to offer (group by status, sort by
+deadline, filter by priority) is meaningless on things to buy, and the row they
+draw spends its width on a project ring and an urgency gutter a list has no use
+for. What is left is a checkbox, a word, and a field that must not lose focus.
+
+**The composer commits without dismissing** — Enter clears the field and keeps
+the keyboard, the sheet and the list; a running "N added" is the receipt.
+Capture here is a burst, not one item, which is the one place a list composer
+must diverge from the task composer. On mobile that is `blurOnSubmit={false}`
+plus `submitBehavior="submit"`.
+
+**Clear bought soft-deletes**, which is what makes a list standing rather than
+disposable: the list survives, its history doesn't pile up in it, and the ids
+it returns are an undo token `TasksApi.restore` takes directly.
+
+**The sidebar section and the mobile cart button appear only once a list
+exists.** A permanent heading for an unused feature is exactly the ambient
+clutter this design is arguing against.
+
+### Traps already paid for
+
+- **A write built from a filtered getter destroys what the filter hid.** The
+  demo sandbox's `create`/`update`/`reopen` did `write([...this.tasks, task])`,
+  and `write` replaces the whole array — which already quietly made the previous
+  delete un-undoable, and would have wiped every list item. They build from
+  `allTasks` now.
+- **An optimistic append plus a parent re-sync is a race**, and which side wins
+  differs by surface: against Supabase the append lands first, but the demo's
+  write is synchronous so its re-render arrives *before* the append and the row
+  showed twice. Both composers dedupe by id.
+- **`Project.kind` and `Task.is_list_item` are optional on read**, and default
+  to `tasks`/`false` through `projectKind()`. A deploy that lands ahead of its
+  migration must not fail to parse, and defaulting either the other way would
+  hide a whole project's tasks from the app.
+
 ## Deleting a task
 
 The other way a row leaves a list, and until recently the only one with no

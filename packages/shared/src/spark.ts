@@ -70,9 +70,20 @@ export const SPARK_EFFORT_MINUTES = 120;
  * than "it sparked because the project finished".
  */
 export function sparkReason(
-  task: Pick<Task, "priority" | "duration_minutes">,
+  task: Pick<Task, "priority" | "duration_minutes" | "is_list_item">,
   ctx: SparkContext = {}
 ): SparkReason | null {
+  // A shopping-list item never bursts, and the gate is here rather than at the
+  // two row components so neither can forget it.
+  //
+  // Every rule below would misfire on a list. `openInProject === 1` is the
+  // last item of *every* grocery run, forever — the single most repeated
+  // action in the app would become the most celebrated one, which is how a
+  // delight turns into something you wait out. Ticking an item still gets the
+  // ring fill and the strike-through; it is the acknowledgement that matters
+  // there, not the confetti.
+  if (task.is_list_item === true) return null;
+
   // Finishing something outranks the properties of the task that finished it:
   // if the last task in a project happens to be a two-hour P1, the moment is
   // the project ending, not the task's size.
@@ -86,7 +97,7 @@ export function sparkReason(
 
 /** Convenience for call sites that only need to know whether to fire. */
 export function shouldSpark(
-  task: Pick<Task, "priority" | "duration_minutes">,
+  task: Pick<Task, "priority" | "duration_minutes" | "is_list_item">,
   ctx: SparkContext = {}
 ): boolean {
   return sparkReason(task, ctx) !== null;

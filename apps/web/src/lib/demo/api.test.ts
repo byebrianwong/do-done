@@ -24,6 +24,16 @@ const INTERNAL = new Set([
   // Where every read of `tasks` starts, so the deleted-row filter can't be
   // forgotten. The demo does the same job in its own `tasks` getter.
   "read",
+  // The other two doors onto the same rows: `base` is live-of-both-kinds and
+  // `readItems` is shopping-list items. The demo mirrors all three as getters
+  // (`liveTasks` / `tasks` / `itemRows`) rather than methods, so they can't be
+  // matched by name — `listItems`, `listCounts` and `clearGot`, which are the
+  // public surface built on them, are checked like everything else.
+  "base",
+  "readItems",
+  // Derives is_list_item from the project, standing in for the DB trigger.
+  // Demo-side only; the real API lets Postgres do it.
+  "derivedListFlag",
   // Walks a task's children — for a delete (so the whole subtree is hidden
   // together and comes back together) and for a project move. Only TasksApi's
   // own methods call it.

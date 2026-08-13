@@ -4,6 +4,7 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
 } from "@do-done/shared";
+import { splitProjects } from "@do-done/shared";
 
 // Spacing between adjacent projects' sort_order values. Leaving gaps means a
 // single drag only rewrites the moved rows, never every row, and there's room
@@ -28,6 +29,24 @@ export class ProjectsApi {
 
     const { data, error } = await query;
     return { data: (data as Project[]) ?? [], error: error as Error | null };
+  }
+
+  /**
+   * The two sidebar sections, from one read.
+   *
+   * `list()` deliberately keeps returning *both* kinds and is what the quick-add
+   * surfaces use: `milk #groceries` has to reach a list, so the token matcher
+   * needs to see lists alongside projects. Splitting is a display concern, so
+   * it happens here and in `splitProjects`, not in the query.
+   */
+  async listByKind(): Promise<{
+    projects: Project[];
+    lists: Project[];
+    error: Error | null;
+  }> {
+    const { data, error } = await this.list();
+    if (error) return { projects: [], lists: [], error };
+    return { ...splitProjects(data), error: null };
   }
 
   async getById(

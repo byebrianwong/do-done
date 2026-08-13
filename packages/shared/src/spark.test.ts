@@ -115,3 +115,24 @@ describe("sparkParticles — the fan", () => {
     }
   });
 });
+
+describe("a shopping-list item never bursts", () => {
+  // The gate lives in sparkReason rather than in the two row components, so
+  // neither can forget it. Every rule below would otherwise misfire.
+  const item = { priority: "p1", duration_minutes: 240, is_list_item: true } as const;
+
+  it("beats every rule, including the ones it would trip", () => {
+    expect(sparkReason(item, { openInProject: 1 })).toBeNull();
+    expect(sparkReason(item, { openInSection: 1 })).toBeNull();
+    expect(sparkReason(item, { streakDay: true })).toBeNull();
+    expect(sparkReason(item, {})).toBeNull();
+    expect(shouldSpark(item, { openInProject: 1 })).toBe(false);
+  });
+
+  it("still fires for the identical task when it is not a list item", () => {
+    // Guards against the gate being written so broadly it silences real work.
+    const task = { priority: "p1", duration_minutes: 240 } as const;
+    expect(sparkReason(task, { openInProject: 1 })).toBe("project-finished");
+    expect(sparkReason({ ...task, is_list_item: false }, {})).toBe("effort");
+  });
+});

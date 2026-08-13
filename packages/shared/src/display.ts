@@ -395,6 +395,22 @@ export interface DisplayContext {
   projects?: Pick<Project, "id" | "name" | "color">[] | DisplayProject[];
   /** Override "today" (YYYY-MM-DD). Defaults to the local date. */
   today?: string;
+  /**
+   * Let shopping-list items through the filter. Off by default, and that
+   * default is the point: a list item is not part of the task universe, so
+   * every existing caller gets the isolation without being changed, and the
+   * only surfaces that see items are the ones that asked.
+   *
+   * `TasksApi.read()` already excludes them at the query, so for the real app
+   * this is a second lock on the same door. It is the *first* one for anything
+   * that assembles a task list without going through the API — the demo
+   * sandbox reads its store directly, and Storybook builds fixtures by hand.
+   *
+   * Not a `DisplayConfig` field: it describes what a list *is*, not a
+   * narrowing the user applied, so it must never light the "Filter · N" badge
+   * and must never be persisted into someone's saved view.
+   */
+  includeListItems?: boolean;
 }
 
 const PRIORITY_RANK: Record<TaskPriority, number> = {
@@ -458,9 +474,14 @@ function matchesFilter(task: Task, f: FilterRule, today: string): boolean {
 function filterTasks(
   tasks: Task[],
   config: DisplayConfig,
-  today: string
+  today: string,
+  includeListItems = false
 ): Task[] {
   return tasks.filter((t) => {
+    // Before anything the config has to say: a shopping-list item is not a
+    // task as far as any task view is concerned. Deliberately not a config
+    // clause — see DisplayContext.includeListItems.
+    if (!includeListItems && t.is_list_item === true) return false;
     if (
       !config.showCompleted &&
       (TERMINAL_STATUSES as readonly TaskStatus[]).includes(t.status)
@@ -710,7 +731,7 @@ export function applyDisplay(
   ctx?: DisplayContext
 ): DisplayGroup[] {
   const today = ctx?.today ?? todayLocalISO();
-  const filtered = filterTasks(tasks, config, today);
+  const filtered = filterTasks(tasks, config, today, ctx?.includeListItems);
   let groups = groupTasks(filtered, config, ctx, today);
   if (config.groupDir === "desc") {
     // Reverse the real groups but keep "No value" buckets pinned to the bottom.
@@ -736,5 +757,10 @@ export function filterByConfig(
   config: DisplayConfig,
   ctx?: DisplayContext
 ): Task[] {
-  return filterTasks(tasks, config, ctx?.today ?? todayLocalISO());
+  return filterTasks(
+    tasks,
+    config,
+    ctx?.today ?? todayLocalISO(),
+    ctx?.includeListItems
+  );
 }

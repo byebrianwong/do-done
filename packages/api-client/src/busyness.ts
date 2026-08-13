@@ -117,6 +117,10 @@ export class BusynessApi {
         "id, title, scheduled_date, duration_minutes, priority, status, depth"
       )
       .is("deleted_at", null)
+      // Not through TasksApi.read(), so the isolation rule has to be carried
+      // explicitly — the same way the deleted_at filter is. A shopping list
+      // is not work, and a Costco run must not read as a busy Saturday.
+      .eq("is_list_item", false)
       .not("scheduled_date", "is", null)
       .gte("scheduled_date", startDate)
       .lte("scheduled_date", endDate)

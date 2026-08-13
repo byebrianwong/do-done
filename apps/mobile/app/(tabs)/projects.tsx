@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import DraggableFlatList, {
   ScaleDecorator,
@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Project } from '@do-done/shared';
+import { splitProjects } from '@do-done/shared';
 
 import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
@@ -36,16 +37,25 @@ export default function ProjectsScreen() {
   const [ordered, setOrdered] = useState<ProjectRow[]>(projects);
   const [showCreate, setShowCreate] = useState(false);
 
-  const sig = projects.map((p) => `${p.id}:${p.sort_order}`).join(',');
+  // Shopping lists live at /lists and are dropped from this tab entirely. Left
+  // in, every one of them would read "0 open": their items are excluded from
+  // the counts by the same rule that keeps them out of Today.
+  const workProjects = useMemo(
+    () => splitProjects(projects).projects,
+    [projects]
+  );
+  const listCount = projects.length - workProjects.length;
+
+  const sig = workProjects.map((p) => `${p.id}:${p.sort_order}`).join(',');
   useEffect(() => {
-    setOrdered(projects);
+    setOrdered(workProjects);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
   const handleDragEnd = ({ data }: { data: ProjectRow[] }) => {
     setOrdered(data); // optimistic
     reorderProjects(data.map((p) => p.id)).catch(() => {
-      setOrdered(projects); // rollback to server truth
+      setOrdered(workProjects); // rollback to server truth
     });
   };
 
@@ -92,6 +102,19 @@ export default function ProjectsScreen() {
           {/* The other way the user's work is grouped. Settings also lists
               Tags, but nobody looks for a browse surface in Settings — this
               is the tab where "show me everything filed under X" lives. */}
+          {/* Shown only once a list exists — a permanent button for a feature
+              nobody has used is the sort of ambient advertisement this whole
+              design is arguing against. */}
+          {listCount > 0 && (
+            <Pressable
+              onPress={() => router.push('/lists' as never)}
+              hitSlop={10}
+              style={styles.addBtn}
+              accessibilityLabel="Lists"
+            >
+              <Ionicons name="cart-outline" size={19} color="#6366f1" />
+            </Pressable>
+          )}
           <Pressable
             onPress={() => router.push('/tags' as never)}
             hitSlop={10}
