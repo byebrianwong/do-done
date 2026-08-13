@@ -1,247 +1,260 @@
 # do-done
 
-AI-native task management app. Turborepo monorepo with Next.js web, React Native/Expo mobile, and custom MCP server.
+AI-native task management app. Turborepo monorepo: Next.js web, React Native/Expo
+mobile, and a custom MCP server.
 
 ## Naming
 
-The user-facing brand name is **DoDone** (closed compound, medial capital) — use it in all UI copy, titles, marketing, and user-facing docs. Never `do-done`, `Do Done`, or `dodone`. The lowercase hyphenated `do-done` is reserved for internal identifiers only: the repo, npm package scope (`@do-done/*`), Expo `slug`, and similar. Deep-link scheme (`dodone`), bundle IDs, event names, and storage keys stay as-is.
+The user-facing brand name is **DoDone** — one word, capital D twice. Use it in
+all UI copy, titles, marketing, and user-facing docs. Never `do-done`,
+`Do Done`, or `dodone`.
+
+The lowercase `do-done` is for internal identifiers only: the repo, the npm
+scope (`@do-done/*`), the Expo `slug`. The deep-link scheme (`dodone`), bundle
+IDs, event names, and storage keys stay as they are.
 
 ## Dates: "Scheduled" and "Deadline", never "due"
 
-A task carries two independent date pairs, named the same way from the Postgres
-column up through the MCP tool parameters:
+A task has two independent date pairs, named the same way from the Postgres
+column up to the MCP tool parameters:
 
 | Column | Label | Meaning |
 | --- | --- | --- |
-| `scheduled_date` / `scheduled_time` | **Scheduled** | The day (and optional time) the user plans to *do* the task. This is what the app schedules by — nearly every dated task has one. |
-| `deadline_date` / `deadline_time` | **Deadline** | A hard external cutoff. Rarely set; its absence never means a task is undated. |
+| `scheduled_date` / `scheduled_time` | **Scheduled** | The day the user plans to *do* the task. This is what the app schedules by. Nearly every dated task has one. |
+| `deadline_date` / `deadline_time` | **Deadline** | A hard external cutoff. Rarely set. Its absence does not mean a task is undated. |
 
-**The bare word "due" is banned** from UI copy, tool descriptions, tool output,
-labels, comments and identifiers. It is the word an English speaker reaches for
-when they mean the *scheduled* day, so every consumer that saw `due_date` — MCP
-clients most of all — read the rarely-set deadline as the schedule and reported a
-fully planned week as empty. The names now carry the meaning unaided, so nothing
-has to be disambiguated in prose. `overdue` is a different word and stays.
+**Never use the bare word "due"** — not in UI copy, tool descriptions, tool
+output, labels, comments, or identifiers.
 
-**The quick-add parser is the one place that word is heard rather than
-spoken.** `parseTaskInput` sends every date chrono finds to `scheduled_date`
-— "buy milk tomorrow", "ship it friday 9am" — and produces a `deadline_date`
-only when "due" or "deadline" introduces the date ("submit report due friday").
-That's the same ratio argument as above, applied to input: reading "tomorrow"
-as a deadline left the task unscheduled and out of every day-based view.
-Deliberately narrow — "by friday" is a schedule, because it is also how people
-say the day they'll get to something. `DEADLINE_MARKER_PATTERN` in
-`packages/task-engine/src/parser.ts` is the rule. Copy that teaches the keyword
-(the landing page's "'due friday' — a hard deadline instead") is the sanctioned
-exception to the ban: it is quoting an input token, not naming a field.
+Why: "due" is the word an English speaker reaches for when they mean the
+*scheduled* day. So every consumer that saw `due_date` — MCP clients most of
+all — read the rarely-set deadline as the schedule, and reported a fully
+planned week as empty. ("overdue" is a different word and is fine.)
 
-These were `when_date` / `when_time` / `due_date` / `due_time` until
-`supabase/migrations/20260804000001_rename_task_date_fields.sql`. That migration
-also recreates both calendar functions, since a plpgsql body is stored as text
-and does *not* follow a column rename. Display configs persisted under the old
-`sort`/`filter` field names are remapped on read by `parseDisplayConfig` in
+**The quick-add parser is the one place that word is read rather than written.**
+`parseTaskInput` sends every date it finds to `scheduled_date` ("buy milk
+tomorrow", "ship it friday 9am"). It only produces a `deadline_date` when "due"
+or "deadline" introduces the date ("submit report due friday"). Same reasoning
+applied to input: reading "tomorrow" as a deadline left the task unscheduled and
+out of every day-based view.
+
+This is deliberately narrow. "by friday" is a schedule, because that is also how
+people say the day they will get to something. The rule is
+`DEADLINE_MARKER_PATTERN` in `packages/task-engine/src/parser.ts`.
+
+One sanctioned exception to the ban: copy that teaches the keyword, like the
+landing page's "'due friday' — a hard deadline instead". That quotes an input
+token rather than naming a field.
+
+**History.** These columns were `when_date` / `when_time` / `due_date` /
+`due_time` until `supabase/migrations/20260804000001_rename_task_date_fields.sql`.
+That migration also recreates both calendar functions, because a plpgsql body is
+stored as text and does not follow a column rename. Display configs saved under
+the old field names are remapped on read by `parseDisplayConfig` in
 `packages/shared/src/display.ts` — they live in localStorage and AsyncStorage as
-well as the DB, so SQL alone could not have reached them.
+well as the database, so a SQL migration could not reach them.
 
-## A new task starts in the inbox
+## New tasks start in the inbox
 
-`inbox` is the default status — in the Zod schema, in the `tasks.status` column
-default, and now at every capture surface. Capture is not triage: the Android
-quick-add widget, `dodone://quick-add`, the launcher shortcut and the bars on
-Today / Upcoming / All all have *no* view context to infer a status from, and
-seeding `not_started` there quietly declared the task triaged, so it never
-appeared in the Inbox anyone actually reviews.
+`inbox` is the default status: in the Zod schema, in the `tasks.status` column
+default, and at every capture surface.
 
-**Only a surface whose context genuinely implies triage passes a status**:
-the Inbox screens (`inbox`, redundant but self-documenting), the project
-screens (`not_started` — filing into a project *is* the triage), and the
-group/date composers, which seed whatever axis their section is grouped by
-(`seedFromDrop`, `seedFromUpcomingDate`). Everything else omits it and inherits
-the default. On mobile that default lives in one place per component —
-`defaultStatus` in `QuickAddBar.tsx` and `QuickAddComposer.tsx`; on web,
-omitting `status` from the `QuickAddSeed` is what reaches it.
+**Only pass a status from a surface whose context genuinely implies triage.**
+That means the Inbox screens (`inbox` — redundant but self-documenting), the
+project screens (`not_started`, because filing into a project *is* triage), and
+the group/date composers, which seed whatever axis their section is grouped by
+(`seedFromDrop`, `seedFromUpcomingDate`). Everything else omits the status and
+inherits the default.
 
-## A guessable facet arrives already filled in
+Why: capture is not triage. The Android quick-add widget, `dodone://quick-add`,
+the launcher shortcut, and the bars on Today / Upcoming / All have no view
+context to infer a status from. Seeding `not_started` there quietly declared the
+task triaged, so it never appeared in the Inbox anyone actually reviews.
 
-**Where the surface knows what a field should be, the chip shows it before the
-user types a word.** Adding on the Finance project page fills the Project chip
-with Finance; adding on Today fills the Date chip with today. It was already
-*creating* the task that way — the seed has always been merged in at submit —
-but silently, so the row you got back was not the row the composer described,
-and on Today the seed didn't exist at all: a task typed into the Today bar had
-no date and dropped straight out of the list it was typed into.
+On mobile the default lives in `defaultStatus` in `QuickAddBar.tsx` and
+`QuickAddComposer.tsx`. On web, omitting `status` from the `QuickAddSeed` is what
+reaches it.
 
-The rule the chips make legible, on web (`buildCreateInput` +
-`contextFacets`, `lib/quick-add.ts`) and mobile (`buildInput`,
-`QuickAddFields.tsx`) alike:
+## Quick-add pre-fills the fields it can guess
+
+**When the surface knows what a field should be, the chip shows that value
+before the user types anything.** Adding a task on the Finance project page
+fills the Project chip with Finance. Adding on Today fills the Date chip with
+today.
+
+The app already *created* tasks this way — the seed was always merged in at
+submit — but silently, so the row you got back was not the row the composer
+described. On Today the seed didn't exist at all, so a task typed into the Today
+bar had no date and dropped straight out of the list it was typed into.
+
+Precedence, on web (`buildCreateInput` + `contextFacets`, `lib/quick-add.ts`)
+and mobile (`buildInput`, `QuickAddFields.tsx`) alike:
 
 | Source | Beats |
 | --- | --- |
-| An explicit chip pick — including *clearing* one | everything |
+| An explicit chip pick, including *clearing* one | everything |
 | What was typed (`#home`, `p1`, "friday") | the surface's guess |
 | The surface's guess (project page, Today, a section) | nothing |
 
 - **A chip shows the value the task would be created with**, so it tracks the
-  text as it's typed: `#home` on the Groceries page moves the chip to Home, and
-  deleting the token moves it back. `ParsedPreview` is left echoing only what
-  the chips can't say (deadline, tags, recurrence) — before this it was the
-  *only* place a parsed date or priority showed, and the chips beside it sat
-  empty.
-- **A typed date now beats a seeded one**, including an Upcoming column's. That
-  reversed a rule ("the column IS the date"), which was safe only while the
-  seed was invisible: with the chip showing "Fri" as you type, an override the
-  user can see is better than one that silently discards what they wrote.
-- **Clearing is a real answer, and the only way to say "not in this project"
-  on a page that is one.** `applyOverride` deletes a field passed `null`, which
-  is why the chip picks are a `QuickAddOverride` (nullable) rather than a
+  text as you type. Typing `#home` on the Groceries page moves the chip to Home;
+  deleting the token moves it back. `ParsedPreview` now echoes only what the
+  chips can't show (deadline, tags, recurrence). Before this it was the only
+  place a parsed date or priority appeared, while the chips beside it sat empty.
+- **A typed date beats a seeded one**, including an Upcoming column's. This
+  reversed an earlier rule ("the column IS the date"), which was only safe while
+  the seed was invisible. Now that the chip shows "Fri" as you type, an override
+  the user can see beats one that silently discards what they wrote.
+- **Clearing a chip is a real answer.** It is the only way to say "not in this
+  project" on a page that is one. `applyOverride` deletes a field passed `null`,
+  which is why chip picks are a `QuickAddOverride` (nullable) rather than a
   `Partial<CreateTaskInput>` (absent-only).
-- **Touched-ness is state; the values are derived.** `useQuickAddComposer`
-  stores only what the user picked, so nothing has to be re-synced when the
-  seed changes, and `anyChipSet` — what keeps a surface expanded — means *the
-  user set something*, not *a chip has a value*. A project page's bar would
-  never collapse again otherwise. A successful create clears the picks, so the
-  next task inherits the same context.
-- **Only a route that genuinely is one facet seeds one.** `seedFromPathname`
+- **Store what the user touched, derive the values.** `useQuickAddComposer`
+  stores only the user's picks, so nothing needs re-syncing when the seed
+  changes. `anyChipSet` — which keeps a surface expanded — means *the user set
+  something*, not *a chip has a value*; otherwise a project page's bar would
+  never collapse. A successful create clears the picks so the next task inherits
+  the same context.
+- **Only seed from a route that genuinely is one facet.** `seedFromPathname`
   gives the universal quick-add (sidebar, palette, `q`) the same context the
-  page's own bar has — project pages, Today, Inbox — and nothing anywhere else.
+  page's own bar has — project pages, Today, Inbox — and nothing else.
 
-## A subtask goes where its parent goes
+## Subtasks follow their parent's project
 
-A subtask is the same piece of work as its parent, one level down, so it lives
-in the parent's project unless somebody says otherwise. Three moments, all of
-them in `TasksApi` (`packages/api-client/src/tasks.ts`) rather than in a UI —
-that's the one door web, mobile and MCP all write through, and the rule would
-otherwise have to be re-implemented at each of the surfaces that can make a
-subtask:
+A subtask is the same work as its parent, one level down, so it lives in the
+parent's project unless someone says otherwise.
 
-| Moment | What happens |
+All three rules live in `TasksApi` (`packages/api-client/src/tasks.ts`), not in
+any UI. That is the one door web, mobile, and MCP all write through; otherwise
+the rule would have to be reimplemented at every surface that can create a
+subtask.
+
+| When | What happens |
 | --- | --- |
 | Created under a parent | `create` copies the parent's `project_id`, unless the caller named one |
 | Moved under a parent | `update` does the same, on the same terms |
 | The parent changes project | `update` cascades to the whole subtree |
 
-- **The cascade is tested against the *result*, not the input.** A project
-  arrived at by re-parenting propagates the same way one typed into the chip
-  does, and a write that merely re-states the project the task already had
-  costs nothing.
+- **The cascade compares the *result* against the previous row, not the input.**
+  So a project arrived at by re-parenting propagates the same way a typed one
+  does, and a write that re-states the project a task already had does nothing.
 - **A hand-filed subtask is overwritten when its parent moves.** The parent's
-  move is the later instruction, and the alternative — remembering which
-  subtasks had been filed by hand — is state nothing on the row or in the
-  editor could show the user. Filing a subtask elsewhere still works; it just
-  doesn't survive the parent being moved.
-- **`subtreeIds` bounds the walk at the depth-2 ceiling** the DB trigger
-  enforces, so the cascade is two queries, not an open recursion — and one
-  query for a childless task, which is the overwhelmingly common case. It is
-  awaited, so a caller's cache invalidation lands after the children have
-  moved.
-- **It is best-effort.** The parent's own write has already landed and there is
-  nothing to roll back to, so a failed cascade leaves the subtree behind rather
-  than failing the write the user asked for.
-- `apps/web/src/lib/demo/api.ts` hand-mirrors all three, the same way it
-  mirrors the create-time half.
+  move is the more recent instruction, and the alternative — remembering which
+  subtasks were filed by hand — is state nothing on the row or in the editor
+  could show the user. You can still file a subtask elsewhere; it just doesn't
+  survive the parent being moved.
+- **`subtreeIds` stops at the depth-2 ceiling** the database trigger enforces.
+  The cascade is two queries, not an open recursion — and one query for a
+  childless task, which is the common case. It is awaited, so a caller's cache
+  invalidation lands after the children have moved.
+- **The cascade is best-effort.** The parent's own write has already landed and
+  there is nothing to roll back to, so a failure leaves the subtree behind
+  rather than failing the write the user asked for.
+- `apps/web/src/lib/demo/api.ts` mirrors all three by hand.
 
-### Hiding them
+### Hiding subtasks in lists
 
-Every list is a flat query and a subtask is an ordinary row in it wearing a
-"↳ parent" breadcrumb — right for a checklist someone is working through, noise
-for a parent whose six steps bury the rest of the page. `showSubtasks` on
-`DisplayConfig` is the switch, beside "Show completed" in both Display menus.
+Every list is a flat query, so a subtask appears as an ordinary row wearing a
+"↳ parent" breadcrumb. That is right for a checklist someone is working
+through, and noise for a parent whose six steps bury the rest of the page.
+`showSubtasks` on `DisplayConfig` is the switch, next to "Show completed" in
+both Display menus.
 
-- **A top-level field, not a `filters` clause.** It's a default about what a
-  list *is*, not a narrowing the user applied, so it has to be able to default
-  to *on* without lighting the "Filter · N" badge on every view.
+- **It is a top-level field, not a `filters` clause.** It describes what a list
+  *is* by default, not a narrowing the user applied, so it must be able to
+  default to *on* without lighting the "Filter · N" badge on every view.
 - **It defaults to on**, and `parseDisplayConfig` backfills that for every
-  config saved before it existed — turning it off for everyone would silently
-  change what a saved view means.
-- One branch in `filterTasks`, so grouped lists (`applyDisplay`) and the
+  config saved before the field existed. Defaulting it off would silently change
+  what every saved view means.
+- **One branch in `filterTasks`**, so grouped lists (`applyDisplay`) and the
   curated Today/Upcoming layouts (`filterByConfig`) both get it.
 
-### Every mobile list is a Display view now
+### Every mobile list is a Display view
 
-Inbox, Project, Tag and Completed used to hand-roll their own list — a
-`DraggableFlatList` or a `SectionList` over an Open/Done split — which is why
-they had no Display menu, and so no way to hide a subtask. They now go through
+Inbox, Project, Tag, and Completed used to hand-roll their own list — a
+`DraggableFlatList`, or a `SectionList` over an Open/Done split. That is why
+they had no Display menu, and so no way to hide subtasks. They now use
 `useDisplayConfig` + `GroupedTaskList` like All/Today/Upcoming, reusing web's
 `viewKey`s (`inbox`, `project`, `tag`, `completed`) so a preference set on the
 laptop is the one the phone opens with.
 
-- **`project` and `tag` are one config each, not one per project or tag** —
+- **`project` and `tag` each have one config, not one per project or tag** —
   same as web. A per-id key would reset itself every time a tag was coined.
-- **Their defaults are web's defaults**, which is a visible change on two
-  screens: a project page opens grouped by status rather than Open/Done, and
-  neither it nor a tag page shows completed tasks until "Show completed" is
-  switched on. Both were previously implicit in the hand-rolled Open/Done split.
-- **`GroupedTaskList` grew the three props those screens needed** rather than
-  each one keeping its own list to keep its own behaviour: `hideProject` and
-  `openInProject` (the project screen — every row is the title bar's project,
-  and the project's open count answers both celebration rules), and
-  `sectionCounts={false}` (the tag screen — a tag cuts across projects and
-  statuses, so its sections aren't sections of *work* and a count taken from
-  one would fire the spark on a guess). `ListEmptyComponent` came with them:
-  a list that renders nothing when empty is fine for All and wrong for Inbox,
-  which has something to say there.
+- **Their defaults are web's defaults.** This changed two screens visibly: a
+  project page opens grouped by status rather than Open/Done, and neither it nor
+  a tag page shows completed tasks until "Show completed" is on. Both were
+  previously implicit in the hand-rolled Open/Done split.
+- **`GroupedTaskList` gained four props** so those screens didn't each keep
+  their own list just to keep their own behaviour:
+  - `hideProject` and `openInProject` — the project screen, where every row
+    belongs to the title bar's project, and the project's open count answers
+    both celebration rules.
+  - `sectionCounts={false}` — the tag screen. A tag cuts across projects and
+    statuses, so its sections aren't sections of *work*; a count taken from one
+    would fire the celebration on a guess.
+  - `ListEmptyComponent` — a list that renders nothing when empty is fine for
+    All and wrong for Inbox, which has something to say there.
 - **`hideEmptyGroups` on the project and tag screens.** `applyDisplay` emits
-  every non-terminal status column even when empty, deliberately — they are
-  drop targets, so a task can be dragged into a status nothing currently has.
-  That pays for itself on All and costs on a project page, where a handful of
-  tasks sat under "INBOX (0)" and "LATER (0)". Those two screens listed only
-  non-empty sections before they adopted the engine, so the flag restores what
-  they showed; the trade, theirs alone, is that you can no longer drag into a
-  status that is empty *there*. The engine and web are untouched.
-- **Completed keeps its day buckets**, on Upcoming's curated/override shape:
-  the engine has no group key for "the day it was finished" (`completed_at` is
-  a sort field), so the view's own grouping renders the buckets and picking any
-  other grouping hands the list to `GroupedTaskList`. Either way `filterByConfig`
-  runs first, which is what gets that screen the switch — a parent whose six
-  steps were ticked off together otherwise buries the rest of the day.
+  every non-terminal status column even when empty, on purpose: they are drop
+  targets, so a task can be dragged into a status nothing currently has. That is
+  worth it on All and costly on a project page, where a few tasks sat under
+  "INBOX (0)" and "LATER (0)". Both screens listed only non-empty sections
+  before adopting the engine, so the flag restores that. The trade, on those two
+  screens only: you can no longer drag into a status that is empty there. The
+  engine and web are unchanged.
+- **Completed keeps its day buckets**, using the same curated/override shape as
+  Upcoming. The engine has no group key for "the day it was finished"
+  (`completed_at` is a sort field), so the view's own grouping renders the
+  buckets, and choosing any other grouping hands the list to `GroupedTaskList`.
+  Either way `filterByConfig` runs first, which is what gives that screen the
+  subtask switch — a parent whose six steps were ticked off together otherwise
+  buries the rest of the day.
 
-## A fourth voice: what your own past tasks say
+## Suggestions from your own task history
 
-Below the three tiers above sits one more — the history — and it is the only
-one that is **offered rather than applied**. As a title is typed, its words are
-scored against the user's own task list and the project (and estimate) that
-kind of task has gone to before appears under the composer. Tab takes it.
+Below the three precedence tiers above sits a fourth — the history — and it is
+the only one that is **offered rather than applied**. As a title is typed, its
+words are scored against the user's own task list, and the project (and estimate)
+that kind of task has gone to before appears under the composer. Tab takes it.
 
 **The training set is the history and nothing else.** A keyword table mapping
-"gym" to "Health" is a guess about a project list we can see, and it is wrong
+"gym" to "Health" is a guess about a project list we can't see, and it is wrong
 for everyone whose projects are named differently — which is everyone.
-(`suggestCategories` in `packages/task-engine` is exactly that table, and has
-been dead since it was written.) What the history says is checkable instead —
-"the last four tasks with `standup` went to Work" — which is also what makes a
-suggestion explainable to the person reading it: `because` carries those words
-into the pill's tooltip.
+(`suggestCategories` in `packages/task-engine` is exactly that table and has been
+dead since it was written.) What the history says is checkable — "the last four
+tasks containing `standup` went to Work" — which is also what makes a suggestion
+explainable: `because` carries those words into the pill's tooltip.
 
 **Nothing here reaches `buildCreateInput`.** Accepting a suggestion calls the
-same setter the chip's own picker does, so from that instant it *is* an
-explicit pick. The failure modes are not symmetrical: an ignored suggestion
-costs a glance, while a silently applied one files the task into a project the
-user never chose and will not think to look in. Auto-applying above some
-confidence would be a fourth tier in `contextFacets` instead — a real option,
-and a different decision from this one.
+same setter the chip's own picker does, so from that instant it *is* an explicit
+pick. The failure modes are not symmetrical: an ignored suggestion costs a
+glance, while a silently applied one files the task into a project the user never
+chose and will not think to look in. Auto-applying above some confidence would be
+a fourth tier in `contextFacets` instead — a real option, and a different
+decision.
 
-Every threshold in `packages/shared/src/suggest.ts` is set on that asymmetry: a
-word must have been seen twice (one coincidence would otherwise score a perfect
+Every threshold in `packages/shared/src/suggest.ts` follows from that asymmetry:
+a word must have been seen twice (one coincidence would otherwise score a perfect
 1.0), the winner must score a whole vote *and* hold 60% of the evidence, and a
-title whose words point two ways resolves to **silence** — that being exactly
-the case where the user would have stopped to think, and a confident wrong chip
-is what stops them.
+title whose words point two ways resolves to **silence** — that being exactly the
+case where the user would have stopped to think, and a confident wrong chip is
+what stops them.
 
 - **Each qualifying word splits *one* vote** across the values it has been seen
   with, so a word that always means the same thing carries a whole vote and a
-  word meaning four things carries a quarter each. Without that normalisation
-  the winner is whichever project simply has the most tasks — a suggestion that
-  ignores the title.
-- **Project and estimate only.** `tasks.priority` is `not null default 'p4'`,
-  so the history cannot tell "chose Low" from "never triaged" — the same
-  collapse that makes P4 draw nothing in the row gutter — and a frequency model
-  over it would suggest `p4` for nearly everything. A date is about *when you
-  are* rather than what the words say, and the parser already reads "friday"
-  out of a title far better than a count could.
-- **It renders below the input, beside `ParsedPreview`, never inside a chip.**
-  A chip's one click already means "open the picker", so a ghosted value in one
-  would have to mean two things at once, and the reading that lost would be the
-  one the user wanted. `SuggestedFacets` gives each guess its own dashed pill
-  whose only job is to be taken.
+  word meaning four things carries a quarter each. Without that normalisation the
+  winner is whichever project simply has the most tasks, which ignores the title.
+- **Project and estimate only.** `tasks.priority` is `not null default 'p4'`, so
+  the history cannot tell "chose Low" from "never triaged" — the same collapse
+  that makes P4 draw nothing in the row gutter — and a frequency model over it
+  would suggest `p4` for nearly everything. A date is about *when you are* rather
+  than what the words say, and the parser already reads "friday" out of a title
+  far better than a count could.
+- **It renders below the input, beside `ParsedPreview`, never inside a chip.** A
+  chip's one click already means "open the picker", so a ghosted value in one
+  would mean two things at once, and the reading that lost would be the one the
+  user wanted. `SuggestedFacets` gives each guess its own dashed pill whose only
+  job is to be taken.
 - **Only into an *empty* chip.** A facet with a value has been answered by
   someone with a better claim than the history.
 - **Two calls, because they run at different rates.** `buildSuggestionIndex`
@@ -249,80 +262,80 @@ is what stops them.
   `CompletionStreakProvider` in the app shell and `DemoShell` alike);
   `suggestFacets` runs against it per keystroke, off the *parsed* title so a
   `#project` already typed isn't fed back as evidence for the answer it just
-  gave. State rather than a ref, unlike the streak — the chips have to fill in
-  when the history lands.
-- `TasksApi.suggestionHistory()` selects three narrow columns, newest-first and
-  bounded, unlike `listTags`, which has to sweep everything because a tag it
+  gave. It is state rather than a ref, unlike the streak, because the chips have
+  to fill in when the history lands.
+- **`TasksApi.suggestionHistory()` selects three narrow columns, newest-first and
+  bounded** — unlike `listTags`, which has to sweep everything because a tag it
   misses doesn't exist to the app. A suggestion has no such duty.
 
-**Both platforms, one scorer, and the difference between them is the keyboard.**
-Web binds Tab to accept (only when there is something to accept, so it still
-moves focus otherwise); a phone has no Tab, so a tap is the whole interaction.
+**Both platforms share one scorer; the difference is the keyboard.** Web binds
+Tab to accept, only when there is something to accept, so it still moves focus
+otherwise. A phone has no Tab, so a tap is the whole interaction.
 
-Mobile obeys the rule the rest of `QuickAddFields.tsx` already lives under:
-**it may not call a query hook or reach for the API**, because the widget root
-mounts its own React tree with no `QueryClientProvider`. So the index is handed
-in by the host exactly as `projects` is — `useSuggestionIndex()` on the two
-in-app hosts, a direct `TasksApi` read on `quick-add-root.tsx`. That read uses
-the *same* bound as everywhere else and not a cheaper one tuned for a launcher
-activity: a shorter history is a different history, and the widget would then
-guess differently from the in-app bar for the same title, which is the drift a
-shared scorer exists to prevent.
+Mobile obeys the rule the rest of `QuickAddFields.tsx` lives under: **it may not
+call a query hook or reach for the API**, because the widget root mounts its own
+React tree with no `QueryClientProvider`. So the index is handed in by the host
+exactly as `projects` is — `useSuggestionIndex()` on the two in-app hosts, a
+direct `TasksApi` read in `quick-add-root.tsx`. That read uses the *same* bound
+as everywhere else, not a cheaper one tuned for a launcher activity: a shorter
+history is a different history, and the widget would then guess differently from
+the in-app bar for the same title, which is the drift a shared scorer exists to
+prevent.
 
-`suggestionsFor(title)` takes the title rather than holding it, because the
-hosts own that state — the same shape as `buildInput(raw)` and
-`absorbTags(value)`. It scores the title directly with no parse: mobile's
-absorber has already stripped every `#token` on the way in, and a leftover date
-word costs nothing because the parser strips those before a task is ever saved,
-so no historical title carries one.
+`suggestionsFor(title)` takes the title rather than holding it, because the hosts
+own that state — the same shape as `buildInput(raw)` and `absorbTags(value)`. It
+scores the title directly with no parse: mobile's absorber has already stripped
+every `#token` on the way in, and a leftover date word costs nothing because the
+parser strips those before a task is saved, so no historical title carries one.
 
-`suggestionKeys` is its own query root, not under `taskKeys` — the optimistic
-`setQueriesData<Task[]>` sweeps rewrite everything under `taskKeys.all`, and
-this cache holds a pair of Maps. It is deliberately **not** in
-`invalidateTasks()`, which is where it differs from `tagKeys`: a tag count is
-an index of what exists and is wrong the moment a task moves, while this is a
-guess from habit that one more task changes by about nothing. Refetching the
-history after every create would be the most expensive write in the app in
-service of a suggestion that would have been identical.
+**`suggestionKeys` is its own query root, not under `taskKeys`** — the optimistic
+`setQueriesData<Task[]>` sweeps rewrite everything under `taskKeys.all`, and this
+cache holds a pair of Maps. It is deliberately **not** in `invalidateTasks()`,
+which is where it differs from `tagKeys`: a tag count is an index of what exists
+and is wrong the moment a task moves, while this is a guess from habit that one
+more task changes by about nothing. Refetching the history after every create
+would be the most expensive write in the app, in service of a suggestion that
+would have been identical.
 
 ## Status ↔ schedule auto-sync
 
-An opt-in rule (two independent halves, both off by default) that keeps a
+An opt-in rule with two independent halves, both off by default, that keeps a
 task's status and its `scheduled_date` from drifting apart. Settings live on
 `user_preferences` (`status_sync_*`); the rules are pure functions in
 `packages/shared/src/status-sync.ts`.
 
 - **promote** — a task scheduled on or before the *horizon* moves up to
-  `status_sync_status`. Never moves a task backwards, so `in_progress`, `done`
-  and `cancelled` are untouched. Overdue counts as inside the horizon.
+  `status_sync_status`. It never moves a task backwards, so `in_progress`,
+  `done`, and `cancelled` are untouched. Overdue counts as inside the horizon.
 - **backfill** — a task set to `status_sync_status` *or past it* gets its
-  `scheduled_date` set to the horizon, when it had none or had one further out.
+  `scheduled_date` set to the horizon, if it had none or had one further out.
 
-The horizon is stored in both representations at once — `_horizon_days` and
-`_horizon_key` — with `_horizon_kind` selecting the live one, so switching
-modes in the settings UI remembers the other and neither column is ever null.
+The horizon is stored in both representations at once (`_horizon_days` and
+`_horizon_key`), with `_horizon_kind` selecting the live one. That way switching
+modes in the settings UI remembers the other, and neither column is ever null.
 
-**Both halves are applied in `TasksApi.create`/`update`**, not in the apps —
-that's the one door web, mobile and MCP all write through, and it folds the
-rule into the *same* UPDATE rather than chasing it with a second write. The
-settings are read once per instance and cached for a minute
-(`invalidateStatusSyncCache()` after saving them).
+**Both halves are applied in `TasksApi.create`/`update`**, not in the apps. That
+is the one door web, mobile, and MCP write through, and it folds the rule into
+the *same* UPDATE rather than chasing it with a second write. Settings are read
+once per instance and cached for a minute; call `invalidateStatusSyncCache()`
+after saving them.
 
-The promote half also has to fire when *no write happens* — a task whose
-scheduled day simply arrived. `TasksApi.syncScheduledToStatus()` is that sweep:
-one filtered UPDATE, idempotent, a no-op when the feature is off. It's driven
+The promote half also has to fire when *no write happens* — when a task's
+scheduled day simply arrives. `TasksApi.syncScheduledToStatus()` is that sweep:
+one filtered UPDATE, idempotent, and a no-op when the feature is off. It runs
 from `StatusSyncRunner` (web app layout), `startStatusSyncSweeps()` (mobile
-`_layout`, on resume), and ahead of the MCP read tools.
+`_layout`, on resume), and before the MCP read tools.
 
-Two precedence rules that look arbitrary but aren't: an explicit
-`scheduled_date` in the same write always beats backfill, and an explicit
-`status` does **not** exempt a row from promote. Demoting a near-scheduled task
-snaps straight back, which reads as the rule enforcing itself — letting the
-write through would only defer it to the next sweep, minutes later and with no
-visible cause.
+Two precedence rules that look arbitrary but aren't:
+
+- An explicit `scheduled_date` in the same write always beats backfill.
+- An explicit `status` does **not** exempt a row from promote. Demoting a
+  near-scheduled task snaps straight back, which reads as the rule enforcing
+  itself. Letting the write through would only defer it to the next sweep,
+  minutes later and with no visible cause.
 
 "Today" is resolved through `user_preferences.timezone`, never the process
-clock — see the timezone note under Dates above.
+clock. See the timezone note under Dates above.
 
 ## Architecture
 
@@ -344,90 +357,101 @@ supabase/            — SQL migrations, RLS policies, edge functions
 pnpm install              # Install all deps
 pnpm build                # Build all packages
 pnpm dev                  # Start all dev servers
-pnpm typecheck            # Type-check all packages
+pnpm typecheck            # Type-check all packages (NOTE: skips apps/mobile)
 pnpm --filter web dev     # Start web app only
 pnpm --filter mobile start  # Start Expo dev server (then `a`=android, `i`=ios)
 pnpm --filter @do-done/mcp build  # Build MCP server
 ```
 
+`pnpm typecheck` does not cover `apps/mobile` — it has no `typecheck` script.
+Run `npx tsc --noEmit` there yourself.
+
 ### Running the app to look at it
 
 `.claude/launch.json` names the servers an agent starts with `preview_start`
-(`web`, `mobile`, `storybook`, `mcp`) — **never launch a dev server with a bare
-shell command**, or nothing can find it afterwards.
+(`web`, `mobile`, `storybook`, `mcp`). **Never launch a dev server with a bare
+shell command** — nothing can find it afterwards.
 
-**The `web` entry sets `"autoPort": true`, and that is deliberate.** Worktrees
-are a normal way to work here, so a second session is often already holding
-3000; without the flag the server simply refuses to start and there is no way
-to see the change at all. With it, 3000 is still used whenever it's free — the
-flag only engages in the case whose alternative is nothing.
+**The `web` entry sets `"autoPort": true` deliberately.** Worktrees are a normal
+way to work here, so a second session is often already holding port 3000. Without
+the flag the server refuses to start and there is no way to see the change at
+all. With it, 3000 is still used whenever it is free; the flag only engages in
+the case whose alternative is nothing.
 
-**The one thing it costs: connecting Google Calendar only works on port 3000.**
+**The cost: connecting Google Calendar only works on port 3000.**
 `api/calendar/connect` builds its `redirectUri` from the request origin, and
 Google Cloud Console has only `http://localhost:3000/api/calendar/callback`
-registered, so any other port comes back `redirect_uri_mismatch`. Free 3000
-before testing that flow. Nothing else is port-sensitive: `APP_URL` is pinned
-to the deployed URL even locally, so the MCP OAuth issuer doesn't vary with the
-port, and the mismatch fails loudly on your *own* origin rather than quietly
-landing on the other session's server.
+registered, so any other port returns `redirect_uri_mismatch`. Free 3000 before
+testing that flow. Nothing else is port-sensitive: `APP_URL` is pinned to the
+deployed URL even locally, so the MCP OAuth issuer doesn't vary with the port,
+and the mismatch fails loudly on your *own* origin rather than quietly landing on
+another session's server.
 
-Note that `README.md` and `docs/HANDOFF.md` both say `localhost:3000`, so the
-port the tool prints can disagree with the docs. The printed one is right.
+`README.md` and `docs/HANDOFF.md` both say `localhost:3000`, so the port the tool
+prints can disagree with the docs. The printed one is right.
 
 **Verify against `/demo`, not a login wall.** It needs no session and seeds its
-own data — see *The demo sandbox*. Copy `.env.local` and `apps/web/.env.local`
-in from the main checkout first; a worktree has neither, and without them the
-auth proxy 500s on every route including `/demo`.
+own data — see *The demo sandbox*. Copy `.env.local` and `apps/web/.env.local` in
+from the main checkout first: a worktree has neither, and without them the auth
+proxy 500s on every route, including `/demo`.
 
-## Code Style
+## Code style
 
 - Strict TypeScript everywhere. No `any`.
-- Use Zod schemas from `@do-done/shared` for all validation
-- ES modules (`"type": "module"`) with `.js` extension in imports
-- Functional React components with named exports
-- Data access only through `@do-done/api-client`, never raw Supabase queries in apps
-- All Supabase queries check `.error` — never assume success
+- Validate with Zod schemas from `@do-done/shared`.
+- ES modules (`"type": "module"`); use the `.js` extension in imports.
+- Functional React components with named exports.
+- Access data only through `@do-done/api-client`. Never write raw Supabase
+  queries in an app.
+- Check `.error` on every Supabase response. Never assume success.
 
 ## Database
 
-Supabase PostgreSQL with RLS. Migrations in `supabase/migrations/`.
-Key tables: tasks, projects, locations, task_locations, calendar_sync, user_preferences.
-All tables use UUID PKs and `user_id` for RLS.
+Supabase PostgreSQL with row-level security. Migrations live in
+`supabase/migrations/`. Key tables: tasks, projects, locations, task_locations,
+calendar_sync, user_preferences. All tables use UUID primary keys and a
+`user_id` column for RLS.
 
-## Environment Variables
+## Environment variables
 
 Copy `.env.example` to `.env.local` and fill in:
+
 - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 - NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 - POWERSYNC_URL
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-- DO_DONE_USER_ID (for MCP server)
+- DO_DONE_USER_ID (for the MCP server)
+
+Mobile reads `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` from
+`apps/mobile/.env` — the same project under the names `lib/supabase.ts` reads.
 
 ## MCP server
 
-One server implementation (`packages/mcp-server`), two transports:
+One implementation (`packages/mcp-server`), two transports:
 
-- **stdio** — `apps/mcp/dist/index.js`, registered in `~/.claude.json` for Claude Code.
-- **Streamable HTTP** — `apps/web/src/app/api/mcp/route.ts`, deployed with the web
-  app. Added in Claude as a **custom connector** pointing at
+- **stdio** — `apps/mcp/dist/index.js`, registered in `~/.claude.json` for
+  Claude Code.
+- **Streamable HTTP** — `apps/web/src/app/api/mcp/route.ts`, deployed with the
+  web app and added in Claude as a custom connector pointing at
   `https://<your-app>/api/mcp`.
 
-The HTTP endpoint is stateless: a fresh `createDoDoneServer()` per request, bound
-to the authenticated user. That per-request construction is required, not an
-optimisation — the tool registrars capture their user id at construction time.
+The HTTP endpoint is stateless: it builds a fresh `createDoDoneServer()` per
+request, bound to the authenticated user. That per-request construction is
+required, not an optimisation — the tool registrars capture their user id when
+they are constructed.
 
-Anything on this surface that touches dates has to say **which** date it means:
-DoDone schedules on `scheduled_date` and almost never sets `deadline_date`, so a client
-that equates "dated" with "has a deadline" reports a full week as empty. Tools
-answer date questions via `get_agenda`, emit every date with its relative
-reading, and resolve "today" through the user's timezone rather than the
-process clock (UTC when hosted). See `packages/mcp-server/CLAUDE.md` → Dates.
+**Anything here that touches dates must say which date it means.** DoDone
+schedules on `scheduled_date` and almost never sets `deadline_date`, so a client
+that treats "dated" as "has a deadline" reports a full week as empty. Tools
+answer date questions through `get_agenda`, emit every date with its relative
+reading, and resolve "today" through the user's timezone rather than the process
+clock (which is UTC when hosted). See `packages/mcp-server/CLAUDE.md` → Dates.
 
 ### OAuth
 
-Claude's custom-connector UI speaks **OAuth only** — its form takes a URL and an
-optional OAuth client id/secret, with nowhere to put a static token. So the web
-app is also an OAuth 2.1 authorization server:
+Claude's custom-connector form accepts a URL and an optional OAuth client
+id/secret, with nowhere to put a static token. So the web app is also an
+OAuth 2.1 authorization server:
 
 ```
 /.well-known/oauth-protected-resource[/api/mcp]  RFC 9728 — discovery entry point
@@ -439,305 +463,310 @@ app is also an OAuth 2.1 authorization server:
 /api/oauth/revoke                                RFC 7009
 ```
 
-Implementation lives in `apps/web/src/lib/oauth/` (`crypto.ts`, `store.ts`,
-`config.ts`); state is in the `oauth_*` tables, which are RLS-locked with no
-policies (service role only). Load-bearing rules:
+The implementation is in `apps/web/src/lib/oauth/` (`crypto.ts`, `store.ts`,
+`config.ts`). State lives in the `oauth_*` tables, which have RLS enabled and no
+policies, so only the service role can reach them.
 
-- **PKCE S256 is mandatory** — clients are public, so this is what secures the
+Rules that must not be relaxed:
+
+- **PKCE S256 is mandatory.** Clients are public, so this is what secures the
   code grant. "plain" is rejected.
-- **Codes and tokens are stored only as SHA-256 hashes**, and are single-use:
-  redemption and refresh rotation are atomic conditional UPDATEs, not
+- **Codes and tokens are stored only as SHA-256 hashes, and are single-use.**
+  Redemption and refresh rotation are atomic conditional UPDATEs, not
   read-then-write.
-- **Redirect URIs match exactly**, with the RFC 8252 loopback-port exception for
-  native clients. No prefix matching, ever.
-- **A bad `client_id`/`redirect_uri` renders an error, never a redirect** —
-  redirecting on an unvalidated URI is how an AS becomes an open redirector.
-- `MCP_BEARER_TOKEN` remains an **optional** static fallback (scoped to
-  `DO_DONE_USER_ID`) for Claude Code's `--header` flag. Unset it to require OAuth.
+- **Redirect URIs must match exactly**, with the RFC 8252 loopback-port
+  exception for native clients. Never prefix-match.
+- **A bad `client_id` or `redirect_uri` renders an error, never a redirect.**
+  Redirecting to an unvalidated URI is how an authorization server becomes an
+  open redirector.
+- `MCP_BEARER_TOKEN` is an optional static fallback (scoped to
+  `DO_DONE_USER_ID`) for Claude Code's `--header` flag. Unset it to require
+  OAuth.
 
-`APP_URL` pins the OAuth issuer; it must be the URL clients actually reach. The
+`APP_URL` pins the OAuth issuer and must be the URL clients actually reach. The
 OAuth paths and `/api/mcp` are in `PUBLIC_PATHS` in `proxy-helper.ts` so the auth
-proxy doesn't 307 them to `/login` (`/oauth/authorize` handles its own session
-check so it can round-trip through `/login?next=…`).
+proxy doesn't redirect them to `/login`. `/oauth/authorize` handles its own
+session check so it can round-trip through `/login?next=…`.
 
-> Hand-editing `claude_desktop_config.json` does **not** work on Claude Desktop
+> Hand-editing `claude_desktop_config.json` does not work on Claude Desktop
 > v1.22209.3 — the app rewrites that file and strips `mcpServers`. Its Chat tab
 > sees remote connectors only. Use the hosted endpoint for Chat, and the Claude
 > Code tab for the local stdio server.
 
-## The public front (web)
+## Public routes (web)
 
-Two routes are reachable without a session, and they're listed in
-`PUBLIC_PATHS` in `proxy-helper.ts` — `/` by an **exact** match, since every
-other entry there is a `startsWith` test and `"/"` prefixes everything.
+Two routes work without a session. Both are listed in `PUBLIC_PATHS` in
+`proxy-helper.ts`. `/` is matched **exactly** — every other entry there is a
+`startsWith` test, and `"/"` is a prefix of everything.
 
 | URL | What it is |
 | --- | --- |
-| `/` | The landing page. Marketing plus the sign-in form; a signed-in visitor gets "Open DoDone" instead. It used to `redirect("/inbox")`, which meant the app's front door was a bare login form. |
+| `/` | The landing page: marketing plus the sign-in form. A signed-in visitor gets "Open DoDone" instead. It used to `redirect("/inbox")`, which made the app's front door a bare login form. |
 | `/demo` | The whole app, running against an in-memory sandbox. |
 
 ### The demo sandbox
 
-`tasks.user_id` is a foreign key onto `auth.users`, so anything DB-backed needs
-a real user per visitor: either one shared login that any passer-by can wreck
-for everyone, or anonymous sign-ins — disabled on the project, and a row per
-drive-by crawler. The sandbox has neither problem, needs no env vars, and works
-on every preview deploy. It also gives **Claude a way to drive the real UI**,
-which the login wall previously made impossible.
+`tasks.user_id` is a foreign key onto `auth.users`, so anything database-backed
+needs a real user per visitor. The options were one shared login that any
+passer-by could wreck for everyone, or anonymous sign-ins — which are disabled
+on the project and would create a row per crawler. The sandbox avoids both,
+needs no environment variables, and works on every preview deploy. It also gives
+Claude a way to drive the real UI, which the login wall made impossible.
 
-- **`lib/demo/mode.ts`** decides demo-ness **from the URL**, not a cookie or a
-  context. `getClientTasksApi()` is called from deep inside components that
-  know nothing about where they're mounted; the path is the one thing always
+- **`lib/demo/mode.ts` decides demo-ness from the URL**, not from a cookie or a
+  context. `getClientTasksApi()` is called from deep inside components that know
+  nothing about where they are mounted; the path is the one thing always
   available to them.
-- **`lib/demo/api.ts`** holds structural doubles of `TasksApi` / `ProjectsApi` /
-  `UserPrefsApi` over a plain array. They are *not* a fake `SupabaseClient`:
-  faking the client would mean reimplementing PostgREST — `.or()` filter
-  grammar and all — to arrive back at the same array operations. They reach
-  callers through a cast, so nothing type-checks them at the call sites;
-  `api.test.ts` sweeps both prototypes instead, and a method missing there is a
-  runtime `undefined is not a function` that only ever fires in the demo.
-- **The seam is `tasks-client.ts` / `projects-client.ts` / `user-prefs-client.ts`.**
-  Every web mutation already went through those, so swapping the object out is
-  all it takes — not one component knows it might be in a demo. Three
-  components used to build `new TasksApi(createClientSupabase(), …)` inline and
-  now go through `getTasksApiFor(userId)` / `getProjectsApiFor(userId)`; a
-  fourth doing that again would silently bypass the demo.
-- **`lib/demo/store.ts`** is the database: one immutable object, mirrored into
-  **sessionStorage** (per tab, so a link handed to a room full of people gives
-  each of them their own copy) and re-seeded when its `seededFor` day goes
-  stale. Replacing the whole object on every write is what stands in for the
-  `router.refresh()` the real app leans on — a refresh here re-runs a server
-  component with nothing to say.
-- **Demo screens render nothing until `useDemoData().ready`.** The seed is
-  dated from the reader's calendar day and the server's day is UTC, so anything
-  date-shaped rendered server-side is a hydration mismatch waiting to happen.
-- `SidebarNav`, `SortableProjectList` and `taskPath()` prefix their links with
-  `/demo` when they're inside it. Derived from `usePathname()` rather than
-  passed down — a bare `/today` would bounce the visitor to the login wall the
-  demo exists to get around. Settings is dropped from the demo nav (there is no
-  account behind it), and `AppShell` takes `userEmail={null}`, which is what
-  suppresses the Pip panel — Pip reads its state from the database.
+- **`lib/demo/api.ts` holds stand-ins for `TasksApi` / `ProjectsApi` /
+  `UserPrefsApi` over a plain array.** They are not a fake `SupabaseClient`:
+  faking the client would mean reimplementing PostgREST, `.or()` filter grammar
+  and all, to arrive back at the same array operations. They reach callers
+  through a cast, so nothing type-checks them at the call sites. `api.test.ts`
+  sweeps both prototypes instead — a missing method is a runtime `undefined is
+  not a function` that only ever fires in the demo.
+- **The seam is `tasks-client.ts` / `projects-client.ts` /
+  `user-prefs-client.ts`.** Every web mutation already went through those, so
+  swapping the object is all it takes and no component knows it might be in a
+  demo. Three components used to construct `new TasksApi(createClientSupabase(),
+  …)` inline and now go through `getTasksApiFor(userId)` /
+  `getProjectsApiFor(userId)`. A fourth doing that would silently bypass the
+  demo.
+- **`lib/demo/store.ts` is the database**: one immutable object, mirrored into
+  **sessionStorage** so a link shared with a room full of people gives each of
+  them their own copy, and re-seeded when its `seededFor` day goes stale.
+  Replacing the whole object on every write stands in for the `router.refresh()`
+  the real app relies on — a refresh here would re-run a server component that
+  has nothing to say.
+- **Demo screens render nothing until `useDemoData().ready`.** The seed is dated
+  from the reader's calendar day and the server's day is UTC, so anything
+  date-shaped rendered server-side would be a hydration mismatch.
+- **`SidebarNav`, `SortableProjectList`, and `taskPath()` prefix their links
+  with `/demo` when inside it**, derived from `usePathname()` rather than passed
+  down. A bare `/today` would bounce the visitor to the login wall the demo
+  exists to avoid. Settings is dropped from the demo nav (there is no account
+  behind it), and `AppShell` takes `userEmail={null}`, which suppresses the Pip
+  panel — Pip reads its state from the database.
 
 ## `#` in a title: project first, tag otherwise
 
-A `#token` is classified against the user's own project list, Todoist-style:
-`#groceries` files the task into **Groceries** when that project exists, and is
-a tag when it doesn't. Precedence inside a token is fixed —
-`#xs`…`#xxl` (estimate) → `#p1`…`#p4` (priority) → project → tag — so a project
-named "M" loses to the size code rather than shadowing it.
+A `#token` is matched against the user's own project list, Todoist-style.
+`#groceries` files the task into **Groceries** if that project exists, and
+becomes a tag if it doesn't.
 
-Three pieces do the work and **must agree**, since the same text is read by all
-of them: `parseTaskInput` (`packages/task-engine`) parses a whole quick-add
-string at submit, `extractTitleShortcuts` (`packages/shared`) is the live
-absorber the title fields run on every keystroke, and **every "+ tag" control**
-— the two task editors and mobile's quick-add chip row — classifies the bare
-word it is handed. They take the project list as an *optional* argument and
-delegate the match to `matchProject` in
-`packages/shared/src/project-match.ts`. Omit the list — Storybook, the mobile
-widget root, any surface with no projects to hand — and every token is a tag,
-exactly as before.
+Precedence inside a token is fixed: `#xs`…`#xxl` (estimate) → `#p1`…`#p4`
+(priority) → project → tag. So a project named "M" loses to the size code rather
+than shadowing it.
 
-**The "+ tag" field is a `#token` without the `#`**, and reads its word through
-`classifyShortcutToken` on the same size → priority → project → tag ladder. It
-used to store whatever was typed verbatim, so `#personal` in the title filed the
-task into Personal while `personal` typed into the tag box two inches away made
-a tag of the same word — and `p1` there made a tag literally named "p1". A
-classification rule the user can't see has to be the same rule everywhere it can
-be reached, so it is a function both callers share rather than a comment.
+Three pieces read the same text and **must agree**:
 
-- **Matching is on a normalised key** (lowercase, alphanumerics only). A token
-  is `\w+`, so it can never carry a space; without normalising both sides,
-  every multi-word project would be unreachable by typing. `#sideproject` and
+- `parseTaskInput` (`packages/task-engine`) parses a whole quick-add string at
+  submit.
+- `extractTitleShortcuts` (`packages/shared`) runs on every keystroke in the
+  title fields.
+- **Every "+ tag" control** — the two task editors and mobile's quick-add chip
+  row — classifies the bare word it is handed.
+
+All three take the project list as an *optional* argument and delegate the match
+to `matchProject` in `packages/shared/src/project-match.ts`. Omit the list —
+Storybook, the mobile widget root, any surface with no projects available — and
+every token is a tag, exactly as before.
+
+**The "+ tag" field is a `#token` without the `#`.** It classifies its word
+through `classifyShortcutToken` on the same size → priority → project → tag
+ladder. It used to store whatever was typed, so `#personal` in the title filed
+the task into Personal while `personal` typed into the tag box two inches away
+created a tag of the same word — and `p1` there created a tag literally named
+"p1". A classification rule the user can't see must be the same rule everywhere
+it can be reached, so it is a shared function rather than a comment.
+
+- **Match on a normalised key** (lowercase, alphanumerics only). A token is
+  `\w+` and can never contain a space, so without normalising both sides every
+  multi-word project would be unreachable by typing. `#sideproject` and
   `#side_project` both reach "Side Project". A name that normalises to nothing
-  (emoji-only) matches nothing rather than matching everything.
-- **The surfaces differ in where the match lands, and each is internally
-  consistent.** Mobile's absorber fills the Project *chip*, the same way it
-  already fills Priority and Estimate. Web has no absorber in quick-add, so the
-  match shows in `ParsedPreview` — an honest echo that updates as the text
-  changes — and the chip stays the explicit override, exactly as typed `p1` has
-  always behaved there.
-- **A typed project beats the section's**, on the same rule as priority: adding
-  inside "Work" and typing `#home` means Home. An explicit chip still wins over
-  both.
-- **The parse needs a project list, so it reads `QuickAddProvider`** on web
-  (`useQuickAdd` → `useQuickAddContext`), not a prop — which is why a project
-  created inline from the quick-add modal is registered with the provider too,
-  or it couldn't be typed by name until the next page load.
+  (emoji only) matches nothing rather than everything.
+- **The surfaces differ in where the match lands.** Mobile's absorber fills the
+  Project *chip*, the same way it already fills Priority and Estimate. Web has
+  no absorber in quick-add, so the match shows in `ParsedPreview`, which updates
+  as the text changes, and the chip stays the explicit override — exactly as
+  typed `p1` has always behaved there.
+- **A typed project beats the section's**, same as priority: adding inside
+  "Work" and typing `#home` means Home. An explicit chip still beats both.
+- **The parse needs a project list, so on web it reads `QuickAddProvider`**
+  (`useQuickAdd` → `useQuickAddContext`) rather than a prop. That is why a
+  project created inline from the quick-add modal is also registered with the
+  provider — otherwise it couldn't be typed by name until the next page load.
 
-`/name` resolves against the same list; unmatched, it stays the bare name it
-always was (`parsed.project`), and only `parsed.project_id` ever reaches a task.
+`/name` resolves against the same list. Unmatched, it stays the bare name it
+always was (`parsed.project`); only `parsed.project_id` ever reaches a task.
 
-## Seeing tags, and filtering by one
+## Tags: listing them and filtering by one
 
-**A tag is not a row anywhere.** `tasks.tags` is a bare `text[]` — no tag
-table, no join table, no per-user registry — so "the user's tags" is a
-question only the task list can answer, and a tag exists exactly as long as
-some task carries it. Everything below follows from that.
+**A tag is not a row anywhere.** `tasks.tags` is a bare `text[]` — no tag table,
+no join table, no per-user registry. So "the user's tags" is a question only the
+task list can answer, and a tag exists exactly as long as some task carries it.
+Everything below follows from that.
 
 `summarizeTags` in `packages/shared/src/tags.ts` is the single answer: rows in,
-one `TagSummary { tag, task_count, open_count }` per distinct tag out, ordered
-by open work then alphabetically. Web's index, mobile's, the demo sandbox and
-the MCP tool all call it, so a count can't mean one thing on the phone and
-another on the laptop.
+one `TagSummary { tag, task_count, open_count }` per distinct tag out, ordered by
+open work then alphabetically. Web's index, mobile's, the demo sandbox, and the
+MCP tool all call it, so a count can't mean one thing on the phone and another on
+the laptop.
 
 | Surface | Where |
 | --- | --- |
 | Web | `/tags` (sidebar) → `/tags/<tag>`; every tag chip on a row links to the latter |
-| Mobile | Projects tab ⟶ tag button, and Settings → Tags → `/tags/<tag>` |
+| Mobile | Projects tab → tag button, and Settings → Tags → `/tags/<tag>` |
 | MCP | `list_tags`, plus a `tags` filter on `list_tasks` |
 
-- **Matching is exact, including case.** `#Work` and `#work` are two tags —
-  in the column, in `applyDisplay`'s tag filter, and in PostgREST's
-  `overlaps`. Folding case in the *index alone* would make the count on a card
-  disagree with the list that card opens, which is the one thing an index of
-  counts must never do. Normalising tags where they are **written** is a real
-  change and a separate one; until then every reader agrees.
-- **The counts come from a sweep of the task rows, not from a loaded list.**
-  `TasksApi.listTags()` selects two narrow columns with no `.range()`, the same
+- **Matching is exact, including case.** `#Work` and `#work` are two tags — in
+  the column, in `applyDisplay`'s tag filter, and in PostgREST's `overlaps`.
+  Folding case in the index alone would make a card's count disagree with the
+  list that card opens, which is the one thing an index of counts must never do.
+  Normalising tags where they are *written* is a real change and a separate one.
+- **Counts come from a sweep of the task rows, not from a loaded list.**
+  `TasksApi.listTags()` selects two narrow columns with no `.range()` — the same
   shape and cost as `ProjectsApi.listWithCounts`. The per-view `availableTags`
-  feeding the Display menu's tag pills is a *different* thing and stays as it
-  was: it can only see the slice on screen, which is right for narrowing the
-  list you are looking at and useless as an index of what exists.
-- **`TasksApi.listByTag` goes through `overlaps("tags", …)`** — the first
-  caller of the `idx_tasks_tags` GIN index, which had been dead since it was
-  created. Filtering a fetched page in the client instead would silently miss
-  everything past the limit, which on a tag view is the entire point of the
-  page.
+  that feeds the Display menu's tag pills is a different thing and stays as it
+  is: it can only see the slice on screen, which is right for narrowing the list
+  in front of you and useless as an index of what exists.
+- **`TasksApi.listByTag` uses `overlaps("tags", …)`** — the first caller of the
+  `idx_tasks_tags` GIN index, which had been dead since it was created.
+  Filtering a fetched page in the client would silently miss everything past the
+  limit, which on a tag view is the entire point of the page.
 - **A tag view is an ordinary list**, so web hands it to `TaskDisplayView` and
-  the whole Display menu works there. `viewKey` is the bare `"tag"` — one saved
-  config for the surface, not one per tag, or a preference would reset itself
-  every time a new tag was coined.
+  the whole Display menu works. `viewKey` is the bare `"tag"`: one saved config
+  for the surface, not one per tag, or the preference would reset every time a
+  new tag was coined.
 - **No quick-add on a tag view, on either platform.** Nothing in the composer
   seeds a *tag*, so a task typed there would be created without one and drop
   straight out of the list it was typed into — the bug the Today bar had before
   `contextFacets`.
 - **A missing tag is not a 404.** "Never existed" and "nothing carries it any
-  more" are the same state, so `/tags/<gone>` renders an empty view that
-  explains itself rather than an error; a link from a task someone just
-  untagged has to land somewhere.
+  more" are the same state, so `/tags/<gone>` renders an empty view that explains
+  itself. A link from a task someone just untagged has to land somewhere.
 - **The tag chip is the one chip on a web row that navigates rather than
-  edits.** Every other one opens a popover in place, so this is a `Link` that
+  edits.** Every other chip opens a popover in place, so this is a `Link` that
   stops the click reaching the row — otherwise the editor would open over the
-  page it just navigated to. It draws its `#` back on now that it goes
-  somewhere. **Mobile rows still show no tags**: that row collapses everything
-  into `rowSubline`'s one line of prose by design (see *The task row*), and a
-  tappable chip would be the first thing to break the rule.
+  page it just navigated to. It shows its `#` now that it goes somewhere.
+  **Mobile rows show no tags**: that row collapses everything into
+  `rowSubline`'s single line of prose by design (see *The task row*), and a
+  tappable chip would be the first thing to break that.
 - **Mobile's tag summary is its own query root** (`tagKeys`, not under
   `taskKeys`). The optimistic `setQueriesData<Task[]>` sweeps rewrite anything
   under `taskKeys.all`, and this cache holds `TagSummary[]`. `invalidateTasks()`
   invalidates it explicitly, since any write can move a count.
-- **MCP can now read what it could already write.** `create_task`/`update_task`
-  have always taken `tags` while nothing could list or filter by them, so an
-  agent could only guess at spellings. `search_tasks` still won't find a tag —
-  tags are not in the `fts` vector — which is why `list_tags`' description says
-  so out loud.
+- **MCP can now read what it could already write.** `create_task` and
+  `update_task` have always accepted `tags` while nothing could list or filter by
+  them, so an agent could only guess at spellings. `search_tasks` still won't
+  find a tag — tags are not in the `fts` vector — which is why `list_tags`'
+  description says so.
 
 ## Linking to a task (web)
 
-Every task has an address, and the editor keeps the address bar honest:
+Every task has an address, and the editor keeps the address bar accurate:
 
 | URL | What it is |
 | --- | --- |
-| `/task/<id>` | Canonical, context-free. What every "Copy link" hands out, and what a recipient opens: a standalone page. |
+| `/task/<id>` | Canonical and context-free. What "Copy link" hands out, and what a recipient opens: a standalone page. |
 | `/inbox?task=<id>` | The editor, mirrored onto the view it was opened from. Written while the modal is up, so the address bar is always shareable and Back closes the modal. |
 
 `OpenTaskProvider` (`apps/web/src/lib/open-task.tsx`) owns *the* editor for the
-whole authenticated app — mounted once in `(app)/layout.tsx`, not per row. That
-placement is load-bearing twice over: a link can open a task with no row on
-screen, and a task showing in two lists still opens exactly once.
+whole authenticated app. It is mounted once in `(app)/layout.tsx`, not per row,
+for two reasons: a link can open a task with no row on screen, and a task showing
+in two lists still opens exactly once.
 
 It writes the URL with the **native History API**, not `router.push`. A router
 navigation would re-run the underlying list's server components on every row
-click and change nothing — the list is already rendered, the editor is a layer
-above it. `popstate` is what keeps state and URL in agreement.
+click and change nothing — the list is already rendered, and the editor is a
+layer above it. `popstate` keeps state and URL in agreement.
 
 `TaskItem` falls back to its own local modal state when the provider is absent
 (Storybook, unit tests), which is why `useOpenTask()` returns null rather than
 throwing.
 
-The auth proxy carries the destination through sign-in (`?next=`), so a task
-link handed to someone signed out survives the login round-trip; `safeNext` on
-the login page is what stops that being an open redirector.
+The auth proxy carries the destination through sign-in (`?next=`), so a task link
+handed to someone signed out survives the login round-trip. `safeNext` on the
+login page stops that being an open redirector.
 
 ## Click feedback (web)
 
-**Every route under `(app)` needs a `loading.tsx`, and it is not optional
-polish.** These routes are all dynamic server components — auth comes from
-cookies, the rows from Supabase — so without a fallback Next.js skips
-prefetching them *and* blocks the entire client-side transition until the server
-render lands. Clicking a sidebar item changed nothing on screen for a second or
-two: not the rows, not even the active pill, because `usePathname()` only
-updates once the navigation commits. There was no mechanism producing feedback
-at all. The fallback is what lets the transition commit on the click; it also
-enables partial prefetching, so most navigations then land instantly.
+**Every route under `(app)` needs a `loading.tsx`.** This is not optional polish.
+These routes are dynamic server components — auth comes from cookies, rows from
+Supabase — so without a fallback Next.js skips prefetching them *and* blocks the
+entire client-side transition until the server render lands. Clicking a sidebar
+item changed nothing on screen for a second or two: not the rows, not even the
+active pill, because `usePathname()` only updates once the navigation commits.
+Nothing was producing feedback at all. The fallback is what lets the transition
+commit on the click, and it enables partial prefetching, so most navigations then
+land instantly.
 
-Feedback is three layers, and each covers what the one before it can't:
+Feedback has three layers, each covering what the one before it can't:
 
-1. **`active:` styling** on every sidebar row (`PRESS` in `sidebar-nav.tsx`) —
-   CSS-only, fires on pointer-down, before React or the network. Note the
-   explicit short duration: Tailwind's default 150ms is tuned for hover and
-   reads as lag on a press. Project rows get the background but **not** the
-   scale — they're also dnd-kit drag handles, and an inline `transform` can't
-   share the property with a utility class.
+1. **`active:` styling** on every sidebar row (`PRESS` in `sidebar-nav.tsx`).
+   CSS only, so it fires on pointer-down, before React or the network. Note the
+   explicit short duration: Tailwind's default 150ms is tuned for hover and reads
+   as lag on a press. Project rows get the background but **not** the scale —
+   they are also dnd-kit drag handles, and an inline `transform` can't share the
+   property with a utility class.
 2. **The active pill moving**, the moment the transition commits — which the
-   `loading.tsx` files are what make immediate.
-3. **`NavPendingDot`** (`useLinkStatus`) — only for when the shell hasn't
+   `loading.tsx` files make immediate.
+3. **`NavPendingDot`** (`useLinkStatus`), only for when the shell hasn't
    prefetched and the click really is waiting on the network.
 
-Both 1 and 3, and the skeletons themselves, start invisible and fade in on a
-~140ms delay (`.dd-skeleton`, `.dd-link-pending` in `globals.css`): a navigation
-faster than that shows no placeholder at all, rather than a flash. The skeletons
-carry the **real page title in the real type** and the geometry of a real task
-row, so the destination is readable on the first frame and the swap is a fill-in
-rather than a jump — which is also why `PageSkeleton` takes `maxWidth`
-(`/calendar` is `max-w-7xl`, everything else `max-w-3xl`).
+Layers 1 and 3, and the skeletons, start invisible and fade in after ~140ms
+(`.dd-skeleton`, `.dd-link-pending` in `globals.css`), so a navigation faster
+than that shows no placeholder rather than a flash. The skeletons carry the real
+page title in the real type and the geometry of a real task row, so the
+destination is readable on the first frame and the swap is a fill-in rather than
+a jump. That is also why `PageSkeleton` takes `maxWidth` (`/calendar` is
+`max-w-7xl`, everything else `max-w-3xl`).
 
-One CSS trap, already paid for: **don't drive the pending dot with a fade-in
+**One CSS trap, already paid for: don't drive the pending dot with a fade-in
 animation plus a pulse animation.** Two animations on `opacity` means the later
 one wins outright, and a pulse whose `0%`/`100%` frames are implicit resolves
 them to the *underlying* opacity — 0 here. The dot pulsed between invisible and
-almost invisible. It is one keyframe set whose first quarter is the fade-in.
+almost invisible. It is now one keyframe set whose first quarter is the fade-in.
 
-`app-shell.test.tsx` mocks `next/link`, so that mock has to export
-`useLinkStatus` or every test in the file dies on the nav rows.
+`app-shell.test.tsx` mocks `next/link`, so that mock must export `useLinkStatus`
+or every test in the file dies on the nav rows.
 
 ## Cold start (mobile)
 
 **"Nothing scheduled today" is an answer, and the app must not give it before it
 has one.** The mobile query cache is in memory, so every launch began with
 `data === undefined` on every list, and every screen rendered its empty state
-into that gap — the app opened by telling the user their day was clear, then
-quietly filled in. Web never had this: its pages are async server components, so
-the rows arrive with the HTML.
+into that gap. The app opened by telling the user their day was clear, then
+quietly filled in. Web never had this problem: its pages are async server
+components, so the rows arrive with the HTML.
 
 Three pieces, all under `apps/mobile`:
 
 - **`lib/query-persist.ts`** writes the query cache to AsyncStorage, restored by
   `PersistQueryClientProvider` in `app/_layout.tsx`. Launch opens on the rows the
   user last saw, refreshed underneath. A snapshot older than `CACHE_MAX_AGE_MS`
-  (24h) is dropped rather than shown; `gcTime` in `query-client.ts` is the same
-  24h **and has to stay in step**, or a restored list for a tab the user hasn't
-  opened is collected before it is ever observed and the next write-out persists
-  the cache without it.
+  (24h) is dropped rather than shown. **`gcTime` in `query-client.ts` is the same
+  24h and must stay in step** — otherwise a restored list for a tab the user
+  hasn't opened is garbage-collected before it is ever observed, and the next
+  write-out persists the cache without it.
 - **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for
   every list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a
   restored empty list is a real answer and gets the empty state, while a cache
-  that has never held one gets the skeleton. It stays a plain function over a
-  plain input because `apps/mobile` has no renderer to test a hook with.
-- **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an
-  `UpdatingBar` that self-delays ~350ms (`useRefreshOnFocus` refires every query
-  on every tab switch, so a bar bound straight to `isFetching` strobes), and
-  `ListError` — without which an offline first launch pulses a skeleton forever.
+  that has never held one gets the skeleton. It is a plain function over a plain
+  input because `apps/mobile` has no renderer to test a hook with.
+- **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an `UpdatingBar`
+  that delays itself ~350ms (`useRefreshOnFocus` refires every query on every tab
+  switch, so a bar bound straight to `isFetching` strobes), and `ListError`,
+  without which an offline first launch pulses a skeleton forever.
 
-That bar is the **only** signal a background refresh gets. `RefreshControl`'s
-spinner is the *gesture's*, and every list drives it from `usePullToRefresh`
+**That bar is the only signal a background refresh gets.** `RefreshControl`'s
+spinner belongs to the *gesture*, so every list drives it from `usePullToRefresh`
 (`lib/query-client.ts`) rather than from the query's `isRefetching`. The
-obvious-looking `refreshing={isRefetching}` was the same `useRefreshOnFocus`
-trap one line up: a refetch fires on every tab switch, so the platform drew its
-pull-to-refresh circle — a control the user is meant to have *dragged* into
-view — unprompted at the top of every list on every tap of the tab bar.
+obvious-looking `refreshing={isRefetching}` hits the same `useRefreshOnFocus`
+trap: a refetch fires on every tab switch, so the platform drew its
+pull-to-refresh circle — a control the user is meant to have *dragged* into view
+— unprompted at the top of every list on every tap of the tab bar.
 
-The cache is restored **only for the account that wrote it**, and that check
+**The cache is restored only for the account that wrote it**, and that check
 lives *inside* `restoreClient`, not in the auth listener. Restore and the auth
 event resolve independently, so clearing after the fact is a race the previous
 user's rows can win.
@@ -745,95 +774,94 @@ user's rows can win.
 ## Dragging a row (mobile)
 
 **The query cache has to agree with the finger before the write goes out, not
-after it.** `SectionedDraggableList` keeps a local copy of the order so a drop
-lands instantly, but it re-seeds that copy from `sections` — i.e. from the
-cache — on any change to any task in view. So for as long as the cache holds
-the pre-drag order, the list is one cache write away from re-laying itself out
-into it and back out again.
+after.** `SectionedDraggableList` keeps a local copy of the order so a drop lands
+instantly, but it re-seeds that copy from `sections` — that is, from the cache —
+on any change to any task in view. So while the cache holds the pre-drag order,
+the list is one cache write away from re-laying itself out into it and back.
 
 A cross-section move used to guarantee exactly that. It was
-`updateTask(id, patch).then(() => reorderTasks(ids))`, two writes each with
-their own optimistic patch and their own `invalidateTasks()`, and only the
-second one carried the order. The first patch landed a cache that agreed the
-task had moved section and still carried its old `sort_order` — the only thing
-that decides a row's place *within* a section (`TasksApi.list` orders by it
-alone, and `generateFocusList` breaks its ties by it). So the row appeared in
-the wrong slot, the list re-rendered around it, then did it twice more as the
-two refetches came back. Three full re-layouts inside about a second, which is
-what read as the whole screen flashing.
+`updateTask(id, patch).then(() => reorderTasks(ids))`: two writes, each with its
+own optimistic patch and its own `invalidateTasks()`, and only the second one
+carried the order. The first patch landed a cache that agreed the task had moved
+section but still carried its old `sort_order` — the only thing that decides a
+row's place *within* a section (`TasksApi.list` orders by it alone, and
+`generateFocusList` breaks ties by it). So the row appeared in the wrong slot,
+the list re-rendered around it, then did it twice more as the two refetches came
+back. Three full re-layouts in about a second, which is what read as the whole
+screen flashing.
 
-- **`moveTask(id, input, orderedIds)`** in `lib/task-queries.ts` is the one
-  door for a drag that both re-files a task and re-orders its destination: one
+- **`moveTask(id, input, orderedIds)`** in `lib/task-queries.ts` is the one door
+  for a drag that both re-files a task and re-orders its destination: one
   optimistic apply of *both* halves, both writes, one invalidate. All four
   cross-section drag handlers (Today, Upcoming, and both branches of
   `GroupedTaskList`) go through it.
-- **`reorderTasks` patches the cache too**, via `patchCachedOrder`, which
-  stamps `sort_order` and re-sorts. That reproduces what the refetch will
-  return, so the reconcile is a no-op rather than a second opinion.
+- **`reorderTasks` patches the cache too**, via `patchCachedOrder`, which stamps
+  `sort_order` and re-sorts. That reproduces what the refetch will return, so the
+  reconcile is a no-op rather than a second opinion.
 
 `lib/task-move.test.ts` asserts on the cache *mid-flight*, with the writes held
 open, because the settled state was never the problem.
 
-The other half of a drag's aftermath is the refresh spinner, and that's fixed
-one section up: every one of these invalidates used to drop `RefreshControl`'s
-circle over the list, landing it on the row the finger had just let go of.
+The other half of a drag's aftermath is the refresh spinner, covered one section
+up: every one of these invalidates used to drop `RefreshControl`'s circle over
+the list, landing it on the row the finger had just released.
 
 ## The task editor sheet (mobile)
 
 **Everything under the finger runs on the UI thread.** The sheet's rise, its
-drag and the backdrop's dimming are one Reanimated shared value — `translateY`,
+drag, and the backdrop's dimming are one Reanimated shared value — `translateY`,
 in pixels below the sheet's resting place — written by worklet gesture handlers
 and read by two `useAnimatedStyle`s. Nothing about the motion crosses into JS
 until the sheet is off-screen and there is a close callback to fire.
 
-It was a plain `Animated.Value` on `useNativeDriver: false` with a
-`runOnJS(true)` pan, which put every frame of both on the JS thread — the same
-thread the editor mounts on. Opening a task fires three requests, lays out a
-month grid, and used to mount six nested `Modal`s, all inside the 280ms the open
-animation had to run in. The animation lost, every time.
+It used to be a plain `Animated.Value` with `useNativeDriver: false` and a
+`runOnJS(true)` pan, which put every frame on the JS thread — the same thread
+the editor mounts on. Opening a task fires three requests, lays out a month grid,
+and used to mount six nested `Modal`s, all inside the 280ms the open animation
+had to run in. The animation lost every time.
 
-- `lib/sheet-motion.ts` holds the policy as pure worklets, tested in node like
-  the rest of `lib/`: when a release dismisses (a *projected* rest position, so
-  a short fast flick counts and a flick back up never does), how long the
+- **`lib/sheet-motion.ts` holds the policy as pure worklets**, tested in node
+  like the rest of `lib/`: when a release dismisses (a *projected* rest position,
+  so a short fast flick counts and a flick back up never does), how long the
   closing sweep takes (velocity-matched, so a flicked sheet doesn't decelerate
-  the instant the finger leaves), and the backdrop's opacity for a position.
-  The `'worklet'` directives are what let those ship to the UI thread;
-  `babel-preset-expo` adds `react-native-worklets/plugin` on its own, and under
-  vitest the directive is an inert string.
-- **`SHEET_HEIGHT_RATIO` and `styles.ghRoot.height` have to stay in step.** The
+  the instant the finger leaves), and the backdrop's opacity for a position. The
+  `'worklet'` directives ship those to the UI thread; `babel-preset-expo` adds
+  `react-native-worklets/plugin` on its own, and under vitest the directive is an
+  inert string.
+- **`SHEET_HEIGHT_RATIO` and `styles.ghRoot.height` must stay in step.** The
   slide is measured against the ratio, so a sheet taller than its travel never
   fully leaves the screen.
-- **The height a worklet reads is a `SharedValue`, not a ref.** Reanimated
+- **The height a worklet reads must be a `SharedValue`, not a ref.** Reanimated
   copies captured values into the UI runtime, so `ref.current` read from the
   memoised gesture is whatever it was on the first render, forever.
-- **The backdrop is derived from the sheet, never animated alongside it.** It
-  was a flat `rgba(17,24,39,0.4)` under `animationType="none"` — the room went
-  dark in a single frame with the sheet still off the bottom of the screen, and
-  came back only after it had finished leaving. Deriving it is also what makes
-  it follow a *drag*: half dismissed is half lit. The style's colour is opaque
-  now; putting the alpha back would multiply the two.
+- **The backdrop is derived from the sheet, never animated alongside it.** It was
+  a flat `rgba(17,24,39,0.4)` under `animationType="none"`, so the room went dark
+  in a single frame while the sheet was still off the bottom of the screen, and
+  came back only after it had finished leaving. Deriving it is also what makes it
+  follow a *drag*: half dismissed is half lit. The style's colour is opaque now;
+  restoring the alpha would multiply the two.
 - **The body owns the drag until it has nothing left to scroll.**
   `activeOffsetY(12)` claims downward drags, which is also how you scroll a list
   back up, so the pan samples the ScrollView's offset in `onBegin` and stands
   down unless it was already at the top. Without that the editor lurched toward
   the floor instead of scrolling.
 
-Two render-cost rules, both downstream of the fact that **the editor re-renders
-on every keystroke in the title** — autosave holds the task in React state:
+Two render-cost rules, both because **the editor re-renders on every keystroke in
+the title** — autosave holds the task in React state:
 
 - `ScheduleCalendar` and `SubtasksSection` are `React.memo`ed and their props
-  kept stable for it. `SubtasksSection` takes `parentId`/`parentDepth` rather
-  than the parent `Task` for exactly this reason: a `Task` prop is a new object
-  on every keystroke and would defeat the memo on the renders it exists to skip.
-- Nested pickers are mounted only while they are up. Six of them lived
+  kept stable. `SubtasksSection` takes `parentId`/`parentDepth` rather than the
+  parent `Task` for exactly this reason: a `Task` prop is a new object on every
+  keystroke and would defeat the memo on the renders it exists to skip.
+- Nested pickers are mounted only while they are open. Six of them used to live
   permanently inside every open editor, each rebuilding its option rows per
   keystroke and holding a host view it never showed.
 
 ## Ticking a task off
 
-The most repeated gesture in the app, and one shape on both surfaces. Timings
-and rules live in `@do-done/shared` — the two implementations have nothing else
-in common (CSS plus inline styles on web, Reanimated worklets on mobile), so
+The most repeated gesture in the app, and one shape on both platforms. Timings
+and rules live in `@do-done/shared`, because the two implementations have nothing
+else in common (CSS plus inline styles on web, Reanimated worklets on mobile) and
 the constants are the only thing keeping them from drifting.
 
 ```
@@ -845,30 +873,31 @@ the constants are the only thing keeping them from drifting.
 420 → 680   the row slides right as its height closes  exit
 ```
 
-**Nothing may outlive the 680ms envelope**, which is what keeps
-`TASK_COMPLETE_EXIT_MS` governing every list drop and leaves the write path, the
-hold, the per-id chaining and the undo window untouched.
-`completion-motion.test.ts` asserts the relationships rather than the numbers:
-the line finishes with the check (230 against 220 — one is the control
-acknowledging the tap, the other the text, and the eye may be on either), and
-everything inbound lands before the hold ends.
+**Nothing may outlive the 680ms envelope.** That keeps `TASK_COMPLETE_EXIT_MS`
+governing every list drop and leaves the write path, the hold, the per-id
+chaining, and the undo window untouched. `completion-motion.test.ts` asserts the
+relationships rather than the numbers: the line finishes with the check (230
+against 220 — one is the control acknowledging the tap, the other the text, and
+the eye may be on either), and everything inbound lands before the hold ends.
 
-**The burst has to finish inside the *hold*, not just the envelope.** The row
+**The spark burst must finish inside the *hold*, not just the envelope.** The row
 turns on `overflow: hidden` the moment it starts collapsing, so a particle still
-in the air then is sliced off at the row's edge as it shrinks. `SPARK_MS` is 400
+in the air is sliced off at the row's edge as it shrinks. `SPARK_MS` is 400
 against a 420ms hold. The stagger is spent *within* that, never added to it — a
 particle that starts late flies for less time — so all ten land on the same
-frame; web varies each particle's `animation-duration`, mobile re-bases each one
+frame. Web varies each particle's `animation-duration`; mobile re-bases each one
 off the single shared progress value.
 
-**Two platform differences that look like drift and aren't.** Web hangs the
-squash off `:active`, so it really is the press, firing on pointer-down ahead of
-React; mobile folds it into the completion, because a 22px ring is under the
-thumb at exactly the moment a press-driven squash would be visible and
-swipe-to-complete has no press at all. And React Native cannot animate
-`textDecorationLine`, so `StruckText` draws the rule itself from `onTextLayout`
-line rects behind one widening clip, while web uses an inline background
-gradient that fragments per line so each rule ends where its line's text does.
+**Two platform differences that look like drift and aren't:**
+
+- Web hangs the squash off `:active`, so it really is the press, firing on
+  pointer-down ahead of React. Mobile folds it into the completion, because a
+  22px ring is under the thumb at exactly the moment a press-driven squash would
+  be visible, and swipe-to-complete has no press at all.
+- React Native cannot animate `textDecorationLine`, so `StruckText` draws the
+  rule itself from `onTextLayout` line rects behind one widening clip. Web uses
+  an inline background gradient that fragments per line, so each rule ends where
+  its line's text does.
 
 **The halo and the burst mark a *moment*, not a state**, and are rendered only
 for the frames they run in. Keying either off "is completed" would set every row
@@ -876,10 +905,10 @@ in a Completed list going the instant the page painted.
 
 ### When the sparks fire
 
-Celebrating every completion is how a delight becomes a tax — by the fortieth
-task of the week it is something you wait out, and the next thing anyone asks
-for is a switch to turn it off. `sparkReason` is the whole gate, returning
-*why* rather than a boolean so tests assert the reason:
+Celebrating every completion turns a delight into a tax — by the fortieth task of
+the week it is something you wait out, and the next request is a switch to turn
+it off. `sparkReason` is the gate. It returns *why* rather than a boolean, so
+tests can assert the reason:
 
 | Reason | Fires when |
 | --- | --- |
@@ -887,50 +916,51 @@ for is a switch to turn it off. `sparkReason` is the whole gate, returning
 | `last-in-section` | the last open task in this list's section |
 | `streak` | the first completion of a day whose predecessor also had one |
 | `effort` | estimated at two hours or more |
-| `priority` | P1 or P2 — `p2`'s label is literally "High" |
+| `priority` | P1 or P2 (`p2`'s label is "High") |
 
 Finishing outranks what finished it: the last task in a project being a two-hour
 P1 makes the moment the project ending, not the task's size.
 
 **A row cannot know it emptied a section, so its surroundings tell it.** Web
-publishes counts through two contexts in `task-row-behavior.tsx` — section and
-project are provided at different depths (a project page groups by status, so
-the project's last open task is not the last in any group), and one context
-would have the inner erase the outer. Mobile passes props, matching the split
-already documented on `keepsCompleted`. **A missing count means "this surface
-can't tell" and is deliberately distinct from zero**, so the inbox, search and
-the drag overlay never fire those rules rather than firing them wrongly. Counts
-are read at the tap, not at render: by then the row has already told its list
-it is done.
+publishes counts through two contexts in `task-row-behavior.tsx`. Section and
+project are provided at different depths — a project page groups by status, so
+the project's last open task is not the last in any group — and one context would
+have the inner erase the outer. Mobile passes props, matching the split already
+documented on `keepsCompleted`.
 
-**Streak needed a data model that did not exist** — `tasks.completed_at` is the
-only substrate and nothing aggregated it. `packages/shared/src/streak.ts`
-buckets timestamps into the reader's *local* days (a task finished at 11pm
-belongs to the day the user was living in), and `claimStreakDay()` both answers
-and records in one call. One call rather than a read plus a note, because *any*
-completion starts the day — splitting them would let a second completion moments
-later claim it again. It is claimed only when completing; reopening is a
-correction and must not mark a day nobody worked. The history is fetched once
-per session — a provider on web, a module singleton on mobile — and read
-synchronously, because the row decides inside the tap handler where an `await`
-would cost the frame the animation exists to use. Not loaded means `false`: an
-unknown history costs a burst rather than inventing one.
+**A missing count means "this surface can't tell" and is deliberately different
+from zero**, so the inbox, search, and the drag overlay never fire those rules
+rather than firing them wrongly. Counts are read at the tap, not at render: by
+then the row has already told its list it is done.
 
-**Reduced motion lands on the end state and drops the decorative layers** on
-both surfaces. It never simply plays slower.
+**Streak needed a data model that did not exist.** `tasks.completed_at` is the
+only substrate and nothing aggregated it. `packages/shared/src/streak.ts` buckets
+timestamps into the reader's *local* days (a task finished at 11pm belongs to the
+day the user was living in), and `claimStreakDay()` both answers and records in
+one call. One call rather than a read plus a note, because *any* completion
+starts the day — splitting them would let a second completion moments later claim
+it again. It is claimed only when completing; reopening is a correction and must
+not mark a day nobody worked. The history is fetched once per session (a provider
+on web, a module singleton on mobile) and read synchronously, because the row
+decides inside the tap handler, where an `await` would cost the frame the
+animation exists to use. Not loaded means `false`: an unknown history costs a
+burst rather than inventing one.
+
+**Reduced motion lands on the end state and drops the decorative layers** on both
+platforms. It never simply plays slower.
 
 One trap already paid for: putting the drawn rule on the text means axe stops
 measuring that text's contrast (`color-contrast` skips anything with a
 background-image), so five pre-existing findings on completed titles went quiet
-without the rendering changing. Noted in `globals.css` — that contrast is ours
-to watch now, not axe's.
+without the rendering changing. Noted in `globals.css` — that contrast is ours to
+watch now, not axe's.
 
 ## Deleting a task
 
 The other way a row leaves a list, and until recently the only one with no
-gesture at all: the row was there, the list came back one shorter, and nothing
-on screen said which. **Deletion is the completion gesture's opposite number**,
-not a red repaint of it, and the two must not be confusable at a glance:
+gesture at all: the row was there, the list came back one shorter, and nothing on
+screen said which. **Deletion is the completion gesture's opposite number**, not a
+red repaint of it, and the two must not be confusable at a glance:
 
 ```
 completion   hold at full height reading as done, then slide RIGHT   filed
@@ -945,54 +975,52 @@ deletion     dim and tint where it stands, then slide LEFT           removed
 **Direction carries it.** Rightward continues mobile's swipe-right-to-complete;
 leftward continues the swipe that reveals Delete. A tap inherits each vector for
 free, and neither reads as the other even peripherally. The deletion is also
-*shorter* than the completion's 680ms and travels further: that hold is a beat
-to enjoy, this one only has to be long enough to see which row is going, and
+*shorter* than the completion's 680ms and travels further: that hold is a beat to
+enjoy, this one only has to be long enough to see which row is going, and
 lingering would be the app savouring the one action nobody wants to repeat.
 
 Constants and their rationale live beside the completion's in
-`packages/shared/src/constants.ts`; `delete-motion.test.ts` asserts the
-relationships rather than the numbers — leftward against rightward, shorter
+`packages/shared/src/constants.ts`. `delete-motion.test.ts` asserts the
+relationships rather than the numbers: leftward against rightward, shorter
 against longer, and both envelopes comfortably inside the undo window.
 
 - **The row hears about its own deletion through a window event**
-  (`lib/task-delete-events.ts` on web). A completion is started by a control
-  *in* the row, so the row can animate itself; nothing about a deletion is. It
-  comes from the right-click menu, the editor modal — which may be open over a
-  different page entirely — the bulk bar and a keyboard shortcut, none of which
-  own a row and two of which act on rows that aren't mounted. The fan-out is
-  free with it: a task showing in two lists is two rows, and both are leaving.
+  (`lib/task-delete-events.ts` on web). A completion is started by a control *in*
+  the row, so the row can animate itself; nothing about a deletion is. It comes
+  from the right-click menu, the editor modal (which may be open over a different
+  page entirely), the bulk bar, and a keyboard shortcut — none of which own a row,
+  and two of which act on rows that aren't mounted. The fan-out is free with it: a
+  task showing in two lists is two rows, and both are leaving.
 - **`useDeleteTasks` is the one door**, and it fixes the sequence at the door
-  rather than at four call sites: announce, write, toast, *then* refresh once
-  the envelope is spent, so the removal lands on an already-invisible row. Two
-  of those call sites used to show an undo toast, one showed nothing at all, and
+  rather than at four call sites: announce, write, toast, then refresh once the
+  envelope is spent, so the removal lands on an already-invisible row. Two of
+  those call sites used to show an undo toast, one showed nothing at all, and
   deleting from the editor modal was a permanent delete with nothing offering it
   back.
 - **The condemned wash outranks selection and hover both.** A row that is going
-  has nothing useful left to say about being picked or pointed at, and this is
-  the only moment red means "leaving" rather than "overdue".
+  has nothing useful left to say about being picked or pointed at, and this is the
+  only moment red means "leaving" rather than "overdue".
 - **The dim holds its value through the collapse.** Letting it lapse there
-  multiplies a row fading to zero by one fading back to full, and the row
-  visibly *brightens* on its way out — which is why the travel layer carries two
+  multiplies a row fading to zero by one fading back to full, and the row visibly
+  *brightens* on its way out — which is why the travel layer carries two
   transition durations, one per property.
-- **Mobile has no confirm dialog either.** It had one, and its stated reason
-  was the absence of an undo; that reason is gone. Asking first *and* offering
-  an undo afterwards is asking twice. `deleteTask` takes a `holdMs` so the
-  optimistic cache patch waits for the animation, exactly as `toggleComplete`
-  does.
+- **Mobile has no confirm dialog either.** It had one, and its stated reason was
+  the absence of an undo; that reason is gone. Asking first *and* offering an undo
+  afterwards is asking twice. `deleteTask` takes a `holdMs` so the optimistic
+  cache patch waits for the animation, exactly as `toggleComplete` does.
 
 ### Undo gives back the same task
 
-**Nothing is destroyed when you delete.** `tasks.deleted_at` is stamped, the
-row is hidden from every read, and `restore()` clears the column again — so
-the task that comes back is the same row: same id, same subtasks, same
-attachments, same location links, same pet history, and every `/task/<id>`
-link handed out before the delete still works.
+**Nothing is destroyed when you delete.** `tasks.deleted_at` is stamped, the row
+is hidden from every read, and `restore()` clears the column again. So the task
+that comes back is the same row: same id, same subtasks, same attachments, same
+location links, same pet history — and every `/task/<id>` link handed out before
+the delete still works.
 
 It used to recreate from a client-side snapshot (`create(toCreateInput(task))`),
-which gave back a *new* row wearing the old title. Its subtasks and its files
-had gone with the cascade the moment the hard delete landed, and nothing the
-client held could bring them back. The Undo button was quietly lying about what
-it did.
+which gave back a *new* row wearing the old title. Its subtasks and files had gone
+with the cascade the moment the hard delete landed, and nothing the client held
+could bring them back. The Undo button was quietly lying about what it did.
 
 | Method | What it does |
 | --- | --- |
@@ -1000,78 +1028,76 @@ it did.
 | `TasksApi.restore(ids)` | Clears it again. One UPDATE, idempotent. |
 | `TasksApi.purgeDeleted()` | Hard-deletes anything past `TASK_TRASH_RETENTION_MS`, clearing the Storage bytes first. |
 
-- **The returned ids are the undo token.** They were computed against the
-  *live* tree, so a subtask deleted separately five minutes ago isn't in them
-  and the parent's undo correctly leaves it deleted. They also cover rows the
-  caller never knew about — a task's subtasks are not on screen, so undo can't
-  work off what the list handed it.
-- **Every read filters, and there is one place to forget it.**
-  `TasksApi.read()` is the private helper every one of the fifteen reads starts
-  from, and it is the *whole* mechanism — **`tasks_select` is the plain
-  `user_id = auth.uid()` and must stay that way**. Reads outside `TasksApi` —
-  busyness, project counts, the pet tallies, the calendar re-push routes — each
-  carry the filter explicitly, because a deleted task that still counts against
-  its project makes the sidebar disagree with the list it opens.
+- **The returned ids are the undo token.** They were computed against the *live*
+  tree, so a subtask deleted separately five minutes ago isn't among them and the
+  parent's undo correctly leaves it deleted. They also cover rows the caller never
+  knew about — a task's subtasks are not on screen, so undo can't work off what
+  the list handed it.
+- **Every read filters, and there is one place to forget it.** `TasksApi.read()`
+  is the private helper all fifteen reads start from, and it is the *whole*
+  mechanism: **`tasks_select` is the plain `user_id = auth.uid()` and must stay
+  that way.** Reads outside `TasksApi` — busyness, project counts, the pet
+  tallies, the calendar re-push routes — each carry the filter explicitly, because
+  a deleted task that still counts against its project makes the sidebar disagree
+  with the list it opens.
 - **A select policy may not hide a deleted row, and this was tried.**
-  `20260810000002` added `and deleted_at is null` to `tasks_select` as a
-  backstop, and it made deleting impossible: Postgres applies SELECT policies
-  to an UPDATE's *result* rows when the statement has a RETURNING clause, and
-  PostgREST's UPDATE always has one — it reads the count back out of a CTE even
-  under `Prefer: return=minimal`. The write landed, the resulting row had
-  `deleted_at` set, the policy rejected it on the way back, and every delete on
-  both apps came home 403. The USING clause being checked against the row as it
-  *was* is true and is the other half of the sentence. It also killed
-  `purgeDeleted()`, whose `not deleted_at is null` lookup runs over the anon key
-  from the apps and matched nothing. `20260811000001` reverts it; the reasoning
-  is written out there.
-- **`restore()` still never reads the rows it restores** — it is one UPDATE by
-  id, which is what makes it idempotent and lets it run without the caller
-  holding anything but the ids `delete()` returned.
-- **The calendar trigger learned about it.** A soft delete is an UPDATE, so the
-  trigger's DELETE branch never fires and a deleted task's Google Calendar
-  event would have sat there forever. One clause — `deleted_at is null` — in
-  each syncable predicate turns a delete into the existing "enqueue a delete"
-  branch and a restore into the existing "enqueue an upsert" one. `isSyncable`
-  in the calendar worker carries the same clause and **must stay in step**, or
-  an upsert still queued from before the delete re-creates the event.
-- **This is not a trash can.** Nothing in either app lists deleted tasks or
-  offers a way to reach them, and `TASK_TRASH_RETENTION_MS` is an hour — close
-  to the undo window rather than comfortably past it, because "deleted" has to
-  keep meaning deleted. The window is slack for the purge sweep, not a feature.
-- **The purge is driven from the apps**, riding along with the status-sync
-  sweep on both platforms (web's `StatusSyncRunner`, mobile's
-  `sweepStatusSync`). Same shape, same reasoning: one filtered read that finds
-  nothing in the ordinary case, and no infrastructure a preview deploy won't
-  have. It never triggers a refresh — the rows it destroys have been invisible
-  since the moment they were deleted.
+  `20260810000002` added `and deleted_at is null` to `tasks_select` as a backstop,
+  and it made deleting impossible. Postgres applies SELECT policies to an UPDATE's
+  *result* rows when the statement has a RETURNING clause, and PostgREST's UPDATE
+  always has one — it reads the count back out of a CTE even under
+  `Prefer: return=minimal`. The write landed, the resulting row had `deleted_at`
+  set, the policy rejected it on the way back, and every delete on both apps came
+  home 403. (The USING clause being checked against the row as it *was* is true,
+  and is the other half of the sentence.) It also killed `purgeDeleted()`, whose
+  `not deleted_at is null` lookup runs over the anon key from the apps and matched
+  nothing. `20260811000001` reverts it; the reasoning is written out there.
+- **`restore()` never reads the rows it restores.** It is one UPDATE by id, which
+  is what makes it idempotent and lets it run without the caller holding anything
+  but the ids `delete()` returned.
+- **The calendar trigger knows about it.** A soft delete is an UPDATE, so the
+  trigger's DELETE branch never fires and a deleted task's Google Calendar event
+  would sit there forever. One clause — `deleted_at is null` — in each syncable
+  predicate turns a delete into the existing "enqueue a delete" branch and a
+  restore into the existing "enqueue an upsert" one. `isSyncable` in the calendar
+  worker carries the same clause and **must stay in step**, or an upsert queued
+  from before the delete re-creates the event.
+- **This is not a trash can.** Nothing in either app lists deleted tasks or offers
+  a way to reach them, and `TASK_TRASH_RETENTION_MS` is an hour — close to the
+  undo window rather than comfortably past it, because "deleted" has to keep
+  meaning deleted. The window is slack for the purge sweep, not a feature.
+- **The purge is driven from the apps**, riding along with the status-sync sweep
+  on both platforms (web's `StatusSyncRunner`, mobile's `sweepStatusSync`). Same
+  shape, same reasoning: one filtered read that finds nothing in the ordinary
+  case, and no infrastructure a preview deploy won't have. It never triggers a
+  refresh — the rows it destroys have been invisible since they were deleted.
 - **The demo sandbox soft-deletes too**, and needs the filter in *two* places:
-  `DemoTasksApi`'s `tasks` getter, and `useDemoData` — the demo screens read
-  the store directly rather than calling `list()`, so without the second one a
-  deleted task simply stayed on screen. The real app has no equivalent gap; its
-  lists are server components that go through `TasksApi` like everything else.
+  `DemoTasksApi`'s `tasks` getter, and `useDemoData`. The demo screens read the
+  store directly rather than calling `list()`, so without the second one a deleted
+  task simply stayed on screen. The real app has no equivalent gap; its lists are
+  server components that go through `TasksApi` like everything else.
 
 ### The undo window
 
-`UNDO_TOAST_TTL_MS` is **9 seconds**, up from six, and both surfaces read it
-from `@do-done/shared` so the promise can't differ by platform. Six was measured
-against the wrong thing — the time it takes to *read* the toast, not the time it
+`UNDO_TOAST_TTL_MS` is **9 seconds**, up from six, and both platforms read it from
+`@do-done/shared` so the promise can't differ by platform. Six was measured
+against the wrong thing: the time it takes to *read* the toast, not the time it
 takes to notice the list is wrong, work out which row went, decide that wasn't
 what you meant, and get the pointer down there.
 
-The toast is the only door back from a deletion, so it stops being a white card
-on a white page:
+The toast is the only way back from a deletion, so it stops being a white card on
+a white page:
 
-- **Dark on both themes**, above the page's palette entirely. It is the only
-  element on screen that is temporary and irreversible-if-missed.
+- **Dark on both themes**, outside the page's palette entirely. It is the only
+  element on screen that is temporary and irreversible if missed.
 - **Undo is a filled control**, not a text link beside a message.
 - **The window is drawn draining** — a hairline bar under the button, linear
-  because it is reporting a fact rather than expressing a feeling. That is the
+  because it reports a fact rather than expressing a feeling. That is the
   difference between "there is an Undo" and "there is an Undo *and you have
-  time*", which is the whole point of widening it. Web sets the CSS animation's
-  duration from the constant; mobile drives an `Animated.Value` from the same
-  mount as the dismiss timer. Either way the bar and the timer can't disagree.
+  time*", which is the point of widening it. Web sets the CSS animation's duration
+  from the constant; mobile drives an `Animated.Value` from the same mount as the
+  dismiss timer. Either way the bar and the timer can't disagree.
 - **⌘Z takes it back** (web), bound only while a toast with an undo is up, and
-  never when the event target is an input, textarea or contenteditable — the
+  never when the event target is an input, textarea, or contenteditable. The
   shortcut is a convenience over the button and must never be the reason a
   half-typed title loses its last word. The binding is advertised on the button,
   since one nobody is told about is one nobody presses.
@@ -1085,31 +1111,30 @@ wait to be tapped.
 **`ReanimatedSwipeable` reports the direction of the *gesture*, not the panel
 that opened** — the reverse of the `Swipeable` it replaces, and of how
 `onSwipeableWillOpen('left')` reads. `panelForSwipe()` in
-`apps/mobile/lib/swipe-actions.ts` is the one place that mapping is written
-down, with the library source quoted. Reading it backwards is silent and total:
-the row completed the task on the delete gesture, showed "Completed …", and did
-nothing at all on the complete gesture — with the Today/Tomorrow/Delete buttons
-snapping closed before they could be reached.
+`apps/mobile/lib/swipe-actions.ts` is the one place that mapping is written down,
+with the library source quoted. Reading it backwards fails silently and
+completely: the row completed the task on the delete gesture, showed
+"Completed …", and did nothing at all on the complete gesture — with the
+Today/Tomorrow/Delete buttons snapping closed before they could be reached.
 
 **Completion writes are serialized per task id** (`completionChains` in
-`lib/task-queries.ts`). Undo is a second write to the same row while the first
-is still in the air — the toast goes up as the completion is sent, and the row
-is still being held for its collapse animation — so fired concurrently the two
+`lib/task-queries.ts`). Undo is a second write to the same row while the first is
+still in the air — the toast goes up as the completion is sent, and the row is
+still being held for its collapse animation — so fired concurrently the two
 UPDATEs race and the row keeps whichever reached Postgres second. Chaining makes
-the last *intent* the last write; the sequence number a call claims before
-joining the queue also tells a superseded write to leave the cache alone, or its
-`dropFromLists()` fires mid-undo and takes back the row the user just recovered.
+the last *intent* the last write. The sequence number a call claims before
+joining the queue also tells a superseded write to leave the cache alone;
+otherwise its `dropFromLists()` fires mid-undo and takes back the row the user
+just recovered.
 
 The toast waits for the write to land, and a failed undo says so instead of
-leaving a button that visibly does nothing. `Toast.undo` is therefore optional:
-a message-only toast renders without the button.
+leaving a button that visibly does nothing. `Toast.undo` is therefore optional: a
+message-only toast renders without the button.
 
-Delete is no longer the exception. It used to be a hard delete behind a confirm
-dialog with no undo — the dialog existed precisely *because* `TasksApi.delete()`
-cleared the Storage bytes and cascaded the subtasks, leaving no row to offer
-back. The delete is reversible now (see *Deleting a task* above), so the dialog
-is gone and the toast carries a real Undo, the same one every other destructive
-action here gets.
+Delete is the exception to all of it — a hard delete behind a confirm dialog,
+with no undo. `TasksApi.delete()` clears Storage bytes and cascades subtasks;
+there is no row left to restore.
+
 ## The task row: two coloured slots (mobile)
 
 **The row has exactly two places colour is allowed, and each carries one
@@ -1117,166 +1142,169 @@ variable.** Everything else that used to be a chip is one muted line of prose.
 
 | Slot | Variable | Why that channel |
 | --- | --- | --- |
-| The **ring** (leading circle) | Project — its colour, and its `icon` emoji when set | Hue is a *nominal* channel: it says which, not how much. A project is a label with no ordering, so colour fits it natively. |
-| The **gutter** (10 px, left of the ring) | Urgency — a red dot when overdue, then a bar whose length falls with the rank, nothing for a P4 | Priority is *ordinal*, and the channels that carry order are position and length. Red–orange–yellow only reads as a ranking because traffic lights taught us, and that scale collapses the moment a user picks red for their "Home" project. |
+| The **ring** (leading circle) | Project — its colour, and its `icon` when set | Hue is a *nominal* channel: it says which, not how much. A project is a label with no ordering, so colour fits it. |
+| The **gutter** (10px, left of the ring) | Urgency — a red dot when overdue, then a bar whose length falls with the rank, nothing for a P4 | Priority is *ordinal*, and the channels that carry order are position and length. Red–orange–yellow only reads as a ranking because traffic lights taught us, and that breaks the moment a user picks red for their "Home" project. |
 
-The rules that make it work, all of them load-bearing:
+Rules, all of which matter:
 
-- **P4 draws nothing, and P3 does.** They are not the matched pair the names
-  suggest: `tasks.priority` is `not null default 'p4'`, so P4 is what a task
-  gets by *not* being triaged — the widget, a deep link and every MCP create
-  land there. A mark for P4 would be a mark for absence on very nearly every
-  row, and a signal that fires everywhere has stopped being one. P3 is the
-  lowest rank someone actually chose, so it is the lowest one worth drawing,
-  and it is the only cool mark in the column: slate, so it reads as ranked
-  rather than urgent, and deliberately **not** the indigo accent, which means
-  *selected* everywhere else in the app.
-- **A task cannot *not* have a priority.** `tasks.priority` is `not null
-  default 'p4'` — there is no null, no `none`, and no surface that offers one.
-  P4 is therefore doing two jobs indistinguishably: it is the rank called
-  "Low", and it is what a task carries when nobody chose. That is why the line
-  falls there rather than anywhere tidier. Splitting the two apart would let
-  all four ranks draw — a migration plus every priority surface (the check
-  constraint, `TaskPriority`, the focus score, the `#p1`–`#p4` parser, display
-  grouping/filters, both pickers, the widget, the MCP enums), so until someone
-  wants that, this is the honest line.
+- **P4 draws nothing; P3 does.** They are not the matched pair the names
+  suggest. `tasks.priority` is `not null default 'p4'`, so P4 is what a task gets
+  by *not* being triaged — the widget, a deep link, and every MCP create land
+  there. A mark for P4 would be a mark for absence on nearly every row, and a
+  signal that fires everywhere has stopped being one. P3 is the lowest rank
+  someone actually chose, so it is the lowest one worth drawing. It is the only
+  cool mark in the column: slate, so it reads as ranked rather than urgent, and
+  deliberately not the indigo accent, which means *selected* everywhere else.
+- **A task cannot *not* have a priority.** The column is `not null default
+  'p4'` — no null, no `none`, and no surface offers one. So P4 does two jobs
+  indistinguishably: it is the rank called "Low", and it is what a task carries
+  when nobody chose. That is why the line falls there rather than somewhere
+  tidier. Separating them would let all four ranks draw, but it means a migration
+  plus every priority surface (the check constraint, `TaskPriority`, the focus
+  score, the `#p1`–`#p4` parser, display grouping and filters, both pickers, the
+  widget, the MCP enums). Until someone wants that, this is the honest line.
 - **"Low" is the only name that rank has**, on both platforms, in the editor,
-  the context menu and the quick-add chip. Mobile's composer briefly offered a
-  fifth row reading "No priority", which set the draft to null and so created
-  a P4 — the same task the Low row makes, under a name for a state that does
-  not exist. Re-tapping the selected rank still clears the chip, and that is
-  also a P4; it just reads as undoing a choice rather than as a fifth rank.
+  the context menu, and the quick-add chip. Mobile's composer briefly offered a
+  fifth row reading "No priority", which set the draft to null and so created a
+  P4 — the same task the Low row makes, under a name for a state that does not
+  exist. Re-tapping the selected rank still clears the chip, and that is also a
+  P4; it just reads as undoing a choice rather than as a fifth rank.
 - **Overdue outranks priority** in the gutter, and is the only thing in that
-  column that is ever red. Being late is said in the title's weight too, so it
+  column that is ever red. Being late is also said in the title's weight, so it
   reads from further away than a coloured chip did.
 - **An unset field takes no space at all** — no placeholder, no empty chip.
-  `rowSubline` returns only the parts that exist, and a bare task renders a
-  title and nothing else.
+  `rowSubline` returns only the parts that exist, so a bare task renders a title
+  and nothing else.
 - **"Today" never appears on a row.** A task scheduled today prints its time or
-  nothing; the word on every row of the Today screen is a label that has
-  stopped carrying information. An overdue task prints its *age* ("3 days
-  ago"), which is the actionable form.
-- **A project with no emoji is a first-class state**, not a fallback — the ring
-  is still its colour. A task with no project gets a deliberate neutral.
-- **Completion fills the ring with the project's colour**, the same way for
-  every priority. Done is a state, not a rank; the reward must never vary by
-  how important the task was.
+  nothing; the word on every row of the Today screen carries no information. An
+  overdue task prints its *age* ("3 days ago"), which is the actionable form.
+- **A project with no icon is a first-class state**, not a fallback — the ring is
+  still its colour. A task with no project gets a deliberate neutral.
+- **Completion fills the ring with the project's colour**, the same way for every
+  priority. Done is a state, not a rank; the reward must never vary by how
+  important the task was.
 
 The decisions are pure functions in `packages/shared/src/task-row.ts`
-(`rowGutter` / `rowSubline` / `rowEstimate`), *not* in the component, because
-`apps/mobile` has no renderer to test a component with — see Testing below —
-and because web will want the same answers when its row follows.
-`RECURRENCE_PRESETS` moved there too, so the label a row prints can never drift
-from the option the editor's picker set.
+(`rowGutter` / `rowSubline` / `rowEstimate`), not in the component, because
+`apps/mobile` has no renderer to test a component with (see Testing) and because
+web will want the same answers when its row follows. `RECURRENCE_PRESETS` moved
+there too, so the label a row prints can never drift from the option the editor's
+picker set.
 
-**Both surfaces encode it the same way, and only the anchor is shared.** The
-two `TaskItem`s are independent (`apps/web` Tailwind, `apps/mobile`
-StyleSheet), and they agree on the ring and the gutter — both call `rowGutter`
-— but not on what follows the title:
+**Both platforms encode it the same way, and only the anchor is shared.** The two
+`TaskItem`s are independent (`apps/web` Tailwind, `apps/mobile` StyleSheet). They
+agree on the ring and the gutter — both call `rowGutter` — but not on what
+follows the title:
 
 - **Mobile** collapses every chip into `rowSubline`'s single line of prose,
   because nothing in that row was interactive anyway.
 - **Web keeps its chips**, because there they are *editors*: priority, project,
-  estimate and schedule each open a popover in place. Collapsing them into
-  prose would delete four inline affordances to save a line. The project chip
-  drops only its colour dot, which the ring now says. Turning them into a
-  subline that swaps back to editors on hover is a real option, and a separate
-  change.
+  estimate, and schedule each open a popover in place. Collapsing them into prose
+  would delete four inline controls to save a line. The project chip drops only
+  its colour dot, which the ring now carries. Turning them into a subline that
+  swaps back to editors on hover is a real option, and a separate change.
 
-Web-only detail: the gutter is also the priority editor's button, so a P4 row
+**Web-only detail:** the gutter is also the priority editor's button, so a P4 row
 has an invisible control. A faint placeholder fades in under the pointer
 (`group-hover/row`) to keep it discoverable.
 
-Two follow-ups deliberately left out: dropping the project from the subline
-when it repeats the row above (needs list-level context at every call site —
+**A title with no `flex` of its own.** `styles.title` must not set `flex: 1`. The
+text is handed to `StruckText`, which wraps it in a View — a *column* container —
+so `flex: 1` there means `flexBasis: 0` on the **vertical** axis and collapses
+the title to height 0. Filling the row is `StruckText`'s root's job. When this
+was wrong, every row without a ★ rendered no title at all, on every screen; only
+focused rows survived, because the star gave the row a height to centre against.
+
+Two follow-ups deliberately left out: dropping the project from the subline when
+it repeats the row above (needs list-level context at every call site —
 `hideProject` is the prop, and `app/projects/[id].tsx` already passes it), and
 the section-header changes (capacity, create-into-group). One divergence worth
 revisiting: web still paints an overdue date chip red, so an overdue row there
 says it three ways (gutter, weight, chip) where mobile says it two.
 
 One behaviour was removed on purpose: the row's project chip used to open a
-picker inline. The chip is gone, and no other element in the row is a natural
-target for it, so the picker now lives only in the editor — one tap away.
+picker inline. The chip is gone and no other element in the row is a natural
+target, so the picker now lives only in the editor, one tap away.
 
 ## Attachments
 
-A task can carry files. Two halves that have to stay in agreement:
+A task can carry files. Two halves that must stay in agreement:
 
 | Where | What |
 | --- | --- |
 | `task_attachments` | The metadata row — name, mime type, size. Cascades with the task. |
 | `task-attachments` Storage bucket | The bytes, at `{user_id}/{task_id}/{uuid}.{ext}`. |
 
-**The leading `user_id` segment is load-bearing.** Storage RLS can only see an
-object's path — it cannot join back to `tasks` — so the owner has to be *in*
-the key. `attachmentStoragePath()` in `packages/shared/src/attachments.ts` is
-the only thing that builds one. The bucket is private; every read is a
-short-lived signed URL from `AttachmentsApi.signedUrls()`.
+**The leading `user_id` segment is required.** Storage RLS can only see an
+object's path — it cannot join back to `tasks` — so the owner has to be *in* the
+key. `attachmentStoragePath()` in `packages/shared/src/attachments.ts` is the
+only thing that builds one. The bucket is private; every read is a short-lived
+signed URL from `AttachmentsApi.signedUrls()`.
 
-**Write order is deliberate, both ways.** Upload puts the bytes down before the
-row and deletes the object again if the insert fails; remove deletes the bytes
-before the row. A row pointing at absent bytes renders as a permanently broken
-attachment, whereas bytes with no row are merely invisible — so the failure
-mode always lands on the invisible side.
+**Write order is deliberate in both directions.** Upload puts the bytes down
+before the row, and deletes the object again if the insert fails. Remove deletes
+the bytes before the row. A row pointing at absent bytes renders as a permanently
+broken attachment, whereas bytes with no row are merely invisible — so the
+failure always lands on the invisible side.
 
-**`TasksApi.delete()` clears the bucket first**, across the task's whole
-subtree. The `task_attachments` FK cascades, but a cascade only reaches the
+**`TasksApi.delete()` clears the bucket first**, across the task's whole subtree.
+The `task_attachments` foreign key cascades, but a cascade only reaches the
 metadata: a Storage object has no foreign key to follow, so without this the
-bytes would sit there forever with nothing in the app pointing at them. The
-subtree walk is bounded by the depth-2 trigger, and short-circuits to a single
-query for a task with no children.
+bytes would sit there forever with nothing pointing at them. The subtree walk is
+bounded by the depth-2 trigger and short-circuits to a single query for a task
+with no children.
 
 **Rendering is classified once, in `attachmentKind()`** — by extension first,
 MIME type second. A `.md` file arrives as `text/plain` from a browser, as
-`application/octet-stream` from Android's document picker, and sometimes with
-an empty type from a drag-and-drop; the extension is the only signal that
-survives all three. SVG is deliberately *not* an inline image: it can carry a
-`<script>`, and inlining one would run it in the app's own origin.
+`application/octet-stream` from Android's document picker, and sometimes with an
+empty type from a drag-and-drop; the extension is the only signal that survives
+all three. SVG is deliberately not an inline image: it can carry a `<script>`,
+and inlining one would run it in the app's own origin.
 
-Markdown renders on both surfaces but through different machinery, because
-React Native has no DOM:
+Markdown renders on both platforms but through different machinery, because React
+Native has no DOM:
 
-- **web** — `react-markdown` + `remark-gfm`, with `MARKDOWN_COMPONENTS` mapping
-  its elements onto the modal's type scale (there's no `@tailwindcss/typography`
-  here). `rehype-raw` is deliberately absent: attachment content is untrusted,
-  so raw HTML in an uploaded file must stay inert text.
-- **mobile** — `parseMarkdown()` from `@do-done/shared` returns a typed block
-  tree that `MarkdownView.tsx` draws with `<Text>`/`<View>`. Keeping the parse
-  in the shared package is also what makes it testable: `apps/mobile` has no
+- **Web** — `react-markdown` + `remark-gfm`, with `MARKDOWN_COMPONENTS` mapping
+  its elements onto the modal's type scale (there is no
+  `@tailwindcss/typography` here). `rehype-raw` is deliberately absent:
+  attachment content is untrusted, so raw HTML in an uploaded file must stay
+  inert text.
+- **Mobile** — `parseMarkdown()` from `@do-done/shared` returns a typed block
+  tree that `MarkdownView.tsx` draws with `<Text>`/`<View>`. Keeping the parse in
+  the shared package is also what makes it testable, since `apps/mobile` has no
   renderer in CI.
 
 Mobile uses two pickers because the platforms split them — `expo-image-picker`
-for the library and `expo-document-picker` for files — and reads bytes with
-`expo-file-system`'s `File(uri).bytes()` (Hermes has no `atob`, and base64
-would inflate a 10 MB file by a third in memory). **All three are new native
-modules, so mobile attachments need a fresh `eas build`; they will not arrive
-over OTA.**
+for the library, `expo-document-picker` for files — and reads bytes with
+`expo-file-system`'s `File(uri).bytes()` (Hermes has no `atob`, and base64 would
+inflate a 10 MB file by a third in memory). **All three are native modules, so
+mobile attachments need a fresh `eas build`. They will not arrive over OTA.**
 
-`attachmentKind()` also classifies **audio**, which is what every voice note
-comes back as. Playback is `expo-audio` on mobile and a plain `<audio controls>`
-on web — the browser's transport is keyboard-accessible and already has a
-scrubber, so a hand-rolled one would be a worse version of it. Both surfaces
-sign a URL for audio the same way they do for images (`needsSignedUrl`), and
-both label a file matching `isVoiceNoteFileName()` as "Voice note" rather than
-showing its timestamped storage name.
+`attachmentKind()` also classifies **audio**, which is what every voice note is.
+Playback is `expo-audio` on mobile and a plain `<audio controls>` on web — the
+browser's transport is keyboard-accessible and already has a scrubber, so a
+hand-rolled one would be worse. Both platforms sign a URL for audio the same way
+they do for images (`needsSignedUrl`), and both label a file matching
+`isVoiceNoteFileName()` as "Voice note" rather than showing its timestamped
+storage name.
 
 ## Voice notes
 
 **A recording produces two artefacts and DoDone keeps both**: the audio, as an
-ordinary attachment, and the transcript, as the task's text. Keeping the audio
-is the feature rather than a nicety — a recogniser mishears names and numbers
-constantly, so the recording is the record of what was said and the transcript
-is a convenience over it.
+ordinary attachment, and the transcript, as the task's text. Keeping the audio is
+the feature, not a nicety — a recogniser mishears names and numbers constantly,
+so the recording is the record of what was said and the transcript is a
+convenience over it.
 
 **One microphone session produces both.** `expo-speech-recognition` will persist
 the audio it is already listening to (`recordingOptions: { persist: true }`),
-which is why there is no recorder module alongside the recogniser: two things
-contending for the mic means one of them silently gets nothing on Android. It
-was already a dependency, so the *capture* half needed no new native module.
+which is why there is no separate recorder module: two things contending for the
+mic means one of them silently gets nothing on Android. It was already a
+dependency, so the capture half needed no new native module.
 
 | Where | What |
 | --- | --- |
-| `packages/shared/src/voice.ts` | `splitTranscript`, `appendTranscript`, the file naming, the duration cap. Shared so a sentence can't become the title on the phone and the description on the web. |
+| `packages/shared/src/voice.ts` | `splitTranscript`, `appendTranscript`, file naming, the duration cap. Shared so a sentence can't become the title on the phone and the description on the web. |
 | `apps/mobile/lib/voice-session.ts` | Pure decisions: transcript accumulation, level normalisation, the completion gate, error copy. |
 | `apps/mobile/lib/voice-capture.ts` | `useVoiceCapture` — the native module, lazily required so Expo Go degrades to `supported: false` rather than crashing. |
 | `apps/mobile/lib/voice-note.ts` | `attachVoiceNote` — bytes out of the cache, up to Storage, cache file deleted. |
@@ -1285,199 +1313,204 @@ was already a dependency, so the *capture* half needed no new native module.
 
 Rules that look arbitrary and aren't:
 
-- **The transcript splits into a title and a description, but only where there
-  is no title yet.** Quick-add takes the first believable sentence as the title
-  (falling back to a word-boundary cut at `VOICE_TITLE_MAX_CHARS` when the
-  recogniser returned no punctuation, which is Android's default); the task
-  editor *appends* the whole thing to Notes, because the task already has a
-  title. A sentence boundary is only believed after three words — dictation
-  punctuates abbreviations too, and "Call Dr." would otherwise title the task
-  with half a name.
+- **The transcript splits into a title and a description, but only where there is
+  no title yet.** Quick-add takes the first believable sentence as the title,
+  falling back to a word-boundary cut at `VOICE_TITLE_MAX_CHARS` when the
+  recogniser returned no punctuation (Android's default). The task editor
+  *appends* the whole thing to Notes, because the task already has a title. A
+  sentence boundary is only believed after three words — dictation punctuates
+  abbreviations too, and "Call Dr." would otherwise title the task with half a
+  name.
 - **A final result is folded in by prefix, not by appending.** Android's
-  continuous mode emits one result per utterance; iOS re-sends everything said
-  so far. Appending blindly stutters on iOS, replacing blindly loses every
-  Android segment but the last, and the prefix test needs no platform check.
-- **A session hands over only once `end` *and* `audioend` have both fired.**
-  The file is explicitly unsafe to read before `audioend`, so completing on
-  `end` alone ships a truncated WAV — a bug that reproduces on one phone and
-  not another. A grace timer covers a recogniser that dies mid-session.
+  continuous mode emits one result per utterance; iOS re-sends everything said so
+  far. Appending blindly stutters on iOS, replacing blindly loses every Android
+  segment but the last, and the prefix test needs no platform check.
+- **A session hands over only once `end` *and* `audioend` have both fired.** The
+  file is explicitly unsafe to read before `audioend`, so completing on `end`
+  alone ships a truncated WAV — a bug that reproduces on one phone and not
+  another. A grace timer covers a recogniser that dies mid-session.
 - **The recording is uploaded after the task is created, never before.** An
   attachment row points at a `task_id`, so there is nothing to attach to until
   then; the file waits in the cache across the gap between speaking and
   submitting. A failed upload says so and keeps the task — and keeps the local
   file, since destroying the only copy of what someone said over a transient
   network error is the one unrecoverable outcome here.
-- **The name and MIME type come from the URI the recogniser wrote**, not from
-  an assumption: Android writes WAV, iOS may write CAF, and neither announces
-  which. `attachmentKind` reads the extension before the MIME type, so guessing
-  wrong renders the app's own recording as an anonymous download chip.
-- **`VOICE_MAX_DURATION_MS` is the attachment size limit wearing a clock's
-  face.** 16 kHz mono PCM is ~32 KB/s, so the 10 MB bucket ceiling is a little
-  over five minutes; four leaves headroom, and a counter the user can watch is
-  kinder than rejecting a five-minute upload after the fact.
-- **The recorder is a plain card, not a `Modal`.** Every surface it appears on
-  is keyboard-anchored, and an Android `Modal` opens a new window and drops the
-  IME — the same reason `QuickAddFields`' chip popovers are inline.
+- **The name and MIME type come from the URI the recogniser wrote**, not from an
+  assumption: Android writes WAV, iOS may write CAF, and neither announces which.
+  `attachmentKind` reads the extension before the MIME type, so guessing wrong
+  renders the app's own recording as an anonymous download chip.
+- **`VOICE_MAX_DURATION_MS` is the attachment size limit expressed as a clock.**
+  16 kHz mono PCM is about 32 KB/s, so the 10 MB bucket ceiling is a little over
+  five minutes. Four leaves headroom, and a counter the user can watch is kinder
+  than rejecting a five-minute upload after the fact.
+- **The recorder is a plain card, not a `Modal`.** Every surface it appears on is
+  keyboard-anchored, and an Android `Modal` opens a new window and drops the IME
+  — the same reason `QuickAddFields`' chip popovers are inline.
 
-### Getting to it
+### Ways in
 
-Four doors, all reaching the same composer:
+Four entry points, all reaching the same composer:
 
 | Entry | How |
 | --- | --- |
 | Quick-add bar (above the tab bar) | Mic button |
 | `dodone://quick-add?voice=1` | In-app deep link, opens straight into recording |
-| `dodoneadd://voice` | The **"Voice task"** launcher shortcut — `QuickAddActivity`, floating over the live home screen |
+| `dodoneadd://voice` | The "Voice task" launcher shortcut — `QuickAddActivity`, floating over the live home screen |
 | Task editor | 🎙 Record, beside Photo and File; transcript appends to Notes |
 
-`QuickAddActivity` answers `dodoneadd://open` and `dodoneadd://voice`, and the
-launch URI is the *only* thing that tells them apart — `quick-add-root.tsx`
-reads it via `getInitialURL` and `isVoiceLaunch` (`lib/quick-add-launch.ts`)
-matches it. That match and the shortcut's `data` URI must stay in step, which
+`QuickAddActivity` answers both `dodoneadd://open` and `dodoneadd://voice`, and
+the launch URI is the *only* thing that tells them apart. `quick-add-root.tsx`
+reads it via `getInitialURL`, and `isVoiceLaunch` (`lib/quick-add-launch.ts`)
+matches it. **That match and the shortcut's `data` URI must stay in step**, which
 is what `withAndroidShortcuts.test.ts` asserts; a mismatch is silent on the
-device, opening the wrong door with no error. The composer does not mount until
-the URI has been read, since mounting on the default and correcting afterwards
-races a permission dialog over a keyboard that shouldn't have come up.
+device and opens the wrong door with no error. The composer does not mount until
+the URI has been read, because mounting on the default and correcting afterwards
+races a permission dialog over a keyboard that shouldn't have appeared.
 
-## Design System
+## Design system
 
 - Accent: indigo-500 (#6366f1)
 - Font: Inter
 - Spacing: 4px grid
-- Aesthetic: Things 3 cleanliness + Linear speed
+- Aesthetic: Things 3 cleanliness, Linear speed
 - Tokens in `packages/ui/src/theme.ts`
 
 ### A project's colour and its icon
 
-Both are the *identity* channel on every task row's ring, so both are chosen
-from a shared menu rather than typed.
+Both are the identity channel on every task row's ring, so both are chosen from a
+menu rather than typed.
 
-- **`PROJECT_COLOR_OPTIONS`** (`packages/shared/src/constants.ts`) is twelve
-  wide and two deep: a bright spectrum, then the same sweep darker finishing on
-  four neutrals. The grid is `grid-cols-12`, not a wrapping row — a palette that
-  reflows to 11-and-1 loses the pairing that lets two projects both be "the
-  green one" and still be told apart at 20 px.
-- **`COMPACT_PROJECT_COLORS`** is the old eight, and it is what the *inline*
-  "new project" forms use — web's project popover, mobile's quick-add chip.
-  Four wrapped rows of dots is fine in a dialog and a wall in a popover over a
+- **`PROJECT_COLOR_OPTIONS`** (`packages/shared/src/constants.ts`) is twelve wide
+  and two deep: a bright spectrum, then the same sweep darker, ending on four
+  neutrals. The grid is `grid-cols-12`, not a wrapping row — a palette that
+  reflows to 11-and-1 loses the pairing that lets two projects both be "the green
+  one" and still be told apart at 20px.
+- **`COMPACT_PROJECT_COLORS`** is the older set of eight, used by the *inline*
+  "new project" forms: web's project popover and mobile's quick-add chip. Four
+  wrapped rows of dots is fine in a dialog and a wall in a popover over a
   keyboard, and capture is not where a colour gets chosen carefully.
 - **`packages/shared/src/project-icons.ts`** is the emoji catalogue: ten groups
   plus **Symbols**, which are not emoji at all. `projects.icon` has always
-  accepted a free string rendered as text, so ★ and ◆ work and take the row's
-  own text colour — the group exists to say so, since nothing did.
-- **Two length budgets, and the emoji catalogue satisfies both.** Postgres
-  counts code points and `ProjectSchema` counts UTF-16 units, so a ZWJ family —
-  7 and 11 — passes the column and is rejected by the client. Sequences that
-  long are not offered, and `normalizeProjectIcon` drops one rather than
-  truncating it (half a ZWJ sequence renders as two unrelated emoji).
-  `firstGrapheme` is the cluster reader, spelled out by hand because
-  `Intl.Segmenter` is not dependable on Hermes. That budget is
-  `PROJECT_EMOJI_MAX_LENGTH` (10) and is about the glyph, **not** the column —
-  `PROJECT_ICON_MAX_LENGTH` (64) is the column, and they are different numbers
-  for different reasons.
+  accepted a free string rendered as text, so ★ and ◆ work and take the row's own
+  text colour. The group exists to say so, since nothing did.
+- **Two length budgets, and the catalogue satisfies both.** Postgres counts code
+  points and `ProjectSchema` counts UTF-16 units, so a ZWJ family (7 and 11)
+  passes the column and is rejected by the client. Sequences that long are not
+  offered, and `normalizeProjectIcon` drops one rather than truncating it, since
+  half a ZWJ sequence renders as two unrelated emoji. `firstGrapheme` is the
+  cluster reader, written by hand because `Intl.Segmenter` is not dependable on
+  Hermes. That budget is `PROJECT_EMOJI_MAX_LENGTH` (10) and is about the glyph;
+  `PROJECT_ICON_MAX_LENGTH` (64) is the column. Different numbers for different
+  reasons.
 
-### `projects.icon` holds two kinds of thing
+### `projects.icon` holds two kinds of value
 
 The picker has an **Icons** tab (a curated Phosphor set, MIT) beside the emoji
 one, and the column stores whichever was chosen:
 
-| Stored value        | What it is                                   |
-| ------------------- | -------------------------------------------- |
-| `🚀`                | A character. Printed as text.                 |
+| Stored value | What it is |
+| --- | --- |
+| `🚀` | A character. Printed as text. |
 | `ph:briefcase:fill` | A Phosphor icon, drawn from `PHOSPHOR_PATHS`. |
 
 **`parseProjectIcon` in `packages/shared/src/phosphor.ts` is the only thing
-allowed to decide which**, and every surface on both apps and in the widget goes
-through it. The failure mode of guessing is spectacular: a row that mistakes a
-token for a glyph renders the literal text `ph:briefcase:fill` inside a 20 px
-ring. The handful of places that genuinely need a `string` — a chip label, a
-menu row — call `projectIconText`, which yields the character or nothing.
+allowed to decide which**, and every surface in both apps and the widget goes
+through it. Guessing fails loudly: a row that mistakes a token for a glyph
+renders the literal text `ph:briefcase:fill` inside a 20px ring. The few places
+that genuinely need a `string` — a chip label, a menu row — call
+`projectIconText`, which yields the character or nothing.
 
 - **An unknown name is `none`, not an emoji.** A token this build has no paths
   for (a trimmed catalogue, an older client, a hand-written row) draws a bare
   coloured ring, which is the only failure here that still looks deliberate.
 - **The weight rides in the token**, so it belongs to the project rather than to
-  a setting elsewhere. That is what lets the picker offer it beside the grid,
-  where the choice is being made, and it means a row needs no second read to
-  draw itself. The app names the three weights for what they *are* — Phosphor's
-  `bold` is **Outline**, `fill` is **Fill**, `duotone` is **Light fill** —
-  because "Bold" beside "Fill" reads as two points on one scale.
-- **Fill is the default.** The glyph in the ring is 11–12 px and Phosphor draws
-  on a 256 px grid, so a line weight lands under a device pixel there while a
-  solid shape survives.
+  a setting elsewhere. That lets the picker offer it beside the grid, where the
+  choice is being made, and means a row needs no second read to draw itself. The
+  app names the three weights for what they are — Phosphor's `bold` is
+  **Outline**, `fill` is **Fill**, `duotone` is **Light fill** — because "Bold"
+  beside "Fill" reads as two points on one scale.
+- **Fill is the default.** The glyph in the ring is 11–12px and Phosphor draws on
+  a 256px grid, so a line weight lands under a device pixel while a solid shape
+  survives.
 - **`phosphor-data.generated.ts` is generated, ~245 KB, and shared by all three
   renderers.** Web builds `<svg>` elements, mobile builds `react-native-svg`
-  ones, and the widget takes **markup** from `phosphorSvgMarkup` because the
-  launcher's host draws none of React Native — the same reason the Quick Add
-  tile ships as a string. Regenerate it with `tools/phosphor/emit.mjs` against
-  `@phosphor-icons/core`; the curated list is `tools/phosphor/catalogue.mjs` beside it.
-- **`react-native-svg` is a new native module.** Mobile draws nothing for a
-  Phosphor icon until a fresh `eas build` is installed — it will not arrive over
-  OTA, the same way attachments and voice didn't. Emoji are unaffected.
+  ones, and the widget takes **markup** from `phosphorSvgMarkup`, because the
+  launcher's host draws none of React Native — the same reason the Quick Add tile
+  ships as a string. Regenerate with `tools/phosphor/emit.mjs` against
+  `@phosphor-icons/core`; the curated list is `tools/phosphor/catalogue.mjs`.
+- **`react-native-svg` is a native module.** Mobile draws nothing for a Phosphor
+  icon until a fresh `eas build` is installed. It will not arrive over OTA, the
+  same way attachments and voice didn't. Emoji are unaffected.
 
-The picker **expands in flow on both surfaces, and never floats**: web's
-dialog is `overflow-hidden` (that's what rounds its header and footer), so an
-absolutely positioned panel is clipped the moment it passes the footer; on
-mobile an Android `Modal` would open a second window and drop the IME. The
-form grows and its body scrolls instead.
+The picker **expands in flow on both platforms and never floats.** Web's dialog
+is `overflow-hidden` (which is what rounds its header and footer), so an
+absolutely positioned panel is clipped the moment it passes the footer. On mobile
+an Android `Modal` would open a second window and drop the IME. The form grows
+and its body scrolls instead.
 
-Mobile has no project *edit* screen at all — only create (`ProjectFormSheet`)
-and the detail view — so the full palette and both icon tabs reach it there.
+Mobile has no project *edit* screen — only create (`ProjectFormSheet`) and the
+detail view — so the full palette and both icon tabs are reachable there.
 
 ## Testing
 
 Vitest everywhere (`pnpm test` → `turbo run test`). Web component tests run in
 jsdom from `apps/web/vitest.config.ts`; the packages run plain node tests.
 
-**Keep every workspace package on one vitest version.** `@testing-library/jest-dom`
-is a direct dependent of no package here, so its `/vitest` entry resolves
-`vitest` through its own path in the pnpm store and calls `expect.extend()` on
-whatever copy it lands on. When `apps/web` was on 4.x and `packages/*` on 3.x it
-extended the copy no test ran against, and all 26 `toBeInTheDocument()`
-assertions failed with `Invalid Chai property`. Same-version-but-two-physical-
-copies does it too, so `@types/node` is pinned to `^20.19.39` across **every**
-workspace package, `apps/mobile` included, to stop pnpm peer-splitting the
-install.
+**Keep every workspace package on one vitest version.** No package here depends
+on `@testing-library/jest-dom` directly, so its `/vitest` entry resolves `vitest`
+through its own path in the pnpm store and calls `expect.extend()` on whatever
+copy it lands on. When `apps/web` was on 4.x and `packages/*` on 3.x, it extended
+the copy no test ran against, and all 26 `toBeInTheDocument()` assertions failed
+with `Invalid Chai property`. Same version but two physical copies does it too,
+which is why `@types/node` is pinned to `^20.19.39` across **every** workspace
+package, `apps/mobile` included, to stop pnpm peer-splitting the install.
 
-To check: `ls node_modules/.pnpm | grep '^vitest@'` should print exactly one
-line after `pnpm install --frozen-lockfile` (a dirty `node_modules` keeps stale
-directories around and will show more). `grep '^@types+node@'` should print one
-line too.
-
-**`apps/mobile` tests logic only — there is no renderer.** `vitest.config.ts`
-there runs `lib/`, `widgets/` and `plugins/` tests in a node environment and
-nothing else — query-cache logic, the widget task handler's decisions, and the
-XML a config plugin emits, none of which need pixels. Anything
-that draws needs a device or a simulator, and neither exists in CI; a jsdom shim
-would only prove things about a React Native that isn't the one that ships. What
-the suite is for is the sequencing the eye can't check on a device anyway —
-`toggleComplete`'s completion hold, for instance, where the write must go out
-before the row leaves and the invalidate must not land during the animation.
-Modules that reach for native code (`./supabase`, `./widgets`,
-`./query-client`, `./location-queries`) are `vi.mock`ed per test file, so each
-test names the seam it stands in for rather than relying on a global setup.
+To check: after `pnpm install --frozen-lockfile`,
+`ls node_modules/.pnpm | grep '^vitest@'` should print exactly one line (a dirty
+`node_modules` keeps stale directories and will show more). `grep '^@types+node@'`
+should print one line too.
 
 **`react` is pinned the same way, for the same reason.** A package that ships a
 hook (`packages/api-client`, whose `useAutoSaveTask` the task editors share)
 needs `react` only as a devDependency, but pnpm resolves that copy separately —
-and then anything with a `react` peer that the package pulls in (`use-debounce`)
+and anything with a `react` peer that the package pulls in (`use-debounce`) then
 resolves against *it*, not the app's. Render such a hook in a jsdom test and it
-runs against a second React whose dispatcher is null:
-`Cannot read properties of null (reading 'useRef')`. `packages/api-client` is
-therefore pinned to the exact version `apps/web` uses (`19.2.4`, no caret), and
-`apps/web/vitest.config.ts` sets `resolve.dedupe: ["react", "react-dom"]` as a
-backstop. `apps/mobile` stays on Expo's `19.1.0` — no vitest, nothing to split.
+runs against a second React whose dispatcher is null: `Cannot read properties of
+null (reading 'useRef')`. So `packages/api-client` is pinned to the exact version
+`apps/web` uses (`19.2.4`, no caret), and `apps/web/vitest.config.ts` sets
+`resolve.dedupe: ["react", "react-dom"]` as a backstop. `apps/mobile` stays on
+Expo's `19.1.0` — no vitest there, nothing to split.
 
-The pre-existing workaround for the old breakage is the `vi.mock` of
-`./task-edit-modal-v2` in `task-item.test.tsx` and `draggable-upcoming.test.tsx`;
-those isolate the modal for speed too, so they were left alone.
+**`apps/mobile` tests logic only — there is no renderer.** Its `vitest.config.ts`
+runs `lib/`, `widgets/`, and `plugins/` tests in a node environment and nothing
+else: query-cache logic, the widget task handler's decisions, and the XML a
+config plugin emits, none of which need pixels. Anything that draws needs a
+device or a simulator, and neither exists in CI; a jsdom shim would only prove
+things about a React Native that isn't the one that ships. What the suite is for
+is sequencing the eye can't check on a device anyway — `toggleComplete`'s
+completion hold, for instance, where the write must go out before the row leaves
+and the invalidate must not land during the animation.
 
-Note `pnpm test -- --force` passes `--force` to vitest, not turbo. To bypass the
-turbo cache, call it directly: `./node_modules/.bin/turbo run test --force`.
+Modules that reach for native code (`./supabase`, `./widgets`, `./query-client`,
+`./location-queries`) are `vi.mock`ed per test file, so each test names the seam
+it stands in for rather than relying on a global setup.
 
-## Storybook + Chromatic
+**The gap this leaves is real.** Component and screen bugs cannot fail here.
+A missing task title shipped to main and over OTA because nothing in CI can
+render a row — see *Running mobile on the iOS simulator* below.
 
-Storybook lives in `apps/web/`. It loads `*.stories.tsx` files alongside components and uses `@storybook/nextjs-vite` for fast Vite-based builds with Next.js compatibility.
+The pre-existing workaround for the old React breakage is the `vi.mock` of
+`./task-edit-modal-v2` in `task-item.test.tsx` and `draggable-upcoming.test.tsx`.
+Those isolate the modal for speed too, so they were left alone.
+
+Note that `pnpm test -- --force` passes `--force` to vitest, not turbo. To bypass
+the turbo cache, call it directly:
+`./node_modules/.bin/turbo run test --force`.
+
+## Storybook and Chromatic
+
+Storybook lives in `apps/web/`. It loads `*.stories.tsx` files alongside
+components and uses `@storybook/nextjs-vite`.
 
 ```bash
 pnpm --filter web storybook        # dev server on :6006
@@ -1485,393 +1518,447 @@ pnpm --filter web build-storybook  # static build to storybook-static/
 pnpm --filter web chromatic        # publish to Chromatic
 ```
 
-Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView, TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~20 `*.stories.tsx` files under `apps/web/src/components/`).
+Stories cover the main surfaces: TaskItem, TaskEditModalV2, TaskForm, WeekView,
+TodayView, SidebarNav, ScheduleButton, the pet panel, and more (~18
+`*.stories.tsx` files under `apps/web/src/components/`).
 
-**The marketing page is covered too, and that is not optional.** `/` is the
-only route a stranger sees, and its hero is *hand-built markup* imitating the
-Today view — so it does not move when the real row moves. It twice went on
-advertising a row design the app had replaced, and nothing caught it either
-time, because it had no snapshot. `Marketing/*` is that snapshot.
+Chromatic publishes Storybook on every push and PR and detects visual
+regressions. Setup: sign up at chromatic.com, connect the repo, add the project
+token as the `CHROMATIC_PROJECT_TOKEN` GitHub Actions secret. The
+`.github/workflows/chromatic.yml` workflow does the rest. Visual diffs appear as
+a PR check; accept or reject them in the Chromatic UI. For local runs, set
+`CHROMATIC_PROJECT_TOKEN` in your shell and run `pnpm --filter web chromatic`.
 
-Those stories all take `withSettledMotion`
-(`components/landing/__stories__/settled.tsx`), which renders the page in the
-state it already ships for `prefers-reduced-motion` — a real code path, so the
-baseline is not a Storybook-only fiction. It settles three things a snapshot
-would otherwise catch mid-flight, and **all three are needed**: the CSS (a copy
-of the reduced-motion block in `globals.css`, which it must track),
-`matchMedia` (the quick-add typewriter asks it directly, and no stylesheet
-reaches that), and `IntersectionObserver` (both animated pieces wait to be on
-screen, and in a full-page shot the quick-add section is below the fold — so
-whether it has typed depends on how Chromatic scrolls while capturing).
+**The "UI Tests" check is required on main**, so pending visual diffs block a
+merge until the baselines are accepted.
 
-**Chromatic** publishes Storybook on every push/PR and detects visual regressions:
+## Running mobile on the iOS simulator
 
-1. Sign up at https://www.chromatic.com → connect this repo → grab the project token
-2. In GitHub repo settings: **Settings → Secrets → Actions → New secret** named `CHROMATIC_PROJECT_TOKEN`
-3. The `.github/workflows/chromatic.yml` workflow runs on every push/PR
-4. Visual diffs appear as a PR check; approve or reject changes in the Chromatic UI
+This is the only way to see the mobile UI — CI cannot render it. Two traps, both
+of which cost a cycle the first time:
 
-For local runs, set `CHROMATIC_PROJECT_TOKEN` in your shell and run `pnpm --filter web chromatic`.
+- **`npx expo run:ios` does not work on this Mac.** It fails with
+  `CommandError: No code signing certificates are available`, even with no
+  `--device` flag, because its device probe hits a broken `devicectl` and
+  concludes you are building for a physical iPhone. Build for the simulator SDK
+  directly instead, from `apps/mobile/ios`:
+
+  ```bash
+  xcodebuild -workspace DoDone.xcworkspace -scheme DoDone -configuration Debug \
+    -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+    -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+  ```
+
+  The `.app` lands at `ios/build/Build/Products/Debug-iphonesimulator/DoDone.app`.
+  Install it on a booted simulator (bundle id `com.beamer408.dodone`) and run
+  `npx expo start --dev-client` alongside it — a Debug build needs Metro on
+  :8081. Fast Refresh means JS edits need no rebuild.
+
+- **`pod install` needs `export LANG=en_US.UTF-8`** or CocoaPods warns and can
+  misbehave.
+
+Setup in a fresh worktree: `pnpm install`, build the workspace packages, copy in
+`apps/mobile/.env`, then `npx expo prebuild -p ios --no-install` and
+`pod install`. **Prebuild rewrites the `ios`/`android` npm scripts** to
+`expo run:*` — revert that. `ios/` and `android/` are gitignored.
+
+`expo-notifications` throws `getRegistrationInfoAsync` on launch because a
+simulator cannot issue a push token. It is harmless and does not happen on a
+device.
+
+iOS shows nothing about the Android-only surfaces: the home-screen widget, the
+launcher shortcuts, `QuickAddActivity`, and geofencing. Those have no
+verification path — there is no Android SDK, JDK, or emulator on this machine.
 
 ## Mobile native builds (EAS)
 
-The mobile app uses native modules (Android home-screen widget, geofencing, voice input) that don't run in Expo Go. To test those, build a custom dev client APK once:
+The mobile app uses native modules (the Android home-screen widget, geofencing,
+voice input) that don't run in Expo Go. To test those, build a custom dev client
+APK once:
 
 ```bash
-# One-time: install EAS CLI globally
-npm i -g eas-cli
-
-# One-time: log in
-eas login
-
-# One-time: link project (creates EAS project on Expo servers and writes
-# the projectId back into app.config.ts → extra.eas.projectId)
-cd apps/mobile && eas init
-
-# Build the dev client APK (cloud build, ~10-15 min, free tier OK)
-eas build --profile development --platform android
-
-# Install the APK on your Android device, then start metro:
-pnpm --filter mobile start
-# Open the dev client app, scan the QR code → app loads with native modules
+npm i -g eas-cli                  # one-time
+eas login                         # one-time
+cd apps/mobile && eas init        # one-time: writes projectId into app.config.ts
+eas build --profile development --platform android   # cloud build, ~10-15 min
 ```
 
-Build profiles in `apps/mobile/eas.json`:
-- `development` — APK with dev client + debugging tools
-- `preview` — APK for internal testing (no dev client)
-- `production` — AAB for Play Store
+Install the APK on the device, run `pnpm --filter mobile start`, open the dev
+client, and scan the QR code.
 
-After the dev client is installed, you can iterate on native code without rebuilding — only adding new native modules requires a fresh build.
+Build profiles in `apps/mobile/eas.json`:
+
+- `development` — APK with dev client and debugging tools
+- `preview` — APK for internal testing (no dev client)
+- `production` — AAB for the Play Store
+
+After the dev client is installed you can iterate on JS without rebuilding. Only
+adding a new native module requires a fresh build.
+
+### How the two halves fit together
+
+A React Native app is two artifacts with a contract between them, and most rules
+in this file follow from it:
+
+- **The native app** — compiled Swift/Objective-C/Kotlin, containing Hermes and
+  every native library. Built once, slowly.
+- **The JS bundle** — your `.ts`/`.tsx`, bundled. Rebuilt constantly, fast.
+
+The JS can only call native libraries that were compiled into the native app.
+
+`runtimeVersion: { policy: "appVersion" }` in `app.config.ts` names that contract.
+`eas update` publishes a JS bundle stamped with that version to a channel
+(`development` / `preview` / `production`), and an installed app accepts only
+bundles whose version matches its own. Merging to main publishes to `preview`.
+
+**Practical rule:** if you changed only `.ts`/`.tsx`, never rebuild — it ships
+over OTA. If you added a native module or changed `app.config.ts`, rebuild, and
+bump the version if it is going out over OTA.
 
 ### An install that's too old to update
 
-**A build stops taking OTAs the moment a published bundle imports a native
-module that build doesn't have.** The update downloads, throws on launch,
+**A build stops accepting OTA updates the moment a published bundle imports a
+native module that build doesn't have.** The update downloads, throws on launch,
 expo-updates rolls back to the last bundle that started, and — because
-`CheckForUpdateProcedure` will not re-offer an update with
-`failedLaunchCount > 0` — every check from then on comes back "no update
-available". The app sits on an old bundle insisting it is current, and the only
-signal is the sha in Settings → App version not moving. Adding
-`expo-document-picker` / `expo-image-picker` / `expo-file-system` (attachments)
-and `expo-audio` (voice) each drew that line; installs older than them need a
-new APK, not an update.
+`CheckForUpdateProcedure` will not re-offer an update with `failedLaunchCount >
+0` — every check from then on returns "no update available". The app sits on an
+old bundle insisting it is current, and the only signal is the sha in
+Settings → App version not moving.
 
-`describeNoUpdate()` in `apps/mobile/lib/update-check.ts` is why that is now
-legible: `Updates.checkForUpdateAsync()` returns a `reason` alongside
-`isAvailable: false`, and only `noUpdateAvailableOnServer` means you are
-current. Reporting all of them as "Up to date" is what hid the above — and an
-unrecognised reason deliberately doesn't claim currency either.
+Adding `expo-document-picker` / `expo-image-picker` / `expo-file-system`
+(attachments) and `expo-audio` (voice) each drew that line. Installs older than
+those need a new APK, not an update.
+
+`describeNoUpdate()` in `apps/mobile/lib/update-check.ts` makes this legible:
+`Updates.checkForUpdateAsync()` returns a `reason` alongside `isAvailable: false`,
+and only `noUpdateAvailableOnServer` means you are current. Reporting every
+reason as "Up to date" is what hid the problem, so an unrecognised reason
+deliberately doesn't claim currency either.
 
 ### Android widget setup
-- Widgets are declared in `apps/mobile/app.config.ts` under the `react-native-android-widget` plugin
-- Widget JSX components live in `apps/mobile/widgets/`
+
+- Widgets are declared in `apps/mobile/app.config.ts` under the
+  `react-native-android-widget` plugin. Widget JSX lives in
+  `apps/mobile/widgets/`.
 - **`widget-task-handler.ts` is registered from `index.js`, the bundle entry, and
-  nowhere else.** `registerWidgetTaskHandler` is `AppRegistry.registerHeadlessTask`:
-  it names the JS entry point the launcher's widget update runs. That update
-  arrives through a headless worker that starts the ReactHost with **no activity
-  and no React tree**, so anything registered from a component — or from a module
-  only a component pulls in — has not run yet, the task key is unregistered, and
-  nothing draws. Expo Router route modules load via `require.context`, whose
-  entries are lazy getters, so `app/_layout.tsx` (where this used to live)
-  evaluates only when the router renders. The widgets drew only while the app was
-  warm, and were blank whenever they were added or updated with it closed. A blank
-  widget is an *invisible* one — no crash, no log, just an empty cell.
-- Everything reachable from `widget-task-handler.ts`'s **static** imports has to
-  load in that cold context before anything can be drawn, so it stays tiny (React
-  + the Quick Add tile). Supabase, `@do-done/api-client` and the task engine are
-  behind `await import(...)` on the branch that needs them.
-- Widgets use AsyncStorage (shared with main app) to read the Supabase session
+  nowhere else.** `registerWidgetTaskHandler` is
+  `AppRegistry.registerHeadlessTask`: it names the JS entry point the launcher's
+  widget update runs. That update arrives through a headless worker that starts
+  the ReactHost with **no activity and no React tree**, so anything registered
+  from a component — or from a module only a component pulls in — has not run
+  yet, the task key is unregistered, and nothing draws. Expo Router route modules
+  load via `require.context`, whose entries are lazy getters, so
+  `app/_layout.tsx` (where this used to live) evaluates only when the router
+  renders. The widgets drew only while the app was warm, and were blank whenever
+  they were added or updated with it closed. A blank widget is an *invisible*
+  one: no crash, no log, just an empty cell.
+- **Everything reachable from `widget-task-handler.ts`'s static imports must load
+  in that cold context**, so it stays tiny (React plus the Quick Add tile).
+  Supabase, `@do-done/api-client`, and the task engine are behind
+  `await import(...)` on the branch that needs them.
+- Widgets read the Supabase session from AsyncStorage, shared with the main app.
 
 ### The task widgets draw the app's row
 
-Today, Upcoming and the 4×1 **Next up** strip all render the two-slot row
-described under *The task row* above — ring for the project, gutter for
-urgency, one muted subline for the rest. The row's decisions are **not**
-reimplemented here: `rowGutter` / `rowSubline` / `rowEstimate` from
-`@do-done/shared` are the same functions the in-app row calls, so a widget and
-a list can never disagree about what a task is. Priority used to colour the
-checkbox on this surface, which put an ordinal variable in a nominal channel on
-the one place in DoDone that never said which project a task belonged to.
+Today, Upcoming, and the 4×1 **Next up** strip all render the two-slot row
+described under *The task row*: ring for the project, gutter for urgency, one
+muted subline for the rest. The row's decisions are **not** reimplemented here —
+`rowGutter` / `rowSubline` / `rowEstimate` from `@do-done/shared` are the same
+functions the in-app row calls, so a widget and a list can never disagree about
+what a task is. Priority used to colour the checkbox here, which put an ordinal
+variable in a nominal channel on the one surface that never said which project a
+task belonged to.
 
-Four rules the widget adds on top, all of them about a launcher cell being
-small:
+Four rules the widget adds, all about a launcher cell being small:
 
-- **`loadWidgetTasks` fetches projects as well as tasks**, because the ring
-  needs a colour and an emoji. A projects failure returns an empty list rather
-  than propagating — every ring falls back to neutral, which is a duller widget
-  but still a correct one; letting it take the task list down would turn a
-  cosmetic outage into an empty home screen.
+- **`loadWidgetTasks` fetches projects as well as tasks**, because the ring needs
+  a colour and an icon. A projects failure returns an empty list rather than
+  propagating: every ring falls back to neutral, which is a duller widget but
+  still a correct one. Letting it take the task list down would turn a cosmetic
+  outage into an empty home screen.
 - **Fitting spends a height budget, not a row count.** `layoutRows` in
-  `widgets/widget-layout.ts` charges 24 dp for a bare row, 34 dp for one
-  carrying a subline and 22 dp for a group header, and reserves the "+N more"
-  line *before* placing the row that would need it. The old `rowCapacity`
-  divided the height by a flat 26 dp, which was wrong in both directions the
-  moment rows stopped being uniform — and a "+N more" computed off a wrong
-  capacity is a wrong number about the user's own task list, with nothing on
-  the home screen to contradict it.
-- **Below `COMPACT_BUDGET_DP` the sublines go, all of them.** A subline costs
-  42% more row height, which on a 3×2 is the difference between three tasks and
-  one — the widget was a group header and a single line. There are exactly two
-  densities and no truncated middle ground, and the choice is made inside
-  `layoutRows` from the budget, so no caller can get it wrong.
-- **A group header owns its day, so the rows beneath it don't repeat it.**
-  `WidgetGroup.namesTheDay` drives `rowSubline`'s `hideScheduledDay`, which is
-  the date-shaped twin of `projectName: null`. Overdue is deliberately *not* a
-  day group: "3 days ago" is the one genuinely actionable thing those rows
-  have to say. The project name **stays** in the subline — the ring is a fast
-  cue, the name is the readable one, and a project with no emoji would
-  otherwise be a colour the user has to have memorised.
+  `widgets/widget-layout.ts` charges 24 dp for a bare row, 34 dp for one with a
+  subline, and 22 dp for a group header, and reserves the "+N more" line *before*
+  placing the row that would need it. The old `rowCapacity` divided the height by
+  a flat 26 dp, which was wrong in both directions as soon as rows stopped being
+  uniform — and a "+N more" computed off a wrong capacity is a wrong number about
+  the user's own task list, with nothing on the home screen to contradict it.
+- **Below `COMPACT_BUDGET_DP` the sublines all go.** A subline costs 42% more row
+  height, which on a 3×2 is the difference between three tasks and one — the
+  widget was a group header and a single line. There are exactly two densities
+  and no truncated middle ground, and the choice is made inside `layoutRows` from
+  the budget, so no caller can get it wrong.
+- **A group header owns its day, so the rows beneath don't repeat it.**
+  `WidgetGroup.namesTheDay` drives `rowSubline`'s `hideScheduledDay`, the
+  date-shaped twin of `projectName: null`. Overdue is deliberately *not* a day
+  group: "3 days ago" is the one genuinely actionable thing those rows say. The
+  project name **stays** in the subline — the ring is a fast cue, the name is the
+  readable one, and a project with no icon would otherwise be a colour the user
+  has to have memorised.
 - **The card has a dark variant**, via the library's own
-  `renderWidget({ light, dark })`. One component tree; a theme is an argument
-  to it (`widgets/widget-theme.ts`). A project's colour is **lifted toward
-  white, never replaced** — someone who picked green for Home has to find green
-  on both cards. The dark card is `#191b22` rather than black, so it keeps an
-  edge against an AMOLED wallpaper.
+  `renderWidget({ light, dark })`. One component tree; a theme is an argument to
+  it (`widgets/widget-theme.ts`). A project's colour is **lifted toward white,
+  never replaced** — someone who picked green for Home has to find green on both
+  cards. The dark card is `#191b22` rather than black, so it keeps an edge
+  against an AMOLED wallpaper.
 
 **`widgets/widget-render.ts` is why the two render paths can't drift.** The
 launcher's headless handler and the app's own foreground refresh
-(`lib/widgets.ts`, called from `invalidateTasks`) both build the light/dark
-pair from it. A refresh that passed a single tree would silently drop the dark
-card until the next 30-minute tick — a bug that only reproduces on a phone set
-to dark.
+(`lib/widgets.ts`, called from `invalidateTasks`) both build the light/dark pair
+from it. A refresh that passed a single tree would silently drop the dark card
+until the next 30-minute tick — a bug that only reproduces on a phone set to
+dark.
 
 Two things that can only be checked on a device: an 18 dp ring is well under
-Material's 48 dp touch minimum (its tappable box is padded to 26×24, which is
-as far as it goes without making every row taller), and `TextWidget` has no
-`lineHeight`, so the dp constants in `widget-layout.ts` are padding-and-margin
-sums rather than a typographic ideal. **Adding the Next up widget changes
-`app.config.ts`, so it needs a fresh `eas build` — it will not arrive over
-OTA.** The row redesign itself is pure JS and does ship over an update.
+Material's 48 dp touch minimum (its tappable box is padded to 26×24, as far as it
+goes without making every row taller), and `TextWidget` has no `lineHeight`, so
+the dp constants in `widget-layout.ts` are padding-and-margin sums rather than a
+typographic ideal.
+
+**Adding the Next up widget changes `app.config.ts`, so it needs a fresh
+`eas build`.** The row redesign itself is pure JS and ships over an update.
 
 ### Quick-add widget (floats over the home screen)
-The 1×1 "Quick Add" widget mimics Todoist's add-task widget: tapping it opens a
-quick-add sheet over the live home screen without launching the main app.
 
-- The widget (`widgets/QuickAddWidget.tsx`) taps `dodoneadd://open` — a scheme
-  distinct from the app's `dodone` scheme so it resolves *only* to the translucent
-  activity (no disambiguation chooser; `react-native-android-widget` can't target
-  an activity by component, hence the dedicated scheme).
-- `plugins/withQuickAddActivity.js` is a config plugin that, on every `expo prebuild`,
-  generates a translucent **`QuickAddActivity`** (`QuickAddActivity.kt`), registers it
-  in `AndroidManifest.xml` with `Theme.App.QuickAddTranslucent` + the `dodoneadd`
-  intent-filter, and adds that style. The activity runs in its own task
-  (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`) with
+The 1×1 "Quick Add" widget mimics Todoist's: tapping it opens a quick-add sheet
+over the live home screen without launching the main app.
+
+- The widget (`widgets/QuickAddWidget.tsx`) opens `dodoneadd://open` — a scheme
+  distinct from the app's `dodone` scheme so it resolves *only* to the
+  translucent activity, with no disambiguation chooser.
+  `react-native-android-widget` can't target an activity by component, hence the
+  dedicated scheme.
+- **`plugins/withQuickAddActivity.js`** is a config plugin that, on every
+  `expo prebuild`, generates a translucent `QuickAddActivity` (`.kt`), registers
+  it in `AndroidManifest.xml` with `Theme.App.QuickAddTranslucent` and the
+  `dodoneadd` intent-filter, and adds that style. The activity runs in its own
+  task (`taskAffinity=""`, `launchMode="singleTask"`, `excludeFromRecents`) with
   `windowSoftInputMode="adjustResize"` — without that it defaults to pan, and the
   window slides up *underneath* the composer's own keyboard offset.
-- `QuickAddActivity` mounts a **second** registered JS root, `"QuickAdd"` (see
-  `index.js`, the custom bundle entry that also imports `expo-router/entry` for the
-  main `"main"` root). Both roots share one ReactHost / JS bundle, so the Supabase
-  session is shared.
-- That root is `quick-add-root.tsx` → renders `components/QuickAddComposer.tsx` (the
-  Todoist-style title + tag/chip card). It dismisses with `BackHandler.exitApp()`,
+- **`QuickAddActivity` mounts a second registered JS root, `"QuickAdd"`** (see
+  `index.js`, the custom bundle entry that also imports `expo-router/entry` for
+  the main `"main"` root). Both roots share one ReactHost and JS bundle, so the
+  Supabase session is shared.
+- That root is `quick-add-root.tsx`, which renders
+  `components/QuickAddComposer.tsx`. It dismisses with `BackHandler.exitApp()`,
   which finishes only the quick-add task and returns to the launcher.
-- The When / Priority / Project / Estimate chips themselves live in
-  `components/QuickAddFields.tsx` (`useQuickAddFields` + `QuickAddChipRow` +
-  `QuickAddPickers`), reusing selectors exported from `components/TaskEditModalV2.tsx`.
-  Every mobile capture surface shares them: this widget composer, the in-app
-  `dodone://quick-add` modal, and `QuickAddBar` above the tab bar (which expands from
-  one line to the full chip card on focus, matching the web bar). Nothing in that
-  module may call a TanStack Query hook, or reach for an API — the widget root has no
-  QueryClientProvider. Both the project list (`projects`) and the inline "New
-  project" action (`onCreateProject`) are therefore **handed in by the host**, which
-  is the only piece that knows what else has to hear about a new project: the in-app
-  hosts pass `createProjectOrNull` from `lib/task-queries` and let it invalidate the
-  cache, and the widget root reads `ProjectsApi` directly and keeps its own array.
-  The widget used to pass neither, which is why its Project chip was simply missing
-  and `#groceries` silently became a tag on the one surface where it couldn't be a
-  project. A surface that still omits the list gets the old behaviour, which now
-  only ever describes the first frame while a list is loading.
-- **Every quick-add surface has a door to the full editor**, because the chips will
-  never cover notes, subtasks, attachments or the month calendar and a capture
-  surface that dead-ends there is one you have to abandon. The rule is the same on
-  both platforms: **create the task first, then open the editor on the persisted
-  row** — both editors autosave, so neither has anywhere to keep unsaved state. Web
-  has "More options →" (modal) and an expand icon (bar, inline composer), all via
-  `openEditor` in `use-quick-add-composer.ts`; `allowEmpty` there creates a
-  throwaway "New task" that `TaskEditModalV2`'s `draft` prop deletes again if the
-  editor closes untouched. Mobile passes `onExpand` to `QuickAddComposer` /
-  `QuickAddBar` and **requires a title** — it has no `draft` equivalent, so the
-  alternative would be orphan "New task" rows. Where the editor opens is the host's
-  call: in place for `QuickAddBar` and `app/quick-add.tsx`, but the widget root
-  deep-links `dodone://task/<id>` and dismisses, since a 3400-line sheet wanting the
-  router and the query cache has no business in a translucent launcher activity.
-- Two composer rules keep the surface from jumping around, both matching Todoist:
-  the card rides the IME via Reanimated's `useAnimatedKeyboard` (frame-synced inset,
-  not a post-hoc `keyboardDidShow` measurement), and the chips open their options as
-  **inline popovers in the same window** — an Android `Modal` opens a new window and
-  drops the keyboard. Only the full month grid takes over the screen, and it hands
-  focus back to the input on close.
-- Widget artwork is inline SVG via `SvgWidget` (`widgets/dodone-mark.ts`). Do **not**
-  use `IconWidget`: it renders the icon name as *text* in a typeface the app has to
-  ship itself, so `icon="add"` with no `material.ttf` literally drew "add" on the
-  home screen.
-- The tile paints its squircle **twice** — once as the SVG, once as a
-  `backgroundColor` on the `FlexWidget` behind it — and that is deliberate.
-  `SvgWidget` hands the string to AndroidSVG and swallows a parse failure with a
-  bare `printStackTrace`, so artwork alone has a silent path to fully transparent.
-  It's sized to a centred square of `min(width, height)` from `widgetInfo`, not
-  `match_parent`: a launcher cell is taller than it is wide, and the square
-  artwork would letterbox inside its own background.
-- The handler draws the tile for **every** action except `WIDGET_DELETED`. With
+- **The When / Priority / Project / Estimate chips live in
+  `components/QuickAddFields.tsx`** (`useQuickAddFields` + `QuickAddChipRow` +
+  `QuickAddPickers`), reusing selectors exported from
+  `components/TaskEditModalV2.tsx`. Every mobile capture surface shares them:
+  this widget composer, the in-app `dodone://quick-add` modal, and `QuickAddBar`
+  above the tab bar (which expands from one line to the full chip card on focus,
+  matching the web bar).
+
+  **Nothing in that module may call a TanStack Query hook or reach for an API** —
+  the widget root has no QueryClientProvider. Both the project list (`projects`)
+  and the inline "New project" action (`onCreateProject`) are handed in by the
+  host, which is the only piece that knows what else has to hear about a new
+  project: the in-app hosts pass `createProjectOrNull` from `lib/task-queries`
+  and let it invalidate the cache, while the widget root reads `ProjectsApi`
+  directly and keeps its own array. The widget used to pass neither, which is why
+  its Project chip was missing and `#groceries` silently became a tag on the one
+  surface where it couldn't be a project. A surface that omits the list still
+  gets that behaviour, which now only describes the first frame while a list
+  loads.
+- **Every quick-add surface has a door to the full editor**, because the chips
+  will never cover notes, subtasks, attachments, or the month calendar, and a
+  capture surface that dead-ends there is one you have to abandon. The rule is
+  the same on both platforms: **create the task first, then open the editor on
+  the persisted row** — both editors autosave, so neither has anywhere to keep
+  unsaved state. Web has "More options →" (modal) and an expand icon (bar, inline
+  composer), both via `openEditor` in `use-quick-add-composer.ts`; `allowEmpty`
+  there creates a throwaway "New task" that `TaskEditModalV2`'s `draft` prop
+  deletes again if the editor closes untouched. Mobile passes `onExpand` to
+  `QuickAddComposer` / `QuickAddBar` and **requires a title**, since it has no
+  `draft` equivalent and the alternative would be orphan "New task" rows. Where
+  the editor opens is the host's call: in place for `QuickAddBar` and
+  `app/quick-add.tsx`, but the widget root deep-links `dodone://task/<id>` and
+  dismisses, since a 3400-line sheet wanting the router and the query cache has
+  no business in a translucent launcher activity.
+- **Two composer rules keep the surface from jumping around**, both matching
+  Todoist: the card rides the IME via Reanimated's `useAnimatedKeyboard`
+  (frame-synced inset, not a post-hoc `keyboardDidShow` measurement), and the
+  chips open their options as **inline popovers in the same window**, because an
+  Android `Modal` opens a new window and drops the keyboard. Only the full month
+  grid takes over the screen, and it hands focus back to the input on close.
+- **Widget artwork is inline SVG via `SvgWidget`** (`widgets/dodone-mark.ts`). Do
+  **not** use `IconWidget`: it renders the icon name as *text* in a typeface the
+  app has to ship itself, so `icon="add"` with no `material.ttf` literally drew
+  "add" on the home screen.
+- **The tile paints its squircle twice** — once as the SVG, once as a
+  `backgroundColor` on the `FlexWidget` behind it — deliberately. `SvgWidget`
+  hands the string to AndroidSVG and swallows a parse failure with a bare
+  `printStackTrace`, so artwork alone has a silent path to fully transparent. It
+  is sized to a centred square of `min(width, height)` from `widgetInfo`, not
+  `match_parent`: a launcher cell is taller than it is wide, and square artwork
+  would letterbox inside its own background.
+- **The handler draws the tile for every action except `WIDGET_DELETED`.** With
   `updatePeriodMillis: 0` there is no update tick, so an action it declines to
-  draw for leaves the tile exactly as it was — and for a fresh widget, that's
+  draw for leaves the tile exactly as it was — and for a fresh widget, that is
   blank forever. `_layout.tsx` also calls `repaintQuickAddWidget()` once per
   launch, so opening the app heals a tile whose one render was lost.
-- Test the tap flow in a **preview/release** build — `expo-dev-client` intercepts
-  launches in debug builds. After changing the widget's size, remove and re-add it
-  on the device.
-- **None of this has been confirmed on a device yet** — see
-  [`docs/android-widget-verification.md`](docs/android-widget-verification.md) for
-  the checklist it still needs, the `ImageWidget` fallback if `SvgWidget` turns out
-  not to render, and the build gotchas (stale checkouts, APK signing, launcher
-  caching) that have already burned three install cycles.
+- **Test the tap flow in a preview/release build** — `expo-dev-client` intercepts
+  launches in debug builds. After changing the widget's size, remove and re-add
+  it on the device.
+- **None of this has been confirmed on a device.** See
+  [`docs/android-widget-verification.md`](docs/android-widget-verification.md)
+  for the checklist it still needs, the `ImageWidget` fallback if `SvgWidget`
+  turns out not to render, and the build problems (stale checkouts, APK signing,
+  launcher caching) that have already cost three install cycles.
 
 ### Launcher quick actions (app shortcuts)
+
 Long-pressing the DoDone icon offers **Add task / Voice task / Search / Today /
-Upcoming**, each pinnable to the home screen with the "+" beside it. These are *not* widgets:
-the launcher draws them itself, so a pinned one takes exactly one cell and sits
-flush with the app icons around it — which is the point of having them alongside
-the 1×1 quick-add widget rather than instead of it.
+Upcoming**, each pinnable to the home screen. These are not widgets: the launcher
+draws them, so a pinned one takes exactly one cell and sits flush with the app
+icons around it. That is the point of having them alongside the 1×1 quick-add
+widget rather than instead of it.
 
 - `plugins/withAndroidShortcuts.js` writes `res/xml/shortcuts.xml`, the icon
-  drawables and the labels, then hangs a `meta-data` tag off MainActivity.
-  Static shortcuts, so they exist from install with no native code at runtime.
-- **Labels must be `@string/` references.** Android drops a `<shortcut>` whose
-  label is a literal, silently — no build error, the row just isn't there.
-- **Intents must be explicit** (`targetPackage` + `targetClass`); an implicit
-  one never launches. The deep link rides along as the intent's `data`, which is
-  what `expo-linking`'s `getInitialURL` reads. Add task and Voice task both
-  target `QuickAddActivity` directly, so the composer floats over the home
-  screen exactly as the widget does; the rest target MainActivity. Those two
-  differ *only* in their `data` URI — see Voice notes → Getting to it.
-- Each icon ships twice: an `<adaptive-icon>` in `drawable-anydpi-v26` so the
-  launcher masks it to the same shape as the app icons, and a plain circle
-  vector in `drawable/` for API 24-25, which has no mask. The glyph is scaled
-  into 24..84 of the 108 viewport — inside the safe zone no mask can clip.
+  drawables, and the labels, then hangs a `meta-data` tag off MainActivity. They
+  are static shortcuts, so they exist from install with no runtime native code.
+- **Labels must be `@string/` references.** Android silently drops a `<shortcut>`
+  whose label is a literal — no build error, the row just isn't there.
+- **Intents must be explicit** (`targetPackage` + `targetClass`); an implicit one
+  never launches. The deep link rides along as the intent's `data`, which is what
+  `expo-linking`'s `getInitialURL` reads. Add task and Voice task both target
+  `QuickAddActivity` directly, so the composer floats over the home screen
+  exactly as the widget does; the rest target MainActivity. Those two differ
+  *only* in their `data` URI — see Voice notes → Ways in.
+- **Each icon ships twice**: an `<adaptive-icon>` in `drawable-anydpi-v26` so the
+  launcher masks it to the same shape as the app icons, and a plain circle vector
+  in `drawable/` for API 24-25, which has no mask. The glyph is scaled into 24..84
+  of the 108 viewport, inside the safe zone no mask can clip.
 - `plugins/withAndroidShortcuts.test.ts` asserts the generated XML, including
-  that every `dodone://` target has a route file. Every failure mode on this
-  surface is silent on the device, so the test is the only place they surface.
-  It is why `vitest.config.ts` includes `plugins/**` as well as `lib/**`.
+  that every `dodone://` target has a route file. Every failure mode here is
+  silent on the device, so the test is the only place they surface. It is why
+  `vitest.config.ts` includes `plugins/**` as well as `lib/**`.
 
 ### Location reminders (geofencing)
+
 A task can carry reminders at places — "buy milk when I get to Tesco", "post the
 letter when I leave the office". `task_locations` links a task to a location with
 a `trigger_type` of `enter` or `exit`; a task can have several.
 
 **Surfaces**
+
 - `components/LocationReminderSheet.tsx` — the 📍 row in the task editor. A
   search field over tappable places: the first tap attaches the reminder, and
-  direction, radius and whether to keep the place are adjustments made
-  afterwards. **This is the only place in the app that prompts for location**,
-  and it primes with an explanation first.
-- `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete.
-  Also lists any *one-off* place currently holding a region, since those count
-  against the cap the warning on that screen is about.
-- `lib/location-queries.ts` — query hooks + mutations. Every write ends in a
+  direction, radius, and whether to keep the place are adjusted afterwards.
+  **This is the only place in the app that prompts for location**, and it
+  explains itself before asking.
+- `app/locations.tsx` (Settings → Saved places) — rename, re-radius, delete. Also
+  lists any *one-off* place currently holding a region, since those count against
+  the cap the warning on that screen is about.
+- `lib/location-queries.ts` — query hooks and mutations. Every write ends in a
   geofence sync; the OS holds its own copy of the regions.
 
-**Capture: search first, save never required.** Three rules, and each was a
-usability bug before it was a rule:
+**Capture: search first, saving never required.** Three rules, each of which was
+a usability bug first:
+
 - **A place doesn't have to be saved.** Attaching writes a location with
   `is_saved = false` — geofenced exactly like a saved one, hidden from the
   pickers, and deleted by a database trigger when its last `task_locations` row
   goes (`20260805000002_one_off_locations.sql`). "Save place" promotes the same
   row, so the task links survive. Client-side cleanup would have leaked rows on
-  the paths that don't go through the client — a deleted task, a cascade — and a
+  the paths that don't go through the client (a deleted task, a cascade), and a
   leaked one-off place is invisible by construction, since nothing lists it.
-- **A name is never asked for.** `locations.name` stays NOT NULL because it's
-  what the notification says; it comes from the search result ("Target") or the
-  reverse-geocoded street line, not from the user.
-- **Search is type-ahead** (`lib/place-search.ts`), biased towards the last
-  known position and labelled with distance so "the closest one" is a thing the
-  eye picks. Provider is **Photon** (OSM data, keyless): `expo-location`'s
-  `geocodeAsync` returns coordinates with no label, so it can't populate a
-  suggestion list at all, and Nominatim's usage policy forbids autocomplete
-  outright. `geocodeAsync` stays on as the "look up what I typed" fallback for
-  when the provider is unreachable. Reading the position for bias uses
-  `getLastKnownPosition()`, which returns null rather than prompting or waiting
-  for a fix — opening the sheet must stay free.
+- **A name is never asked for.** `locations.name` stays NOT NULL because it is
+  what the notification says, but it comes from the search result ("Target") or
+  the reverse-geocoded street line, not from the user.
+- **Search is type-ahead** (`lib/place-search.ts`), biased toward the last known
+  position and labelled with distance so "the closest one" is easy to pick. The
+  provider is **Photon** (OSM data, keyless): `expo-location`'s `geocodeAsync`
+  returns coordinates with no label, so it can't populate a suggestion list at
+  all, and Nominatim's usage policy forbids autocomplete. `geocodeAsync` stays as
+  the "look up what I typed" fallback when Photon is unreachable. Reading the
+  position for bias uses `getLastKnownPosition()`, which returns null rather than
+  prompting or waiting for a fix, so opening the sheet stays free.
 
-`components/MapPreview.tsx` draws the pin, its radius and your own position from
+`components/MapPreview.tsx` draws the pin, its radius, and your own position from
 raster tiles (`lib/map-tiles.ts` holds the Web-Mercator projection, tested in
-node). Deliberately not `react-native-maps`: that's a native module, so it would
+node). Deliberately not `react-native-maps`: that is a native module, so it would
 need a fresh dev-client build and a Maps API key before anyone could see a pixel.
 The trade is that it can't be panned and the pin can't be dragged.
 
-The sheet tracks the IME height itself and shrinks its list to fit —
+The sheet tracks the IME height itself and shrinks its list to fit, because
 `edgeToEdgeEnabled` turns off Android's `adjustResize`, so nothing moves on its
 own and a bottom-anchored sheet is simply behind the keyboard. Same approach as
 `QuickAddBar`.
 
 **Engine** (`lib/geofencing.ts`)
-- `registerUserGeofences()` **never prompts**. It registers only locations with
-  at least one *open* task, so finished work stops waking the device, and a
-  user with no location reminders is never asked for location at all.
-- `requestGeofencePermissions()` is the prompting path — foreground, then
+
+- **`registerUserGeofences()` never prompts.** It registers only locations with at
+  least one *open* task, so finished work stops waking the device, and a user
+  with no location reminders is never asked for location at all.
+- **`requestGeofencePermissions()` is the prompting path** — foreground, then
   background, then notifications (Android 13+ needs POST_NOTIFICATIONS, and a
-  location reminder that can't notify does nothing at all).
-- Requires both foreground AND background location (the latter shown only
-  AFTER foreground is granted, per Android policy). Since Android 11 the
-  background grant has no dialog: the OS deep-links to the app's Location
-  permission settings screen for "Allow all the time".
+  location reminder that can't notify does nothing).
+- Requires both foreground and background location, the latter shown only after
+  foreground is granted, per Android policy. Since Android 11 the background
+  grant has no dialog: the OS deep-links to the app's Location settings screen
+  for "Allow all the time".
 
 **Why it isn't just "notify on enter"** — three rules, tuned in
 `packages/shared/src/constants.ts`:
-- **Dwell.** An enter fires the moment you clip the boundary, so driving past
-  the shop would fire the reminder. Notifications are scheduled
+
+- **Dwell.** An enter fires the moment you clip the boundary, so driving past the
+  shop would fire the reminder. Notifications are scheduled
   `GEOFENCE_DWELL_SECONDS` out and cancelled if the opposite transition lands
-  first. This is why regions register with `notifyOnEnter` *and*
-  `notifyOnExit` even when only one direction has tasks — without the opposite
-  event there's nothing to cancel on.
-- **Cooldown.** Position drift makes regions flap. Once a task fires for a
-  place it stays quiet for `GEOFENCE_COOLDOWN_MINUTES`.
+  first. This is why regions register with `notifyOnEnter` *and* `notifyOnExit`
+  even when only one direction has tasks — without the opposite event there is
+  nothing to cancel on.
+- **Cooldown.** Position drift makes regions flap. Once a task fires for a place
+  it stays quiet for `GEOFENCE_COOLDOWN_MINUTES`.
 - **Region cap.** iOS silently stops monitoring past 20 regions
   (`GEOFENCE_MAX_REGIONS`), so we trim by open-task count and mark the rest
   "Paused" on the places screen rather than letting them fail invisibly.
 
-Radius presets start at 100 m (`LOCATION_RADIUS_PRESETS`) because a typical
-urban fix lands 20-60 m off; tighter regions miss arrivals and emit spurious
-exits while you sit still. Default is 200 m.
+Radius presets start at 100 m (`LOCATION_RADIUS_PRESETS`) because a typical urban
+fix lands 20-60 m off; tighter regions miss arrivals and emit spurious exits
+while you sit still. The default is 200 m.
 
-Dwell/cooldown state lives in AsyncStorage, not module state — the background
+Dwell and cooldown state live in AsyncStorage, not module state — the background
 task runs in a fresh JS context after the OS kills the app.
 
-> **None of this has run on a device yet.** Geofences, the dwell filter, the
-> notification channel and all three permission prompts are unverified outside
-> a type-checker — none of them execute in Expo Go or CI. See "Where things
-> stand" in [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check things
-> in; each failure mode here is silent.
+> **None of this has run on a device.** Geofences, the dwell filter, the
+> notification channel, and all three permission prompts are unverified outside a
+> type-checker; none of them execute in Expo Go or CI. See "Where things stand"
+> in [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check them in. Each
+> failure mode here is silent.
 
 ## Password-manager autofill
 
-Login fields on **both** surfaces carry explicit autofill metadata — without it
+Login fields on **both** platforms carry explicit autofill metadata. Without it
 the OS can't classify them and 1Password never offers to fill:
 
 - Mobile (`apps/mobile/app/(auth)/login.tsx`): `autoComplete` (→ Android
-  `autofillHints`) + `textContentType` (→ iOS AutoFill) + `importantForAutofill`.
-- Web (`apps/web/src/app/(auth)/login/page.tsx`): `name` + `autocomplete`.
+  `autofillHints`), `textContentType` (→ iOS AutoFill), and
+  `importantForAutofill`.
+- Web (`apps/web/src/app/(auth)/login/page.tsx`): `name` and `autocomplete`.
 
-Both flip the password field between `current-password` and `new-password`
-based on signin/signup mode, so managers offer generation instead of a fill.
+Both flip the password field between `current-password` and `new-password` based
+on signin/signup mode, so managers offer generation instead of a fill.
 
-**App ↔ site association** is a separate mechanism — it's what makes a saved
+**App ↔ site association is a separate mechanism.** It is what makes a saved
 `dodone.byebrianwong.com` login match the *app*, rather than the app being its
 own vault item. It needs all three of:
 
 1. `ios.associatedDomains: ["webcredentials:dodone.byebrianwong.com"]` in
    `apps/mobile/app.config.ts` (already set; EAS syncs the capability at build).
-2. `APPLE_APP_ID` (`<TeamID>.com.beamer408.dodone`) in the web deployment →
-   served at `/.well-known/apple-app-site-association`.
+2. `APPLE_APP_ID` (`<TeamID>.com.beamer408.dodone`) in the web deployment, served
+   at `/.well-known/apple-app-site-association`.
 3. `ANDROID_CERT_FINGERPRINTS` (comma-separated SHA-256, usually the EAS upload
-   key *and* the Play app-signing key) → served at `/.well-known/assetlinks.json`.
+   key *and* the Play app-signing key), served at `/.well-known/assetlinks.json`.
 
-Both routes 404 when their env var is unset — a malformed association file is
-worse than a missing one, since Apple and Google cache them. `/.well-known` is
-in `PUBLIC_PATHS` in `proxy-helper.ts`; Apple's spec forbids a redirect there.
+Both routes 404 when their env var is unset, because a malformed association file
+is worse than a missing one — Apple and Google cache them. `/.well-known` is in
+`PUBLIC_PATHS` in `proxy-helper.ts`; Apple's spec forbids a redirect there.
 
-**Neither env var is set yet**, and the iOS entitlement needs a fresh
-`eas build` to take effect. Checklist with commands and verification steps:
+**Neither env var is set yet**, and the iOS entitlement needs a fresh `eas build`
+to take effect. Checklist with commands and verification steps:
 [`docs/autofill-setup.md`](docs/autofill-setup.md).
 
-> Test autofill in a **preview/release** build, and make sure 1Password is
-> selected under Android Settings → Passwords & accounts → Autofill service.
+> Test autofill in a preview/release build, and make sure 1Password is selected
+> under Android Settings → Passwords & accounts → Autofill service.
