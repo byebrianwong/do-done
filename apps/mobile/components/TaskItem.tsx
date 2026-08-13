@@ -288,9 +288,21 @@ function TaskItem({
     }
   }
 
+  /**
+   * Reschedule from the swipe panel's Today / Tomorrow buttons.
+   *
+   * A failure has to say so. The row leaves the list the instant the button is
+   * tapped — that is the whole feedback the gesture gives — so a write that
+   * doesn't land looks exactly like one that did until the list is next looked
+   * at from somewhere else. `.catch(() => {})` was doing that silently, which
+   * is what let a reschedule that never sent anything at all pass for working;
+   * `updateTask` puts the row back, and this says why it came back.
+   */
   function applyTarget(target: Parameters<typeof buildReschedule>[1]) {
     hapticLight();
-    void updateTask(task.id, buildReschedule(task, target)).catch(() => {});
+    void updateTask(task.id, buildReschedule(task, target)).catch(() => {
+      toast.show({ message: `Couldn't reschedule “${task.title}”` });
+    });
   }
 
   /**
