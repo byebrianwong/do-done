@@ -20,3 +20,4 @@ export * from "./suggest.js";
 export * from "./spark.js";
 export * from "./streak.js";
 export * from "./lists.js";
+export * from "./food.js";
