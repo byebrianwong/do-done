@@ -8,7 +8,7 @@
  * things contending for the mic, which on Android means one of them silently
  * gets nothing.
  *
- * The module is loaded lazily, exactly as `QuickAddBar` used to do inline:
+ * The module is loaded lazily, exactly as the old quick-add bar did inline:
  * Expo Go's runtime has no arbitrary native modules, so a top-level import
  * takes the whole app down there instead of just hiding a button. Everything
  * below degrades to `supported: false` rather than throwing.

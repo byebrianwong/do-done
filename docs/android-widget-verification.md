@@ -71,8 +71,9 @@ the code.
    the input and brings the keyboard back.
 7. **Back** with a popover open closes only the popover; a second back dismisses
    the whole surface to the launcher.
-8. **The in-app path** — `dodone://quick-add`, and the quick-add bar in the app —
-   shares the same composer, so re-check 4-7 there.
+8. **The in-app path** — `dodone://quick-add`, which is also where the plus
+   button on every list screen lands — shares the same composer, so re-check
+   4-7 there.
 
 ---
 

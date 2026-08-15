@@ -93,7 +93,7 @@ things**, all in `LocationReminderSheet.tsx` and none of them exercised by CI:
   falls back to a coordinates card only on an `onError`, so a *transparent* tile
   would look like a broken map rather than triggering the fallback.
 - **The keyboard lift** assumes the RN `keyboardDidShow` height is the whole
-  inset, matching `QuickAddBar`. Inside a `Modal` on Android that's the part most
+  inset. Inside a `Modal` on Android that's the part most
   likely to be off — symptom would be the sheet floating too high or the search
   field still covered.
 

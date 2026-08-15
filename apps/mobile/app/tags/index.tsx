@@ -42,7 +42,7 @@ export default function TagsScreen() {
 
   const [query, setQuery] = useState('');
 
-  // Tags are cheap to mint — a typo in the quick-add bar makes one — so this
+  // Tags are cheap to mint — a typo in the quick-add makes one — so this
   // list gets long in a way the project list never does, and scrolling it is
   // not a way to find "the one about invoices".
   const shown = useMemo(() => {

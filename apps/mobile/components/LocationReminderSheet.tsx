@@ -18,8 +18,8 @@
  *    last reminder on it goes. "Save place" promotes it if you want it back.
  *  - **It does not hide behind the keyboard.** Android's edge-to-edge mode
  *    turns off `adjustResize`, so nothing moves on its own: the sheet tracks
- *    the IME height itself and gives the list whatever is left, the same way
- *    QuickAddBar does.
+ *    the IME height itself and gives the list whatever is left, for the same
+ *    reason the quick-add composer rides the keyboard inset.
  *
  * This sheet still owns the permission ask — it is the only place in the app
  * that prompts for location — and still primes with an explanation first, since
@@ -153,7 +153,9 @@ function explainDenial(error: GeofencePermissionError | undefined) {
  *
  * `edgeToEdgeEnabled` in app.config.ts turns off Android's `adjustResize`, so
  * the window does not shrink when the IME appears and a bottom-anchored sheet
- * would simply be behind it. Same approach as QuickAddBar.
+ * would simply be behind it. Same problem QuickAddComposer solves by riding
+ * `useAnimatedKeyboard`; this sheet needs the number rather than a transform,
+ * because it resizes its list instead of moving.
  */
 function useKeyboardHeight(): number {
   const [height, setHeight] = useState(0);

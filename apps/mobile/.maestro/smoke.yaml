@@ -26,6 +26,8 @@ appId: com.beamer408.dodone
     visible: "Today"
     timeout: 30000
 - tapOn:
+    id: "quick-add-button"
+- tapOn:
     id: "quick-add-input"
 - inputText: "E2E smoke task today #test"
 - tapOn:

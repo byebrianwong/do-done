@@ -11,7 +11,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
@@ -325,7 +325,7 @@ export default function UpcomingScreen() {
         />
       )}
 
-      <QuickAddBar onCreated={invalidateTasks} />
+      <QuickAddButton />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
   },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
-  listContent: { paddingBottom: 140, flexGrow: 1 },
+  listContent: { paddingBottom: 96, flexGrow: 1 },
   sectionHeader: {
     backgroundColor: '#f3f4f6',
     paddingHorizontal: 16,
