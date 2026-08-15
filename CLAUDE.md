@@ -773,6 +773,52 @@ user's rows can win.
 
 ## Dragging a row (mobile)
 
+**The hold is the drag, and there is no handle.** A row can be asked to do three
+things and has one body to ask with, and reordering is the one that *must* be a
+hold — `DraggableFlatList` needs the finger still down when `drag()` is called,
+so it cannot be a tap. Multi-select used to own the hold, which is why every row
+carried a `reorder-three` grab handle: dragging had to be given somewhere else to
+live, and that somewhere was ~36px of horizontal space on every row of every
+list, spent permanently on the *rarer* of the two actions. The handle is gone and
+the hold reorders, matching the projects list, which has long-pressed to reorder
+since it was written.
+
+Multi-select is now an explicit mode, armed from **`ListActionsMenu`** — the ⋯
+button in each list's top bar — and left with Done on the bulk bar. That is the
+right trade for a mode: it is asked for rather than fallen into, and the gesture
+it used to occupy was one the finger reached for constantly while trying to move
+a task.
+
+- **`lib/row-gesture.ts` holds the rule as two pure functions**, tested in node
+  like the rest of `lib/` (there is no renderer here). `rowLongPressAction`
+  returns `'drag'` only on a list that can reorder and only while selection is
+  *not* armed: a row in selection mode is a target and nothing else, since a drop
+  would rewrite the task the user is in the middle of picking — the same reason
+  the swipe panels are disabled there.
+- **`onLongPress` is `undefined`, not a no-op, when there is nothing to hold
+  for.** A `Pressable` carrying an `onLongPress` swallows the press that would
+  otherwise have fired `onPress`, so a list that can't reorder (search,
+  Completed) would eat a slow tap.
+- **`isActive` on `TaskSelectionValue` is its own flag**, no longer
+  `selectedIds.size > 0`. The menu arms the mode with nothing picked yet, and
+  under the old derivation that state was indistinguishable from "not selecting"
+  — the rows would not have become targets and the first tap would have opened
+  the editor.
+- **`BulkActionBar` appears with the mode, not with the first selection**, since
+  it is both the confirmation that the ⋯ item was heard and the only way out. Its
+  five buttons are withheld until something is picked; a row of controls that
+  would do nothing to nothing invites the tap that proves it.
+- **A few top bars got shorter rather than longer.** Today's Completed and
+  Settings, and All's Completed, moved into the ⋯ menu: they are destinations
+  rather than actions on the list, and five indigo icons beside "Today" was the
+  bar competing with the day. The menu opens as a bottom sheet, like every other
+  menu in the app — an anchored popover would have to know the height of two
+  different kinds of header, and the sheet lands under the thumb.
+
+The cost is discoverability: nothing on the row now says it can be dragged. That
+is already true of the projects list, and the alternative was a permanent visual
+tax on every row for a hint each user needs once.
+
 **The query cache has to agree with the finger before the write goes out, not
 after.** `SectionedDraggableList` keeps a local copy of the order so a drop lands
 instantly, but it re-seeds that copy from `sections` — that is, from the cache —

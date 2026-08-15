@@ -13,6 +13,7 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   ListError,
   ListSkeleton,
@@ -87,14 +88,17 @@ export default function ProjectDetailScreen() {
             </View>
           ),
           headerRight: () => (
-            <Pressable
-              onPress={() => setShowDisplay(true)}
-              hitSlop={8}
-              style={styles.iconBtn}
-            >
-              <Ionicons name="options-outline" size={22} color="#6366f1" />
-              {!isDefault ? <View style={styles.activeDot} /> : null}
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setShowDisplay(true)}
+                hitSlop={8}
+                style={styles.iconBtn}
+              >
+                <Ionicons name="options-outline" size={22} color="#6366f1" />
+                {!isDefault ? <View style={styles.activeDot} /> : null}
+              </Pressable>
+              <ListActionsMenu />
+            </View>
           ),
         }}
       />
@@ -165,6 +169,7 @@ const styles = StyleSheet.create({
   headerDot: { width: 12, height: 12, borderRadius: 6 },
   headerText: { fontSize: 17, fontWeight: '700', color: '#111827' },
   listContent: { paddingBottom: 140, flexGrow: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { padding: 4 },
   activeDot: {
     position: 'absolute',

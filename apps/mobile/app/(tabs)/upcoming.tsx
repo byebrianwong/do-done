@@ -15,6 +15,7 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import CalendarEventRow from '@/components/CalendarEventRow';
 import SectionedDraggableList, {
   type DraggableSection,
@@ -255,7 +256,7 @@ export default function UpcomingScreen() {
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragHandle={drag}
+          onDragStart={drag}
           keepsCompleted={keepsCompleted}
           openInSection={openCount(section.data)}
         />
@@ -284,6 +285,7 @@ export default function UpcomingScreen() {
           >
             <Ionicons name="search" size={22} color="#6366f1" />
           </Pressable>
+          <ListActionsMenu />
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
