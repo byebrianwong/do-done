@@ -8,8 +8,10 @@ import {
   aisleTag,
   categorizeItem,
   groupByAisle,
+  AISLE_TERM_MAX_LENGTH,
   isAisle,
   itemAisle,
+  learnableTerm,
   withAisle,
   type Aisle,
 } from "./food.js";
@@ -238,5 +240,99 @@ describe("aisleOptions", () => {
       expect(option.label).toBe(AISLE_LABEL[option.value]);
       expect(option.label.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("learnableTerm", () => {
+  it("keys on the whole item text, not a head word", () => {
+    // Learning "milk" from a correction to "chocolate milk" would be a guess
+    // about which word carried the intent, and would quietly re-file every
+    // other milk on the list. Under-generalising costs one more correction;
+    // over-generalising costs trust in the grouping.
+    expect(learnableTerm("Chocolate milk")).toBe("chocolate milk");
+    expect(learnableTerm("Oat milk")).toBe("oat milk");
+    expect(learnableTerm("Milk")).toBe("milk");
+  });
+
+  it("strips a leading quantity, so 6 eggs and eggs are one lesson", () => {
+    expect(learnableTerm("6 eggs")).toBe("eggs");
+    expect(learnableTerm("2 x kombucha")).toBe("kombucha");
+    expect(learnableTerm("500g halloumi")).toBe("halloumi");
+    expect(learnableTerm("a dozen eggs")).toBe("dozen eggs");
+    expect(learnableTerm("2% milk")).toBe("milk");
+  });
+
+  it("normalises case and punctuation so the key is stable", () => {
+    expect(learnableTerm("Kombucha!")).toBe(learnableTerm("kombucha"));
+    expect(learnableTerm("  Rice   vinegar ")).toBe("rice vinegar");
+  });
+
+  it("bounds the key, because it is an index and not content", () => {
+    const long = learnableTerm("x".repeat(400));
+    expect(long!.length).toBeLessThanOrEqual(AISLE_TERM_MAX_LENGTH);
+  });
+
+  it("returns null when nothing usable is left", () => {
+    expect(learnableTerm("")).toBeNull();
+    expect(learnableTerm("🛒")).toBeNull();
+  });
+});
+
+describe("itemAisle with memory", () => {
+  const memory = new Map<string, Aisle>([
+    ["kimchi", "produce"],
+    ["oat milk", "pantry"],
+  ]);
+
+  it("answers for a word the lexicon has never heard of", () => {
+    // A lexicon of a few hundred English grocery terms will never cover
+    // everyone's shopping; this is the case memory exists for.
+    expect(itemAisle(item("Kimchi"))).toBeNull();
+    expect(itemAisle(item("Kimchi"), memory)).toBe("produce");
+  });
+
+  it("overrides the lexicon when the user's shop disagrees with it", () => {
+    // Oat milk is dairy-adjacent by name and shelved with the dry goods in
+    // plenty of shops. The lexicon guesses; the user knows.
+    expect(itemAisle(item("Oat milk"))).toBe("dairy");
+    expect(itemAisle(item("Oat milk"), memory)).toBe("pantry");
+  });
+
+  it("matches through a quantity, the same way the lesson was keyed", () => {
+    expect(itemAisle(item("2 x Kimchi"), memory)).toBe("produce");
+  });
+
+  it("does not leak a lesson to a different phrase sharing a word", () => {
+    // The whole reason the key is the full text.
+    expect(itemAisle(item("Whole milk"), memory)).toBe("dairy");
+  });
+
+  it("lets this row's own correction beat what was learned elsewhere", () => {
+    const corrected = item("Kimchi", [aisleTag("snacks")]);
+    expect(itemAisle(corrected, memory)).toBe("snacks");
+  });
+
+  it("falls back cleanly when the memory is empty or absent", () => {
+    expect(itemAisle(item("Bananas"), new Map())).toBe("produce");
+    expect(itemAisle(item("Bananas"), undefined)).toBe("produce");
+  });
+});
+
+describe("groupByAisle with memory", () => {
+  it("files a learned word into its taught aisle", () => {
+    const memory = new Map<string, Aisle>([["kimchi", "produce"]]);
+    const items = [
+      item("Bananas"), item("Whole milk"), item("Sourdough"),
+      item("Chicken"), item("Ice cream"), item("Kimchi"),
+    ];
+    // Untaught, it lands in the trailing "Other" group.
+    expect(groupByAisle(items).find((g) => g.aisle === null)?.items).toHaveLength(1);
+    // Taught, Other disappears entirely and it joins the produce it sits with.
+    const taught = groupByAisle(items, { memory });
+    expect(taught.find((g) => g.aisle === null)).toBeUndefined();
+    expect(taught.find((g) => g.aisle === "produce")!.items.map((i) => i.title)).toEqual([
+      "Bananas",
+      "Kimchi",
+    ]);
   });
 });

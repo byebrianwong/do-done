@@ -2,6 +2,7 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import {
+  AisleTermsApi,
   AttachmentsApi,
   TasksApi,
   ProjectsApi,
@@ -84,6 +85,18 @@ export async function getProjectsApi(): Promise<ProjectsApi> {
     projectsApiUserId = userId;
   }
   return projectsApi;
+}
+
+let aisleTermsApi: AisleTermsApi | undefined;
+let aisleTermsApiUserId: string | undefined;
+
+export async function getAisleTermsApi(): Promise<AisleTermsApi> {
+  const userId = await getUserId();
+  if (!aisleTermsApi || aisleTermsApiUserId !== userId) {
+    aisleTermsApi = new AisleTermsApi(supabase, userId);
+    aisleTermsApiUserId = userId;
+  }
+  return aisleTermsApi;
 }
 
 let locationsApi: LocationsApi | undefined;
