@@ -8,6 +8,7 @@ import QuickAddBar from '@/components/QuickAddBar';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   ListError,
   ListSkeleton,
@@ -65,13 +66,16 @@ export default function AllTasksScreen() {
           >
             <Ionicons name="search" size={22} color="#6366f1" />
           </Pressable>
-          <Pressable
-            onPress={() => router.push('/completed' as never)}
-            hitSlop={8}
-            style={styles.iconBtn}
-          >
-            <Ionicons name="checkmark-done-circle" size={22} color="#6366f1" />
-          </Pressable>
+          <ListActionsMenu
+            actions={[
+              {
+                key: 'completed',
+                label: 'Completed',
+                icon: 'checkmark-done-circle-outline',
+                onPress: () => router.push('/completed' as never),
+              },
+            ]}
+          />
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />

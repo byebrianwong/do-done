@@ -255,7 +255,7 @@ export default function GroupedTaskList({
         <TaskItem
           task={task}
           onPress={onTaskPress}
-          onDragHandle={drag}
+          onDragStart={drag}
           keepsCompleted={keepsCompleted}
           hideProject={hideProject}
           // Under a "Today" or "Tomorrow" header the row's own day is pure

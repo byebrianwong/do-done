@@ -12,6 +12,7 @@ import { Stack } from 'expo-router';
 import TaskItem from '@/components/TaskItem';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   ListError,
   ListSkeleton,
@@ -127,14 +128,17 @@ export default function CompletedScreen() {
         options={{
           title: 'Completed',
           headerRight: () => (
-            <Pressable
-              onPress={() => setShowDisplay(true)}
-              hitSlop={8}
-              style={styles.iconBtn}
-            >
-              <Ionicons name="options-outline" size={22} color="#6366f1" />
-              {!isDefault ? <View style={styles.activeDot} /> : null}
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setShowDisplay(true)}
+                hitSlop={8}
+                style={styles.iconBtn}
+              >
+                <Ionicons name="options-outline" size={22} color="#6366f1" />
+                {!isDefault ? <View style={styles.activeDot} /> : null}
+              </Pressable>
+              <ListActionsMenu />
+            </View>
           ),
         }}
       />
@@ -195,6 +199,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   headerCount: { color: '#9ca3af', fontWeight: '500' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { padding: 4 },
   activeDot: {
     position: 'absolute',

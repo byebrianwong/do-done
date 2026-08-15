@@ -17,6 +17,7 @@ import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import CalendarEventRow from '@/components/CalendarEventRow';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -223,7 +224,7 @@ export default function TodayScreen() {
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragHandle={drag}
+          onDragStart={drag}
           focused={focusIdsRef.current.has(task.id)}
           // This screen *is* today, so a row scheduled for today has nothing
           // to add by saying so. It is set per row rather than for the screen
@@ -257,20 +258,25 @@ export default function TodayScreen() {
           >
             <Ionicons name="search" size={22} color="#6366f1" />
           </Pressable>
-          <Pressable
-            onPress={() => router.push('/completed' as never)}
-            hitSlop={8}
-            style={styles.completedBtn}
-          >
-            <Ionicons name="checkmark-done-circle" size={22} color="#6366f1" />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/settings' as never)}
-            hitSlop={8}
-            style={styles.completedBtn}
-          >
-            <Ionicons name="settings-outline" size={22} color="#6366f1" />
-          </Pressable>
+          {/* Completed and Settings moved in here when the ⋯ arrived: both are
+              destinations rather than actions on this list, and five icons
+              beside "Today" was the bar competing with the day. */}
+          <ListActionsMenu
+            actions={[
+              {
+                key: 'completed',
+                label: 'Completed',
+                icon: 'checkmark-done-circle-outline',
+                onPress: () => router.push('/completed' as never),
+              },
+              {
+                key: 'settings',
+                label: 'Settings',
+                icon: 'settings-outline',
+                onPress: () => router.push('/settings' as never),
+              },
+            ]}
+          />
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
