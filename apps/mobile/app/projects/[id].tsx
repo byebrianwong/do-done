@@ -9,7 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
@@ -127,17 +127,13 @@ export default function ProjectDetailScreen() {
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No tasks in this project yet</Text>
-              <Text style={styles.emptyHint}>Add one below.</Text>
+              <Text style={styles.emptyHint}>Tap + to add one.</Text>
             </View>
           )
         }
         contentContainerStyle={styles.listContent}
       />
-      <QuickAddBar
-        defaultStatus="not_started"
-        projectId={projectId}
-        onCreated={invalidateTasks}
-      />
+      <QuickAddButton defaultStatus="not_started" projectId={projectId} />
       <DisplaySheet
         visible={showDisplay}
         onClose={() => setShowDisplay(false)}
@@ -164,7 +160,7 @@ const styles = StyleSheet.create({
   headerIcon: { fontSize: 16 },
   headerDot: { width: 12, height: 12, borderRadius: 6 },
   headerText: { fontSize: 17, fontWeight: '700', color: '#111827' },
-  listContent: { paddingBottom: 140, flexGrow: 1 },
+  listContent: { paddingBottom: 96, flexGrow: 1 },
   iconBtn: { padding: 4 },
   activeDot: {
     position: 'absolute',

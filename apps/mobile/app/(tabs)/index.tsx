@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
 import OverdueSection from '@/components/OverdueSection';
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
@@ -279,7 +279,7 @@ export default function TodayScreen() {
             <TodaySchedule events={events} />
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Nothing scheduled today</Text>
-              <Text style={styles.emptyHint}>Add a task below.</Text>
+              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
             </View>
           </View>
         ) : (
@@ -316,10 +316,10 @@ export default function TodayScreen() {
       )}
 
       {/* Scheduled for today by default — that is what this screen is, and an
-          undated task typed here would drop straight out of the list it was
-          typed into. The chip shows it, a typed date replaces it, and
-          `localDay` rolls it over when the app comes back on a new day. */}
-      <QuickAddBar scheduledDate={localDay} onCreated={invalidateTasks} />
+          undated task captured here would drop straight out of the list it was
+          added to. The composer's chip shows the day, a typed date replaces it,
+          and `localDay` rolls it over when the app comes back on a new day. */}
+      <QuickAddButton scheduledDate={localDay} />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
   },
   listContent: {
-    paddingBottom: 140,
+    paddingBottom: 96,
     flexGrow: 1,
   },
   emptyWrap: { flex: 1 },

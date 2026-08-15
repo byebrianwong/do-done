@@ -67,13 +67,14 @@ the group/date composers, which seed whatever axis their section is grouped by
 inherits the default.
 
 Why: capture is not triage. The Android quick-add widget, `dodone://quick-add`,
-the launcher shortcut, and the bars on Today / Upcoming / All have no view
-context to infer a status from. Seeding `not_started` there quietly declared the
+the launcher shortcut, and the plus button on Today / Upcoming / All have no
+view context to infer a status from. Seeding `not_started` there quietly declared the
 task triaged, so it never appeared in the Inbox anyone actually reviews.
 
-On mobile the default lives in `defaultStatus` in `QuickAddBar.tsx` and
-`QuickAddComposer.tsx`. On web, omitting `status` from the `QuickAddSeed` is what
-reaches it.
+On mobile the default lives in `defaultStatus` in `QuickAddComposer.tsx`, and
+in what `QuickAddButton.tsx` puts in the URL: only the project screen sends
+`status=not_started`, and `app/quick-add.tsx` reads anything else as `inbox`. On
+web, omitting `status` from the `QuickAddSeed` is what reaches it.
 
 ## Quick-add pre-fills the fields it can guess
 
@@ -118,6 +119,38 @@ and mobile (`buildInput`, `QuickAddFields.tsx`) alike:
 - **Only seed from a route that genuinely is one facet.** `seedFromPathname`
   gives the universal quick-add (sidebar, palette, `q`) the same context the
   page's own bar has — project pages, Today, Inbox — and nothing else.
+
+### Capture is a button on mobile
+
+Every list screen used to pin a full-width text field above the tab bar. It
+could be typed into where it stood — but a tap raised the keyboard and grew the
+card into the composer, which is what a button does, and until then the field
+spent the width of the screen saying "Add a task…" on top of the tasks it was
+covering. So it is a plus button in the bottom-right corner now
+(`QuickAddButton.tsx`), and the typing happens where it already happened for
+the widget, the launcher shortcut and the deep link: `dodone://quick-add`, a
+transparent modal over the list.
+
+- **The screen's context rides along as URL params** — `projectId`,
+  `scheduledDate`, `status` — so the chips open pre-filled exactly as the
+  table above says, and `useQuickAddFields` takes them through
+  `QuickAddComposer`'s new `seed` prop. A deep link arrives with none of them
+  and seeds nothing, which is what it always did.
+- **One composer, not two.** `QuickAddBar` was a second card with its own
+  keyboard tracking, mic, expand button and copy of the create flow, and it was
+  the only place two capture surfaces could drift apart. `ParsePreview` moved
+  across with it, so the deadline / recurrence echo the deep-linked composer
+  never had is now on every surface instead of none.
+- **Adding closes the surface**, where the bar stayed open for the next task.
+  `app/quick-add.tsx` invalidates before it dismisses, so the new row is in the
+  list as the backdrop clears rather than arriving with the focus refetch a
+  beat later. Burst capture is still a real need, and it is still served where
+  it belongs — a shopping list, whose composer commits without dismissing on
+  purpose.
+- **A long press dictates.** The mic went with the field it sat in, and a
+  gesture nobody is told about is not a replacement for a button; it is one of
+  four doors into the same recorder (see *Voice notes → Ways in*), and the
+  composer's own mic is one tap further on.
 
 ## Subtasks follow their parent's project
 
@@ -1531,7 +1564,7 @@ Four entry points, all reaching the same composer:
 
 | Entry | How |
 | --- | --- |
-| Quick-add bar (above the tab bar) | Mic button |
+| The plus button on a list screen | Long press |
 | `dodone://quick-add?voice=1` | In-app deep link, opens straight into recording |
 | `dodoneadd://voice` | The "Voice task" launcher shortcut — `QuickAddActivity`, floating over the live home screen |
 | Task editor | 🎙 Record, beside Photo and File; transcript appends to Notes |
@@ -1924,9 +1957,9 @@ over the live home screen without launching the main app.
   `components/QuickAddFields.tsx`** (`useQuickAddFields` + `QuickAddChipRow` +
   `QuickAddPickers`), reusing selectors exported from
   `components/TaskEditModalV2.tsx`. Every mobile capture surface shares them:
-  this widget composer, the in-app `dodone://quick-add` modal, and `QuickAddBar`
-  above the tab bar (which expands from one line to the full chip card on focus,
-  matching the web bar).
+  this widget composer and the in-app `dodone://quick-add` modal, which is
+  where every list screen's plus button lands too (see *Capture is a button on
+  mobile*).
 
   **Nothing in that module may call a TanStack Query hook or reach for an API** —
   the widget root has no QueryClientProvider. Both the project list (`projects`)
@@ -1948,11 +1981,10 @@ over the live home screen without launching the main app.
   composer), both via `openEditor` in `use-quick-add-composer.ts`; `allowEmpty`
   there creates a throwaway "New task" that `TaskEditModalV2`'s `draft` prop
   deletes again if the editor closes untouched. Mobile passes `onExpand` to
-  `QuickAddComposer` / `QuickAddBar` and **requires a title**, since it has no
-  `draft` equivalent and the alternative would be orphan "New task" rows. Where
-  the editor opens is the host's call: in place for `QuickAddBar` and
-  `app/quick-add.tsx`, but the widget root deep-links `dodone://task/<id>` and
-  dismisses, since a 3400-line sheet wanting the router and the query cache has
+  `QuickAddComposer` and **requires a title**, since it has no `draft`
+  equivalent and the alternative would be orphan "New task" rows. Where the
+  editor opens is the host's call: in place for `app/quick-add.tsx`, but the
+  widget root deep-links `dodone://task/<id>` and dismisses, since a 3400-line sheet wanting the router and the query cache has
   no business in a translucent launcher activity.
 - **Two composer rules keep the surface from jumping around**, both matching
   Todoist: the card rides the IME via Reanimated's `useAnimatedKeyboard`
@@ -2062,8 +2094,9 @@ The trade is that it can't be panned and the pin can't be dragged.
 
 The sheet tracks the IME height itself and shrinks its list to fit, because
 `edgeToEdgeEnabled` turns off Android's `adjustResize`, so nothing moves on its
-own and a bottom-anchored sheet is simply behind the keyboard. Same approach as
-`QuickAddBar`.
+own and a bottom-anchored sheet is simply behind the keyboard. Same problem
+`QuickAddComposer` solves by riding `useAnimatedKeyboard`; this sheet needs the
+number rather than a transform, because it resizes its list instead of moving.
 
 **Engine** (`lib/geofencing.ts`)
 

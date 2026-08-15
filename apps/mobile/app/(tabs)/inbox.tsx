@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
@@ -103,7 +103,7 @@ export default function InboxScreen() {
         }
         contentContainerStyle={styles.listContent}
       />
-      <QuickAddBar defaultStatus="inbox" onCreated={invalidateTasks} />
+      <QuickAddButton defaultStatus="inbox" />
       <DisplaySheet
         visible={showDisplay}
         onClose={() => setShowDisplay(false)}
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
   },
   listContent: {
-    paddingBottom: 140,
+    paddingBottom: 96,
     flexGrow: 1,
   },
   empty: {

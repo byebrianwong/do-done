@@ -169,9 +169,11 @@ left.
 
 ## Phase 3 — Capture & AI input (P1 — the product's wedge)
 
-- **3.1 — Live parse preview in quick-add.** ✅ `QuickAddBar` shows a live row of
-  parsed chips (date / deadline / priority / estimate / repeat / tags) above the
-  input as you type — new `components/ParsePreview.tsx`. **Effort: S–M.**
+- **3.1 — Live parse preview in quick-add.** ✅ The quick-add composer shows a
+  live row of parsed chips (date / deadline / priority / estimate / repeat /
+  tags) above the input as you type — new `components/ParsePreview.tsx`. (It
+  first landed in the quick-add bar, and moved across when that bar became the
+  plus button.) **Effort: S–M.**
   _(Status: ✅ done.)_
 - **3.2 — Voice capture, finished.** ✅ Shipped larger than the item asked for: a
   recording produces **two** artefacts and DoDone keeps both — the transcript as the
@@ -181,8 +183,8 @@ left.
   `lib/voice-capture.ts` (the native module, lazily required so Expo Go degrades to
   `supported: false`), `lib/voice-note.ts` (the upload) and `lib/use-voice-quick-add.ts`
   (the create-then-attach flow) sit under `components/VoiceRecorder.tsx`. Four doors
-  reach it: the quick-add bar's mic, `dodone://quick-add?voice=1`, the **Voice task**
-  launcher shortcut, and 🎙 Record in the task editor. No auto-submit, deliberately.
+  reach it: a long press on a list screen's plus button, `dodone://quick-add?voice=1`,
+  the **Voice task** launcher shortcut, and 🎙 Record in the task editor. No auto-submit, deliberately.
   **Still needs a dev-client/preview build** — `expo-speech-recognition` and
   `expo-audio` are native modules and will not arrive over OTA. **Effort: M.**
   _(Status: ✅ done — see the Voice notes section of CLAUDE.md. Superseded and

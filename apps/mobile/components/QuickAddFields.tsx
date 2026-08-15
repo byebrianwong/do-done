@@ -1,7 +1,7 @@
 /**
  * The When / Priority / Project / Estimate fields shared by every mobile
- * quick-add surface — the bar pinned above the tab bar (QuickAddBar), the
- * `dodone://quick-add` modal and the home-screen widget (QuickAddComposer).
+ * quick-add surface — the `dodone://quick-add` modal, where every list
+ * screen's plus button lands, and the home-screen widget (QuickAddComposer).
  * Mirrors the web `QuickAddChipRow`, so a task captured on either platform can
  * be scheduled, prioritised, filed and estimated without opening the full
  * editor.

@@ -5,9 +5,8 @@
  * parseTaskInput (`#tag`, `p1`, `/today`, `~30m`, "tomorrow", …) and merges on
  * submit, with explicit chip selections taking precedence.
  *
- * The fields themselves live in QuickAddFields.tsx, shared with the in-app
- * QuickAddBar. Two behaviors of *this* surface matter as much as the layout,
- * and both mirror Todoist:
+ * The fields themselves live in QuickAddFields.tsx. Two behaviors of *this*
+ * surface matter as much as the layout, and both mirror Todoist:
  *
  *  1. The card never moves on its own. It rides the keyboard via Reanimated's
  *     `useAnimatedKeyboard`, which reads the IME inset frame-by-frame from
@@ -23,9 +22,11 @@
  *     down. Only the full month calendar, which can't fit above the keyboard,
  *     takes over the screen; the input is refocused when it closes.
  *
- * Used by both the home-screen widget activity (quick-add-root.tsx) and the
- * in-app `dodone://quick-add` modal (app/quick-add.tsx). Each host renders its
- * own backdrop for cancel and supplies onCreated for the after-add dismissal.
+ * Used by the home-screen widget activity (quick-add-root.tsx) and by the
+ * in-app `dodone://quick-add` modal (app/quick-add.tsx) — which is also where
+ * every list screen's plus button lands, so this is the whole of task capture
+ * on mobile. Each host renders its own backdrop for cancel and supplies
+ * onCreated for the after-add dismissal.
  * Both pass `projects` — the widget's root has no query provider, so it loads
  * the list straight off ProjectsApi and hands it in the same way.
  *
@@ -54,6 +55,7 @@ import type { Project, SuggestionIndex, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
+import ParsePreview from './ParsePreview';
 import VoiceRecorder, { DictatedNote } from './VoiceRecorder';
 import { TagRow } from './TaskEditModalV2';
 import {
@@ -62,6 +64,7 @@ import {
   QuickAddSuggestionRow,
   QuickAddPickers,
   useQuickAddFields,
+  type QuickAddSeed,
 } from './QuickAddFields';
 
 interface QuickAddComposerProps {
@@ -74,6 +77,13 @@ interface QuickAddComposerProps {
    */
   defaultStatus?: 'inbox' | 'not_started';
   onCreated?: () => void;
+  /**
+   * What the surface that opened this composer already implies about the task
+   * — the project of the screen the plus button was tapped on, the day the
+   * Today screen is. Each seeded facet arrives showing in its chip, and a
+   * typed value or a tapped chip replaces it.
+   */
+  seed?: QuickAddSeed;
   /** Focus the input as soon as the composer mounts. */
   autoFocus?: boolean;
   /**
@@ -105,6 +115,7 @@ const WRAPPER_PADDING_H = 12;
 export default function QuickAddComposer({
   defaultStatus = 'inbox',
   onCreated,
+  seed,
   autoFocus = false,
   autoRecord = false,
   projects,
@@ -115,7 +126,7 @@ export default function QuickAddComposer({
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const fields = useQuickAddFields({}, projects, suggestionIndex);
+  const fields = useQuickAddFields(seed, projects, suggestionIndex);
 
   // Dictation extends the line rather than replacing it, matching what typing
   // after the existing text would have done.
@@ -216,6 +227,11 @@ export default function QuickAddComposer({
         onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
       />
 
+      {/* Deadline / recurrence only — the chips and the tag row own the rest.
+          Reads the list off `fields` rather than the host's prop, so a project
+          created from the chip is matchable by name straight away. */}
+      <ParsePreview text={text} omitChipFields projects={fields.projects} />
+
       {voiceQuickAdd.open ? (
         <View style={styles.recorderSlot}>
           <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
@@ -227,6 +243,7 @@ export default function QuickAddComposer({
         <View style={styles.titleRow}>
           <TextInput
             ref={inputRef}
+            testID="quick-add-input"
             style={styles.input}
             placeholder="Add a task…"
             placeholderTextColor="#9ca3af"
@@ -239,6 +256,7 @@ export default function QuickAddComposer({
           />
           {voiceQuickAdd.supported ? (
             <Pressable
+              testID="quick-add-mic"
               accessibilityLabel="Record a voice note"
               style={({ pressed }) => [
                 styles.micBtn,
@@ -275,6 +293,7 @@ export default function QuickAddComposer({
             </Pressable>
           ) : null}
           <Pressable
+            testID="quick-add-submit"
             style={({ pressed }) => [
               styles.sendBtn,
               (pressed || !text.trim()) && styles.sendBtnMuted,

@@ -1,8 +1,8 @@
 /**
  * Live preview of what the natural-language parser extracted from a quick-add
  * string, so the user can trust the parse before submitting (Phase 3.1).
- * Shown above the QuickAddBar as the user types; renders nothing until the
- * parser finds at least one piece of structured metadata.
+ * Shown above the quick-add composer's card as the user types; renders nothing
+ * until the parser finds at least one piece of structured metadata.
  */
 
 import React, { useMemo } from 'react';

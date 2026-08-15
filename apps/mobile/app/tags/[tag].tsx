@@ -30,9 +30,9 @@ import { useListLoadState } from '@/lib/list-load-state';
 /**
  * Every task carrying one tag.
  *
- * There is no quick-add bar here on purpose: a task typed into it would not
- * pick the tag up — nothing in the composer seeds a tag — so the row would
- * drop straight out of the list it was typed into.
+ * There is no quick-add here on purpose: a task captured on this screen would
+ * not pick the tag up — nothing in the composer seeds a tag — so the row would
+ * drop straight out of the list it was added to.
  *
  * One saved Display config for the surface, not one per tag (`viewKey` is the
  * bare "tag", as on web) — otherwise a preference would reset itself every

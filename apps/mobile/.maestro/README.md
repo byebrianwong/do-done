@@ -60,16 +60,20 @@ them. In CI, store them as repository secrets. Use a dedicated test account.
   the back button all dismiss it normally and are Maestro-friendly.)
 - **RN placeholders aren't reliably findable** by Maestro `tapOn: "<placeholder>"` —
   which is why the login and quick-add inputs are targeted by `testID`
-  (`login-email`, `login-password`, `login-submit`, `quick-add-input`,
-  `quick-add-submit`) rather than placeholder text or screen coordinates.
+  (`login-email`, `login-password`, `login-submit`, `quick-add-button`,
+  `quick-add-input`, `quick-add-submit`) rather than placeholder text or screen
+  coordinates.
 
 ## testIDs
 
-The login screen and quick-add bar expose `testID`s so flows are
-resolution-independent:
+The login screen and quick-add expose `testID`s so flows are
+resolution-independent. Capture is two steps now — the plus button opens the
+composer, and the composer holds the input:
 
 - `app/(auth)/login.tsx` — `login-email`, `login-password`, `login-submit`
-- `components/QuickAddBar.tsx` — `quick-add-input`, `quick-add-submit`
+- `components/QuickAddButton.tsx` — `quick-add-button`
+- `components/QuickAddComposer.tsx` — `quick-add-input`, `quick-add-submit`,
+  `quick-add-mic`
 
 Task rows are matched by title text. To target a specific row deterministically,
 add `testID={\`task-${task.id}\`}` to the row `Pressable` in `components/TaskItem.tsx`.

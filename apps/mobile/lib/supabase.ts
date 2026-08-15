@@ -106,8 +106,8 @@ let attachmentsApiUserId: string | undefined;
  *
  * The task editor builds its own instance from `task.user_id`, which is what a
  * surface holding a loaded task should do. This one is for the surfaces that
- * have no task yet — the quick-add bar and the widget composer, which upload a
- * voice note the moment the task they just created comes back.
+ * have no task yet — the quick-add composers, in the app and in the widget,
+ * which upload a voice note the moment the task they just created comes back.
  */
 export async function getAttachmentsApi(): Promise<AttachmentsApi> {
   const userId = await getUserId();

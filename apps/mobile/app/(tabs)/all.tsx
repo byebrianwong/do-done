@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import QuickAddBar from '@/components/QuickAddBar';
+import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
@@ -93,7 +93,7 @@ export default function AllTasksScreen() {
           contentContainerStyle={styles.listContent}
         />
       )}
-      <QuickAddBar onCreated={invalidateTasks} />
+      <QuickAddButton />
       <TaskEditModalV2
         task={editing}
         visible={editing !== null}
@@ -135,5 +135,5 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#6366f1',
   },
-  listContent: { paddingBottom: 140, flexGrow: 1 },
+  listContent: { paddingBottom: 96, flexGrow: 1 },
 });
