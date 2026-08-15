@@ -588,6 +588,18 @@ function dateBucketOf(task: Task, today: string): RelativeDateBucket {
   return { key: "date:later", label: "Later", dropDate: null };
 }
 
+/**
+ * Whether a date group's header is a *day*, so the rows beneath it must not
+ * repeat it (`rowSubline`'s `hideScheduledDay`).
+ *
+ * Only "Today" and "Tomorrow" name one. "This week", "Next week" and "Later"
+ * span several days, and that is exactly when a row's own date is worth
+ * printing; "Overdue" names none, and those rows say their age instead.
+ */
+export function dateGroupNamesTheDay(groupKey: string): boolean {
+  return groupKey === "date:today" || groupKey === "date:tomorrow";
+}
+
 const DATE_BUCKET_ORDER = [
   "date:overdue",
   "date:today",

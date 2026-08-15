@@ -104,6 +104,13 @@ interface TaskItemProps {
    */
   hideProject?: boolean;
   /**
+   * The same for the scheduled day: set it where the surface has already named
+   * the day this row is on — a section header reading "Tomorrow", or the Today
+   * screen. Everywhere else a row prints its own day, "Today" included, since
+   * that is the one a list most needs to point out.
+   */
+  hideScheduledDay?: boolean;
+  /**
    * Open tasks in this row's section, **including this one**, as it stood
    * before the tap. One means completing this empties the section, which earns
    * the celebratory burst. Omitted on surfaces with no sections (the inbox,
@@ -139,6 +146,7 @@ function TaskItem({
   focused,
   keepsCompleted = false,
   hideProject = false,
+  hideScheduledDay = false,
   openInSection = null,
   openInProject = null,
 }: TaskItemProps) {
@@ -407,6 +415,7 @@ function TaskItem({
   const gutter = completed ? null : rowGutter(task);
   const subline = rowSubline(task, {
     projectName: hideProject ? null : project?.name ?? null,
+    hideScheduledDay,
   }).join(' · ');
   const estimate = completed ? '' : rowEstimate(task);
 

@@ -65,6 +65,11 @@ function effectiveDate(t: Task): string | null {
   return t.scheduled_date ?? t.deadline_date ?? null;
 }
 
+/** Day sections are keyed by their YYYY-MM-DD; overdue/later/anytime aren't. */
+function isDayKey(key: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(key);
+}
+
 // What dropping into a date section should do to a task's schedule. Every
 // section maps to a concrete date (or clears it) — no soft buckets.
 function sectionTarget(key: string): UpdateTaskInput {
@@ -257,6 +262,10 @@ export default function UpcomingScreen() {
           onPress={handlePress}
           onDragHandle={drag}
           keepsCompleted={keepsCompleted}
+          // A day section's header is the day, so its rows keep only their
+          // time. The sentinel sections (Overdue / Later / Anytime) name no
+          // single day, so those rows still print their own.
+          hideScheduledDay={isDayKey(section.key)}
           openInSection={openCount(section.data)}
         />
       </View>
