@@ -296,6 +296,39 @@ export type StatusSyncSettings = z.infer<typeof StatusSyncSettingsSchema>;
 export const UpdateStatusSyncInput = StatusSyncSettingsSchema.partial();
 export type UpdateStatusSyncInput = z.infer<typeof UpdateStatusSyncInput>;
 
+// ── Digest notifications ───────────────────────────────
+//
+// Lives here rather than in notifications.ts for the same reason
+// StatusSyncSettingsSchema does: UserPreferencesSchema has to extend it, and
+// notifications.ts needs `Task` from this module. One of the two directions
+// has to be the value import, and this is it. See notifications.ts for the
+// rules, the copy, and why both switches default off.
+
+/** A digest time is a 24-hour wall clock in the *user's* timezone. */
+export const CLOCK_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export const NotificationSettingsSchema = z.object({
+  /** A digest each morning of what is on today. */
+  notify_daily_digest: z.boolean().catch(false),
+  notify_daily_digest_time: z.string().regex(CLOCK_TIME_PATTERN).catch("08:00"),
+  /** A digest each week of the seven days ahead. */
+  notify_weekly_digest: z.boolean().catch(false),
+  /** 0 = Sunday, matching `week_end_day` and `Date#getDay`. */
+  notify_weekly_digest_weekday: z.number().int().min(0).max(6).catch(1),
+  notify_weekly_digest_time: z
+    .string()
+    .regex(CLOCK_TIME_PATTERN)
+    .catch("08:00"),
+});
+export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
+
+/** Writable subset — every field optional, so the UI can save one switch. */
+export const UpdateNotificationSettingsInput =
+  NotificationSettingsSchema.partial();
+export type UpdateNotificationSettingsInput = z.infer<
+  typeof UpdateNotificationSettingsInput
+>;
+
 export const UserPreferencesSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
@@ -326,7 +359,9 @@ export const UserPreferencesSchema = z.object({
   hidden_calendar_ids: z.array(z.string()).nullable().default(null),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
-}).extend(StatusSyncSettingsSchema.shape);
+})
+  .extend(StatusSyncSettingsSchema.shape)
+  .extend(NotificationSettingsSchema.shape);
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
 // Pure decay-settings projection used by pet-decay.ts. Decouples the math

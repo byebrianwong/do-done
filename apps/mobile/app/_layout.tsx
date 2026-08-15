@@ -23,6 +23,13 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
+import { startDigestScheduling } from '@/lib/digests';
+import {
+  ensureChannels,
+  getNotifications,
+  installNotificationHandler,
+} from '@/lib/notifications';
+import { routeForNotification } from '@/lib/notification-routing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
 import {
@@ -152,6 +159,55 @@ function RootLayoutNav() {
     return startStatusSyncSweeps();
   }, [session?.user?.id]);
 
+  // Arm the daily/weekly digests, and re-arm on every return to the
+  // foreground. A local notification's text is frozen when it's scheduled, so
+  // the re-arm is what keeps tomorrow's digest describing tomorrow's list
+  // rather than the one that was there when the app was last opened. No-op
+  // unless the user switched a digest on. See lib/digest-plan.ts.
+  useEffect(() => {
+    if (!session?.user) return;
+    return startDigestScheduling();
+  }, [session?.user?.id]);
+
+  // Show notifications that fire while the app is on screen, and make sure both
+  // Android channels exist.
+  //
+  // Once per launch, and here rather than at module scope in the background
+  // task: both are concerns of a *running* app, and doing them at bundle
+  // evaluation would load expo-notifications on every headless cold start too.
+  // Without the handler, a notification arriving while DoDone is open is
+  // swallowed — which is exactly the case when you walk into the shop holding
+  // the phone. Channels are re-asserted on every launch so a user who granted
+  // permission in an older build (before a channel existed, or before it had
+  // the right importance) still ends up with a correctly configured one.
+  useEffect(() => {
+    installNotificationHandler();
+    void ensureChannels();
+  }, []);
+
+  // Where a tapped notification lands.
+  //
+  // Without this the app opens on whatever screen it was last showing, which
+  // throws away the one thing the notification was carrying — most obviously
+  // for a location reminder, whose body *is* a task title. Registered here
+  // rather than in the geofence task because responding to a tap needs the
+  // router, which needs the React tree the background task doesn't have.
+  useEffect(() => {
+    const N = getNotifications();
+    if (!N) return;
+    const sub = N.addNotificationResponseReceivedListener(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (response: any) => {
+        const path = routeForNotification(
+          response?.notification?.request?.content?.data
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (path) router.push(path as any);
+      }
+    );
+    return () => sub.remove();
+  }, [router]);
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
@@ -169,6 +225,7 @@ function RootLayoutNav() {
           name="status-sync"
           options={{ title: 'Status and schedule' }}
         />
+        <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         <Stack.Screen name="search" options={{ headerShown: false }} />
         <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />
         <Stack.Screen name="today" options={{ headerShown: false }} />
