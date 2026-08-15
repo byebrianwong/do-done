@@ -8,6 +8,7 @@ import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   ListError,
   ListSkeleton,
@@ -70,6 +71,7 @@ export default function InboxScreen() {
           >
             <Ionicons name="search" size={22} color="#6366f1" />
           </Pressable>
+          <ListActionsMenu />
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />

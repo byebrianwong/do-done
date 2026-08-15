@@ -118,9 +118,15 @@ function BarButton({
 
 /**
  * Floating bulk-action toolbar — the primary surface for acting on a
- * multi-selection. Mounted once at the app root; renders nothing until a row is
- * selected (long-press), then docks over the tab bar with Schedule, Move,
- * Priority, Complete and Delete, plus the selected count and a cancel.
+ * multi-selection. Mounted once at the app root; renders nothing until a list's
+ * ⋯ menu arms selection mode, then docks over the tab bar with Schedule, Move,
+ * Priority, Complete and Delete, plus the selected count and a way out.
+ *
+ * It appears **with the mode, not with the first selection**. The mode is now
+ * asked for rather than fallen into, so the bar is what confirms it was heard —
+ * and it is also the only thing on screen that can end it. Its buttons are
+ * withheld until something is picked: five controls that would do nothing to
+ * nothing invite the tap that proves it.
  */
 export function BulkActionBar() {
   const selection = useTaskSelection();
@@ -129,7 +135,7 @@ export function BulkActionBar() {
   const [sheet, setSheet] = useState<Sheet>(null);
 
   const count = selection.count;
-  if (count === 0) return null;
+  if (!selection.isActive) return null;
 
   const ids = () => [...selection.selectedIds];
 
@@ -156,7 +162,7 @@ export function BulkActionBar() {
     hapticLight();
     report(verb, bulkUpdateTasks(targets, input));
     setSheet(null);
-    selection.clear();
+    selection.end();
   };
 
   const pickSchedule = (key: string) => {
@@ -174,14 +180,14 @@ export function BulkActionBar() {
       bulkRescheduleTasks(targets, resolveQuickSchedule(key as QuickScheduleKey))
     );
     setSheet(null);
-    selection.clear();
+    selection.end();
   };
 
   const complete = () => {
     const targets = ids();
     hapticSuccess();
     report('complete', bulkCompleteTasks(targets));
-    selection.clear();
+    selection.end();
   };
 
   const confirmDelete = () => {
@@ -197,7 +203,7 @@ export function BulkActionBar() {
           onPress: () => {
             hapticMedium();
             report('delete', bulkDeleteTasks(targets));
-            selection.clear();
+            selection.end();
           },
         },
       ]
@@ -218,39 +224,43 @@ export function BulkActionBar() {
     <>
       <View style={[styles.bar, { paddingBottom: insets.bottom + 6 }]}>
         <View style={styles.header}>
-          <Text style={styles.count}>{count} selected</Text>
-          <Pressable onPress={() => selection.clear()} hitSlop={8}>
-            <Text style={styles.cancel}>Cancel</Text>
+          <Text style={count > 0 ? styles.count : styles.prompt}>
+            {count > 0 ? `${count} selected` : 'Tap tasks to select'}
+          </Text>
+          <Pressable onPress={() => selection.end()} hitSlop={8}>
+            <Text style={styles.cancel}>Done</Text>
           </Pressable>
         </View>
-        <View style={styles.actions}>
-          <BarButton
-            icon="calendar-outline"
-            label="Schedule"
-            onPress={() => setSheet('schedule')}
-          />
-          <BarButton
-            icon="folder-outline"
-            label="Move"
-            onPress={() => setSheet('move')}
-          />
-          <BarButton
-            icon="flag-outline"
-            label="Priority"
-            onPress={() => setSheet('priority')}
-          />
-          <BarButton
-            icon="checkmark-done-outline"
-            label="Complete"
-            onPress={complete}
-          />
-          <BarButton
-            icon="trash-outline"
-            label="Delete"
-            danger
-            onPress={confirmDelete}
-          />
-        </View>
+        {count > 0 ? (
+          <View style={styles.actions}>
+            <BarButton
+              icon="calendar-outline"
+              label="Schedule"
+              onPress={() => setSheet('schedule')}
+            />
+            <BarButton
+              icon="folder-outline"
+              label="Move"
+              onPress={() => setSheet('move')}
+            />
+            <BarButton
+              icon="flag-outline"
+              label="Priority"
+              onPress={() => setSheet('priority')}
+            />
+            <BarButton
+              icon="checkmark-done-outline"
+              label="Complete"
+              onPress={complete}
+            />
+            <BarButton
+              icon="trash-outline"
+              label="Delete"
+              danger
+              onPress={confirmDelete}
+            />
+          </View>
+        ) : null}
       </View>
 
       <OptionSheet
@@ -309,7 +319,10 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   count: { fontSize: 14, fontWeight: '700', color: '#4338ca' },
-  cancel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+  // The same slot, in the muted weight an instruction gets rather than the one
+  // a count gets — the bar is waiting, not reporting.
+  prompt: { fontSize: 14, fontWeight: '500', color: '#6b7280' },
+  cancel: { fontSize: 14, fontWeight: '600', color: '#4338ca' },
   actions: {
     flexDirection: 'row',
     alignItems: 'flex-start',

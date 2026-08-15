@@ -99,18 +99,47 @@ describe("rowSubline", () => {
     expect(rowSubline(task(), { now: NOW })).toEqual([]);
   });
 
-  // "Today" on every row of the Today screen is a label that has stopped
-  // carrying information; the time is the part that still means something.
-  it("drops the day for a task scheduled today, keeping the time", () => {
+  // The regression this is here for: "Today" used to be swallowed wherever it
+  // appeared, so on Inbox, All, a project or a search result a task scheduled
+  // today rendered exactly like an undated one while tomorrow's said so.
+  it("names today like any other day", () => {
     expect(
       rowSubline(task({ scheduled_date: "2026-08-12" }), { now: NOW })
-    ).toEqual([]);
+    ).toEqual(["Today"]);
     expect(
       rowSubline(
         task({ scheduled_date: "2026-08-12", scheduled_time: "09:00" }),
         { now: NOW }
       )
+    ).toEqual(["Today 9:00 AM"]);
+  });
+
+  // Hiding it is the surface's call, not the value's: a header reading
+  // "Today", or the Today screen itself.
+  it("drops the day only when the caller says it already named it", () => {
+    expect(
+      rowSubline(task({ scheduled_date: "2026-08-12" }), {
+        now: NOW,
+        hideScheduledDay: true,
+      })
+    ).toEqual([]);
+    expect(
+      rowSubline(
+        task({ scheduled_date: "2026-08-13", scheduled_time: "09:00" }),
+        { now: NOW, hideScheduledDay: true }
+      )
     ).toEqual(["9:00 AM"]);
+  });
+
+  // "Overdue" names no day, so there is nothing for the row to be repeating —
+  // and how late it is is the one thing those rows have to say.
+  it("still prints an overdue task's age under a header that hides days", () => {
+    expect(
+      rowSubline(task({ scheduled_date: "2026-08-09" }), {
+        now: NOW,
+        hideScheduledDay: true,
+      })
+    ).toEqual(["3 days ago"]);
   });
 
   it("keeps the day for any other day", () => {
@@ -143,7 +172,7 @@ describe("rowSubline", () => {
         }),
         { now: NOW, projectName: "Home" }
       )
-    ).toEqual(["Repeats daily", "Home"]);
+    ).toEqual(["Today", "Repeats daily", "Home"]);
   });
 
   // A finished task's scheduled date is no longer actionable, and printing it

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import { invalidateTasks, useSearchTasks } from '@/lib/task-queries';
 import type { Task } from '@do-done/shared';
 
@@ -64,6 +65,10 @@ export default function SearchScreen() {
           />
           {isFetching ? <ActivityIndicator size="small" color="#6366f1" /> : null}
         </View>
+        {/* Selection is worth reaching here even though the bar is a field:
+            a search is how you assemble an arbitrary set of tasks, which is
+            exactly the set bulk actions exist for. */}
+        <ListActionsMenu />
       </View>
 
       <FlatList

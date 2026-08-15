@@ -13,6 +13,7 @@ import { decodeTagParam, type Task } from '@do-done/shared';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   ListError,
   ListSkeleton,
@@ -72,14 +73,17 @@ export default function TagDetailScreen() {
         options={{
           title: `#${tag}`,
           headerRight: () => (
-            <Pressable
-              onPress={() => setShowDisplay(true)}
-              hitSlop={8}
-              style={styles.iconBtn}
-            >
-              <Ionicons name="options-outline" size={22} color="#6366f1" />
-              {!isDefault ? <View style={styles.activeDot} /> : null}
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setShowDisplay(true)}
+                hitSlop={8}
+                style={styles.iconBtn}
+              >
+                <Ionicons name="options-outline" size={22} color="#6366f1" />
+                {!isDefault ? <View style={styles.activeDot} /> : null}
+              </Pressable>
+              <ListActionsMenu />
+            </View>
           ),
         }}
       />
@@ -143,6 +147,7 @@ export default function TagDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
   listContent: { paddingBottom: 40, flexGrow: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { padding: 4 },
   activeDot: {
     position: 'absolute',

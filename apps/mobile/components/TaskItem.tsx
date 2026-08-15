@@ -25,6 +25,11 @@ import {
 import type { Task as SharedTask, UpdateTaskInput } from '@do-done/shared';
 import { hapticLight, hapticMedium, hapticSuccess } from '@/lib/haptics';
 import { claimStreakDay } from '@/lib/completion-streak';
+import {
+  ROW_DRAG_HOLD_MS,
+  rowLongPressAction,
+  rowTapAction,
+} from '@/lib/row-gesture';
 import { panelForSwipe } from '@/lib/swipe-actions';
 import {
   deleteTask,
@@ -83,8 +88,12 @@ const TITLE_DONE_COLOR = '#9ca3af';
 interface TaskItemProps {
   task: Task;
   onPress?: (task: Task) => void;
-  /** When provided, renders a drag handle that calls this to begin reordering. */
-  onDragHandle?: () => void;
+  /**
+   * When provided, the list can reorder and a long press on the row begins the
+   * drag. There is no handle: see `lib/row-gesture.ts` for why the hold belongs
+   * to this rather than to selection.
+   */
+  onDragStart?: () => void;
   /** Marks the row with a ⭐ — used by Today to flag focus-picked tasks. */
   focused?: boolean;
   /**
@@ -103,6 +112,13 @@ interface TaskItemProps {
    * where the header has just said it.
    */
   hideProject?: boolean;
+  /**
+   * The same for the scheduled day: set it where the surface has already named
+   * the day this row is on — a section header reading "Tomorrow", or the Today
+   * screen. Everywhere else a row prints its own day, "Today" included, since
+   * that is the one a list most needs to point out.
+   */
+  hideScheduledDay?: boolean;
   /**
    * Open tasks in this row's section, **including this one**, as it stood
    * before the tap. One means completing this empties the section, which earns
@@ -135,10 +151,11 @@ function buildReschedule(
 function TaskItem({
   task,
   onPress,
-  onDragHandle,
+  onDragStart,
   focused,
   keepsCompleted = false,
   hideProject = false,
+  hideScheduledDay = false,
   openInSection = null,
   openInProject = null,
 }: TaskItemProps) {
@@ -152,15 +169,22 @@ function TaskItem({
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
 
-  // Multi-select: long-press enters selection mode and selects the row; while a
-  // selection is active a tap toggles the row (instead of opening the editor)
-  // and the leading ring becomes a selection checkbox.
+  // Multi-select is an explicit mode, armed from the list's ⋯ menu rather than
+  // by holding a row. While it is armed a tap toggles the row (instead of
+  // opening the editor) and the leading ring becomes a selection checkbox.
   const selection = useTaskSelection();
   const selected = selection.isSelected(task.id);
   const selectionActive = selection.isActive;
 
+  // The hold reorders. Both decisions live in `lib/row-gesture.ts` so the rule
+  // is written down once and can be tested — there is no renderer here.
+  const longPress = rowLongPressAction({
+    selecting: selectionActive,
+    draggable: !!onDragStart,
+  });
+
   function handleRowPress() {
-    if (selectionActive) {
+    if (rowTapAction({ selecting: selectionActive }) === 'toggle-selection') {
       hapticLight();
       selection.toggle(task.id);
       return;
@@ -169,10 +193,11 @@ function TaskItem({
   }
 
   function handleRowLongPress() {
-    // Enter (or extend) selection mode. This replaces the single-task reschedule
-    // menu — those actions now live on the bulk bar + swipe actions.
+    if (longPress !== 'drag') return;
+    // The tick that tells the user the row is now theirs to move — the lift
+    // itself is the only other feedback the gesture gives.
     hapticMedium();
-    selection.toggle(task.id);
+    onDragStart?.();
   }
 
   function handleLeadingPress() {
@@ -407,6 +432,7 @@ function TaskItem({
   const gutter = completed ? null : rowGutter(task);
   const subline = rowSubline(task, {
     projectName: hideProject ? null : project?.name ?? null,
+    hideScheduledDay,
   }).join(' · ');
   const estimate = completed ? '' : rowEstimate(task);
 
@@ -453,8 +479,11 @@ function TaskItem({
         exit.deleting && styles.deletingRow,
       ]}
       onPress={handleRowPress}
-      onLongPress={handleRowLongPress}
-      delayLongPress={350}
+      // Undefined rather than a no-op when there is nothing to hold for: a
+      // Pressable with an `onLongPress` swallows the press that would otherwise
+      // have fired `onPress`, so a list that can't reorder would eat a slow tap.
+      onLongPress={longPress === 'drag' ? handleRowLongPress : undefined}
+      delayLongPress={ROW_DRAG_HOLD_MS}
     >
       {/* The urgency column. Always the same width, so nothing shifts when a
           task stops being late — and empty on the great majority of rows. */}
@@ -567,20 +596,6 @@ function TaskItem({
       {/* One right-aligned figure, in tabular digits, so a day's estimates
           form a column you can add up by eye. */}
       {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
-
-      {onDragHandle && !selectionActive ? (
-        <Pressable
-          onLongPress={() => {
-            hapticMedium();
-            onDragHandle();
-          }}
-          delayLongPress={150}
-          hitSlop={8}
-          style={styles.dragHandle}
-        >
-          <Ionicons name="reorder-three" size={22} color="#cbd5e1" />
-        </Pressable>
-      ) : null}
     </Pressable>
     </ReanimatedSwipeable>
     </Animated.View>
@@ -721,13 +736,6 @@ const styles = StyleSheet.create({
     minWidth: 32,
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
-  },
-  dragHandle: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   // Sentence case, matching web and every other label on the row. The status
   // was the one chip shouting, and upper-casing made the longest one

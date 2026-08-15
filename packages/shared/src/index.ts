@@ -8,6 +8,7 @@ export * from "./utils.js";
 export * from "./timezone.js";
 export * from "./display.js";
 export * from "./status-sync.js";
+export * from "./notifications.js";
 export * from "./pet-decay.js";
 export * from "./title-shortcuts.js";
 export * from "./project-match.js";

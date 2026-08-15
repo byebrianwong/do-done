@@ -15,6 +15,7 @@ import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import { ListActionsMenu } from '@/components/ListActionsMenu';
 import CalendarEventRow from '@/components/CalendarEventRow';
 import SectionedDraggableList, {
   type DraggableSection,
@@ -63,6 +64,11 @@ function dayLabel(iso: string): string {
 
 function effectiveDate(t: Task): string | null {
   return t.scheduled_date ?? t.deadline_date ?? null;
+}
+
+/** Day sections are keyed by their YYYY-MM-DD; overdue/later/anytime aren't. */
+function isDayKey(key: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(key);
 }
 
 // What dropping into a date section should do to a task's schedule. Every
@@ -255,8 +261,12 @@ export default function UpcomingScreen() {
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragHandle={drag}
+          onDragStart={drag}
           keepsCompleted={keepsCompleted}
+          // A day section's header is the day, so its rows keep only their
+          // time. The sentinel sections (Overdue / Later / Anytime) name no
+          // single day, so those rows still print their own.
+          hideScheduledDay={isDayKey(section.key)}
           openInSection={openCount(section.data)}
         />
       </View>
@@ -284,6 +294,7 @@ export default function UpcomingScreen() {
           >
             <Ionicons name="search" size={22} color="#6366f1" />
           </Pressable>
+          <ListActionsMenu />
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
