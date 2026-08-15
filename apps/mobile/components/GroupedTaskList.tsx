@@ -10,6 +10,7 @@ import SectionedDraggableList, {
 import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
 import {
   applyDisplay,
+  dateGroupNamesTheDay,
   isCollapsed,
   isManualSort,
   toggleCollapsed,
@@ -257,6 +258,10 @@ export default function GroupedTaskList({
           onDragHandle={drag}
           keepsCompleted={keepsCompleted}
           hideProject={hideProject}
+          // Under a "Today" or "Tomorrow" header the row's own day is pure
+          // repetition; under "This week" or "Later" it is the only thing
+          // saying which day, so it stays.
+          hideScheduledDay={dateGroupNamesTheDay(section.key)}
           openInSection={sectionCounts ? openCount(section.data) : undefined}
           openInProject={openInProject}
         />

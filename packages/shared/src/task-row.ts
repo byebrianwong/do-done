@@ -122,11 +122,21 @@ export interface RowSublineContext {
    */
   projectName?: string | null;
   /**
-   * Drop the scheduled *day* and keep only its time — for a list already
-   * grouped by date, where the section header has just named the day. The
-   * date-shaped twin of `projectName: null`, and the reason the home-screen
-   * Upcoming widget doesn't print "Tomorrow" under a header reading
-   * "Tomorrow".
+   * Drop the scheduled *day* and keep only its time — for a surface that has
+   * already named the day this row is on: a section header reading "Tomorrow",
+   * or the Today screen itself. The date-shaped twin of `projectName: null`.
+   *
+   * **This is the only thing that hides a day, and it is the caller's call.**
+   * `schedulePart` used to swallow "Today" wherever it appeared, on the
+   * reasoning that the word carries nothing on the Today screen — which is
+   * true there and wrong everywhere else. On Inbox, All, a project, a tag or
+   * a search result, a task scheduled today then rendered exactly like an
+   * undated one, while tomorrow's said "Tomorrow": the one day a list most
+   * needs to point out was the one day it didn't.
+   *
+   * An overdue row ignores this and still prints its age — "Overdue" is not a
+   * date, and how late a task is is the one genuinely actionable thing those
+   * rows say.
    *
    * Deliberately does not touch the deadline, which is a different field and
    * a different day.
@@ -203,26 +213,27 @@ export function rowSubline(
 /**
  * The scheduled day and time, said as briefly as it can be.
  *
- * A task scheduled for today prints only its time, or nothing at all — the
- * word "Today" on every row of the Today screen is the definition of a label
- * that has stopped carrying information. An overdue one prints its age
- * instead of its date, because "3 days ago" is the actionable form.
+ * "Today" is a day like any other here — it is dropped only where the surface
+ * says it already named the day (`hideScheduledDay`), never on the strength of
+ * being today. An overdue task prints its age instead of its date, because
+ * "3 days ago" is the actionable form, and it says so under a header too:
+ * "Overdue" names no day for the row to be repeating.
  */
 function schedulePart(task: Task, now: Date, hideDay: boolean): string {
   const date = task.scheduled_date;
   const time = task.scheduled_time ? formatTimeOfDay(task.scheduled_time) : "";
   if (!date) return time;
+
+  if (isOverdue(task, now)) {
+    const age = formatRelativeDay(date, now);
+    const phrase = age ? capitalise(age) : shortDayLabel(date, now);
+    return time ? `${phrase}, ${time}` : phrase;
+  }
   // The caller's header has already named this day, so the time — if there is
   // one — is the only part left that says anything.
   if (hideDay) return time;
 
   const day = shortDayLabel(date, now);
-  if (day === "Today") return time;
-  if (isOverdue(task, now)) {
-    const age = formatRelativeDay(date, now);
-    const phrase = age ? capitalise(age) : day;
-    return time ? `${phrase}, ${time}` : phrase;
-  }
   return time ? `${day} ${time}` : day;
 }
 

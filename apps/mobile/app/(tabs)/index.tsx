@@ -225,11 +225,17 @@ export default function TodayScreen() {
           onPress={handlePress}
           onDragHandle={drag}
           focused={focusIdsRef.current.has(task.id)}
+          // This screen *is* today, so a row scheduled for today has nothing
+          // to add by saying so. It is set per row rather than for the screen
+          // because the Focus section pulls in work that isn't today's — a
+          // task scheduled Friday, or none at all — and "Fri, Aug 21" sitting
+          // under the Today heading is the whole point of those rows.
+          hideScheduledDay={task.scheduled_date === localDay}
           openInSection={openCount(section.data)}
         />
       </View>
     ),
-    [handlePress]
+    [handlePress, localDay]
   );
 
   const isEmpty =

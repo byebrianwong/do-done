@@ -4,6 +4,7 @@ import { addDaysLocalISO, todayLocalISO } from "./utils.js";
 import {
   activeFilterCount,
   applyDisplay,
+  dateGroupNamesTheDay,
   DEFAULT_DISPLAY,
   defaultDisplayFor,
   filterByConfig,
@@ -450,6 +451,22 @@ describe("grouping", () => {
     // Overdue / this_week / no-date are read-only (ambiguous reschedule).
     expect(g.find((x) => x.key === "date:overdue")!.drop).toBeNull();
     expect(g.find((x) => x.key === "date:this_week")!.drop).toBeNull();
+  });
+
+  // Which headers a row may stop repeating. Only two of these buckets are one
+  // day; under the rest the row's own date is the only thing saying which.
+  it("knows which date headers name a single day", () => {
+    expect(dateGroupNamesTheDay("date:today")).toBe(true);
+    expect(dateGroupNamesTheDay("date:tomorrow")).toBe(true);
+    for (const k of [
+      "date:overdue",
+      "date:this_week",
+      "date:next_week",
+      "date:later",
+      "date:none",
+      "status:next",
+    ])
+      expect(dateGroupNamesTheDay(k)).toBe(false);
   });
 });
 

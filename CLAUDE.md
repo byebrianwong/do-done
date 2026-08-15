@@ -1353,9 +1353,18 @@ Rules, all of which matter:
 - **An unset field takes no space at all** — no placeholder, no empty chip.
   `rowSubline` returns only the parts that exist, so a bare task renders a title
   and nothing else.
-- **"Today" never appears on a row.** A task scheduled today prints its time or
-  nothing; the word on every row of the Today screen carries no information. An
-  overdue task prints its *age* ("3 days ago"), which is the actionable form.
+- **The surface hides a day, never the value.** A row prints its scheduled day
+  like any other fact, "Today" included; `hideScheduledDay` is how a caller says
+  *I have already named this day* — a section header reading "Today" or
+  "Tomorrow", an Upcoming day column, or the Today screen, which sets it per row
+  so a Focus task scheduled Friday still says Friday. This used to be decided by
+  the value: `schedulePart` swallowed "Today" wherever it appeared, on the
+  Today-screen reasoning above, and so on Inbox, All, a project, a tag and search
+  a task scheduled today rendered exactly like an undated one — while tomorrow's
+  said "Tomorrow". The one day a list most needs to point out was the one day it
+  didn't. An overdue task ignores the flag and prints its *age* ("3 days ago"),
+  which is the actionable form, and which no header ever repeats: "Overdue" is
+  not a day.
 - **A project with no icon is a first-class state**, not a fallback — the ring is
   still its colour. A task with no project gets a deliberate neutral.
 - **Completion fills the ring with the project's colour**, the same way for every
