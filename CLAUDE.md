@@ -2106,6 +2106,142 @@ task runs in a fresh JS context after the OS kills the app.
 > in [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check them in. Each
 > failure mode here is silent.
 
+## Notifications
+
+Everything the app posts is a **local** notification, scheduled on the device.
+There is no push server: no FCM/APNs credentials, no token table, no cron, no
+edge function. Two kinds, on two Android channels:
+
+| Kind | Channel | Fired by |
+| --- | --- | --- |
+| Location reminder | `location-reminders` (HIGH) | `lib/geofence-task.ts`, from the OS geofence event |
+| Daily / weekly digest | `digests` (DEFAULT) | `lib/digests.ts`, armed ahead of time |
+
+**Two channels, not one.** Android lets a user silence a channel without
+silencing the app, and "a reminder because I walked into a shop" and "a summary
+of my morning" are genuinely different subscriptions. One shared channel would
+make muting the digest also mute the thing you are standing in front of. The
+digest channel is DEFAULT rather than HIGH on the same logic: a heads-up banner
+every single morning is what gets a channel muted.
+
+`lib/notifications.ts` is the one seam onto `expo-notifications`. Every entry
+point lazy-requires the module through it, because it was removed from Expo Go
+in SDK 53 and importing it there throws at *bundle* time — taking the whole app
+down rather than the one feature.
+
+**`cancelAllScheduledNotificationsAsync()` must never be called.** The geofence
+dwell filter works by scheduling a reminder a couple of minutes out and
+cancelling it if you leave again, so at any moment the queue may hold a
+notification that *is* the location feature working. A digest re-arm that
+cleared everything would eat it, and the symptom — a location reminder that
+fires only when you don't happen to open the app in the two minutes after
+arriving — is one nobody would reproduce deliberately. Both schedulers track
+their own identifiers and cancel only those.
+
+### Why the location reminder never arrived
+
+`TaskManager.defineTask` names a JS entry point the OS looks up **by name**, and
+it delivers a boundary crossing by starting the runtime with *no activity and no
+React tree*. A task that has not been defined by then is not queued — the event
+is dropped, expo-task-manager logs "Task 'DO_DONE_GEOFENCE' has not been
+registered" somewhere nobody is looking, and nothing arrives.
+
+The definition lived in `lib/geofencing.ts`, which is imported only from
+`app/_layout.tsx` and two components. Expo Router loads route modules through
+`require.context`'s lazy getters, so none of them had evaluated when the event
+came in. Location reminders therefore fired only while the app was already open
+and rendered, and **never in the case the feature exists for**: phone in a
+pocket, app closed, walking into a shop.
+
+This is the same bug that left the home-screen widgets blank, and it has the
+same fix. `lib/geofence-task.ts` holds the task and nothing else, and
+**`index.js` — the bundle entry — imports it.** `lib/geofencing.ts` keeps only
+registration and permissions.
+
+- **The static import graph of `geofence-task.ts` is paid for on every cold
+  start**, including the headless ones a launcher widget update runs. So
+  `./supabase`, `@do-done/api-client` and the *values* from `@do-done/shared`
+  are behind `await import(...)` inside the handler. The last one matters more
+  than it looks: `@do-done/shared` is a barrel, so importing one constant
+  statically evaluates the Zod schemas and the ~245 KB generated Phosphor table
+  before a widget can draw a tile that needs none of them.
+- **Nothing else runs at that module's scope.** The foreground presentation
+  handler and the channel setup used to; they are concerns of a *running* app
+  and now live in `app/_layout.tsx`. Doing them at bundle evaluation loaded
+  expo-notifications on every headless start to configure something only a live
+  app can use.
+- **The handler reads `getSession()`, not `getUser()`.** `getUser()` round-trips
+  to the auth server, and this code runs on a phone just woken in someone's
+  pocket, possibly with no usable connection — where a failed auth call means no
+  reminder at all. `getSession()` reads local storage. The queries still
+  authenticate, so an expired token fails them rather than the whole handler.
+- **A soft-deleted task no longer greets you at the shop.** That query doesn't
+  go through `TasksApi.read()`, so it carries the `deleted_at` filter itself.
+- **A tapped notification goes somewhere.** `lib/notification-routing.ts` maps
+  the payload to a route — a location reminder opens *its task*, which is the
+  whole point given the body is a task title. Registered in `_layout.tsx`,
+  because responding to a tap needs the router the background task doesn't have.
+  Unknown payloads route nowhere rather than guessing: yanking someone off the
+  screen they were on is worse than doing nothing.
+
+### The digests are armed, not subscribed
+
+A local notification's text is frozen the moment it is scheduled, and nothing
+server-side exists to compose one. So `lib/digest-plan.ts` plans several
+occurrences out to `HORIZON_DAYS` (8), `lib/digests.ts` computes each one's copy
+from the current task list, and the whole plan is **cancelled and re-armed on
+every launch and every return to the foreground** — the same trigger, and the
+same reasoning, as the status-sync sweep.
+
+A repeating DAILY trigger is the obvious thing to reach for and is useless here:
+it would deliver the same frozen sentence every morning until the app was next
+opened, which for the user this serves is the whole point of failure.
+
+- **`MIN_LEAD_MS` (2 min) exists because re-arming cancels.** An app opened at
+  07:59:30 would otherwise cancel the 08:00 digest and schedule its replacement
+  for an instant already past — which expo-notifications delivers immediately,
+  as a digest arriving the moment you open the app to read the list it describes.
+- **A digest with nothing to report is not sent.** `buildDailyDigest` /
+  `buildWeeklyDigest` return null for an empty window. A notification that
+  arrives every morning to say the day is empty is the fastest way to get the
+  feature switched off — and it teaches the user to swipe this app's
+  notifications away unread, which is also how they miss a location reminder.
+  The settings screen says so out loud, so the first quiet morning reads as the
+  rule rather than as a bug. "Send one now" is the one exception: the user asked,
+  so "nothing today" is the honest answer to a button that exists to prove the
+  feature works.
+- **Times resolve through `user_preferences.timezone`, never the device clock.**
+  A digest is a wall-clock event in the user's life, and the two disagree while
+  travelling. `zonedClockToUtc` does the conversion; `digest-plan.test.ts` pins
+  it in two zones.
+- **A failed prefs or task read leaves the existing schedule alone.** Usually a
+  dropped connection, and disarming on that would silently kill the feature for
+  anyone who opened the app on a bad train.
+- **The weekly covers the seven days *from* the digest, not a calendar week.**
+  Someone asking for their week on Monday means the week they are about to have.
+- **Both switches default off**, in the column and in the schema, for the reason
+  `status_sync_promote` does: nobody should find that a deploy started sending
+  them notifications. Turning one on is also the only place the app asks for the
+  notification grant, and it doesn't save the switch if the grant is refused —
+  a switch reading "on" above a feature the OS will never let post is exactly
+  what makes a notification feature look broken rather than declined.
+
+The copy and the settings schema are in `packages/shared/src/notifications.ts`,
+so a digest can't read one way on the phone and another on the laptop, and — more
+immediately — so the date arithmetic is testable in node, which is the only place
+`apps/mobile` can test anything.
+
+**This is all pure JS and ships over OTA.** `expo-notifications` was already in
+the native build, and no config plugin was added precisely so this wouldn't need
+a rebuild.
+
+> **Unverified on a device**, like the geofencing it sits beside. What CI covers
+> is the arithmetic and the copy (`digest-plan.test.ts`,
+> `notification-routing.test.ts`, `packages/shared/src/notifications.test.ts`);
+> delivery, channels, and the permission prompt need a real build. **Web has no
+> notifications at all** — that needs a service worker and VAPID keys, and is a
+> separate change.
+
 ## Password-manager autofill
 
 Login fields on **both** platforms carry explicit autofill metadata. Without it

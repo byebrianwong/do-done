@@ -9,6 +9,26 @@ import { AppRegistry, Platform } from 'react-native';
 import QuickAddRoot from './quick-add-root';
 import { IS_EXPO_GO } from './lib/runtime';
 
+// Defines the geofence background task, for exactly the reason spelled out
+// below for the widget handler.
+//
+// `TaskManager.defineTask` names a JS entry point the OS looks up **by name**
+// when it detects a boundary crossing — and it delivers that event by starting
+// the runtime with no activity and no React tree. A task not defined by then
+// isn't queued, it's dropped.
+//
+// The definition used to live in `lib/geofencing.ts`, which is only ever
+// imported from `app/_layout.tsx` and two components. Expo Router loads route
+// modules through `require.context`'s lazy getters, so none of them had
+// evaluated when the event arrived. Location reminders therefore worked only
+// while the app was already open and rendered, and never in the case the
+// feature exists for: phone in a pocket, app closed, walking into a shop.
+//
+// `lib/geofence-task.ts` holds nothing but the task and keeps Supabase behind a
+// dynamic import, so this costs a couple of native module handles on the cold
+// starts that aren't geofence events — including the headless widget ones.
+import './lib/geofence-task';
+
 AppRegistry.registerComponent('QuickAdd', () => QuickAddRoot);
 
 // The widget task handler MUST be registered here, at bundle evaluation, and

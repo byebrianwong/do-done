@@ -13,6 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
+import {
+  describeDigestSchedule,
+  parseNotificationSettings,
+} from '@do-done/shared';
 import { getUserPrefsApi, supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
@@ -60,6 +64,10 @@ export default function SettingsScreen() {
 
   // null = loading the preference row; 'error' = load failed (shows a retry).
   const [showEvents, setShowEvents] = useState<boolean | 'error' | null>(null);
+  // The digest schedule, shown on the Notifications row so the state is legible
+  // without opening it. Null while loading or unreadable — the row just drops
+  // its value rather than claiming "Off" for a preference it couldn't read.
+  const [digestSummary, setDigestSummary] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -69,7 +77,12 @@ export default function SettingsScreen() {
         if (cancelled) return;
         // Don't show a value we can't back up — surface a retry instead.
         if (error) setShowEvents('error');
-        else setShowEvents(data?.show_calendar_events ?? true);
+        else {
+          setShowEvents(data?.show_calendar_events ?? true);
+          setDigestSummary(
+            describeDigestSchedule(parseNotificationSettings(data))
+          );
+        }
       } catch {
         if (!cancelled) setShowEvents('error');
       }
@@ -203,6 +216,16 @@ export default function SettingsScreen() {
           icon="sync-outline"
           label="Status and schedule"
           onPress={() => router.push('/status-sync' as never)}
+        />
+      </View>
+
+      <Text style={styles.sectionHeader}>Notifications</Text>
+      <View style={styles.section}>
+        <SettingsRow
+          icon="notifications-outline"
+          label="Digests and reminders"
+          value={digestSummary ?? undefined}
+          onPress={() => router.push('/notifications' as never)}
         />
       </View>
 
