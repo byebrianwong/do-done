@@ -71,6 +71,18 @@ const NAV_COMMANDS: Command[] = [
     icon: <NavIcon path="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />,
   },
   {
+    // Unconditional, unlike the sidebar section, which needs a list to exist
+    // before it appears. The palette is where you look for a place you can't
+    // see, so it is exactly the wrong thing to hide behind having been there
+    // already.
+    id: "nav-lists",
+    kind: "nav",
+    title: "Lists",
+    subtitle: "Shopping lists",
+    href: "/lists",
+    icon: <NavIcon path="M3 6h2l2 11h10l2-8H7M9 20a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z" />,
+  },
+  {
     id: "nav-settings",
     kind: "nav",
     title: "Settings",
