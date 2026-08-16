@@ -61,7 +61,7 @@ function ProjectRowContent({ project }: { project: Project }) {
         style={{ backgroundColor: project.color }}
       />
       <span className="flex min-w-0 items-center gap-1.5">
-        <ProjectIcon icon={project.icon} size={13} />
+        <ProjectIcon icon={project.icon} size={13} color={project.color} />
         <span className="truncate">{project.name}</span>
       </span>
       {/* Drag affordance — reveals on hover; the whole row is the handle. */}

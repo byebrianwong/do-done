@@ -419,7 +419,12 @@ export function ProjectChip({
         }
       >
         {selected ? (
-          <ProjectLabel icon={selected.icon} name={selected.name} size={12} />
+          <ProjectLabel
+            icon={selected.icon}
+            name={selected.name}
+            size={12}
+            color={selected.color}
+          />
         ) : (
           "Project"
         )}
@@ -556,7 +561,12 @@ export function SuggestedFacets({
             className="h-2 w-2 rounded-full opacity-70"
             style={{ backgroundColor: project.color }}
           />
-          <ProjectLabel icon={project.icon} name={project.name} size={11} />
+          <ProjectLabel
+            icon={project.icon}
+            name={project.name}
+            size={11}
+            color={project.color}
+          />
         </button>
       ) : null}
       {estimate ? (

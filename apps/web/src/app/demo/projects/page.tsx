@@ -44,7 +44,12 @@ export default function DemoProjectsPage() {
                 style={{ backgroundColor: p.color }}
               />
               <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                <ProjectLabel icon={p.icon} name={p.name} size={14} />
+                <ProjectLabel
+                  icon={p.icon}
+                  name={p.name}
+                  size={14}
+                  color={p.color}
+                />
               </h2>
             </div>
             <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500">

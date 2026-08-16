@@ -15,6 +15,7 @@ import { AllTasksView } from "./all-tasks-view";
 import { WeekView } from "./week-view";
 import { InboxFilterToggle } from "./inbox-filter-toggle";
 import { ProjectForm } from "./project-form";
+import { ProjectIcon } from "./project-icon";
 import {
   getMonday,
   makeTask,
@@ -298,8 +299,8 @@ function ProjectsContent() {
                   className="h-3 w-3 shrink-0 rounded-full"
                   style={{ backgroundColor: p.color }}
                 />
-                <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                  {p.icon ? `${p.icon} ` : ""}
+                <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  <ProjectIcon icon={p.icon} size={14} color={p.color} />
                   {p.name}
                 </h2>
               </div>
