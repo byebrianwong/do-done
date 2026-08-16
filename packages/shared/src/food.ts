@@ -328,18 +328,67 @@ export function withAisle(tags: string[], aisle: Aisle | null): string[] {
   return aisle ? [...rest, aisleTag(aisle)] : rest;
 }
 
+// ── Memory ─────────────────────────────────────────────
+
 /**
- * The aisle an item is actually filed under: the user's correction if there is
- * one, the guess otherwise.
+ * What the user has taught DoDone about their own words: normalised item text
+ * → aisle. Loaded once per session and passed in, the same way `matchProject`
+ * takes the project list rather than reaching for one.
+ */
+export type AisleMemory = ReadonlyMap<string, Aisle>;
+
+/** Leading count, unit or article — "6 ", "500 g ", "2 x ", "a ". */
+const QUANTITY_PREFIX =
+  /^(?:\d+(?:\.\d+)?\s*(?:x|kg|g|lb|lbs|oz|ml|l|litres?|liters?|packs?|tins?|cans?|boxes?|bottles?|bunch(?:es)?|dozen)?\s+)?(?:of\s+)?(?:a|an|the|some)?\s*/;
+
+/** Longest key we will store. It is an index, not content. */
+export const AISLE_TERM_MAX_LENGTH = 120;
+
+/**
+ * The key a lesson is filed under: the item's text, normalised, with a leading
+ * quantity stripped. Null when nothing usable is left.
+ *
+ * **Deliberately the whole title rather than a head word.** Learning "milk"
+ * from a correction to "chocolate milk" would be a guess about which word
+ * carried the user's intent, and it would be wrong exactly when it mattered —
+ * quietly re-filing every other milk on the list. Keying on what they actually
+ * wrote can only ever under-generalise, which costs one more correction;
+ * over-generalising costs trust in the grouping.
+ *
+ * The quantity strip is the one concession, because "6 eggs" and "eggs" are
+ * obviously the same lesson and nobody writes the number consistently.
+ */
+export function learnableTerm(title: string): string | null {
+  const normalized = normalize(title);
+  if (!normalized) return null;
+  const stripped = normalized.replace(QUANTITY_PREFIX, "").trim();
+  const term = (stripped || normalized).slice(0, AISLE_TERM_MAX_LENGTH).trim();
+  return term || null;
+}
+
+/**
+ * The aisle an item is actually filed under, most specific answer first:
+ *
+ * 1. **This row's own correction** — the user just touched it.
+ * 2. **What they taught us about these words** before, on some other row.
+ * 3. **The lexicon's guess.**
  *
  * A correction always wins, and there is no confidence threshold that could
  * overturn it — the lexicon is a guess about the language and the user is
  * looking at the shelf.
  */
 export function itemAisle(
-  task: Pick<Task, "title" | "tags">
+  task: Pick<Task, "title" | "tags">,
+  memory?: AisleMemory
 ): Aisle | null {
-  return aisleOverride(task) ?? categorizeItem(task.title);
+  const own = aisleOverride(task);
+  if (own) return own;
+  if (memory?.size) {
+    const term = learnableTerm(task.title);
+    const learned = term ? memory.get(term) : undefined;
+    if (learned) return learned;
+  }
+  return categorizeItem(task.title);
 }
 
 // ── Grouping ───────────────────────────────────────────
@@ -372,7 +421,7 @@ export const AISLE_GROUP_MIN_ITEMS = 6;
  */
 export function groupByAisle<T extends Pick<Task, "title" | "tags">>(
   items: T[],
-  opts: { minItems?: number } = {}
+  opts: { minItems?: number; memory?: AisleMemory } = {}
 ): AisleGroup<T>[] {
   const flat = (): AisleGroup<T>[] => [{ aisle: null, label: "", items }];
   const min = opts.minItems ?? AISLE_GROUP_MIN_ITEMS;
@@ -380,7 +429,7 @@ export function groupByAisle<T extends Pick<Task, "title" | "tags">>(
 
   const buckets = new Map<Aisle | null, T[]>();
   for (const item of items) {
-    const aisle = itemAisle(item);
+    const aisle = itemAisle(item, opts.memory);
     const bucket = buckets.get(aisle);
     if (bucket) bucket.push(item);
     else buckets.set(aisle, [item]);

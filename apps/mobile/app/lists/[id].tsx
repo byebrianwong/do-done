@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import type { Aisle, Task } from '@do-done/shared';
+import type { Aisle, AisleMemory, Task } from '@do-done/shared';
 import {
   aisleOptions,
   gotItems,
@@ -29,7 +29,9 @@ import {
   addListItem,
   clearGotItems,
   invalidateLists,
+  rememberAisle,
   restoreItems,
+  useAisleMemory,
   useList,
   useListItems,
 } from '@/lib/list-queries';
@@ -63,6 +65,9 @@ export default function ListDetailScreen() {
   const loadState = useListLoadState(itemsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+  // Absent until it loads, and an empty map is the correct fallback: without a
+  // memory the lexicon still guesses.
+  const { data: memory } = useAisleMemory();
 
   const [draft, setDraft] = useState('');
   const [added, setAdded] = useState(0);
@@ -112,7 +117,7 @@ export default function ListDetailScreen() {
     // group when grouping would gain nothing, which is what makes a short list
     // — or one full of words the lexicon doesn't know — look like the plain
     // list it always was rather than a broken grouped one.
-    const aisles = groupByAisle(open).map((g) => ({
+    const aisles = groupByAisle(open, { memory }).map((g) => ({
       title: g.label,
       data: g.items,
     }));
@@ -125,7 +130,7 @@ export default function ListDetailScreen() {
         ? [{ title: `Got it · ${got.length}`, data: got }]
         : []),
     ].filter((s) => s.data.length > 0);
-  }, [open, got]);
+  }, [open, got, memory]);
 
   /**
    * Move an item to a different aisle.
@@ -139,6 +144,10 @@ export default function ListDetailScreen() {
       setPicking(null);
       try {
         await updateTask(item.id, { tags: withAisle(item.tags, aisle) });
+        // The tag fixes this row; the lesson fixes the same words next week,
+        // after this item has been cleared and purged. Best-effort, so a
+        // failed lesson never undoes a visible fix.
+        await rememberAisle(item.title, aisle);
         invalidateLists(listId);
       } catch {
         toast.show({ message: "Couldn't move that item" });
@@ -237,6 +246,7 @@ export default function ListDetailScreen() {
 
       <AislePicker
         item={picking}
+        memory={memory}
         onPick={writeAisle}
         onClose={() => setPicking(null)}
       />
@@ -258,15 +268,18 @@ export default function ListDetailScreen() {
  */
 function AislePicker({
   item,
+  memory,
   onPick,
   onClose,
 }: {
   item: Task | null;
+  /** So the tick sits on the aisle the row is actually filed under. */
+  memory?: AisleMemory;
   onPick: (item: Task, aisle: Aisle | null) => void;
   onClose: () => void;
 }) {
   if (!item) return null;
-  const current = itemAisle(item);
+  const current = itemAisle(item, memory);
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={styles.backdrop}>
@@ -290,12 +303,16 @@ function AislePicker({
                 )}
               </Pressable>
             ))}
-            {/* Clearing goes back to the guess, not to a thirteenth aisle. */}
+            {/* "Automatic", not "Other": clearing hands the word back to the
+                lexicon, which usually has an opinion — so the row does not
+                land in Other, and a label saying it would be a lie. */}
             <Pressable
               onPress={() => onPick(item, null)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
             >
-              <Text style={[styles.optionText, styles.optionMuted]}>Other</Text>
+              <Text style={[styles.optionText, styles.optionMuted]}>
+                Automatic
+              </Text>
               {current === null && (
                 <Ionicons name="checkmark" size={17} color="#6366f1" />
               )}

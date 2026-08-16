@@ -17,9 +17,12 @@ import {
   addDaysLocalISO,
   summarizeTags,
   isListProject,
+  learnableTerm,
   splitProjects,
 } from "@do-done/shared";
+import type { Aisle, AisleMemory } from "@do-done/shared";
 import type {
+  AisleTermsApi,
   AttachmentsApi,
   BulkUpdateResult,
   ProjectsApi,
@@ -702,7 +705,36 @@ class DemoAttachmentsApiImpl {
 
 const demoTasks = new DemoTasksApiImpl();
 const demoAttachments = new DemoAttachmentsApiImpl();
+/**
+ * The sandbox's aisle memory.
+ *
+ * A module-level Map rather than a slice of the demo store: it is per-tab
+ * scratch, exactly like the store, but nothing renders *it* — the list reads
+ * it through `groupByAisle` on every render anyway, so it needs no
+ * subscription and gains nothing from being persisted.
+ */
+class DemoAisleTermsApiImpl {
+  private terms = new Map<string, Aisle>();
+
+  async load() {
+    return { data: this.terms as AisleMemory, error: null };
+  }
+
+  async learn(title: string, aisle: Aisle) {
+    const term = learnableTerm(title);
+    if (term) this.terms.set(term, aisle);
+    return { term, error: null };
+  }
+
+  async forget(title: string) {
+    const term = learnableTerm(title);
+    if (term) this.terms.delete(term);
+    return { error: null };
+  }
+}
+
 const demoProjects = new DemoProjectsApiImpl();
+const demoAisleTerms = new DemoAisleTermsApiImpl();
 const demoPrefs = new DemoUserPrefsApiImpl();
 
 // Structural doubles, so the casts are the seam's one deliberate lie. They are
@@ -712,3 +744,4 @@ export const demoTasksApi = demoTasks as unknown as TasksApi;
 export const demoAttachmentsApi = demoAttachments as unknown as AttachmentsApi;
 export const demoProjectsApi = demoProjects as unknown as ProjectsApi;
 export const demoUserPrefsApi = demoPrefs as unknown as UserPrefsApi;
+export const demoAisleTermsApi = demoAisleTerms as unknown as AisleTermsApi;

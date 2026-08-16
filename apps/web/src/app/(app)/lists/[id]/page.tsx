@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { ProjectsApi, TasksApi } from "@do-done/api-client";
+import { AisleTermsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
 import { isListProject } from "@do-done/shared";
 import { ProjectIcon } from "@/components/project-icon";
 import { ListView } from "./list-view";
@@ -21,12 +21,16 @@ export default async function ListDetailPage({
   const projectsApi = new ProjectsApi(supabase, user.id);
   const tasksApi = new TasksApi(supabase, user.id);
 
-  const [{ data: list, error }, { data: items }] = await Promise.all([
-    projectsApi.getById(id),
-    // `listItems` is the deliberate opt-in — the one read on this surface that
-    // asks for the rows every other read in the app filters out.
-    tasksApi.listItems(id),
-  ]);
+  const [{ data: list, error }, { data: items }, { data: memory }] =
+    await Promise.all([
+      projectsApi.getById(id),
+      // `listItems` is the deliberate opt-in — the one read on this surface
+      // that asks for the rows every other read in the app filters out.
+      tasksApi.listItems(id),
+      // Never fails loudly: a memory that doesn't load degrades to the
+      // lexicon's guess, which is a good answer.
+      new AisleTermsApi(supabase, user.id).load(),
+    ]);
 
   if (error || !list) notFound();
 
@@ -58,7 +62,16 @@ export default async function ListDetailPage({
         </h1>
       </div>
 
-      <ListView list={list} initialItems={items} />
+      {/*
+        A Map can't cross the server/client boundary, so it is handed over as
+        entries and rebuilt in the client component. Serialising it as an
+        object would collide on a term like "constructor".
+      */}
+      <ListView
+        list={list}
+        initialItems={items}
+        memoryEntries={[...memory.entries()]}
+      />
     </div>
   );
 }

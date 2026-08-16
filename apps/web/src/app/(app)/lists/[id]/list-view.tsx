@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
-import type { Aisle, Project, Task } from "@do-done/shared";
+import type { Aisle, AisleMemory, Project, Task } from "@do-done/shared";
 import {
   aisleOptions,
   gotItems,
@@ -14,10 +21,17 @@ import {
   withAisle,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
 
 interface ListViewProps {
   list: Project;
   initialItems: Task[];
+  /**
+   * The user's aisle memory, as entries — a Map can't cross the
+   * server/client boundary. Optional so the demo sandbox and Storybook can
+   * omit it and get the lexicon's guesses, which is the correct fallback.
+   */
+  memoryEntries?: Array<[string, Aisle]>;
 }
 
 /**
@@ -33,7 +47,11 @@ interface ListViewProps {
  * the app where the user's hands are moving faster than a round trip, and a
  * server re-render between "milk" and "eggs" would eat a keystroke.
  */
-export function ListView({ list, initialItems }: ListViewProps) {
+export function ListView({
+  list,
+  initialItems,
+  memoryEntries = [],
+}: ListViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [items, setItems] = useState(initialItems);
@@ -52,7 +70,31 @@ export function ListView({ list, initialItems }: ListViewProps) {
   const open = openItems(items);
   const got = gotItems(items);
   const summary = summarizeList(items);
-  const groups = useMemo(() => groupByAisle(open), [open]);
+  /**
+   * The aisle memory, seeded from the server and then owned here.
+   *
+   * Both halves earn their place. The server's copy is what makes the first
+   * paint correct — without it a taught list would render in the lexicon's
+   * groups and visibly re-shuffle. The client reload is what keeps it fresh
+   * after a correction, and it is also the only source the demo sandbox has,
+   * which is why this isn't a `memoryEntries`-only prop with a demo special
+   * case bolted on beside it.
+   */
+  const [memory, setMemory] = useState<AisleMemory>(
+    () => new Map(memoryEntries)
+  );
+  const reloadMemory = useCallback(async () => {
+    const terms = await getClientAisleTermsApi();
+    const { data } = await terms.load();
+    setMemory(data);
+  }, []);
+  useEffect(() => {
+    void reloadMemory();
+  }, [reloadMemory]);
+  const groups = useMemo(
+    () => groupByAisle(open, { memory }),
+    [open, memory]
+  );
 
   async function addItem() {
     const title = draft.trim();
@@ -114,8 +156,18 @@ export function ListView({ list, initialItems }: ListViewProps) {
     setItems((prev) =>
       prev.map((t) => (t.id === item.id ? { ...t, tags } : t))
     );
-    const api = await getClientTasksApi();
+    // Two writes, and the second is the point. The tag fixes *this* row; the
+    // lesson fixes the same words next week, after this item has been cleared
+    // and purged. Picking "Automatic" un-teaches, so the lexicon takes the
+    // word back rather than a stored blank having to beat it.
+    const [api, terms] = await Promise.all([
+      getClientTasksApi(),
+      getClientAisleTermsApi(),
+    ]);
     await api.update(item.id, { tags });
+    if (aisle) await terms.learn(item.title, aisle);
+    else await terms.forget(item.title);
+    await reloadMemory();
     startTransition(() => router.refresh());
   }
 
@@ -206,6 +258,7 @@ export function ListView({ list, initialItems }: ListViewProps) {
                   item={item}
                   onToggle={toggle}
                   onAisle={setAisle}
+                  memory={memory}
                 />
               ))}
             </ul>
@@ -236,14 +289,17 @@ function ItemRow({
   item,
   onToggle,
   onAisle,
+  memory,
 }: {
   item: Task;
   onToggle: (t: Task) => void;
   /** Absent in the cart, where an aisle no longer decides anything. */
   onAisle?: (t: Task, aisle: Aisle | null) => void;
+  /** So the select shows the aisle the row is actually filed under. */
+  memory?: AisleMemory;
 }) {
   const done = item.status === "done" || item.status === "cancelled";
-  const aisle = itemAisle(item);
+  const aisle = itemAisle(item, memory);
   return (
     <li className="group/item flex items-center border-b border-neutral-100 dark:border-neutral-800/70">
       <button
@@ -304,9 +360,13 @@ function ItemRow({
             }
             className="cursor-pointer rounded border-0 bg-transparent py-1 pl-1 pr-4 text-[11px] text-neutral-400 opacity-0 transition-opacity focus:opacity-100 group-hover/item:opacity-100 dark:text-neutral-500"
           >
-            {/* The empty option is how a correction is undone — back to the
-                guess, not to a thirteenth "none" aisle. */}
-            <option value="">Other</option>
+            {/*
+              "Automatic", not "Other": clearing a correction hands the word
+              back to the lexicon, which will usually have an opinion — so the
+              row does not land in the Other group, and a label saying it would
+              would be a lie about what the control does.
+            */}
+            <option value="">Automatic</option>
             {aisleOptions().map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}

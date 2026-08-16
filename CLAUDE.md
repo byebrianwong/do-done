@@ -1208,6 +1208,45 @@ consistently ("candles" plural, "sourdough" singular).
   hint) and always beats the guess, with no confidence that could overturn it:
   the lexicon guesses about language, and the user is looking at the shelf. It
   survives every future change to the lexicon, which is the point.
+
+#### …and it is remembered
+
+A tag fixes *that row*. A shopping list is standing, so the same words come
+back next week on a new row and would be guessed wrong again. `list_term_aisles`
+is the lesson that outlives the item: normalised item text → aisle, per user.
+
+**It cannot be learned from history, which is the obvious idea.** "Clear
+bought" soft-deletes the items and `purgeDeleted()` destroys them an hour
+later, so anything derived by sweeping past items would forget everything the
+user taught it by the end of the afternoon. Hence a table rather than a
+`suggestFacets`-style sweep — the one place in the app where that shape doesn't
+apply.
+
+- **The key is the whole item text, minus a leading quantity**
+  (`learnableTerm`) — not a head word. Learning "milk" from a correction to
+  "chocolate milk" would be a guess about which word carried the intent, and
+  wrong exactly when it mattered: it would quietly re-file every other milk on
+  the list. Under-generalising costs one more correction; over-generalising
+  costs trust in the grouping. The quantity strip is the one concession,
+  because "6 eggs" and "eggs" are obviously the same lesson.
+- **The composite primary key `(user_id, term)` is the concurrency story.**
+  Teaching is an upsert, so two devices correcting the same word settle on
+  last-writer-wins rather than duplicating.
+- **`itemAisle` resolves most-specific-first**: this row's own tag, then what
+  was taught, then the lexicon.
+- **"Automatic" un-teaches**, deleting the row rather than storing a blank —
+  a stored "no aisle" would be a third state that has to beat the guess, and
+  nothing in the UI means that. It is also why the option is not labelled
+  "Other": clearing hands the word back to the lexicon, which usually has an
+  opinion, so the row does not land in the Other group.
+- **A memory that fails to load is an empty map, never an error.** Without it
+  the lexicon still guesses, which is a good answer; a list that refused to
+  render because a preference didn't load would be a much worse one. The mobile
+  write is best-effort for the same reason — the row is already right.
+- Web seeds it server-side (so the first paint is already in the taught groups,
+  with no visible re-shuffle) and reloads it client-side after a correction.
+  That second read is also the only source the demo sandbox has, which is why
+  it isn't a server-prop-only design with a demo special case beside it.
 - **The cart is never grouped.** It's a record of what happened, not a route
   through anything, and aisle headers over it would imply something was left to
   walk.

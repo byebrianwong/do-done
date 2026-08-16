@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import type { CreateTaskInput, Project, Task } from '@do-done/shared';
+import type {
+  Aisle,
+  AisleMemory,
+  CreateTaskInput,
+  Project,
+  Task,
+} from '@do-done/shared';
 import { splitProjects } from '@do-done/shared';
 
-import { getProjectsApi, getTasksApi } from './supabase';
+import { getAisleTermsApi, getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
 import { invalidateTasks, projectKeys } from './task-queries';
 
@@ -150,4 +156,60 @@ export async function restoreItems(
   const { error } = await api.restore(ids);
   if (error) throw error;
   invalidateLists(listId);
+}
+
+// ─── Aisle memory ───────────────────────────────────────────
+//
+// Its own key root beside `listKeys`, and deliberately *not* invalidated by
+// `invalidateLists`: this is a slowly-growing map of what the user has taught
+// DoDone about their own words, and an ordinary list write cannot change it.
+// Only a correction can, and that path invalidates it explicitly.
+
+export const aisleKeys = {
+  all: ['aisle-terms'] as const,
+};
+
+/**
+ * The user's aisle memory. One read, held for the session — the map is small
+ * and is consulted while grouping, so a per-lookup query would be the wrong
+ * shape entirely.
+ *
+ * A failure resolves to an empty map rather than throwing: without a memory
+ * the lexicon still guesses, which is a good answer, and a list that refuses
+ * to render because a preference didn't load would be a much worse one.
+ */
+export function useAisleMemory() {
+  return useQuery({
+    queryKey: aisleKeys.all,
+    queryFn: async (): Promise<AisleMemory> => {
+      const api = await getAisleTermsApi();
+      const { data } = await api.load();
+      return data;
+    },
+    // Nothing else in the app writes it, so it need not be re-fetched on every
+    // screen focus the way a task list does.
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Record a correction, or un-teach one.
+ *
+ * The caller has already written the `aisle:` tag on the row it corrected;
+ * this is the half that outlives the item. Best-effort by design — the row is
+ * already right, and failing the whole interaction because the lesson didn't
+ * save would trade a visible fix for an invisible one.
+ */
+export async function rememberAisle(
+  title: string,
+  aisle: Aisle | null
+): Promise<void> {
+  try {
+    const api = await getAisleTermsApi();
+    if (aisle) await api.learn(title, aisle);
+    else await api.forget(title);
+    queryClient.invalidateQueries({ queryKey: aisleKeys.all });
+  } catch {
+    // Deliberately swallowed — see above.
+  }
 }
