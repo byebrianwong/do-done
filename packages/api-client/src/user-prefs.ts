@@ -138,12 +138,32 @@ export class UserPrefsApi {
    * Update the status ↔ schedule auto-sync settings. Accepts any subset, so
    * the settings UI can write one switch at a time. Seeds a defaults row if
    * none exists yet.
+   *
+   * **Changing which tasks promote resets the sweep watermark**, so the next
+   * sweep applies the rule to the whole list rather than only to days that
+   * newly cross the horizon. Turning promote on should visibly do something,
+   * and moving the target status or the horizon is the user restating what
+   * "near" means — neither is served by a sweep that only looks forward. It
+   * also makes off-and-on-again a way to re-apply the rule over demotions the
+   * user has since changed their mind about.
+   *
+   * `status_sync_backfill` is excluded: it is the other half of the feature and
+   * changes nothing about which tasks promote, so flipping it would otherwise
+   * quietly undo every demotion the user had made.
    */
   async updateStatusSync(
     patch: UpdateStatusSyncInput
   ): Promise<{ data: UserPreferences | null; error: Error | null }> {
-    if (Object.keys(patch).length === 0) return this.get();
-    return this.patchPrefs({ ...patch }, "UserPrefsApi.updateStatusSync");
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return this.get();
+    const touchesPromote = keys.some((k) => k !== "status_sync_backfill");
+    return this.patchPrefs(
+      {
+        ...patch,
+        ...(touchesPromote ? { status_sync_swept_through: null } : {}),
+      },
+      "UserPrefsApi.updateStatusSync"
+    );
   }
 
   /**

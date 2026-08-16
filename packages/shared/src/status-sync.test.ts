@@ -3,12 +3,15 @@ import {
   DEFAULT_STATUS_SYNC,
   backfilledScheduledDate,
   describeStatusSyncHorizon,
+  describeStatusSyncNotice,
+  describeStatusSyncSweep,
   isStatusSyncActive,
   parseStatusSyncSettings,
   promotedStatus,
   resolveStatusSyncHorizon,
   statusSyncPatch,
   statusesBelow,
+  sweepPromoteRange,
   type StatusSyncSettings,
 } from "./status-sync.js";
 
@@ -276,9 +279,10 @@ describe("statusSyncPatch (write time)", () => {
     ).toEqual({});
   });
 
-  it("keeps a deliberate demotion from sticking while the date stays near", () => {
-    // Both fields are returned: the status snaps back, so the write is visibly
-    // refused rather than quietly undone by a later sweep.
+  it("lets a deliberate demotion stand even while the date is near", () => {
+    // The bug this rule was changed for: the status sprang straight back to
+    // Next, with nothing on screen to say a rule had done it. Promote is a
+    // reaction to the date moving, and this write does not move the date.
     expect(
       statusSyncPatch({
         prior: { status: "next", scheduled_date: "2026-06-18" },
@@ -286,7 +290,67 @@ describe("statusSyncPatch (write time)", () => {
         settings: both(),
         horizonISO: horizon,
       })
+    ).toEqual({});
+  });
+
+  it("leaves a near task alone on a write that touches neither field", () => {
+    expect(
+      statusSyncPatch({
+        prior: { status: "not_started", scheduled_date: "2026-06-18" },
+        patch: { title: "renamed" } as never,
+        settings: both(),
+        horizonISO: horizon,
+      })
+    ).toEqual({});
+  });
+
+  it("re-states the same date without re-promoting", () => {
+    // Autosave sends every field on every keystroke. A date that has not
+    // changed is not a change, or a demotion would survive exactly as long as
+    // it took to edit the title.
+    expect(
+      statusSyncPatch({
+        prior: { status: "not_started", scheduled_date: "2026-06-18" },
+        patch: { scheduled_date: "2026-06-18" },
+        settings: both(),
+        horizonISO: horizon,
+      })
+    ).toEqual({});
+  });
+
+  it("promotes again when the date moves to another near day", () => {
+    // The user's own rule: demote it and it stays demoted, but re-dating a
+    // task is the moment its place in the queue is worth reconsidering.
+    expect(
+      statusSyncPatch({
+        prior: { status: "not_started", scheduled_date: "2026-06-18" },
+        patch: { scheduled_date: "2026-06-19" },
+        settings: both(),
+        horizonISO: horizon,
+      })
     ).toEqual({ status: "next" });
+  });
+
+  it("promotes on a date change even when the same write demotes", () => {
+    expect(
+      statusSyncPatch({
+        prior: { status: "next", scheduled_date: "2026-09-01" },
+        patch: { status: "not_started", scheduled_date: "2026-06-18" },
+        settings: both(),
+        horizonISO: horizon,
+      })
+    ).toEqual({ status: "next" });
+  });
+
+  it("leaves in_progress alone when its date moves near", () => {
+    expect(
+      statusSyncPatch({
+        prior: { status: "in_progress", scheduled_date: "2026-09-01" },
+        patch: { scheduled_date: "2026-06-18" },
+        settings: both(),
+        horizonISO: horizon,
+      })
+    ).toEqual({});
   });
 
   it("lets a demotion stand once the date moves out of the horizon", () => {
@@ -323,7 +387,11 @@ describe("statusSyncPatch (write time)", () => {
     ).toEqual({});
   });
 
-  it("still promotes on an unrelated write when the day has caught up", () => {
+  it("does not promote on an unrelated write once the day has caught up", () => {
+    // A task whose day came near while it sat there is the *sweep's* job —
+    // see sweepPromoteRange. Doing it here as well would mean any edit at all
+    // re-promoted a task the user had deliberately demoted, which is the same
+    // bug wearing a different trigger.
     expect(
       statusSyncPatch({
         prior: { status: "not_started", scheduled_date: "2026-06-18" },
@@ -331,7 +399,7 @@ describe("statusSyncPatch (write time)", () => {
         settings: both(),
         horizonISO: horizon,
       })
-    ).toEqual({ status: "next" });
+    ).toEqual({});
   });
 
   it("treats a create with no prior row as an inbox task", () => {
@@ -375,5 +443,88 @@ describe("statusSyncPatch (write time)", () => {
         horizonISO: horizon,
       })
     ).toEqual({});
+  });
+});
+
+describe("sweepPromoteRange", () => {
+  it("has no lower bound the first time", () => {
+    expect(sweepPromoteRange("2026-06-20", null)).toEqual({
+      after: null,
+      through: "2026-06-20",
+    });
+  });
+
+  it("covers only the days that newly crossed in", () => {
+    expect(sweepPromoteRange("2026-06-21", "2026-06-20")).toEqual({
+      after: "2026-06-20",
+      through: "2026-06-21",
+    });
+  });
+
+  it("does nothing when the horizon has not moved", () => {
+    // The demotion-survival case: the sweep runs on every foreground, and on
+    // the same day it must not touch a task the user has just moved back.
+    expect(sweepPromoteRange("2026-06-20", "2026-06-20")).toBeNull();
+  });
+
+  it("does not wind back when the horizon narrows", () => {
+    // Those days were already promoted; re-opening them would promote them a
+    // second time as they came round again.
+    expect(sweepPromoteRange("2026-06-18", "2026-06-20")).toBeNull();
+  });
+
+  it("takes in the whole new window when the horizon widens", () => {
+    expect(sweepPromoteRange("2026-06-27", "2026-06-20")).toEqual({
+      after: "2026-06-20",
+      through: "2026-06-27",
+    });
+  });
+});
+
+describe("describeStatusSyncNotice", () => {
+  it("names the status and the rule that moved it", () => {
+    expect(describeStatusSyncNotice({ status: "next" }, both())).toBe(
+      "Moved to Next — within 3 days"
+    );
+  });
+
+  it("avoids 'within today' on a zero-day horizon", () => {
+    expect(
+      describeStatusSyncNotice(
+        { status: "next" },
+        both({ status_sync_horizon_days: 0 })
+      )
+    ).toBe("Moved to Next — scheduled today");
+  });
+
+  it("explains a backfilled date", () => {
+    expect(
+      describeStatusSyncNotice({ scheduled_date: "2026-06-20" }, both())
+    ).toBe("Scheduled for 3 days — Next tasks get a date");
+  });
+
+  it("is silent when the rule did nothing", () => {
+    expect(describeStatusSyncNotice({}, both())).toBeNull();
+  });
+});
+
+describe("describeStatusSyncSweep", () => {
+  it("names the task when there is only one", () => {
+    expect(describeStatusSyncSweep([{ title: "Pay rent" }], both())).toBe(
+      '"Pay rent" moved to Next — it\'s coming up'
+    );
+  });
+
+  it("counts them when there are several", () => {
+    expect(
+      describeStatusSyncSweep(
+        [{ title: "a" }, { title: "b" }, { title: "c" }],
+        both()
+      )
+    ).toBe("3 tasks moved to Next — they're coming up");
+  });
+
+  it("is silent when nothing moved", () => {
+    expect(describeStatusSyncSweep([], both())).toBeNull();
   });
 });

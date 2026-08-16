@@ -43,6 +43,11 @@ const INTERNAL = new Set([
   "cascadeProject",
   // Resolves the owning user id for the Storage key.
   "ownerId",
+  // Moves the status-sync sweep's watermark on `user_preferences`. Only
+  // `syncScheduledToStatus` calls it, and the sandbox has no sweep to run:
+  // the demo store is seeded fresh per visit, so nothing in it is waiting for
+  // a day to arrive.
+  "recordSweptThrough",
 ]);
 
 function methodsOf(proto: object): string[] {

@@ -373,6 +373,9 @@ describe("TasksApi.bulkUpdate", () => {
  */
 function makeSyncStub(prefs: Record<string, unknown> | null, prior: Task) {
   const updates: Record<string, unknown>[] = [];
+  // Kept apart from `updates` so a test asserting what was written to a *task*
+  // isn't also seeing the sweep's watermark write.
+  const prefsUpdates: Record<string, unknown>[] = [];
   const inserts: Record<string, unknown>[] = [];
   const bulkFilters: { method: string; args: unknown[] }[] = [];
   let prefsReads = 0;
@@ -407,7 +410,9 @@ function makeSyncStub(prefs: Record<string, unknown> | null, prior: Task) {
                 state.patch = patch;
                 // Recorded on call, not on resolution: the bulk sweep awaits
                 // the builder directly and never reaches .single().
-                (prop === "insert" ? inserts : updates).push(patch);
+                if (prop === "insert") inserts.push(patch);
+                else if (table === "user_preferences") prefsUpdates.push(patch);
+                else updates.push(patch);
                 return proxy;
               };
             }
@@ -435,6 +440,7 @@ function makeSyncStub(prefs: Record<string, unknown> | null, prior: Task) {
   return {
     supabase,
     updates,
+    prefsUpdates,
     inserts,
     bulkFilters,
     prefsReads: () => prefsReads,
@@ -597,6 +603,79 @@ describe("TasksApi.syncScheduledToStatus", () => {
 
     expect(updated).toBe(0);
     expect(updates).toEqual([]);
+  });
+
+  it("records how far it swept, so the next run starts there", async () => {
+    const { supabase, prefsUpdates } = makeSyncStub(SYNC_ON, makeTask());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.syncScheduledToStatus();
+
+    expect(prefsUpdates).toEqual([
+      { status_sync_swept_through: horizon() },
+    ]);
+  });
+
+  it("writes nothing when the horizon hasn't moved since the last sweep", async () => {
+    // The demotion-survival case. This runs on every foreground; re-promoting
+    // the same days each time is what made a hand-demoted task spring back.
+    const { supabase, updates, prefsUpdates } = makeSyncStub(
+      { ...SYNC_ON, status_sync_swept_through: horizon() },
+      makeTask()
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { updated, notice } = await api.syncScheduledToStatus();
+
+    expect(updated).toBe(0);
+    expect(updates).toEqual([]);
+    expect(prefsUpdates).toEqual([]);
+    expect(notice).toBeNull();
+  });
+
+  it("promotes only the days that newly crossed in", async () => {
+    // The horizon as it stood a day ago: same today, one day less of reach.
+    const yesterdaysHorizon = resolveStatusSyncHorizon(
+      parseStatusSyncSettings({ ...SYNC_ON, status_sync_horizon_days: 2 }),
+      todayISOInZone("UTC")
+    );
+    const { supabase, bulkFilters } = makeSyncStub(
+      { ...SYNC_ON, status_sync_swept_through: yesterdaysHorizon },
+      makeTask()
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.syncScheduledToStatus();
+
+    // Exclusive lower bound: a day already swept is never swept again.
+    const gt = bulkFilters.find((c) => c.method === "gt");
+    expect(gt?.args).toEqual(["scheduled_date", yesterdaysHorizon]);
+    const lte = bulkFilters.find((c) => c.method === "lte");
+    expect(lte?.args).toEqual(["scheduled_date", horizon()]);
+  });
+
+  it("has no lower bound the first time it ever runs", async () => {
+    const { supabase, bulkFilters } = makeSyncStub(SYNC_ON, makeTask());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    await api.syncScheduledToStatus();
+
+    expect(bulkFilters.find((c) => c.method === "gt")).toBeUndefined();
+  });
+
+  it("tells the user what it moved", async () => {
+    const { supabase } = makeSyncStub(SYNC_ON, makeTask());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const { notice } = await api.syncScheduledToStatus();
+
+    // Two rows come back from the stub, so this is the plural form.
+    expect(notice).toBe("2 tasks moved to Next — they're coming up");
   });
 });
 
