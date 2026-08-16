@@ -302,8 +302,14 @@ export function SidebarNav({
         The Lists section renders only once there is a list. An empty heading
         would be a permanent advertisement for a feature on every screen of an
         app whose whole argument here is that shopping must not take up room
-        when you are looking at your work. `/lists` is reachable from Settings
-        and from the command palette until the first one exists.
+        when you are looking at your work.
+
+        **Something else must therefore link to `/lists`.** When this shipped,
+        nothing did, and the feature was unreachable on every real account: the
+        sidebar needed a list to show the link, and the link was needed to make
+        the first list. Settings (`ListsSection`) and the command palette both
+        carry an unconditional door now, and one of them has to survive any
+        future edit to this block.
       */}
       {lists.length > 0 && (
         <>
