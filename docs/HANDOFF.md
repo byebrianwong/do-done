@@ -130,24 +130,20 @@ Apple and Google cache them. Checklist: [`docs/autofill-setup.md`](autofill-setu
 
 ### Open, unowned
 
-1. **Web has no awareness of locations at all.** A task with a location reminder
-   renders as unscheduled on web — no indicator, no way to view or edit the link.
-   Geofencing has no browser equivalent worth shipping, but read-only display of
-   task↔location links is a real gap. `docs/mobile-web-parity-plan.md` §B2.
-2. **`ACCESS_BACKGROUND_LOCATION` needs a Play Store justification.** It's now
+1. **`ACCESS_BACKGROUND_LOCATION` needs a Play Store justification.** It's now
    genuinely used, so it's no longer a spurious declaration — but it requires a
    written justification and a demo video at review. Budget time before the next
    production submission.
-3. **`registerUserGeofences()`'s return value is discarded everywhere.**
+2. **`registerUserGeofences()`'s return value is discarded everywhere.**
    `skipped > 0` (places dropped for the platform region cap) surfaces only as a
    "Paused" label on the saved-places screen.
-4. **`experiment/lower-hungry-threshold`** is pushed but was never PR'd
+3. **`experiment/lower-hungry-threshold`** is pushed but was never PR'd
    **[verified]** — lowers `deriveMood`'s hungry trigger from `hunger < 30` to
    `<= 10`, plus boundary tests. Ship, tune, or delete it.
-5. **Mobile E2E is manual-only.** `.github/workflows/mobile-e2e.yml` is
+4. **Mobile E2E is manual-only.** `.github/workflows/mobile-e2e.yml` is
    `workflow_dispatch` only and needs repo secrets that don't exist yet
    (`EXPO_PUBLIC_SUPABASE_*`, `E2E_EMAIL`, `E2E_PASSWORD`) **[verified]**.
-6. **~70 stale remote branches** **[verified]**, nearly all merged. Harmless, but
+5. **~70 stale remote branches** **[verified]**, nearly all merged. Harmless, but
    `git ls-remote` output is unreadable. A prune would be kind.
 
 ---
@@ -337,7 +333,9 @@ applied with `supabase migration repair --status applied …` rather than re-run
 | `apps/mobile/lib/geofencing.ts` | Geofence engine + the native-guard reference pattern |
 | `apps/mobile/lib/location-queries.ts` | Location query hooks + mutations; every write resyncs geofences |
 | `apps/mobile/components/LocationReminderSheet.tsx` | The only surface in the app that prompts for location |
-| `apps/mobile/app/locations.tsx` | Saved-places management |
+| `apps/mobile/app/locations.tsx` | Saved-places management (mobile) |
+| `apps/web/src/components/task-locations.tsx` | The Places block in the web task editor |
+| `apps/web/src/app/(app)/places/` | The web Places view: every place and the tasks waiting at it |
 | `apps/mobile/components/QuickAddFields.tsx` | Shared chips for all three mobile capture surfaces |
 | `apps/mobile/app/_layout.tsx` | Root nav; widget + geofence registration on sign-in |
 | `apps/web/src/components/task-edit-modal-v2.tsx` | V2 task modal (web) |

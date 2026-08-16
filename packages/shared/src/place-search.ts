@@ -19,9 +19,10 @@
  * Keyless means fair use is on us: callers debounce, ask for 3+ characters,
  * and cap `limit`. Nothing here retries.
  *
- * No React Native imports, on purpose — everything below is plain fetch and
- * arithmetic, so it runs in the node test suite where the rest of the location
- * stack can't.
+ * Plain fetch and arithmetic, with no platform imports at all. That is what
+ * lets mobile's reminder sheet and web's share one search rather than each
+ * writing their own label rules — and what lets it be tested in node, where
+ * the rest of the location stack can't run.
  */
 
 const PHOTON_ENDPOINT = "https://photon.komoot.io/api";
@@ -119,6 +120,7 @@ export async function searchPlaces(
   }
 
   const seen = new Set<string>();
+  const usedIds = new Set<string>();
   const results: PlaceSuggestion[] = [];
 
   for (const feature of body.features ?? []) {
@@ -129,10 +131,30 @@ export async function searchPlaces(
     const key = `${suggestion.name}|${suggestion.address}`.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    results.push(suggestion);
+    results.push({ ...suggestion, id: uniqueId(suggestion.id, usedIds) });
   }
 
   return results;
+}
+
+/**
+ * Make an id unique within this result set, since that is the only promise the
+ * field makes and both apps use it as a list key.
+ *
+ * Photon's `osm_type` + `osm_id` is not the unique pair it looks like: a
+ * search for a chain returns two branches on the same street that OSM holds as
+ * one node and one way with the same numeric id, and a couple of shops that
+ * differ only by postcode. Their labels differ, so the de-dupe above rightly
+ * keeps both rows — and React then renders one of them, silently, because the
+ * keys collide. Suffixing is enough: the id is never sent anywhere or matched
+ * against the provider, so it only has to tell two rows apart for as long as
+ * they are both on screen.
+ */
+function uniqueId(id: string, used: Set<string>): string {
+  let candidate = id;
+  for (let n = 2; used.has(candidate); n++) candidate = `${id}#${n}`;
+  used.add(candidate);
+  return candidate;
 }
 
 /**

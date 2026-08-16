@@ -48,8 +48,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ExpoLocation from 'expo-location';
 import {
   DEFAULT_LOCATION_RADIUS_METERS,
+  DEFAULT_TRIGGER,
   LOCATION_RADIUS_PRESETS,
+  TRIGGER_LABELS,
+  formatDistance,
+  haversineMeters,
+  searchPlaces,
+  type Coordinates,
   type Location,
+  type PlaceSuggestion,
   type TriggerType,
 } from '@do-done/shared';
 import {
@@ -67,23 +74,8 @@ import {
   requestGeofencePermissions,
   type GeofencePermissionError,
 } from '@/lib/geofencing';
-import {
-  formatDistance,
-  haversineMeters,
-  searchPlaces,
-  type Coordinates,
-  type PlaceSuggestion,
-} from '@/lib/place-search';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { MapPreview } from './MapPreview';
-
-const TRIGGER_LABELS: Record<TriggerType, string> = {
-  enter: 'Arriving',
-  exit: 'Leaving',
-};
-
-/** Attaching a place means "remind me when I get there" until told otherwise. */
-const DEFAULT_TRIGGER: TriggerType = 'enter';
 
 /**
  * Short enough to feel live, long enough that a typed word is one request

@@ -11,7 +11,7 @@
  * pixel. Raster tiles are just images, so this works in the build people
  * already have. What it gives up is interaction — no panning, no dragging the
  * pin — which is why the radius chips and the search list stay the way you
- * adjust a place. See lib/map-tiles.ts for the projection.
+ * adjust a place. See map-tiles.ts in @do-done/shared for the projection.
  *
  * The tiles come from OpenStreetMap's public servers, whose usage policy this
  * has to keep: attribution is drawn over the corner, requests identify the app
@@ -35,7 +35,7 @@ import {
   offsetPixels,
   zoomForRadius,
   type LatLng,
-} from '@/lib/map-tiles';
+} from '@do-done/shared';
 
 /** Identifies the app to the tile server, as its usage policy requires. */
 const TILE_USER_AGENT = `DoDone/1.0 (${Platform.OS}; +https://github.com/byebrianwong/do-done)`;
@@ -70,7 +70,13 @@ export function MapPreview({
 
   const view = useMemo(() => {
     if (width <= 0) return null;
-    const zoom = zoomForRadius(radiusMeters, center.latitude, width);
+    // The shorter side, so the whole region fits inside the frame rather than
+    // running off the top and bottom of a preview wider than it is tall.
+    const zoom = zoomForRadius(
+      radiusMeters,
+      center.latitude,
+      Math.min(width, height)
+    );
     const scale = metersPerPixel(center.latitude, zoom);
     return {
       zoom,

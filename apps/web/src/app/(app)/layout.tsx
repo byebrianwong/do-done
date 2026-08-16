@@ -11,9 +11,10 @@ import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
 import { SuggestionProvider } from "@/lib/suggestions";
+import { TaskLocationsProvider } from "@/lib/task-locations-context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { PIP_HIDDEN_COOKIE } from "@/lib/pip-visibility";
-import { ProjectsApi } from "@do-done/api-client";
+import { LocationsApi, ProjectsApi } from "@do-done/api-client";
 import type { Project } from "@do-done/shared";
 
 export default async function AppLayout({
@@ -30,10 +31,20 @@ export default async function AppLayout({
   const pipHidden = cookieStore.get(PIP_HIDDEN_COOKIE)?.value === "1";
 
   let projects: Project[] = [];
+  // Whether to offer the Places view at all. `listAll` rather than `list`: a
+  // place attached inline to a task is never "saved", and hiding the nav from
+  // someone who has three reminders running would be the one case that
+  // matters. It is a narrow read of a table most accounts have nothing in.
+  let hasPlaces = false;
   if (user) {
     const projectsApi = new ProjectsApi(supabase, user.id);
-    const result = await projectsApi.list();
-    projects = result.data;
+    const locationsApi = new LocationsApi(supabase, user.id);
+    const [projectResult, locationResult] = await Promise.all([
+      projectsApi.list(),
+      locationsApi.listAll(),
+    ]);
+    projects = projectResult.data;
+    hasPlaces = locationResult.data.length > 0;
   }
 
   return (
@@ -48,12 +59,16 @@ export default async function AppLayout({
               {/* One count of the task history for every quick-add surface, so
                 the chips can guess a project without a round-trip per keystroke. */}
               <SuggestionProvider>
+                {/* One read of every place reminder, so a row can show it has
+                  one without a query per row. */}
+                <TaskLocationsProvider>
                 {/* Owns the task editor for the whole app, and mirrors it onto
                   the URL — so an open task always has a link to share. */}
                 <TaskEditorProvider>
                   <AppShell
                     projects={projects}
                     userEmail={user?.email ?? null}
+                    hasPlaces={hasPlaces}
                     pipHidden={pipHidden}
                   >
                     {children}
@@ -61,6 +76,7 @@ export default async function AppLayout({
                   <CommandPalette projects={projects} />
                   <QuickAddModal projects={projects} userId={user?.id ?? null} />
                 </TaskEditorProvider>
+                </TaskLocationsProvider>
               </SuggestionProvider>
             </QuickAddProvider>
           </TaskEditingHoldProvider>

@@ -14,7 +14,7 @@ import {
   PlaceSearchError,
   searchPlaces,
   toSuggestion,
-} from "./place-search";
+} from "./place-search.js";
 
 function fakeFetch(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   return vi.fn(async () => ({
@@ -32,6 +32,36 @@ function feature(
 }
 
 describe("searchPlaces", () => {
+  it("keeps two different places that share an OSM id apart", async () => {
+    // Photon really does return these: one node and one way carrying the same
+    // numeric id, on the same street, with different postcodes. Both are real
+    // rows, and both are keyed by `id` in the two apps' lists.
+    const fetchImpl = fakeFetch({
+      features: [
+        feature({
+          name: "Tesco",
+          street: "Camden Street",
+          postcode: "B18 7PH",
+          osm_type: "N",
+          osm_id: 2866270798,
+        }),
+        feature({
+          name: "Tesco",
+          street: "Camden Street",
+          postcode: "B18 7BH",
+          osm_type: "N",
+          osm_id: 2866270798,
+        }),
+      ],
+    });
+
+    const results = await searchPlaces("tesco", { fetchImpl });
+
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((r) => r.id)).size).toBe(2);
+  });
+
+
   it("sends the query, the cap and the position bias", async () => {
     const fetchImpl = fakeFetch({ features: [] });
     await searchPlaces("  target  ", {

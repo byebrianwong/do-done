@@ -1,14 +1,19 @@
 "use client";
 
 import type {
+  CreateLocationInput,
   CreateProjectInput,
   CreateTaskInput,
   DisplayConfig,
+  Location,
   Project,
   Task,
   TaskFilterInput,
   TaskAttachment,
+  TaskLocationLink,
+  TaskLocationLinkRow,
   TaskStatus,
+  TriggerType,
   UpdateProjectInput,
   UpdateTaskInput,
 } from "@do-done/shared";
@@ -22,6 +27,8 @@ import {
 import type {
   AttachmentsApi,
   BulkUpdateResult,
+  LocationsApi,
+  LocationWithPending,
   ProjectsApi,
   TasksApi,
   UserPrefsApi,
@@ -700,8 +707,196 @@ class DemoAttachmentsApiImpl {
   }
 }
 
+/**
+ * Locations, unlike attachments, are fully live in the sandbox.
+ *
+ * The reason is what each one needs from outside. An attachment is bytes in a
+ * Storage bucket the demo has no session for, so the honest stand-in is an
+ * empty set. A location is four numbers and a name — the sandbox can hold them
+ * as easily as it holds a task — and place search talks to a keyless public
+ * geocoder that doesn't know or care who is asking. So attaching a reminder to
+ * "Sainsbury's" in the demo does the whole thing, and the only half that can't
+ * follow is the one no browser has: the phone's geofence.
+ */
+class DemoLocationsApiImpl {
+  private get locations(): Location[] {
+    return getDemoState().locations;
+  }
+
+  private get links() {
+    return getDemoState().taskLocations;
+  }
+
+  /** The place a link points at, or null if the row has gone. */
+  private place(id: string): Location | null {
+    return this.locations.find((l) => l.id === id) ?? null;
+  }
+
+  async list() {
+    return ok(
+      this.locations
+        .filter((l) => l.is_saved)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+  }
+
+  async listAll() {
+    return ok(
+      [...this.locations].sort((a, b) => a.name.localeCompare(b.name))
+    );
+  }
+
+  async create(input: CreateLocationInput) {
+    const now = nowISO();
+    const location: Location = {
+      id: newId(),
+      user_id: DEMO_USER_ID,
+      name: input.name,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      radius_meters: input.radius_meters ?? 100,
+      address: input.address ?? null,
+      is_saved: input.is_saved ?? true,
+      created_at: now,
+      updated_at: now,
+    };
+    setDemoState({ locations: [...this.locations, location] });
+    return ok(location);
+  }
+
+  async update(id: string, patch: Partial<CreateLocationInput>) {
+    const existing = this.place(id);
+    if (!existing) return { data: null, error: new Error("No such place") };
+    const next: Location = { ...existing, ...patch, updated_at: nowISO() };
+    setDemoState({
+      locations: this.locations.map((l) => (l.id === id ? next : l)),
+    });
+    return ok(next);
+  }
+
+  async remove(id: string) {
+    // Stands in for the `task_locations` foreign key cascade — a place that is
+    // gone takes its reminders with it, or the editor would list a link whose
+    // place no longer resolves.
+    setDemoState({
+      locations: this.locations.filter((l) => l.id !== id),
+      taskLocations: this.links.filter((l) => l.location_id !== id),
+    });
+    return { error: null };
+  }
+
+  async linkTask(taskId: string, locationId: string, triggerType: TriggerType) {
+    const exists = this.links.some(
+      (l) =>
+        l.task_id === taskId &&
+        l.location_id === locationId &&
+        l.trigger_type === triggerType
+    );
+    // Idempotent, like the real one: the three columns are the primary key.
+    if (exists) return { error: null };
+    setDemoState({
+      taskLocations: [
+        ...this.links,
+        { task_id: taskId, location_id: locationId, trigger_type: triggerType },
+      ],
+    });
+    return { error: null };
+  }
+
+  async unlinkTask(
+    taskId: string,
+    locationId: string,
+    triggerType: TriggerType
+  ) {
+    const remaining = this.links.filter(
+      (l) =>
+        !(
+          l.task_id === taskId &&
+          l.location_id === locationId &&
+          l.trigger_type === triggerType
+        )
+    );
+    // Stands in for `prune_one_off_location`: a place nobody saved exists only
+    // to carry its reminders, so it goes when the last one does. Without this
+    // the demo's Saved places screen would slowly fill with pins from tasks
+    // the visitor already detached.
+    const orphaned =
+      !remaining.some((l) => l.location_id === locationId) &&
+      this.place(locationId)?.is_saved === false;
+
+    setDemoState({
+      taskLocations: remaining,
+      ...(orphaned
+        ? { locations: this.locations.filter((l) => l.id !== locationId) }
+        : {}),
+    });
+    return { error: null };
+  }
+
+  async getTaskLocations(taskId: string) {
+    return ok(
+      this.links.flatMap((l): TaskLocationLink[] => {
+        if (l.task_id !== taskId) return [];
+        const location = this.place(l.location_id);
+        return location ? [{ location, trigger_type: l.trigger_type }] : [];
+      })
+    );
+  }
+
+  async listTaskLinks() {
+    return ok(
+      this.links.flatMap((l): TaskLocationLinkRow[] => {
+        const location = this.place(l.location_id);
+        return location
+          ? [{ task_id: l.task_id, location, trigger_type: l.trigger_type }]
+          : [];
+      })
+    );
+  }
+
+  async save(id: string, name?: string) {
+    return this.update(id, { is_saved: true, ...(name ? { name } : {}) });
+  }
+
+  async listWithPendingTasks() {
+    const openIds = new Set(
+      getDemoState()
+        .tasks.filter((t) => !t.deleted_at && isOpen(t))
+        .map((t) => t.id)
+    );
+
+    const byLocation = new Map<
+      string,
+      { triggers: Set<TriggerType>; count: number }
+    >();
+    for (const link of this.links) {
+      if (!openIds.has(link.task_id)) continue;
+      const entry = byLocation.get(link.location_id) ?? {
+        triggers: new Set<TriggerType>(),
+        count: 0,
+      };
+      entry.triggers.add(link.trigger_type);
+      entry.count += 1;
+      byLocation.set(link.location_id, entry);
+    }
+
+    const result: LocationWithPending[] = [];
+    for (const location of this.locations) {
+      const entry = byLocation.get(location.id);
+      if (!entry) continue;
+      result.push({
+        location,
+        triggers: [...entry.triggers],
+        pendingCount: entry.count,
+      });
+    }
+    return ok(result);
+  }
+}
+
 const demoTasks = new DemoTasksApiImpl();
 const demoAttachments = new DemoAttachmentsApiImpl();
+const demoLocations = new DemoLocationsApiImpl();
 const demoProjects = new DemoProjectsApiImpl();
 const demoPrefs = new DemoUserPrefsApiImpl();
 
@@ -710,5 +905,6 @@ const demoPrefs = new DemoUserPrefsApiImpl();
 // reaches for has to exist on both.
 export const demoTasksApi = demoTasks as unknown as TasksApi;
 export const demoAttachmentsApi = demoAttachments as unknown as AttachmentsApi;
+export const demoLocationsApi = demoLocations as unknown as LocationsApi;
 export const demoProjectsApi = demoProjects as unknown as ProjectsApi;
 export const demoUserPrefsApi = demoPrefs as unknown as UserPrefsApi;

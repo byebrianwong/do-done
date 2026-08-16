@@ -26,12 +26,15 @@ import {
 export function AppShell({
   projects,
   userEmail,
+  hasPlaces = false,
   pipHidden = false,
   sidebarFooter,
   children,
 }: {
   projects: Project[];
   userEmail: string | null;
+  /** Whether to offer the Places view — see `SidebarNav`. */
+  hasPlaces?: boolean;
   /**
    * Whether the Pip panel starts collapsed. Read server-side from a cookie so
    * the first paint already has the right layout (no flash). Device-scoped.
@@ -197,7 +200,7 @@ export function AppShell({
             if ((e.target as HTMLElement).closest("a")) setDrawerOpen(false);
           }}
         >
-          <SidebarNav projects={projects} />
+          <SidebarNav projects={projects} hasPlaces={hasPlaces} />
         </div>
 
         <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">

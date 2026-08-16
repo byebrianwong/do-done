@@ -15,7 +15,7 @@ import {
   projectToTile,
   TILE_SIZE,
   zoomForRadius,
-} from "./map-tiles";
+} from "./map-tiles.js";
 
 const LONDON = { latitude: 51.5074, longitude: -0.1278 };
 

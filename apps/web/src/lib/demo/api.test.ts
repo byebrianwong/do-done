@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { AttachmentsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
+import {
+  AttachmentsApi,
+  LocationsApi,
+  ProjectsApi,
+  TasksApi,
+} from "@do-done/api-client";
 import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
-import { demoAttachmentsApi, demoProjectsApi, demoTasksApi } from "./api";
+import {
+  demoAttachmentsApi,
+  demoLocationsApi,
+  demoProjectsApi,
+  demoTasksApi,
+} from "./api";
 import { buildDemoSeed } from "./seed";
 import { resetDemoStore, getDemoState, subscribeDemoStore } from "./store";
 import { DEMO_BASE, isDemoPath } from "./mode";
@@ -75,6 +85,15 @@ describe("demo api surface", () => {
       expect(
         typeof (demoAttachmentsApi as unknown as Record<string, unknown>)[name],
         `AttachmentsApi.${name} is missing from the demo`
+      ).toBe("function");
+    }
+  });
+
+  it("implements every LocationsApi method", () => {
+    for (const name of methodsOf(LocationsApi.prototype)) {
+      expect(
+        typeof (demoLocationsApi as unknown as Record<string, unknown>)[name],
+        `LocationsApi.${name} is missing from the demo`
       ).toBe("function");
     }
   });

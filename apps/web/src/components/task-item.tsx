@@ -37,6 +37,8 @@ import {
   formatDuration,
   formatScheduleHint,
   formatTimeOfDay,
+  locationReminderLabel,
+  locationRowLabel,
   resolveQuickSchedule,
   rowGutter,
 } from "@do-done/shared";
@@ -55,6 +57,7 @@ import { useOpenTask } from "@/lib/open-task";
 import { useHoldWhileEditing } from "@/lib/task-editing-hold";
 import { taskPath } from "@/lib/task-link";
 import { tagPath } from "@/lib/tag-link";
+import { useTaskLocationLinks } from "@/lib/task-locations-context";
 import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
@@ -692,6 +695,11 @@ export function TaskItem({
   // through. Derived (not synced via an effect) so the prop stays authoritative.
   const isSubtask = !!task.parent_task_id && !hideParentRef;
   const align = firstLineAlignment(isSubtask, compact);
+  // Place reminders, read from the one account-wide query rather than fetched
+  // per row. Empty wherever there is no provider (Storybook, tests), which is
+  // the state this row was in before the chip existed.
+  const locationLinks = useTaskLocationLinks(task.id);
+  const placeLabel = locationRowLabel(locationLinks);
   const [fetchedParentTitle, setFetchedParentTitle] = useState<string | null>(
     null
   );
@@ -1328,6 +1336,37 @@ export function TaskItem({
                   />
                 </svg>
                 {formatRrule(task.recurrence_rule)}
+              </span>
+            )}
+
+            {/* A place reminder, stated rather than edited.
+                Most chips in this row open a popover; a place needs a search
+                field, a direction, a radius and a map, which is a panel and
+                not a popover — so this says what is set and the row's own
+                click opens the editor that changes it. Without it a task set
+                up on the phone ("buy milk when I get to Tesco") carries no
+                date and reads on this row as one nobody has planned. */}
+            {placeLabel && (
+              <span
+                className={`${align.meta} inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400`}
+                title={locationReminderLabel(locationLinks)}
+              >
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"
+                  />
+                  <circle cx="12" cy="10" r="3" />
+                </svg>
+                {placeLabel}
               </span>
             )}
 

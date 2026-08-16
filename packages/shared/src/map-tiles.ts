@@ -4,12 +4,12 @@
  * A pair of coordinates tells you nothing about whether the pin landed on the
  * right side of the road, which is exactly the mistake a geofence punishes.
  * The preview answers that, and it does so without a native map: raster tiles
- * are plain images, so this is React Native `<Image>` and no new native module,
- * no API key, and no rebuild of the dev client.
+ * are plain images, so mobile draws them with `<Image>` and web with `<img>` —
+ * no new native module, no API key, no Maps SDK, no rebuild of the dev client.
  *
  * Everything here is the Web-Mercator projection every tile server shares
- * (OSM, and anything else with a `{z}/{x}/{y}` URL), kept apart from the
- * component so the projection can be tested in node — the one part of a map
+ * (OSM, and anything else with a `{z}/{x}/{y}` URL), kept apart from both
+ * components so the projection can be tested in node — the one part of a map
  * that is arithmetic rather than pixels, and the one part that fails in a way
  * you can't see: a grid that's off by a tile still draws a perfectly plausible
  * map of the wrong street.
@@ -53,21 +53,27 @@ export function metersPerPixel(latitude: number, zoom: number): number {
 }
 
 /**
- * The zoom that makes a radius fill `fraction` of the preview's width.
+ * The zoom that makes a radius fill `fraction` of `viewSizePx`.
  *
  * Framing is the whole job of the preview: at a fixed zoom a 100 m region is a
  * dot and a 1 km one runs off the edge, and neither tells you whether the pin
  * is on the right street. Clamped to sane tile zooms — past 19 most of the
  * world has no tiles at all, and below 10 you're looking at a county.
+ *
+ * **Pass the smaller of the preview's two dimensions.** A circle drawn from
+ * this is as wide as it is tall, so sizing it against the longer side puts its
+ * top and bottom outside a letterboxed frame — and a region clipped by the
+ * frame reads as a region that reaches past the edge of the map, which is the
+ * one thing the preview exists to answer.
  */
 export function zoomForRadius(
   radiusMeters: number,
   latitude: number,
-  viewWidthPx: number,
+  viewSizePx: number,
   fraction = 0.7
 ): number {
   const wantedMetersPerPixel =
-    (radiusMeters * 2) / Math.max(viewWidthPx * fraction, 1);
+    (radiusMeters * 2) / Math.max(viewSizePx * fraction, 1);
   const atZoomZero = metersPerPixel(latitude, 0);
   const zoom = Math.log2(atZoomZero / wantedMetersPerPixel);
   return Math.max(10, Math.min(19, Math.round(zoom)));

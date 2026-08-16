@@ -2106,7 +2106,7 @@ A task can carry reminders at places — "buy milk when I get to Tesco", "post t
 letter when I leave the office". `task_locations` links a task to a location with
 a `trigger_type` of `enter` or `exit`; a task can have several.
 
-**Surfaces**
+**Surfaces (mobile)**
 
 - `components/LocationReminderSheet.tsx` — the 📍 row in the task editor. A
   search field over tappable places: the first tap attaches the reminder, and
@@ -2118,6 +2118,51 @@ a `trigger_type` of `enter` or `exit`; a task can have several.
   the cap the warning on that screen is about.
 - `lib/location-queries.ts` — query hooks and mutations. Every write ends in a
   geofence sync; the OS holds its own copy of the regions.
+
+**Surfaces (web) — reads and writes everything, fires nothing.**
+
+Web had no awareness of locations at all, so a task set up on the phone showed
+no date and read as one nobody had planned. It now edits the same rows through
+the same `LocationsApi`; only the geofence stays on the phone, because no
+browser can wake an app when you walk into a shop. Each web surface says so.
+
+| Where | What |
+| --- | --- |
+| `components/task-locations.tsx` | `LocationSection`, the **Places** block in the task editor. Same flow as the sheet: search, one click attaches, then direction / radius / "Save place" / remove. |
+| `components/map-preview.tsx` | The web twin of mobile's `MapPreview`, same tiles from the same projection. |
+| `app/(app)/places/` | The **Places** view: every place, and the open tasks waiting at each. Mobile's screen shows a count; web lists and links the tasks, since it has the width. |
+| `lib/task-locations-context.tsx` | One `listTaskLinks()` read for the whole app, so a row can show a place chip without a query per row. |
+| `lib/supabase/locations-client.ts` | `getLocationsApiFor` / `getClientLocationsApi` — the demo seam, mirroring `attachments-client.ts`. |
+
+- **Places is in the sidebar, not under Settings** — the reverse of mobile, and
+  the same split web already makes for Tags. A phone's nav is scarce; a laptop
+  is where you sit down and ask what is waiting for you where. **The row appears
+  only once a place exists**, like the Lists section, and Settings links to the
+  page until then. `hasPlaces` comes from a `listAll()` in `(app)/layout.tsx`.
+- **The row chip states, it doesn't edit.** Every other chip on a web row opens
+  a popover; a place needs a search field, a direction, a radius and a map,
+  which is a panel. So the chip names the place and the row's own click opens
+  the editor. `locationRowLabel` in `@do-done/shared` is deliberately shorter
+  than `locationReminderLabel`, which the editor's card uses.
+- **The editor announces its writes on a window event**
+  (`lib/task-location-events.ts`), because the badge provider and the editor sit
+  at opposite ends of the tree — the same shape as `task-delete-events.ts`.
+- **Never prompt for location on open.** `positionIfAlreadyAllowed()` asks the
+  Permissions API whether geolocation is *already* granted and reads a position
+  only then. This is web's version of `getLastKnownPosition()`. "Use where I am
+  now" is the one control that prompts, because the user pressed it.
+- **The demo sandbox implements locations for real** (`DemoLocationsApiImpl`),
+  unlike attachments, which are inert there. An attachment needs a Storage
+  bucket the demo has no session for; a place is four numbers and a name, and
+  place search is a keyless public geocoder. The seed ships three places, and
+  the stub mirrors the one-off prune trigger and the delete cascade by hand.
+
+**Shared, so the two can't drift:** `place-search.ts` and `map-tiles.ts` moved
+out of `apps/mobile/lib` into `@do-done/shared` unchanged, and
+`shared/src/locations.ts` holds `TaskLocationLink`, the trigger labels, and the
+phrasing both editors use. `LocationsApi.getTaskLocations` now returns links
+with the place joined on — it always embedded `locations(*)` and every caller
+re-cast it by hand — and `listTaskLinks()` is the batch read the row chips need.
 
 **Capture: search first, saving never required.** Three rules, each of which was
 a usability bug first:
@@ -2188,11 +2233,15 @@ while you sit still. The default is 200 m.
 Dwell and cooldown state live in AsyncStorage, not module state — the background
 task runs in a fresh JS context after the OS kills the app.
 
-> **None of this has run on a device.** Geofences, the dwell filter, the
-> notification channel, and all three permission prompts are unverified outside a
-> type-checker; none of them execute in Expo Go or CI. See "Where things stand"
-> in [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check them in. Each
-> failure mode here is silent.
+> **The firing half has never run on a device.** Geofences, the dwell filter,
+> the notification channel, and all three permission prompts are unverified
+> outside a type-checker; none of them execute in Expo Go or CI. See "Where
+> things stand" in [`docs/HANDOFF.md`](docs/HANDOFF.md) for the order to check
+> them in. Each failure mode here is silent.
+>
+> The *editing* half is verified, on web: the task editor's Places block and
+> the Places view were driven in a browser against `/demo`, including live
+> Photon search and real OSM tiles.
 
 ## Notifications
 
