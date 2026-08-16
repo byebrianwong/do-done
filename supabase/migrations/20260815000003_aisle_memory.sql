@@ -1,5 +1,13 @@
 -- Aisle memory: what the user has taught DoDone about their own words.
 --
+-- NUMBERED 000003, NOT 000002, AND THAT MATTERS. This file first landed as
+-- `20260815000002_aisle_memory.sql`, and a concurrent branch
+-- (`status_sync_sweep_watermark`) had already applied its own migration under
+-- that same prefix. Supabase keys the ledger on the numeric prefix alone — not
+-- the name, not the contents — so `db push` read 20260815000002 as applied,
+-- skipped this file, and reported success while `list_term_aisles` did not
+-- exist. Renumbering is the whole fix; nothing in the SQL changed.
+--
 -- `food.ts` guesses an item's aisle from a built-in lexicon, and the user can
 -- move any item to a different one. Until now that correction was a tag on the
 -- row, which fixed *that* row and nothing else — and a shopping list is
