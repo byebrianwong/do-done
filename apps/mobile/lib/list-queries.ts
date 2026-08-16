@@ -10,27 +10,17 @@ import { splitProjects } from '@do-done/shared';
 
 import { getAisleTermsApi, getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
-import { invalidateTasks, projectKeys } from './task-queries';
+import { invalidateTasks, listKeys, projectKeys } from './task-queries';
 
 /**
  * Shopping lists, on mobile.
  *
- * Its own query root, deliberately outside `taskKeys`. The optimistic
- * `setQueriesData<Task[]>` sweeps in `task-queries.ts` rewrite everything under
- * `taskKeys.all`, and a list's cached value is either a `Project[]` or a
- * `Map` of counts — the same argument that keeps `tagKeys` and
- * `suggestionKeys` out of there.
- *
- * Unlike `suggestionKeys` and like `tagKeys`, this *is* invalidated on every
- * task write: a count that is wrong is a number on screen disagreeing with the
- * list it opens, which is the one thing an index of counts must never do.
+ * `listKeys` is *defined* in `task-queries.ts`, beside `tagKeys`, because the
+ * optimistic sweeps there have to reach a list's items and an import back into
+ * this module would be a cycle. The reasoning for its shape is written out at
+ * the definition; it is re-exported here, where every hook that uses it lives.
  */
-export const listKeys = {
-  all: ['lists'] as const,
-  index: () => [...listKeys.all, 'index'] as const,
-  counts: () => [...listKeys.all, 'counts'] as const,
-  items: (listId: string) => [...listKeys.all, 'items', listId] as const,
-};
+export { listKeys };
 
 /** The user's shopping lists — projects with `kind = 'list'`. */
 export function useLists() {
@@ -64,7 +54,7 @@ export function useListCounts() {
  */
 export function useListItems(listId: string) {
   return useQuery({
-    queryKey: listKeys.items(listId),
+    queryKey: listKeys.itemsFor(listId),
     queryFn: async (): Promise<Task[]> => {
       const api = await getTasksApi();
       const { data, error } = await api.listItems(listId);
@@ -101,7 +91,7 @@ export function useList(listId: string) {
 export function invalidateLists(listId?: string) {
   queryClient.invalidateQueries({ queryKey: listKeys.all });
   if (listId) {
-    queryClient.invalidateQueries({ queryKey: listKeys.items(listId) });
+    queryClient.invalidateQueries({ queryKey: listKeys.itemsFor(listId) });
   }
   invalidateTasks();
 }
@@ -121,7 +111,7 @@ export async function addListItem(
   const { data, error } = await api.create({ ...input, project_id: listId });
   if (error) throw error;
   if (data) {
-    queryClient.setQueryData<Task[]>(listKeys.items(listId), (prev) =>
+    queryClient.setQueryData<Task[]>(listKeys.itemsFor(listId), (prev) =>
       // Guarded against a refetch having already landed the row — same race
       // the web composer has, and the same one-line answer.
       !prev || prev.some((t) => t.id === data.id) ? prev ?? [data] : [...prev, data]

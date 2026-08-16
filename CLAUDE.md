@@ -1354,8 +1354,9 @@ apply.
 
 Correcting is a `<select>` on web — keyboard-operable and labelled for free,
 and the control genuinely is "which of twelve" — revealed on row hover or its
-own focus. On mobile it's a long-press: the row's one job is to be tapped while
-walking, and a second target on that surface would cost mis-ticks.
+own focus. On mobile it's a long-press, because the row's two tap targets are
+already spoken for (see *The row: the circle ticks, the words open*) and a
+third visible control would cost mis-ticks.
 
 ### The surfaces
 
@@ -1389,6 +1390,49 @@ it returns are an undo token `TasksApi.restore` takes directly.
 **The sidebar section and the mobile cart button appear only once a list
 exists.** A permanent heading for an unused feature is exactly the ambient
 clutter this design is arguing against.
+
+#### The row: the circle ticks, the words open
+
+An item is a task, so it has everything a task has — notes, a photo of the
+label, a store hint, a deadline. The row is the only way in to any of that, so
+its two halves do two different things:
+
+- **The circle ticks it off.** Nothing else does. On mobile the ring is 21px
+  and the thumb is not, so its `hitSlop` stretches the target to the full
+  height of the row and past its left edge — a walking tap still lands without
+  looking.
+- **The words open the item's editor** — web's app-wide `OpenTaskProvider`
+  modal, mobile's `TaskEditModalV2` sheet.
+
+The whole row used to tick. A click meant for "what did I write here" bought
+the thing instead, and the only sign was a row moving into the cart.
+`list-view.test.tsx` is the regression on web; there is no renderer on mobile,
+so that half is verified on the simulator.
+
+**A list's own name, icon and colour are editable from the list.** Web's
+`ProjectActions` — the same Edit button a project page has, since the form
+behind it already knows how to say "Edit list" — sits in the header of
+`/lists/<id>`. Mobile's `ProjectFormSheet` grew an edit mode beside its create
+mode (prefill, Save, and a Delete behind a confirm), opened from the pencil in
+the list's title bar. That sheet is also mobile's only way to delete a list.
+
+**Two cache bugs came out of the same root**, and both are worth not
+re-introducing. A list's items live under `listKeys`, not `taskKeys`:
+
+- The optimistic sweeps in `task-queries.ts` are scoped to `taskKeys.all`, so
+  ticking an item wrote to Supabase and left the row exactly where it was until
+  the screen was left and re-entered — on the one surface where the tick *is*
+  the feedback. `TASK_LIST_ROOTS` is now the list of roots holding a `Task[]`,
+  and every sweep walks all of them. Only `listKeys.items()` is in it:
+  `index()` caches `Project[]`, which is an array and would sail through an
+  `Array.isArray` guard into an updater written for tasks.
+- `createProject` invalidates the project caches, which the lists index is not
+  among, so a list created on the phone left the screen saying "No lists yet".
+  `ProjectFormSheet` invalidates lists explicitly after every write.
+
+`listKeys` is therefore *defined* in `task-queries.ts` beside `tagKeys` and
+re-exported from `list-queries.ts`, because the reverse import would be a
+cycle.
 
 ### Traps already paid for
 
