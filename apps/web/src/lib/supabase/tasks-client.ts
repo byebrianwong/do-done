@@ -2,6 +2,37 @@ import { TasksApi } from "@do-done/api-client";
 import { createClientSupabase } from "./client";
 import { demoTasksApi } from "@/lib/demo/api";
 import { isDemoMode } from "@/lib/demo/mode";
+import { announceAutoSync } from "@/lib/auto-sync-events";
+
+/**
+ * Wrap `create`/`update` so a change the status ↔ schedule rule made on the
+ * user's behalf gets announced.
+ *
+ * Here rather than at the call sites because there are fifteen of them and
+ * this is the one place they all get their API from — the same argument that
+ * made this module demo mode's seam. A component that writes a task keeps
+ * knowing nothing about either.
+ *
+ * A Proxy rather than a subclass: `TasksApi`'s methods call each other
+ * (`complete` goes through `update`), and a subclass would announce the same
+ * event twice for one write.
+ */
+function announcing(api: TasksApi): TasksApi {
+  return new Proxy(api, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop !== "create" && prop !== "update") return value;
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) =>
+        (value as (...a: unknown[]) => Promise<{ autoSync?: { notice: string } }>)
+          .apply(target, args)
+          .then((result) => {
+            announceAutoSync(result?.autoSync?.notice);
+            return result;
+          });
+    },
+  });
+}
 
 /**
  * The browser's TasksApi — or the sandbox's, on a `/demo` route.
@@ -17,7 +48,7 @@ export async function getClientTasksApi(): Promise<TasksApi> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return new TasksApi(supabase, user?.id);
+  return announcing(new TasksApi(supabase, user?.id));
 }
 
 /**
@@ -27,5 +58,5 @@ export async function getClientTasksApi(): Promise<TasksApi> {
  */
 export function getTasksApiFor(userId: string | undefined): TasksApi {
   if (isDemoMode()) return demoTasksApi;
-  return new TasksApi(createClientSupabase(), userId);
+  return announcing(new TasksApi(createClientSupabase(), userId));
 }

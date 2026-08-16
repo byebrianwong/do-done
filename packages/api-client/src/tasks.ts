@@ -20,8 +20,11 @@ import {
   isStatusSyncActive,
   parseStatusSyncSettings,
   resolveStatusSyncHorizon,
+  describeStatusSyncNotice,
+  describeStatusSyncSweep,
   statusSyncPatch,
   statusesBelow,
+  sweepPromoteRange,
   TASK_TRASH_RETENTION_MS,
 } from "@do-done/shared";
 import { AttachmentsApi } from "./attachments.js";
@@ -104,10 +107,39 @@ async function mapWithLimit<T, R>(
  */
 const STATUS_SYNC_TTL_MS = 60_000;
 
+/**
+ * What the status ↔ schedule rule changed on a write the caller didn't ask
+ * for, so the caller can say so. Absent when the rule did nothing, which is
+ * the common case and the case where the UI must stay silent.
+ *
+ * Returned rather than inferred by the caller comparing what it sent against
+ * what came back: the interesting write is the one that sent *only* a date and
+ * got a status change too, and a caller reconstructing that has to hold the
+ * prior row to notice.
+ */
+export interface StatusSyncApplied {
+  /** Promoted to this status, because the task's new date is near. */
+  status?: TaskStatus;
+  /** Given this scheduled date, because the task's new status implies one. */
+  scheduled_date?: string;
+  /**
+   * One line for the user. Composed here, where the settings that word it are
+   * already loaded, rather than in each app — the phone and the laptop must
+   * not describe the same rule differently.
+   */
+  notice: string;
+}
+
 /** Resolved sync context for one moment in time. */
 interface StatusSyncContext {
   settings: StatusSyncSettings;
   horizonISO: string;
+  /**
+   * The horizon the promote sweep last ran through, or null if it never has.
+   * Read here rather than in the sweep so both halves see one consistent
+   * snapshot of the preferences row.
+   */
+  sweptThrough: string | null;
 }
 
 export class TasksApi {
@@ -194,12 +226,21 @@ export class TasksApi {
         if (error) return null;
         const settings = parseStatusSyncSettings(data);
         if (!isStatusSyncActive(settings)) return null;
-        const timezone =
-          (data as { timezone?: string } | null)?.timezone ?? undefined;
+        const row = data as {
+          timezone?: string;
+          status_sync_swept_through?: string | null;
+        } | null;
+        const timezone = row?.timezone ?? undefined;
         const todayISO = timezone
           ? todayISOInZone(timezone)
           : todayLocalISO();
-        return { settings, horizonISO: resolveStatusSyncHorizon(settings, todayISO) };
+        return {
+          settings,
+          horizonISO: resolveStatusSyncHorizon(settings, todayISO),
+          // `?? null` covers both a null column and a deploy that landed ahead
+          // of its migration, and both mean the same thing: never swept.
+          sweptThrough: row?.status_sync_swept_through ?? null,
+        };
       } catch {
         // A preferences read that fails must never fail the task write. The
         // rule simply doesn't apply on this pass.
@@ -227,43 +268,101 @@ export class TasksApi {
   }
 
   /**
-   * Re-apply the date→status half across the user's whole list — the pass that
-   * catches tasks whose scheduled date didn't move but whose *day* arrived.
-   * Idempotent, and one round trip: a single filtered UPDATE, not a fan-out.
+   * Apply the date→status half to the days that have *newly* come inside the
+   * horizon — the pass that catches tasks whose scheduled date didn't move but
+   * whose day arrived. One filtered UPDATE, not a fan-out.
    *
    * Call it where the app can notice a new day: page load on web, foreground
-   * on mobile. Returns the number of rows moved so the caller can decide
-   * whether a refetch is worth it.
+   * on mobile. Returns the tasks it moved, so the caller can refetch and tell
+   * the user what happened.
+   *
+   * **This is a sweep over new days, not a re-application of the rule.** It
+   * used to promote everything scheduled on or before the horizon on every
+   * single run, which made a hand-demoted task impossible to keep demoted: the
+   * user moved it back to Not started, the next foreground moved it to Next
+   * again, and nothing said why. `status_sync_swept_through` closes off the
+   * days already accounted for, so a day is promoted the once — when it comes
+   * near — and the user's own edits stand after that.
+   *
+   * The watermark advances even when nothing matched. Leaving it behind on an
+   * empty run would reopen the same band on the next pass, and re-promoting
+   * demoted tasks is exactly what it exists to prevent.
    */
   async syncScheduledToStatus(): Promise<{
     updated: number;
+    moved: { id: string; title: string }[];
+    /**
+     * One line for the user, or null when there is nothing to say. Composed
+     * here rather than by each app so the phone and the laptop can't word the
+     * same event differently — and because the settings needed to word it are
+     * already loaded here and nowhere near either caller.
+     */
+    notice: string | null;
     error: Error | null;
   }> {
+    const none = { updated: 0, moved: [], notice: null, error: null };
     const ctx = await this.statusSyncContext();
-    if (!ctx || !ctx.settings.status_sync_promote) {
-      return { updated: 0, error: null };
-    }
+    if (!ctx || !ctx.settings.status_sync_promote) return none;
+
     const target = ctx.settings.status_sync_status;
     const from = statusesBelow(target);
-    if (from.length === 0) return { updated: 0, error: null };
+    if (from.length === 0) return none;
+
+    const band = sweepPromoteRange(ctx.horizonISO, ctx.sweptThrough);
+    if (!band) return none;
 
     let query = this.supabase
       .from("tasks")
       .update({ status: target })
       .is("deleted_at", null)
-      .lte("scheduled_date", ctx.horizonISO)
+      .lte("scheduled_date", band.through)
       .in("status", from);
     if (this.userId) query = query.eq("user_id", this.userId);
-    // `scheduled_date <= horizon` is already false for NULL (SQL three-valued
+    // Exclusive: a day is swept once. `after` is null only on the very first
+    // sweep for a user, which deliberately takes in everything already near.
+    if (band.after !== null) {
+      query = query.gt("scheduled_date", band.after);
+    }
+    // `scheduled_date <= through` is already false for NULL (SQL three-valued
     // logic), so undated tasks are excluded — stated explicitly because that
     // exclusion is load-bearing, not incidental.
     const { data, error } = await query
       .not("scheduled_date", "is", null)
-      .select("id");
+      .select("id, title");
+    if (error) {
+      return { updated: 0, moved: [], notice: null, error: error as Error };
+    }
+
+    const moved = (data as { id: string; title: string }[] | null) ?? [];
+    // Only now, and only on success: a watermark advanced past a band that
+    // failed to write would skip those days forever.
+    await this.recordSweptThrough(band.through);
     return {
-      updated: (data as { id: string }[] | null)?.length ?? 0,
-      error: error as Error | null,
+      updated: moved.length,
+      moved,
+      notice: describeStatusSyncSweep(moved, ctx.settings),
+      error: null,
     };
+  }
+
+  /**
+   * Move the sweep watermark forward. Best-effort: the promotions have already
+   * landed and there is nothing to roll back to, so a failure here costs a
+   * repeated (idempotent) band on the next sweep rather than a wrong list.
+   */
+  private async recordSweptThrough(through: string): Promise<void> {
+    try {
+      let query = this.supabase
+        .from("user_preferences")
+        .update({ status_sync_swept_through: through });
+      if (this.userId) query = query.eq("user_id", this.userId);
+      await query;
+      // Keep the cached context honest, or the next write in this same minute
+      // still thinks the band is open.
+      if (this.syncCache?.ctx) this.syncCache.ctx.sweptThrough = through;
+    } catch {
+      // swallow — see above
+    }
   }
 
   async list(filters?: TaskFilterInput): Promise<{ data: Task[]; error: Error | null }> {
@@ -385,7 +484,11 @@ export class TasksApi {
     };
   }
 
-  async create(input: CreateTaskInput): Promise<{ data: Task | null; error: Error | null }> {
+  async create(input: CreateTaskInput): Promise<{
+    data: Task | null;
+    error: Error | null;
+    autoSync?: StatusSyncApplied;
+  }> {
     const row: Record<string, unknown> = {
       ...input,
       ...(this.userId ? { user_id: this.userId } : {}),
@@ -402,19 +505,30 @@ export class TasksApi {
     // Keep status and schedule in step from the first write, so a task created
     // as "Next" arrives already dated rather than being fixed up a beat later.
     const syncCtx = await this.statusSyncContext();
+    let autoSync: StatusSyncApplied | undefined;
     if (syncCtx) {
-      Object.assign(
-        row,
-        statusSyncPatch({
-          prior: null,
-          patch: {
-            status: input.status,
-            scheduled_date: input.scheduled_date ?? undefined,
-          },
-          settings: syncCtx.settings,
-          horizonISO: syncCtx.horizonISO,
-        })
-      );
+      const applied = statusSyncPatch({
+        prior: null,
+        patch: {
+          status: input.status,
+          scheduled_date: input.scheduled_date ?? undefined,
+        },
+        settings: syncCtx.settings,
+        horizonISO: syncCtx.horizonISO,
+      });
+      Object.assign(row, applied);
+      // A create only counts as a surprise when the caller had an opinion the
+      // rule overrode. Landing in Next with no status asked for is the default
+      // arriving, not the rule taking something away — and a toast on every
+      // quick-add is how a feature gets switched off.
+      const overrode =
+        (applied.status !== undefined && input.status !== undefined) ||
+        (applied.scheduled_date !== undefined &&
+          input.scheduled_date != null);
+      const notice = overrode
+        ? describeStatusSyncNotice(applied, syncCtx.settings)
+        : null;
+      if (notice) autoSync = { ...applied, notice };
     }
     const { data, error } = await this.supabase
       .from("tasks")
@@ -436,14 +550,18 @@ export class TasksApi {
         // swallow — pet plumbing must never break task writes
       }
     })();
-    return { data: created, error: null };
+    return { data: created, error: null, autoSync };
   }
 
   async update(
     id: string,
     input: UpdateTaskInput,
     actor: PetEventActor = "user"
-  ): Promise<{ data: Task | null; error: Error | null }> {
+  ): Promise<{
+    data: Task | null;
+    error: Error | null;
+    autoSync?: StatusSyncApplied;
+  }> {
     // Read the prior row so we can (a) detect a status→done transition for
     // completion feeding, and (b) compute which tracked fields are about to
     // transition from unset → set for energy feeding. One extra SELECT per
@@ -497,19 +615,20 @@ export class TasksApi {
     // the row the rule wants — no flicker, and no window where a concurrent
     // read sees the half-synced state.
     const syncCtx = await this.statusSyncContext();
+    let autoSync: StatusSyncApplied | undefined;
     if (syncCtx && prior) {
-      Object.assign(
-        patch,
-        statusSyncPatch({
-          prior: { status: prior.status, scheduled_date: prior.scheduled_date },
-          patch: {
-            status: input.status,
-            scheduled_date: input.scheduled_date,
-          },
-          settings: syncCtx.settings,
-          horizonISO: syncCtx.horizonISO,
-        })
-      );
+      const applied = statusSyncPatch({
+        prior: { status: prior.status, scheduled_date: prior.scheduled_date },
+        patch: {
+          status: input.status,
+          scheduled_date: input.scheduled_date,
+        },
+        settings: syncCtx.settings,
+        horizonISO: syncCtx.horizonISO,
+      });
+      Object.assign(patch, applied);
+      const notice = describeStatusSyncNotice(applied, syncCtx.settings);
+      if (notice) autoSync = { ...applied, notice };
     }
 
     const { data, error } = await this.supabase
@@ -572,7 +691,7 @@ export class TasksApi {
       })();
     }
 
-    return { data: updated, error: null };
+    return { data: updated, error: null, autoSync };
   }
 
   async complete(

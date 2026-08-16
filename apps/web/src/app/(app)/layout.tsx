@@ -7,6 +7,7 @@ import { CompletionStreakProvider } from "@/lib/completion-streak";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { TaskEditorProvider } from "@/components/task-editor-provider";
 import { StatusSyncRunner } from "@/components/status-sync-runner";
+import { AutoSyncToasts } from "@/lib/auto-sync-events";
 import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
@@ -82,6 +83,11 @@ export default async function AppLayout({
           </TaskEditingHoldProvider>
           <BulkActionBar projects={projects} />
           <StatusSyncRunner />
+          {/* Puts a line in the toast whenever the status ↔ schedule rule
+              changes something the user didn't ask it to. Mounted once — the
+              events fan out from writes anywhere, so a second listener would
+              show every notice twice. */}
+          <AutoSyncToasts />
         </TaskSelectionProvider>
       </UndoToastProvider>
     </CompletionStreakProvider>

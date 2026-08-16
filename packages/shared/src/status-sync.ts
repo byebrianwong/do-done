@@ -11,6 +11,19 @@
 //              scheduled date of the horizon, when it had none or had one
 //              further out.
 //
+// **Promote fires on a change; it is not an invariant the app re-enforces.**
+// It runs when a task's scheduled date is written inside the horizon, and when
+// a task's day comes near because time passed. It does *not* run on a write
+// that leaves the date alone. So moving a task Next → Not started by hand
+// sticks, and stays stuck until you next touch its date.
+//
+// That distinction is the whole point. Enforcing it as an invariant meant a
+// demotion snapped back instantly and there was no way to say "yes, I know
+// it's tomorrow, leave it where I put it" — the app simply refused the edit,
+// with nothing on screen saying why. A rule that fires on a change is a rule
+// the user can work with; one that holds a field pinned is a rule they can
+// only fight.
+//
 // The horizon is a single setting shared by both halves, so they can't
 // disagree: promote pulls in exactly the window backfill schedules into.
 //
@@ -18,7 +31,7 @@
 // statuses across the whole list as days pass, which is a much bigger claim on
 // a user's list than the backfill half's one-task-at-a-time reaction.
 
-import { STATUS_ORDER, TERMINAL_STATUSES } from "./constants.js";
+import { STATUS_CONFIG, STATUS_ORDER, TERMINAL_STATUSES } from "./constants.js";
 import type { StatusSyncSettings, TaskStatus } from "./schemas.js";
 import { StatusSyncSettingsSchema, SyncTargetStatus } from "./schemas.js";
 import type { QuickScheduleKey } from "./utils.js";
@@ -80,6 +93,39 @@ export function resolveStatusSyncHorizon(
   const m = String(from.getMonth() + 1).padStart(2, "0");
   const d = String(from.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/**
+ * The band of scheduled dates the periodic sweep should promote — the days
+ * that have *newly* come inside the horizon since it last ran.
+ *
+ * `after` is exclusive, `through` inclusive, so the sweep's filter reads
+ * `scheduled_date > after and scheduled_date <= through`. A null `after` means
+ * no lower bound: the first sweep for a user (or the first after they turn
+ * promote on) applies the rule to their whole list, which is what enabling a
+ * setting should do.
+ *
+ * Returns null when nothing new has crossed in and the sweep should not write
+ * at all.
+ *
+ * **The lower bound is what lets a manual demotion survive.** Without it the
+ * sweep re-promotes every near task on every foreground, so a task moved back
+ * to Not started is back at Next within seconds — the exact behaviour the
+ * write-time rule above stopped doing. With it, the sweep only ever touches
+ * days it has not already accounted for.
+ *
+ * `sweptThrough` ahead of `horizonISO` is not an error and is deliberately
+ * *not* wound back: it means those days were already handled (the user
+ * narrowed the horizon), and lowering the mark would re-promote them as the
+ * days came round again.
+ */
+export function sweepPromoteRange(
+  horizonISO: string,
+  sweptThrough: string | null
+): { after: string | null; through: string } | null {
+  if (sweptThrough === null) return { after: null, through: horizonISO };
+  if (sweptThrough >= horizonISO) return null;
+  return { after: sweptThrough, through: horizonISO };
 }
 
 /** Human-readable horizon, for settings copy: "3 days", "this weekend". */
@@ -191,16 +237,20 @@ export function backfilledScheduledDate(
  * patch layered over the prior row — so a write that touches only one of the
  * two fields still sees the other.
  *
- * Two deliberate precedence choices:
+ * Three precedence choices:
  *
  * - An explicit `scheduled_date` in the patch always wins over backfill. If
  *   you set the status and the date in the same save, the date you picked is
  *   the date you get.
- * - An explicit `status` in the patch does *not* exempt the row from promote.
- *   Dragging a task scheduled for tomorrow back to Not started snaps it
- *   straight back to Next, which reads as the rule enforcing itself. Letting
- *   the write through would only defer it — the next sweep would move it anyway,
- *   minutes later and with no visible cause.
+ * - **Promote only fires on a write that moves the date** (or creates the
+ *   task, or has backfill supply a date). A write that leaves the date alone
+ *   leaves the status alone, so dragging a task scheduled for tomorrow back to
+ *   Not started keeps it there.
+ * - **But a date change re-applies the rule regardless of status**, including
+ *   in the same write. Set a Not started task to tomorrow and it goes to Next:
+ *   the date is the newer instruction, and re-dating a task is exactly the
+ *   moment its place in the queue is worth reconsidering. Demote it again
+ *   afterwards and it stays demoted, until the next time the date moves.
  */
 export function statusSyncPatch(args: {
   prior: StatusSyncTask | null;
@@ -231,6 +281,16 @@ export function statusSyncPatch(args: {
     if (date !== null) out.scheduled_date = date;
   }
 
+  // Promote is a reaction to the date moving, so establish whether it did.
+  // Creating counts (there is no prior date to have moved from), and so does
+  // backfill having just supplied one above.
+  const dateMoved =
+    prior === null ||
+    out.scheduled_date !== undefined ||
+    (patch.scheduled_date !== undefined &&
+      patch.scheduled_date !== prior.scheduled_date);
+  if (!dateMoved) return out;
+
   const effectiveDate = out.scheduled_date ?? scheduled_date;
   const next = promotedStatus(
     { status, scheduled_date: effectiveDate },
@@ -240,4 +300,67 @@ export function statusSyncPatch(args: {
   if (next !== null && next !== status) out.status = next;
 
   return out;
+}
+
+// ── Telling the user ───────────────────────────────────
+//
+// An automatic move the user did not ask for has to announce itself, or it is
+// indistinguishable from the app ignoring the edit. That was the whole failure
+// of the invariant version of this rule: it was doing exactly what the setting
+// said, and it read as a bug, because the only evidence was a field springing
+// back with nothing to explain it.
+//
+// The copy lives here so the phone and the laptop cannot word it differently,
+// and so it can be tested in node — which on mobile is the only place anything
+// can be.
+
+/** What the rule did to one task on one write. */
+export interface StatusSyncNotice {
+  status?: TaskStatus;
+  scheduled_date?: string;
+}
+
+/**
+ * One sentence for a write the rule adjusted, or null when it adjusted
+ * nothing. Names the setting ("scheduled within 3 days") rather than just the
+ * outcome, because a user who does not remember turning this on needs to know
+ * a rule exists before they can go and change it.
+ */
+export function describeStatusSyncNotice(
+  notice: StatusSyncNotice,
+  settings: StatusSyncSettings
+): string | null {
+  const horizon = describeStatusSyncHorizon(settings);
+  if (notice.status) {
+    const label = STATUS_CONFIG[notice.status]?.label ?? notice.status;
+    // "within today" is not English; the zero-day horizon reads as "due today".
+    const when = horizon === "today" ? "scheduled today" : `within ${horizon}`;
+    return `Moved to ${label} — ${when}`;
+  }
+  if (notice.scheduled_date) {
+    const label = STATUS_CONFIG[settings.status_sync_status]?.label ??
+      settings.status_sync_status;
+    return `Scheduled for ${horizon} — ${label} tasks get a date`;
+  }
+  return null;
+}
+
+/**
+ * The sweep's line: N tasks moved because their day came near. Singular names
+ * the task, because one is the common case and a title is far more use than a
+ * count; plural does not, because a list of titles in a toast is not readable
+ * in the time a toast is up.
+ */
+export function describeStatusSyncSweep(
+  moved: { title: string }[],
+  settings: StatusSyncSettings
+): string | null {
+  if (moved.length === 0) return null;
+  const label =
+    STATUS_CONFIG[settings.status_sync_status]?.label ??
+    settings.status_sync_status;
+  if (moved.length === 1) {
+    return `"${moved[0]!.title}" moved to ${label} — it's coming up`;
+  }
+  return `${moved.length} tasks moved to ${label} — they're coming up`;
 }

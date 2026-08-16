@@ -146,8 +146,10 @@ export function StatusSyncSection({ settings }: { settings: StatusSyncSettings }
             Move tasks scheduled within {windowPhrase} to{" "}
             <span className="font-medium">{statusLabel}</span>
             <span className="mt-0.5 block text-xs text-neutral-500">
-              Anything already at {statusLabel} or further along is left where
-              it is. Overdue tasks count as near.
+              Happens when you schedule a task, and when its day comes near.
+              Move one back afterwards and it stays where you put it. Anything
+              already at {statusLabel} or further along is left alone, and
+              overdue tasks count as near.
             </span>
           </span>
         </label>

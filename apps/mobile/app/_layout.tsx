@@ -7,7 +7,7 @@ import {
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
@@ -16,7 +16,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 
 import DevBanner from '@/components/DevBanner';
 import { useColorScheme } from '@/components/useColorScheme';
-import { UndoToastProvider } from '@/components/UndoToast';
+import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
@@ -32,6 +32,7 @@ import {
 import { routeForNotification } from '@/lib/notification-routing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
+import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
   resetCompletionStreak,
@@ -100,6 +101,17 @@ function RootLayoutNav() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  // Point `lib/`'s automatic-change notices at the live toast. Kept in a ref
+  // and installed once: the toast context's value is a fresh object on every
+  // provider render, and the provider re-renders whenever any toast goes up,
+  // so naming it as a dependency would re-install on every toast.
+  const toast = useUndoToast();
+  const showToast = useRef(toast.show);
+  showToast.current = toast.show;
+  useEffect(
+    () => setAutoSyncNotifier((message) => showToast.current({ message })),
+    []
+  );
 
   useEffect(() => {
     if (loading) return;
