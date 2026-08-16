@@ -1,14 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
-import type { Project, Task } from "@do-done/shared";
-import { gotItems, listSubline, openItems, summarizeList } from "@do-done/shared";
+import type { Aisle, AisleMemory, Project, Task } from "@do-done/shared";
+import {
+  aisleOptions,
+  gotItems,
+  groupByAisle,
+  itemAisle,
+  listSubline,
+  openItems,
+  summarizeList,
+  withAisle,
+} from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
 
 interface ListViewProps {
   list: Project;
   initialItems: Task[];
+  /**
+   * The user's aisle memory, as entries — a Map can't cross the
+   * server/client boundary. Optional so the demo sandbox and Storybook can
+   * omit it and get the lexicon's guesses, which is the correct fallback.
+   */
+  memoryEntries?: Array<[string, Aisle]>;
 }
 
 /**
@@ -24,7 +47,11 @@ interface ListViewProps {
  * the app where the user's hands are moving faster than a round trip, and a
  * server re-render between "milk" and "eggs" would eat a keystroke.
  */
-export function ListView({ list, initialItems }: ListViewProps) {
+export function ListView({
+  list,
+  initialItems,
+  memoryEntries = [],
+}: ListViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [items, setItems] = useState(initialItems);
@@ -43,6 +70,31 @@ export function ListView({ list, initialItems }: ListViewProps) {
   const open = openItems(items);
   const got = gotItems(items);
   const summary = summarizeList(items);
+  /**
+   * The aisle memory, seeded from the server and then owned here.
+   *
+   * Both halves earn their place. The server's copy is what makes the first
+   * paint correct — without it a taught list would render in the lexicon's
+   * groups and visibly re-shuffle. The client reload is what keeps it fresh
+   * after a correction, and it is also the only source the demo sandbox has,
+   * which is why this isn't a `memoryEntries`-only prop with a demo special
+   * case bolted on beside it.
+   */
+  const [memory, setMemory] = useState<AisleMemory>(
+    () => new Map(memoryEntries)
+  );
+  const reloadMemory = useCallback(async () => {
+    const terms = await getClientAisleTermsApi();
+    const { data } = await terms.load();
+    setMemory(data);
+  }, []);
+  useEffect(() => {
+    void reloadMemory();
+  }, [reloadMemory]);
+  const groups = useMemo(
+    () => groupByAisle(open, { memory }),
+    [open, memory]
+  );
 
   async function addItem() {
     const title = draft.trim();
@@ -88,6 +140,34 @@ export function ListView({ list, initialItems }: ListViewProps) {
     const api = await getClientTasksApi();
     if (nextDone) await api.complete(item.id);
     else await api.reopen(item.id);
+    startTransition(() => router.refresh());
+  }
+
+  /**
+   * Move an item to a different aisle.
+   *
+   * Written as a tag rather than inferred again, so the correction survives
+   * every future render *and* every future change to the lexicon — which is
+   * the point: the shelf the user is standing at outranks our guess about the
+   * word, permanently.
+   */
+  async function setAisle(item: Task, aisle: Aisle | null) {
+    const tags = withAisle(item.tags, aisle);
+    setItems((prev) =>
+      prev.map((t) => (t.id === item.id ? { ...t, tags } : t))
+    );
+    // Two writes, and the second is the point. The tag fixes *this* row; the
+    // lesson fixes the same words next week, after this item has been cleared
+    // and purged. Picking "Automatic" un-teaches, so the lexicon takes the
+    // word back rather than a stored blank having to beat it.
+    const [api, terms] = await Promise.all([
+      getClientTasksApi(),
+      getClientAisleTermsApi(),
+    ]);
+    await api.update(item.id, { tags });
+    if (aisle) await terms.learn(item.title, aisle);
+    else await terms.forget(item.title);
+    await reloadMemory();
     startTransition(() => router.refresh());
   }
 
@@ -157,11 +237,33 @@ export function ListView({ list, initialItems }: ListViewProps) {
           </p>
         </div>
       ) : (
-        <ul className="grid gap-x-8 sm:grid-cols-2">
-          {open.map((item) => (
-            <ItemRow key={item.id} item={item} onToggle={toggle} />
-          ))}
-        </ul>
+        /*
+          Grouped by aisle, in walking order — a route through the shop rather
+          than an inventory of it. `groupByAisle` returns one unlabelled group
+          when there is nothing to gain (too few items, or every item in the
+          same aisle, or nothing recognised), so this renders a plain list
+          exactly when a plain list is right.
+        */
+        groups.map((group) => (
+          <div key={group.aisle ?? "_"} className="flex flex-col gap-1.5">
+            {group.label && (
+              <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+                {group.label}
+              </p>
+            )}
+            <ul className="grid gap-x-8 sm:grid-cols-2">
+              {group.items.map((item) => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  onToggle={toggle}
+                  onAisle={setAisle}
+                  memory={memory}
+                />
+              ))}
+            </ul>
+          </div>
+        ))
       )}
 
       {got.length > 0 && (
@@ -169,6 +271,9 @@ export function ListView({ list, initialItems }: ListViewProps) {
           <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
             Got it · {got.length}
           </p>
+          {/* The cart is never grouped: it's a record of what happened, not a
+              route through anything, and aisle headers over it would imply
+              there was still something to walk. */}
           <ul className="grid gap-x-8 sm:grid-cols-2">
             {got.map((item) => (
               <ItemRow key={item.id} item={item} onToggle={toggle} />
@@ -183,18 +288,25 @@ export function ListView({ list, initialItems }: ListViewProps) {
 function ItemRow({
   item,
   onToggle,
+  onAisle,
+  memory,
 }: {
   item: Task;
   onToggle: (t: Task) => void;
+  /** Absent in the cart, where an aisle no longer decides anything. */
+  onAisle?: (t: Task, aisle: Aisle | null) => void;
+  /** So the select shows the aisle the row is actually filed under. */
+  memory?: AisleMemory;
 }) {
   const done = item.status === "done" || item.status === "cancelled";
+  const aisle = itemAisle(item, memory);
   return (
-    <li className="border-b border-neutral-100 dark:border-neutral-800/70">
+    <li className="group/item flex items-center border-b border-neutral-100 dark:border-neutral-800/70">
       <button
         type="button"
         onClick={() => onToggle(item)}
         aria-pressed={done}
-        className="flex w-full items-center gap-3 py-2 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left"
       >
         <span
           aria-hidden
@@ -226,6 +338,43 @@ function ItemRow({
           {item.title}
         </span>
       </button>
+
+      {/*
+        A native <select>, not a custom popover. It is keyboard-operable and
+        screen-reader-labelled for free, and the whole control is "which of
+        twelve" — exactly what the element is for. It sits outside the tick
+        button because a form control nested in a button is invalid and would
+        swallow its own clicks.
+
+        Invisible until the row is hovered or the control itself is focused, so
+        a list at rest is a list of words. `sr-only`-style opacity rather than
+        `hidden`, so tabbing still reaches it.
+      */}
+      {onAisle && (
+        <label className="shrink-0">
+          <span className="sr-only">Aisle for {item.title}</span>
+          <select
+            value={aisle ?? ""}
+            onChange={(e) =>
+              onAisle(item, e.target.value ? (e.target.value as Aisle) : null)
+            }
+            className="cursor-pointer rounded border-0 bg-transparent py-1 pl-1 pr-4 text-[11px] text-neutral-400 opacity-0 transition-opacity focus:opacity-100 group-hover/item:opacity-100 dark:text-neutral-500"
+          >
+            {/*
+              "Automatic", not "Other": clearing a correction hands the word
+              back to the lexicon, which will usually have an opinion — so the
+              row does not land in the Other group, and a label saying it would
+              would be a lie about what the control does.
+            */}
+            <option value="">Automatic</option>
+            {aisleOptions().map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
     </li>
   );
 }

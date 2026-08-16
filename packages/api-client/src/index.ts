@@ -9,6 +9,7 @@ export {
 } from "./attachments.js";
 export type { AttachmentUpload } from "./attachments.js";
 export { ProjectsApi } from "./projects.js";
+export { AisleTermsApi } from "./aisle-terms.js";
 export { LocationsApi } from "./locations.js";
 export type { LocationWithPending } from "./locations.js";
 export { PetsApi } from "./pets.js";

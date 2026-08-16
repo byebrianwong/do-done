@@ -1163,6 +1163,102 @@ items can have. `sameStore` matches on a normalised key and lets either side
 contain the other, because the hint is typed by a person ("trader joes") and
 the shop name comes from OpenStreetMap ("Trader Joe's #142").
 
+### Aisles: the one place a built-in lexicon beats learning
+
+An item's aisle is guessed from its name, and the list is grouped by it in
+walking order — so a shopping list reads as a **route** rather than an
+inventory. `packages/shared/src/food.ts` is the whole thing.
+
+**This looks like the mistake `suggestCategories` already made, and isn't.**
+That dead keyword table maps "gym" to "Health", and it is wrong for everyone
+whose projects are named differently — which is everyone, because a project
+list is personal. Food categories are not: "bananas" is produce in every
+household on earth, and the category set is a property of supermarkets rather
+than of this user's filing scheme. There is nothing personal to get wrong, only
+the language — a much smaller and much more stable problem. It is the one place
+in DoDone where shipping a lexicon beats learning from history.
+
+Two rules decide between competing matches:
+
+- **The longest phrase wins.** "ice cream" beats "cream", "chicken stock" beats
+  "chicken", "frozen peas" beats "peas".
+- **Between equal-length matches, the rightmost wins**, because an English noun
+  compound is head-final. That single rule gets *both* "chocolate milk" (dairy)
+  and "milk chocolate" (snacks) right, which no first-match scan could.
+
+A word is looked up as written, then singularised, then pluralised — the
+lexicon is written the way people write shopping lists, which is not
+consistently ("candles" plural, "sourdough" singular).
+
+- **A single-word entry must be unambiguous across aisles.** "wrap" was listed
+  under bakery for tortilla wraps and put *Gift wrap* in the Bakery aisle. It's
+  gone; a tortilla is reachable by its own name, and the ambiguous phrases
+  ("gift wrap", "cling wrap") are listed where they belong so longest-match
+  resolves them. Same shape as "toilet roll" vs "rolls" and "dish soap" vs
+  "hand soap".
+- **Unrecognised is a first-class state, not a failure.** It groups into a
+  trailing **Other** — never "Uncategorised", since the user didn't fail to do
+  anything, we did.
+- **`groupByAisle` collapses to one unlabelled group** when grouping would gain
+  nothing: fewer than `AISLE_GROUP_MIN_ITEMS`, everything in one aisle, or
+  nothing recognised at all. So a caller renders the result unconditionally and
+  gets a flat list exactly when a flat list is right — which is what stops an
+  Amazon list of electronics looking like a broken grouped one.
+- **A correction is a tag** (`aisle:frozen`, the same mechanism as the store
+  hint) and always beats the guess, with no confidence that could overturn it:
+  the lexicon guesses about language, and the user is looking at the shelf. It
+  survives every future change to the lexicon, which is the point.
+
+#### …and it is remembered
+
+A tag fixes *that row*. A shopping list is standing, so the same words come
+back next week on a new row and would be guessed wrong again. `list_term_aisles`
+is the lesson that outlives the item: normalised item text → aisle, per user.
+
+**It cannot be learned from history, which is the obvious idea.** "Clear
+bought" soft-deletes the items and `purgeDeleted()` destroys them an hour
+later, so anything derived by sweeping past items would forget everything the
+user taught it by the end of the afternoon. Hence a table rather than a
+`suggestFacets`-style sweep — the one place in the app where that shape doesn't
+apply.
+
+- **The key is the whole item text, minus a leading quantity**
+  (`learnableTerm`) — not a head word. Learning "milk" from a correction to
+  "chocolate milk" would be a guess about which word carried the intent, and
+  wrong exactly when it mattered: it would quietly re-file every other milk on
+  the list. Under-generalising costs one more correction; over-generalising
+  costs trust in the grouping. The quantity strip is the one concession,
+  because "6 eggs" and "eggs" are obviously the same lesson.
+- **The composite primary key `(user_id, term)` is the concurrency story.**
+  Teaching is an upsert, so two devices correcting the same word settle on
+  last-writer-wins rather than duplicating.
+- **`itemAisle` resolves most-specific-first**: this row's own tag, then what
+  was taught, then the lexicon.
+- **"Automatic" un-teaches**, deleting the row rather than storing a blank —
+  a stored "no aisle" would be a third state that has to beat the guess, and
+  nothing in the UI means that. It is also why the option is not labelled
+  "Other": clearing hands the word back to the lexicon, which usually has an
+  opinion, so the row does not land in the Other group.
+- **A memory that fails to load is an empty map, never an error.** Without it
+  the lexicon still guesses, which is a good answer; a list that refused to
+  render because a preference didn't load would be a much worse one. The mobile
+  write is best-effort for the same reason — the row is already right.
+- Web seeds it server-side (so the first paint is already in the taught groups,
+  with no visible re-shuffle) and reloads it client-side after a correction.
+  That second read is also the only source the demo sandbox has, which is why
+  it isn't a server-prop-only design with a demo special case beside it.
+- **The cart is never grouped.** It's a record of what happened, not a route
+  through anything, and aisle headers over it would imply something was left to
+  walk.
+- **One walking order, not one per store.** Every supermarket differs, but they
+  differ around this shape, and wrong-but-consistent still beats unordered.
+  Per-store ordering is a real follow-up.
+
+Correcting is a `<select>` on web — keyboard-operable and labelled for free,
+and the control genuinely is "which of twelve" — revealed on row hover or its
+own focus. On mobile it's a long-press: the row's one job is to be tapped while
+walking, and a second target on that surface would cost mis-ticks.
+
 ### The surfaces
 
 Both apps go through `@do-done/shared/lists` — `openItems`, `gotItems`,

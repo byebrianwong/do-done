@@ -8,20 +8,34 @@ import {
   TextInput,
   RefreshControl,
   Keyboard,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import type { Task } from '@do-done/shared';
-import { gotItems, listSubline, openItems, summarizeList } from '@do-done/shared';
+import type { Aisle, AisleMemory, Task } from '@do-done/shared';
+import {
+  aisleOptions,
+  gotItems,
+  groupByAisle,
+  itemAisle,
+  listSubline,
+  openItems,
+  summarizeList,
+  withAisle,
+} from '@do-done/shared';
 
 import {
   addListItem,
   clearGotItems,
+  invalidateLists,
+  rememberAisle,
   restoreItems,
+  useAisleMemory,
   useList,
   useListItems,
 } from '@/lib/list-queries';
-import { toggleComplete } from '@/lib/task-queries';
+import { toggleComplete, updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
@@ -31,7 +45,7 @@ import {
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { useUndoToast } from '@/components/UndoToast';
-import { hapticLight } from '@/lib/haptics';
+import { hapticLight, hapticMedium } from '@/lib/haptics';
 
 /**
  * A shopping list.
@@ -51,9 +65,13 @@ export default function ListDetailScreen() {
   const loadState = useListLoadState(itemsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+  // Absent until it loads, and an empty map is the correct fallback: without a
+  // memory the lexicon still guesses.
+  const { data: memory } = useAisleMemory();
 
   const [draft, setDraft] = useState('');
   const [added, setAdded] = useState(0);
+  const [picking, setPicking] = useState<Task | null>(null);
   const toast = useUndoToast();
   const inputRef = useRef<TextInput>(null);
 
@@ -94,17 +112,48 @@ export default function ListDetailScreen() {
     }
   }, [listId, toast]);
 
-  const sections = useMemo(
-    () =>
-      [
-        { title: 'open', data: open },
-        // The bought pile keeps its own heading and its count, so a mis-tick
-        // while walking is one glance from being found.
-        ...(got.length > 0
-          ? [{ title: `Got it · ${got.length}`, data: got }]
-          : []),
-      ].filter((s) => s.data.length > 0),
-    [open, got]
+  const sections = useMemo(() => {
+    // Aisle groups in walking order. `groupByAisle` collapses to one unlabelled
+    // group when grouping would gain nothing, which is what makes a short list
+    // — or one full of words the lexicon doesn't know — look like the plain
+    // list it always was rather than a broken grouped one.
+    const aisles = groupByAisle(open, { memory }).map((g) => ({
+      title: g.label,
+      data: g.items,
+    }));
+    return [
+      ...aisles,
+      // The bought pile keeps its own heading and its count, so a mis-tick
+      // while walking is one glance from being found. Never grouped: it is a
+      // record of what happened, not a route through anything.
+      ...(got.length > 0
+        ? [{ title: `Got it · ${got.length}`, data: got }]
+        : []),
+    ].filter((s) => s.data.length > 0);
+  }, [open, got, memory]);
+
+  /**
+   * Move an item to a different aisle.
+   *
+   * Written as a tag rather than inferred again, so the correction survives
+   * every future render *and* every future change to the lexicon: the shelf
+   * the user is standing at outranks our guess about the word, permanently.
+   */
+  const writeAisle = useCallback(
+    async (item: Task, aisle: Aisle | null) => {
+      setPicking(null);
+      try {
+        await updateTask(item.id, { tags: withAisle(item.tags, aisle) });
+        // The tag fixes this row; the lesson fixes the same words next week,
+        // after this item has been cleared and purged. Best-effort, so a
+        // failed lesson never undoes a visible fix.
+        await rememberAisle(item.title, aisle);
+        invalidateLists(listId);
+      } catch {
+        toast.show({ message: "Couldn't move that item" });
+      }
+    },
+    [listId, toast]
   );
 
   return (
@@ -158,12 +207,17 @@ export default function ListDetailScreen() {
         keyboardShouldPersistTaps="handled"
         // Tapping a row while typing must tick it, not just dismiss the
         // keyboard and swallow the tap.
+        // An empty title is the ungrouped case — `groupByAisle` collapses to
+        // one unlabelled group when grouping would gain nothing, and that has
+        // to render as a plain list with no header at all.
         renderSectionHeader={({ section }) =>
-          section.title === 'open' ? null : (
+          section.title ? (
             <Text style={styles.sectionHeader}>{section.title}</Text>
-          )
+          ) : null
         }
-        renderItem={({ item }) => <ItemRow item={item} />}
+        renderItem={({ item }) => (
+          <ItemRow item={item} onLongPress={() => setPicking(item)} />
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -189,11 +243,94 @@ export default function ListDetailScreen() {
         contentContainerStyle={styles.listContent}
         onScrollBeginDrag={() => Keyboard.dismiss()}
       />
+
+      <AislePicker
+        item={picking}
+        memory={memory}
+        onPick={writeAisle}
+        onClose={() => setPicking(null)}
+      />
     </View>
   );
 }
 
-function ItemRow({ item }: { item: Task }) {
+/**
+ * Correcting an item's aisle.
+ *
+ * Behind a long-press rather than a control on the row: the row's one job is
+ * to be tapped while walking, and a second target competing for that surface
+ * would cost mis-ticks. Fixing an aisle is rare, deliberate and usually done
+ * sitting down, so it can afford to be hidden behind a gesture.
+ *
+ * A `Modal` is fine here where it isn't in the quick-add composer — nothing on
+ * this screen is keyboard-anchored at the moment a row is long-pressed, so
+ * there is no IME for a second window to drop.
+ */
+function AislePicker({
+  item,
+  memory,
+  onPick,
+  onClose,
+}: {
+  item: Task | null;
+  /** So the tick sits on the aisle the row is actually filed under. */
+  memory?: AisleMemory;
+  onPick: (item: Task, aisle: Aisle | null) => void;
+  onClose: () => void;
+}) {
+  if (!item) return null;
+  const current = itemAisle(item, memory);
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={styles.backdrop}>
+        <Pressable onPress={() => {}} style={styles.sheet}>
+          <Text style={styles.sheetTitle} numberOfLines={1}>
+            {item.title}
+          </Text>
+          <ScrollView bounces={false}>
+            {aisleOptions().map((option) => (
+              <Pressable
+                key={option.value}
+                onPress={() => onPick(item, option.value)}
+                style={({ pressed }) => [
+                  styles.option,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.optionText}>{option.label}</Text>
+                {current === option.value && (
+                  <Ionicons name="checkmark" size={17} color="#6366f1" />
+                )}
+              </Pressable>
+            ))}
+            {/* "Automatic", not "Other": clearing hands the word back to the
+                lexicon, which usually has an opinion — so the row does not
+                land in Other, and a label saying it would be a lie. */}
+            <Pressable
+              onPress={() => onPick(item, null)}
+              style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+            >
+              <Text style={[styles.optionText, styles.optionMuted]}>
+                Automatic
+              </Text>
+              {current === null && (
+                <Ionicons name="checkmark" size={17} color="#6366f1" />
+              )}
+            </Pressable>
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function ItemRow({
+  item,
+  onLongPress,
+}: {
+  item: Task;
+  onLongPress: () => void;
+}) {
   const done = item.status === 'done' || item.status === 'cancelled';
   return (
     <Pressable
@@ -201,6 +338,11 @@ function ItemRow({ item }: { item: Task }) {
         hapticLight();
         void toggleComplete(item.id, !done);
       }}
+      onLongPress={() => {
+        hapticMedium();
+        onLongPress();
+      }}
+      delayLongPress={300}
       style={({ pressed }) => [styles.itemRow, pressed && styles.pressed]}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: done }}
@@ -282,6 +424,37 @@ const styles = StyleSheet.create({
   boxDone: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
   itemText: { flex: 1, fontSize: 15, color: '#111827' },
   itemTextDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(17,24,39,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 14,
+    paddingBottom: 28,
+    maxHeight: '70%',
+  },
+  sheetTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+    paddingHorizontal: 20,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+  },
+  optionText: { fontSize: 15, color: '#111827' },
+  optionMuted: { color: '#6b7280' },
   empty: { alignItems: 'center', paddingTop: 56, paddingHorizontal: 32 },
   emptyText: { fontSize: 15, fontWeight: '600', color: '#6b7280' },
   emptyHint: {

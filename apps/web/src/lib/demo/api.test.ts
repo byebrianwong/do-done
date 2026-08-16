@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  AisleTermsApi,
   AttachmentsApi,
   LocationsApi,
   ProjectsApi,
@@ -7,6 +8,7 @@ import {
 } from "@do-done/api-client";
 import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
 import {
+  demoAisleTermsApi,
   demoAttachmentsApi,
   demoLocationsApi,
   demoProjectsApi,
@@ -94,6 +96,15 @@ describe("demo api surface", () => {
       expect(
         typeof (demoLocationsApi as unknown as Record<string, unknown>)[name],
         `LocationsApi.${name} is missing from the demo`
+      ).toBe("function");
+    }
+  });
+
+  it("implements every AisleTermsApi method", () => {
+    for (const name of methodsOf(AisleTermsApi.prototype)) {
+      expect(
+        typeof (demoAisleTermsApi as unknown as Record<string, unknown>)[name],
+        `AisleTermsApi.${name} is missing from the demo`
       ).toBe("function");
     }
   });
