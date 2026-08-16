@@ -1868,6 +1868,20 @@ menu rather than typed.
 The picker has an **Icons** tab (a curated Phosphor set, MIT) beside the emoji
 one, and the column stores whichever was chosen:
 
+**409 icons across the same 11 groups the emoji tab uses**, out of Phosphor's
+~1,500. It is curated rather than complete because the path data ships in the
+mobile JS bundle with no code splitting: 409 icons in three weights is 697 KB,
+and the whole library would be about 2.2 MB for a picker most people open once
+per project. Search is what makes a set this size usable, so an icon carries
+keywords as well as a label.
+
+**An icon appears in exactly one group.** The picker drops its group headers as
+soon as a search or a group filter narrows the list, and keys the cells by icon
+name alone — so the same name in two groups collides on a React key in the view
+people actually use. Where two groups both want a reading, each takes a sibling
+icon: Work has `buildings` and Travel has `city`, Nature has `snowflake` and
+Food has `jar`. `phosphor.test.ts` asserts it.
+
 | Stored value | What it is |
 | --- | --- |
 | `🚀` | A character. Printed as text. |
@@ -1892,7 +1906,7 @@ that genuinely need a `string` — a chip label, a menu row — call
 - **Fill is the default.** The glyph in the ring is 11–12px and Phosphor draws on
   a 256px grid, so a line weight lands under a device pixel while a solid shape
   survives.
-- **`phosphor-data.generated.ts` is generated, ~245 KB, and shared by all three
+- **`phosphor-data.generated.ts` is generated, ~697 KB, and shared by all three
   renderers.** Web builds `<svg>` elements, mobile builds `react-native-svg`
   ones, and the widget takes **markup** from `phosphorSvgMarkup`, because the
   launcher's host draws none of React Native — the same reason the Quick Add tile
@@ -2494,7 +2508,7 @@ registration and permissions.
   `./supabase`, `@do-done/api-client` and the *values* from `@do-done/shared`
   are behind `await import(...)` inside the handler. The last one matters more
   than it looks: `@do-done/shared` is a barrel, so importing one constant
-  statically evaluates the Zod schemas and the ~245 KB generated Phosphor table
+  statically evaluates the Zod schemas and the ~697 KB generated Phosphor table
   before a widget can draw a tile that needs none of them.
 - **Nothing else runs at that module's scope.** The foreground presentation
   handler and the channel setup used to; they are concerns of a *running* app

@@ -46,6 +46,16 @@ describe("the catalogue", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // The picker drops the group headers the moment a search or a group filter
+  // narrows the list, and keys those cells by icon name alone. A name in two
+  // groups therefore collides on a React key in exactly the view most people
+  // use. Pick one group per icon and use a sibling for the other reading.
+  it("lists each icon in exactly one group", () => {
+    const names = PHOSPHOR_ICONS.map((i) => i.name);
+    const twice = names.filter((n, i) => names.indexOf(n) !== i);
+    expect(twice).toEqual([]);
+  });
+
   it("offers the three weights the app names, in app words", () => {
     expect(PHOSPHOR_WEIGHTS.map((w) => [w.id, w.label])).toEqual([
       ["bold", "Outline"],
