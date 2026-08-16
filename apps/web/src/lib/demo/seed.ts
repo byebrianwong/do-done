@@ -2,10 +2,13 @@ import {
   addDaysLocalISO,
   todayLocalISO,
   type CalendarEvent,
+  type Location,
   type Project,
   type Task,
+  type TaskLocation,
   type TaskPriority,
   type TaskStatus,
+  type TriggerType,
 } from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
 
@@ -51,6 +54,40 @@ const P = {
   amazon: 6,
 } as const;
 
+/**
+ * Saved places, so the sandbox can show a reminder that is attached to
+ * somewhere rather than to a day. Real coordinates, because the map preview
+ * fetches real tiles — a made-up pair lands the pin in the North Sea.
+ */
+const PLACE_SEED: Array<
+  Pick<Location, "name" | "latitude" | "longitude" | "radius_meters" | "address">
+> = [
+  {
+    name: "Sainsbury's",
+    latitude: 51.5246,
+    longitude: -0.1339,
+    radius_meters: 200,
+    address: "Camden Road, London",
+  },
+  {
+    name: "The office",
+    latitude: 51.5155,
+    longitude: -0.1416,
+    radius_meters: 200,
+    address: "Great Portland Street, London",
+  },
+  {
+    name: "Post office",
+    latitude: 51.5205,
+    longitude: -0.1281,
+    radius_meters: 100,
+    address: "Tottenham Court Road, London",
+  },
+];
+
+/** Index into PLACE_SEED, by name, for readable task definitions below. */
+const L = { supermarket: 0, office: 1, postOffice: 2 } as const;
+
 interface TaskSeed {
   title: string;
   /** Days from today. Omit for an undated task. */
@@ -72,6 +109,8 @@ interface TaskSeed {
   /** Days ago it was completed. Only read for `done` tasks. */
   doneDaysAgo?: number;
   focus?: "include" | "exclude";
+  /** Location reminders: an index into PLACE_SEED plus the direction. */
+  places?: Array<{ place: number; trigger: TriggerType }>;
 }
 
 /**
@@ -162,6 +201,12 @@ const TASK_SEED: TaskSeed[] = [
     project: P.home,
     priority: "p2",
     minutes: 10,
+    // Both directions at one place: the folded row in the editor reads
+    // "Arriving at and leaving The office" rather than naming a count.
+    places: [
+      { place: L.office, trigger: "enter" },
+      { place: L.office, trigger: "exit" },
+    ],
   },
 
   // ── Tomorrow and the rest of the week ─────────────────────────────
@@ -182,6 +227,7 @@ const TASK_SEED: TaskSeed[] = [
     priority: "p4",
     minutes: 45,
     tags: ["errands"],
+    places: [{ place: L.supermarket, trigger: "enter" }],
   },
   {
     title: "Read two chapters of Thinking in Systems",
@@ -269,6 +315,7 @@ const TASK_SEED: TaskSeed[] = [
     project: P.home,
     priority: "p2",
     minutes: 45,
+    places: [{ place: L.postOffice, trigger: "enter" }],
   },
   {
     title: "Set up analytics on the landing page",
@@ -390,6 +437,9 @@ export interface DemoSeed {
   projects: Project[];
   tasks: Task[];
   events: CalendarEvent[];
+  locations: Location[];
+  /** The raw link triples, exactly as `task_locations` holds them. */
+  taskLocations: TaskLocation[];
 }
 
 /** Build the sandbox's starting data, dated relative to `today` (YYYY-MM-DD). */
@@ -450,7 +500,37 @@ export function buildDemoSeed(today: string = todayLocalISO()): DemoSeed {
     };
   });
 
-  return { projects, tasks, events: buildDemoEvents(dayOf) };
+  // Ids start at 300 so they can't collide with a project (1…) or a task
+  // (100…) — the sandbox validates against the real schemas, and a duplicate
+  // uuid would be a bug you'd only find by clicking on it.
+  const locations: Location[] = PLACE_SEED.map((p, i) => ({
+    id: demoId(300 + i),
+    user_id: DEMO_USER_ID,
+    name: p.name,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    radius_meters: p.radius_meters,
+    address: p.address,
+    is_saved: true,
+    created_at: stamp(30),
+    updated_at: stamp(30),
+  }));
+
+  const taskLocations: TaskLocation[] = TASK_SEED.flatMap((s, i) =>
+    (s.places ?? []).map((link) => ({
+      task_id: demoId(100 + i),
+      location_id: locations[link.place]!.id,
+      trigger_type: link.trigger,
+    }))
+  );
+
+  return {
+    projects,
+    tasks,
+    events: buildDemoEvents(dayOf),
+    locations,
+    taskLocations,
+  };
 }
 
 /**

@@ -11,7 +11,12 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import type { CreateLocationInput, Location, TriggerType } from '@do-done/shared';
+import type {
+  CreateLocationInput,
+  Location,
+  TaskLocationLink,
+  TriggerType,
+} from '@do-done/shared';
 import type { LocationWithPending } from '@do-done/api-client';
 import { getLocationsApi } from './supabase';
 import { queryClient } from './query-client';
@@ -24,11 +29,12 @@ export const locationKeys = {
   forTask: (taskId: string) => [...locationKeys.all, 'task', taskId] as const,
 };
 
-/** A location link as the task editor needs it: the place plus the direction. */
-export interface TaskLocationLink {
-  location: Location;
-  trigger_type: TriggerType;
-}
+/**
+ * Re-exported so the many `@/lib/location-queries` importers keep working; the
+ * type itself now lives in `@do-done/shared`, beside the labels web and mobile
+ * both phrase reminders with.
+ */
+export type { TaskLocationLink };
 
 export function useLocations() {
   return useQuery({
@@ -62,12 +68,7 @@ export function useTaskLocations(taskId: string | null) {
       const api = await getLocationsApi();
       const { data, error } = await api.getTaskLocations(taskId!);
       if (error) throw error;
-      // getTaskLocations embeds the location row; keep only links whose
-      // location still resolves (a deleted place cascades, but a stale cache
-      // can still hand us one mid-flight).
-      return (data as unknown as { locations: Location | null; trigger_type: TriggerType }[])
-        .filter((row) => !!row.locations)
-        .map((row) => ({ location: row.locations!, trigger_type: row.trigger_type }));
+      return data;
     },
   });
 }

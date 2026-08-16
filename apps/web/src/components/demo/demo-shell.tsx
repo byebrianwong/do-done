@@ -12,6 +12,7 @@ import { TaskSelectionProvider } from "@/lib/task-selection";
 import { TaskEditingHoldProvider } from "@/lib/task-editing-hold";
 import { QuickAddProvider } from "@/lib/quick-add-context";
 import { SuggestionProvider } from "@/lib/suggestions";
+import { TaskLocationsProvider } from "@/lib/task-locations-context";
 import { DEMO_USER_ID } from "@/lib/demo/mode";
 import { resetDemoStore } from "@/lib/demo/store";
 import { useDemoData } from "@/lib/demo/use-demo-data";
@@ -26,7 +27,7 @@ import { useDemoData } from "@/lib/demo/use-demo-data";
  * its own footer in their place.
  */
 export function DemoShell({ children }: { children: React.ReactNode }) {
-  const { projects } = useDemoData();
+  const { projects, locations } = useDemoData();
 
   return (
     // The demo is the app, so the streak rule has to work here too — against
@@ -39,10 +40,12 @@ export function DemoShell({ children }: { children: React.ReactNode }) {
               {/* The sandbox's own task list is the history quick-add guesses
                 from — thin, as a first week's would be, and honestly so. */}
               <SuggestionProvider>
+                <TaskLocationsProvider>
                 <TaskEditorProvider>
                   <AppShell
                     projects={projects}
                     userEmail={null}
+                    hasPlaces={locations.length > 0}
                     sidebarFooter={<DemoSidebarFooter />}
                   >
                     {children}
@@ -50,6 +53,7 @@ export function DemoShell({ children }: { children: React.ReactNode }) {
                   <CommandPalette projects={projects} />
                   <QuickAddModal projects={projects} userId={DEMO_USER_ID} />
                 </TaskEditorProvider>
+                </TaskLocationsProvider>
               </SuggestionProvider>
             </QuickAddProvider>
           </TaskEditingHoldProvider>

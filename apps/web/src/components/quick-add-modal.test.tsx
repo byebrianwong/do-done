@@ -59,6 +59,16 @@ vi.mock("@do-done/api-client", () => ({
     hasUnsavedWork: false,
     retry: vi.fn(),
   }),
+  // The editor's Places section loads its own links; an empty set keeps it
+  // out of the way of what these tests are actually about.
+  LocationsApi: class {
+    async getTaskLocations() {
+      return { data: [], error: null };
+    }
+    async list() {
+      return { data: [], error: null };
+    }
+  },
   // The editor's attachments section loads its own rows; an empty list keeps
   // it out of the way of what these tests are actually about.
   AttachmentsApi: class {

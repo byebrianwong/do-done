@@ -1,6 +1,13 @@
 "use client";
 
-import { todayLocalISO, type CalendarEvent, type Project, type Task } from "@do-done/shared";
+import {
+  todayLocalISO,
+  type CalendarEvent,
+  type Location,
+  type Project,
+  type Task,
+  type TaskLocation,
+} from "@do-done/shared";
 import { buildDemoSeed } from "./seed";
 
 /**
@@ -23,6 +30,8 @@ export interface DemoState {
   tasks: Task[];
   projects: Project[];
   events: CalendarEvent[];
+  locations: Location[];
+  taskLocations: TaskLocation[];
   /** The day the data was seeded for. A stale snapshot re-seeds rather than
    *  presenting last week's "today" as today. */
   seededFor: string;
@@ -116,7 +125,16 @@ export function hydrateDemoStore(): void {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw) as DemoState;
-      if (saved?.seededFor === today && Array.isArray(saved.tasks)) {
+      // Every array the state declares is checked, not just `tasks`: a
+      // snapshot written by an older build is for today but has no
+      // `locations` key, and adopting it would hand the whole app an
+      // `undefined` to call `.filter` on. A missing array re-seeds instead.
+      if (
+        saved?.seededFor === today &&
+        Array.isArray(saved.tasks) &&
+        Array.isArray(saved.locations) &&
+        Array.isArray(saved.taskLocations)
+      ) {
         state = saved;
         emit();
         return;

@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Location,
   CreateLocationInput,
-  TaskLocation,
+  TaskLocationLink,
+  TaskLocationLinkRow,
   TriggerType,
 } from "@do-done/shared";
 
@@ -16,6 +17,29 @@ export interface LocationWithPending {
 }
 
 const CLOSED_STATUSES = new Set(["done", "cancelled"]);
+
+/** A `task_locations` row as PostgREST returns it with `locations(*)` embedded. */
+interface EmbeddedLinkRow {
+  trigger_type: TriggerType;
+  locations: Location | Location[] | null;
+}
+
+/**
+ * A to-one embed comes back as an object, but PostgREST versions differ on
+ * whether it's wrapped in an array — normalise both shapes. Same reasoning as
+ * the `tasks` embed in `listWithPendingTasks`.
+ */
+function embeddedLocation(row: EmbeddedLinkRow): Location | null {
+  const value = Array.isArray(row.locations) ? row.locations[0] : row.locations;
+  return value ?? null;
+}
+
+function toLinks(rows: EmbeddedLinkRow[] | null): TaskLocationLink[] {
+  return (rows ?? []).flatMap((row) => {
+    const location = embeddedLocation(row);
+    return location ? [{ location, trigger_type: row.trigger_type }] : [];
+  });
+}
 
 export class LocationsApi {
   constructor(
@@ -96,16 +120,24 @@ export class LocationsApi {
     return { error: error as Error | null };
   }
 
+  /**
+   * Attach a reminder. Idempotent: the three columns *are* the primary key, so
+   * a plain insert answers "remind me here" a second time with a duplicate-key
+   * error, which is a failure message for a state the user already has.
+   */
   async linkTask(
     taskId: string,
     locationId: string,
     triggerType: TriggerType
   ): Promise<{ error: Error | null }> {
-    const { error } = await this.supabase.from("task_locations").insert({
-      task_id: taskId,
-      location_id: locationId,
-      trigger_type: triggerType,
-    });
+    const { error } = await this.supabase.from("task_locations").upsert(
+      {
+        task_id: taskId,
+        location_id: locationId,
+        trigger_type: triggerType,
+      },
+      { onConflict: "task_id,location_id,trigger_type", ignoreDuplicates: true }
+    );
     return { error: error as Error | null };
   }
 
@@ -123,12 +155,61 @@ export class LocationsApi {
     return { error: error as Error | null };
   }
 
-  async getTaskLocations(taskId: string): Promise<{ data: TaskLocation[]; error: Error | null }> {
+  /**
+   * A task's reminders, each with its place joined on.
+   *
+   * The join is not a convenience: `task_locations` is three id-ish columns, so
+   * an unjoined link can't be rendered, and every caller there has ever been
+   * immediately embedded `locations(*)` and re-cast the result by hand. The
+   * flattening happens here instead, once, so the declared type is the truth.
+   *
+   * A link whose place doesn't resolve is dropped rather than surfaced. The FK
+   * cascades, so that only happens to a read racing a delete — and half a
+   * reminder is worse than none.
+   */
+  async getTaskLocations(
+    taskId: string
+  ): Promise<{ data: TaskLocationLink[]; error: Error | null }> {
     const { data, error } = await this.supabase
       .from("task_locations")
-      .select("*, locations(*)")
+      .select("trigger_type, locations(*)")
       .eq("task_id", taskId);
-    return { data: (data as TaskLocation[]) ?? [], error: error as Error | null };
+    if (error) return { data: [], error: error as Error };
+    return { data: toLinks(data as EmbeddedLinkRow[] | null), error: null };
+  }
+
+  /**
+   * Every location link the user has, task id included.
+   *
+   * This is what lets a *list* show which rows have a place reminder. The
+   * alternative is `getTaskLocations` per visible row, which is a query per
+   * task to render a badge most tasks don't have. RLS scopes the table to the
+   * caller's own tasks, so there is nothing to filter by here, and the table is
+   * small by construction — a link exists only because someone attached one.
+   *
+   * Links belonging to soft-deleted tasks come back too. Nothing renders a
+   * deleted task, so the extra rows cost a little memory and no correctness;
+   * excluding them would mean joining `tasks` for a column no caller reads.
+   */
+  async listTaskLinks(): Promise<{
+    data: TaskLocationLinkRow[];
+    error: Error | null;
+  }> {
+    const { data, error } = await this.supabase
+      .from("task_locations")
+      .select("task_id, trigger_type, locations(*)");
+    if (error) return { data: [], error: error as Error };
+
+    const rows = (data as (EmbeddedLinkRow & { task_id: string })[] | null) ?? [];
+    return {
+      data: rows.flatMap((row) => {
+        const location = embeddedLocation(row);
+        return location
+          ? [{ task_id: row.task_id, location, trigger_type: row.trigger_type }]
+          : [];
+      }),
+      error: null,
+    };
   }
 
   /**

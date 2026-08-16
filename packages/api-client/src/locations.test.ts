@@ -231,3 +231,123 @@ describe("LocationsApi.listWithPendingTasks", () => {
     expect(data).toEqual([]);
   });
 });
+
+describe("LocationsApi.getTaskLocations", () => {
+  it("flattens the embedded place, so callers get a link they can render", async () => {
+    const supabase = makeSupabaseStub([
+      {
+        data: [
+          { trigger_type: "enter", locations: makeLocation("loc-1", "Tesco") },
+        ],
+        error: null,
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    const { data, error } = await api.getTaskLocations("task-1");
+
+    expect(error).toBeNull();
+    expect(data).toEqual([
+      { location: makeLocation("loc-1", "Tesco"), trigger_type: "enter" },
+    ]);
+  });
+
+  it("accepts the embed wrapped in an array, which some PostgREST versions do", async () => {
+    const supabase = makeSupabaseStub([
+      {
+        data: [
+          { trigger_type: "exit", locations: [makeLocation("loc-1", "Work")] },
+        ],
+        error: null,
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    const { data } = await api.getTaskLocations("task-1");
+
+    expect(data).toEqual([
+      { location: makeLocation("loc-1", "Work"), trigger_type: "exit" },
+    ]);
+  });
+
+  it("drops a link whose place did not resolve rather than half-rendering it", async () => {
+    const supabase = makeSupabaseStub([
+      {
+        data: [
+          { trigger_type: "enter", locations: null },
+          { trigger_type: "enter", locations: makeLocation("loc-2", "Boots") },
+        ],
+        error: null,
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    const { data } = await api.getTaskLocations("task-1");
+
+    expect(data.map((l) => l.location.id)).toEqual(["loc-2"]);
+  });
+
+  it("reports a failed read as an error and an empty list", async () => {
+    const supabase = makeSupabaseStub([{ data: null, error: new Error("nope") }]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    const { data, error } = await api.getTaskLocations("task-1");
+
+    expect(error).toBeInstanceOf(Error);
+    expect(data).toEqual([]);
+  });
+});
+
+describe("LocationsApi.listTaskLinks", () => {
+  it("keeps the task id, so a list can badge its rows from one query", async () => {
+    const supabase = makeSupabaseStub([
+      {
+        data: [
+          {
+            task_id: "task-1",
+            trigger_type: "enter",
+            locations: makeLocation("loc-1", "Tesco"),
+          },
+          {
+            task_id: "task-2",
+            trigger_type: "exit",
+            locations: makeLocation("loc-2", "Work"),
+          },
+        ],
+        error: null,
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    const { data, error } = await api.listTaskLinks();
+
+    expect(error).toBeNull();
+    expect(data).toEqual([
+      {
+        task_id: "task-1",
+        location: makeLocation("loc-1", "Tesco"),
+        trigger_type: "enter",
+      },
+      {
+        task_id: "task-2",
+        location: makeLocation("loc-2", "Work"),
+        trigger_type: "exit",
+      },
+    ]);
+  });
+
+  it("does not filter by user — RLS already scopes the table to their tasks", async () => {
+    const supabase = makeSupabaseStub([{ data: [], error: null }]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new LocationsApi(supabase as any, "user-1");
+    await api.listTaskLinks();
+
+    expect(supabase.calls.filter(([m]) => m === "eq")).toEqual([]);
+  });
+});

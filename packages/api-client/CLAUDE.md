@@ -6,7 +6,7 @@ Supabase client wrapper and typed API classes.
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
 - `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted
 - `src/projects.ts` — ProjectsApi: list, getById, create
-- `src/locations.ts` — LocationsApi: list, create, update, remove, linkTask, unlinkTask, getTaskLocations, listWithPendingTasks
+- `src/locations.ts` — LocationsApi: list, listAll, create, update, remove, linkTask, unlinkTask, getTaskLocations, listTaskLinks, save, listWithPendingTasks
 
 ## Rules
 - `getToday`/`getUpcoming` derive "today" from the **process** clock, which is
@@ -46,6 +46,15 @@ Supabase client wrapper and typed API classes.
   row it misses costs nothing; `listTags` must sweep everything because a tag
   it misses does not exist to the app at all. The rollup is
   `buildSuggestionIndex` in `@do-done/shared`.
+- **`getTaskLocations` returns links with the place joined on**, not raw
+  `task_locations` rows. The query always embedded `locations(*)`; the declared
+  type said otherwise and every caller re-cast it by hand. `listTaskLinks()` is
+  the same read for the whole account, so a *list* can badge its rows from one
+  query instead of one per row. Both drop a link whose place didn't resolve —
+  the FK cascades, so that only happens to a read racing a delete.
+- **`linkTask` upserts.** The three columns are the primary key, so a plain
+  insert answers "remind me here" a second time with a duplicate-key error, for
+  a state the user already has.
 - Always check `.error` from Supabase responses
 - Return `{ data, error }` tuples from all methods
 - Use types from `@do-done/shared` for all return types

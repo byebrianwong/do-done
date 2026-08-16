@@ -1,8 +1,42 @@
+import Link from "next/link";
 import { parseStatusSyncSettings } from "@do-done/shared";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { CalendarSection } from "./calendar-section";
 import { TimezoneSection } from "./timezone-section";
 import { StatusSyncSection } from "./status-sync-section";
+
+/**
+ * A door to the Places view, which lives in the sidebar once you have one.
+ *
+ * The sidebar row is hidden until your first place exists, for the reason the
+ * Lists section is — so this is what you find before then, and it is where
+ * someone coming from the phone will look, since mobile keeps the places
+ * screen under Settings.
+ */
+function PlacesSection() {
+  return (
+    <Link
+      href="/places"
+      className="block rounded-xl border border-neutral-200 bg-white p-4 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800/60"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            Saved places
+          </h3>
+          <p className="mt-1 text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            Rename a place, change how close you have to get, or delete one.
+            Reminders themselves are attached to a task, under Places in its
+            editor — and they arrive on your phone.
+          </p>
+        </div>
+        <span aria-hidden className="shrink-0 text-neutral-400">
+          →
+        </span>
+      </div>
+    </Link>
+  );
+}
 
 export default async function SettingsPage({
   searchParams,
@@ -62,6 +96,7 @@ export default async function SettingsPage({
         <div className="space-y-4">
           <TimezoneSection timezone={timezone} />
           <StatusSyncSection settings={statusSync} />
+          <PlacesSection />
         </div>
       </section>
 

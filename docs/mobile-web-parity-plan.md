@@ -35,7 +35,7 @@ The drift is concentrated in **five one-sided feature clusters**:
 | 2 | Pet / Pip companion (whole `PetsApi` surface) | Web | M–L |
 | 3 | Row-level power editing (context menu: inline priority/estimate/when editors, focus toggle, duplicate, copy link, deadline, undo-delete) | Web | M |
 | 4 | Recurrence editing UI in the task modal | **Mobile** | S (port to web) |
-| 5 | Locations / geofencing UI (mobile now has the full surface: reminder sheet in the task editor + saved-places screen; web has none) | **Mobile** | M (port to web) |
+| 5 | ~~Locations / geofencing UI~~ — **closed.** Both platforms edit place reminders; only the firing stays mobile-only | — | Done |
 
 Plus a tail of small gaps (Google OAuth sign-in on mobile, timezone setting,
 deadline editor in the mobile modal, inbox-filter on Upcoming, week/calendar view)
@@ -160,17 +160,19 @@ Monthly presets → RRULE). Web's `task-edit-modal-v2.tsx` has **zero** recurren
 UI — web users can only set recurrence by typing NL in quick-add and can never
 change or clear it from the editor. Port the RepeatRow.
 
-**B2. Locations UI (web awareness of locations at all).**
-_(Mobile: ✅ done.)_ Mobile now has both halves — `LocationsApi` + geofence
-registration + enter/exit notifications (`lib/geofencing.ts`), plus the surface:
-`LocationReminderSheet` in the task editor and a saved-places screen at
-`app/locations.tsx`. See the location-reminders section of the root CLAUDE.md
-for the dwell/cooldown/region-cap rules.
+**B2. Locations UI (web awareness of locations at all).** ✅ **Done.**
+Both platforms now read and write the same `task_locations` rows. Web got the
+Places block in the task editor (`components/task-locations.tsx`), a Places view
+listing every place and the tasks waiting at it (`app/(app)/places/`), and a pin
+chip on task rows. `place-search.ts` and `map-tiles.ts` moved into
+`@do-done/shared`, so both apps use one search and one map.
 
-Web still has no awareness of locations at all. It can't create one or show
-that a task has a location reminder, so a task set up on mobile looks
-unscheduled on web. Web should at least display task↔location links read-only;
-geofencing itself has no browser equivalent worth shipping.
+Read-only was the original plan; full editing is what shipped, because the write
+path was already there — `LocationsApi` is one door and web goes through it.
+What web cannot do is fire: a geofence needs the OS to wake an app in the
+background, so the notification stays mobile's, and every web surface says so.
+See the location-reminders section of the root CLAUDE.md for the
+dwell/cooldown/region-cap rules.
 
 **B3. Hygiene: mobile reimplements `recurrenceShortLabel`** locally instead of
 importing the shared `formatRrule` — labels can drift from web's.
@@ -332,10 +334,9 @@ A2. Not scheduled this iteration.)_
     `when_date`+`when_time`/`due_time`; reschedule on edit, cancel on
     complete/delete; notification tap → the `dodone://task/<id>` deep link added in
     Phase 1. Keep scheduling logic in a shared module so web push can reuse it later.
-15. **Locations management UI on mobile** (B2): map/list screen to create
-    locations (radius, enter/exit trigger) + a "Location" row in the modal to link
-    tasks; geofencing already consumes the result. Web follow-up: read-only
-    location chips + link management.
+15. ~~**Locations management UI on mobile** (B2)~~ — done, and the web follow-up
+    with it: the task editor's Places block, the `/places` view, and a pin chip
+    on task rows. Web edits the reminders; mobile still fires them.
 16. **Finish voice capture** (D3): transcript → `parseTaskInput` → confirm chips →
     save, in the dev-client build.
 17. **Google OAuth sign-in on mobile** (A4): `signInWithOAuth` +

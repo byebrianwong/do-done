@@ -184,7 +184,43 @@ const NAV_ITEMS = [
   },
 ];
 
-export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
+/**
+ * The Places row, kept out of NAV_ITEMS because it is conditional.
+ *
+ * Same reasoning as the Lists section below: an app whose argument is that a
+ * task list should say only what is true of *your* work has no business
+ * carrying a permanent link to a feature you have never used. It appears with
+ * your first place, and Settings points at the page until then.
+ */
+const PLACES_ITEM = {
+  label: "Places",
+  href: "/places",
+  icon: (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    </svg>
+  ),
+};
+
+export function SidebarNav({
+  projects = [],
+  hasPlaces = false,
+}: {
+  projects?: Project[];
+  /** Whether the user has any place at all — saved or attached to a task. */
+  hasPlaces?: boolean;
+}) {
   const pathname = usePathname();
   // One read upstream, two sections here. Shopping lists sit *below* projects
   // and never above: a list is the drawer you open on purpose, not the thing
@@ -216,11 +252,18 @@ export function SidebarNav({ projects = [] }: { projects?: Project[] }) {
         </svg>
         New task
       </button>
-      {NAV_ITEMS.filter(
+      {NAV_ITEMS.flatMap((item) =>
         // Settings is account-level — connected calendars, timezone, sign-out.
         // There is no account behind the demo, so the page would be a wall of
         // controls that quietly do nothing.
-        (item) => !(base && item.href === "/settings")
+        base && item.href === "/settings"
+          ? []
+          : // Places slots in after Tags rather than at the end, because it is
+            // another way of cutting across the same tasks — not a destination
+            // the way Completed and Settings are.
+            item.href === "/tags" && hasPlaces
+            ? [item, PLACES_ITEM]
+            : [item]
       ).map((item) => {
         const href = `${base}${item.href}`;
         const isActive = pathname === href;

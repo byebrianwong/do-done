@@ -42,6 +42,7 @@ import {
   formatRelativeDay,
   formatTimeOfDay,
   hashString,
+  locationReminderLabel,
   TASK_DELETE_EXIT_MS,
   hexToRgb,
   shiftHue,
@@ -1417,24 +1418,6 @@ export function TagRow({
 // Re-exported here because callers already import it from this module.
 export { recurrenceShortLabel };
 
-/**
- * One-line summary of a task's location reminders for the folded row.
- * Names the place while there's only one, since "Arriving at Tesco" is the
- * whole setting at a glance; past that, counting is the only thing that fits.
- */
-export function locationReminderLabel(links: TaskLocationLink[]): string {
-  if (links.length === 0) return "Remind me at a place";
-  if (links.length === 1) {
-    const { location, trigger_type } = links[0];
-    return trigger_type === "enter"
-      ? `Arriving at ${location.name}`
-      : `Leaving ${location.name}`;
-  }
-  const places = new Set(links.map((l) => l.location.id)).size;
-  return places === 1
-    ? `Arriving at and leaving ${links[0].location.name}`
-    : `${places} places`;
-}
 
 /**
  * Notes, with URLs rendered as tappable links.

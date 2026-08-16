@@ -35,6 +35,7 @@ import {
 } from "@do-done/api-client";
 import { getTasksApiFor } from "@/lib/supabase/tasks-client";
 import { getAttachmentsApiFor } from "@/lib/supabase/attachments-client";
+import { getLocationsApiFor } from "@/lib/supabase/locations-client";
 import { isCopyLinkShortcut } from "@/lib/task-link";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 import { useCopyTaskLink } from "@/lib/use-copy-task-link";
@@ -42,6 +43,7 @@ import { useDeleteTasks } from "@/lib/use-delete-tasks";
 import { ProjectPickerPopover } from "./project-picker";
 import { LinkifiedText } from "./linkified-text";
 import { AttachmentsSection } from "./task-attachments";
+import { LocationSection } from "./task-locations";
 import { ProjectIcon } from "@/components/project-icon";
 
 // ─── Constants ─────────────────────────────────────────────
@@ -2597,6 +2599,10 @@ function TaskEditModalBody({
     () => getAttachmentsApiFor(task.user_id),
     [task.user_id]
   );
+  const locationsApi = useMemo(
+    () => getLocationsApiFor(task.user_id),
+    [task.user_id]
+  );
 
   // Parent task, resolved when the active task is a subtask, so the top bar can
   // offer a "← parent" way back. Fetched once per task; the button also serves
@@ -3173,6 +3179,11 @@ function TaskEditModalBody({
 
           {/* Attachments */}
           <AttachmentsSection taskId={current.id} api={attachmentsApi} />
+
+          {/* Places — last, like the mobile editor's folded row: most tasks
+              have none, and the ones that do are answering "where", which
+              only matters once the what and the when are settled. */}
+          <LocationSection taskId={current.id} api={locationsApi} />
         </div>
         </div>
 
