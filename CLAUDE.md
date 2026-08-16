@@ -521,6 +521,28 @@ Supabase PostgreSQL with row-level security. Migrations live in
 calendar_sync, user_preferences. All tables use UUID primary keys and a
 `user_id` column for RLS.
 
+### Two migrations must never share a version number
+
+Supabase keys `schema_migrations` on the 14-digit prefix alone — not the
+filename, not the contents. If two branches both add a migration numbered
+`20260815000002`, the first one pushed claims the number and `supabase db push`
+then treats the second file as already applied: it skips it and exits 0. The
+migration never runs and nothing reports a failure.
+
+This happened. `20260815000002_aisle_memory.sql` and
+`20260815000002_status_sync_sweep_watermark.sql` were concurrent PRs, the
+watermark reached the ledger first, and `list_term_aisles` was missing from
+production while every push reported success. Nothing surfaced it, because
+`AisleTermsApi.load()` returns an empty map when the read fails — the feature
+degrades to its own fallback by design.
+
+`tools/check-migrations.mjs` fails the build on a duplicate version, and
+`.github/workflows/migrations.yml` runs it on every PR. A pull request is
+checked out as the merge commit, so both branches' files are in the tree and the
+collision is caught before either can be applied. **When you add a migration,
+number it past every version already in the ledger** — check `supabase migration
+list --linked`, not just the files on your branch.
+
 ## Environment variables
 
 Copy `.env.example` to `.env.local` and fill in:

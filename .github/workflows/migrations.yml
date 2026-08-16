@@ -1,0 +1,26 @@
+name: Migrations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # On a pull request this checks out the merge commit, so the base
+      # branch's migrations are in the tree alongside this branch's. That is
+      # what lets a version collision between two concurrent PRs be seen here
+      # rather than discovered as a migration that silently never ran.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # No dependencies, so no install step — the check is plain node.
+      - name: Check migration versions
+        run: node tools/check-migrations.mjs
