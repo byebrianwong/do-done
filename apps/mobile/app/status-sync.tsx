@@ -235,8 +235,10 @@ export default function StatusSyncScreen() {
               Move tasks scheduled within {windowPhrase} to {statusLabel}
             </Text>
             <Text style={styles.toggleHint}>
-              Anything already at {statusLabel} or further along is left where
-              it is. Overdue tasks count as near.
+              Happens when you schedule a task, and when its day comes near.
+              Move one back afterwards and it stays where you put it. Anything
+              already at {statusLabel} or further along is left alone, and
+              overdue tasks count as near.
             </Text>
           </View>
           <Switch

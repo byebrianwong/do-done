@@ -3,6 +3,7 @@ import { todayLocalISO } from '@do-done/shared';
 import { getTasksApi } from './supabase';
 import { queryClient } from './query-client';
 import { taskKeys } from './task-queries';
+import { notifyAutoSync } from './auto-sync-notice';
 
 /**
  * The housekeeping no write can trigger.
@@ -36,7 +37,7 @@ export async function sweepStatusSync(force = false): Promise<void> {
   running = true;
   try {
     const api = await getTasksApi();
-    const { updated } = await api.syncScheduledToStatus();
+    const { updated, notice } = await api.syncScheduledToStatus();
     // Nothing on screen depends on this — the rows it destroys have been
     // invisible since the moment they were deleted — so it never invalidates.
     await api.purgeDeleted().catch(() => {});
@@ -44,6 +45,10 @@ export async function sweepStatusSync(force = false): Promise<void> {
     if (updated > 0) {
       void queryClient.invalidateQueries({ queryKey: taskKeys.all });
     }
+    // An automatic move has to announce itself. The user didn't ask for this
+    // write, and a status quietly different from the one they left it at is
+    // indistinguishable from the app losing their edit.
+    notifyAutoSync(notice);
   } catch {
     // Housekeeping the user didn't ask for by name — never surface it. The
     // next resume tries again.

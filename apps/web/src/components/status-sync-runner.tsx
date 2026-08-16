@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { todayLocalISO } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { useUndoToast } from "@/components/undo-toast";
 
 /**
  * The two pieces of housekeeping that no write can trigger.
@@ -31,6 +32,14 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
  */
 export function StatusSyncRunner() {
   const router = useRouter();
+  // Held in a ref, not named in the effect's deps. `UndoToastContext`'s value
+  // is a fresh object on every provider render, and the provider re-renders
+  // whenever *any* toast goes up — including this one's. Depending on it would
+  // tear down and re-arm the sweep, forcing a fresh one, every time a task was
+  // deleted anywhere in the app.
+  const toast = useUndoToast();
+  const showToast = useRef(toast.show);
+  showToast.current = toast.show;
   // The day the last sweep ran for. A sweep is only worth repeating once the
   // day has changed or the user has been away.
   const lastRunDay = useRef<string | null>(null);
@@ -46,7 +55,7 @@ export function StatusSyncRunner() {
       running.current = true;
       try {
         const api = await getClientTasksApi();
-        const { updated } = await api.syncScheduledToStatus();
+        const { updated, notice } = await api.syncScheduledToStatus();
         // Nothing on screen depends on this one — the rows it destroys have
         // been invisible since the moment they were deleted — so it never
         // forces a refresh, and a failure is as quiet as the sweep's.
@@ -55,6 +64,10 @@ export function StatusSyncRunner() {
         lastRunDay.current = today;
         // Only pay for a refresh when something actually moved.
         if (updated > 0) router.refresh();
+        // An automatic move has to announce itself. The user didn't ask for
+        // this write, and a status quietly different from the one they left it
+        // at is indistinguishable from the app losing their edit.
+        if (notice) showToast.current({ message: notice });
       } catch {
         // Never surface this — it's housekeeping the user didn't ask for by
         // name, and the next focus event will try again.

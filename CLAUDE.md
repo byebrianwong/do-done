@@ -337,9 +337,10 @@ task's status and its `scheduled_date` from drifting apart. Settings live on
 `user_preferences` (`status_sync_*`); the rules are pure functions in
 `packages/shared/src/status-sync.ts`.
 
-- **promote** — a task scheduled on or before the *horizon* moves up to
-  `status_sync_status`. It never moves a task backwards, so `in_progress`,
-  `done`, and `cancelled` are untouched. Overdue counts as inside the horizon.
+- **promote** — a task whose scheduled date lands on or before the *horizon*
+  moves up to `status_sync_status`. It never moves a task backwards, so
+  `in_progress`, `done`, and `cancelled` are untouched. Overdue counts as
+  inside the horizon. It fires on a *change*, not continuously — see below.
 - **backfill** — a task set to `status_sync_status` *or past it* gets its
   `scheduled_date` set to the horizon, if it had none or had one further out.
 
@@ -355,17 +356,92 @@ after saving them.
 
 The promote half also has to fire when *no write happens* — when a task's
 scheduled day simply arrives. `TasksApi.syncScheduledToStatus()` is that sweep:
-one filtered UPDATE, idempotent, and a no-op when the feature is off. It runs
-from `StatusSyncRunner` (web app layout), `startStatusSyncSweeps()` (mobile
-`_layout`, on resume), and before the MCP read tools.
+one filtered UPDATE, run from `StatusSyncRunner` (web app layout),
+`startStatusSyncSweeps()` (mobile `_layout`, on resume), and before the MCP
+read tools.
 
-Two precedence rules that look arbitrary but aren't:
+### Promote fires on a change; it is not an invariant
+
+**A status the user set by hand always stands.** Promote runs at two moments
+and no others: a write that moves a task's `scheduled_date` inside the horizon,
+and the day a task's existing date comes near. A write that leaves the date
+alone leaves the status alone.
+
+So the rule reads as: *re-dating a task reconsiders where it sits in the queue;
+nothing else does.* Move a task scheduled for tomorrow from Next back to Not
+started and it stays there. Change its date — to any other day inside the
+horizon, or from outside to inside — and it goes back to Next, because the date
+is the newer instruction. Demote it again after that and it stays demoted
+again.
+
+This replaced an invariant: promote used to re-apply on *every* write and every
+sweep, so a demotion sprang back within seconds. It was doing exactly what the
+setting said, and it read as the app refusing the edit, because the only
+evidence was a field springing back with nothing to explain it. That is the
+failure this section exists to prevent repeating — **an automatic change the
+user cannot override and is not told about is indistinguishable from a bug.**
+
+Three precedence rules:
 
 - An explicit `scheduled_date` in the same write always beats backfill.
-- An explicit `status` does **not** exempt a row from promote. Demoting a
-  near-scheduled task snaps straight back, which reads as the rule enforcing
-  itself. Letting the write through would only defer it to the next sweep,
-  minutes later and with no visible cause.
+- Promote is gated on the write moving the date (`dateMoved` in
+  `statusSyncPatch`). Creating counts, and so does backfill having just
+  supplied a date.
+- But on a write that *does* move the date, an explicit `status` still does not
+  exempt the row. Setting a Not started task to tomorrow moves it to Next even
+  though the same write named a status.
+
+**`user_preferences.status_sync_swept_through` is what makes the sweep a
+reaction rather than a standing condition.** It records the horizon the sweep
+last ran through; `sweepPromoteRange` turns that into the band of days that
+have *newly* crossed in, and the sweep promotes only inside it. Without the
+lower bound the sweep re-promotes every near task on every foreground, which is
+the invariant coming back in through the other door — the write-time fix alone
+would not have held.
+
+- **The watermark advances even on an empty run**, and only after the promote
+  UPDATE succeeded. Leaving it behind on an empty run reopens the same band
+  next pass; advancing it past a band that failed to write skips those days
+  forever.
+- **Null means never swept**, and the next sweep takes in the whole list.
+  That is both the pre-migration behaviour and what turning the setting on
+  should do.
+- **It is reset by `UserPrefsApi.updateStatusSync`** whenever a field that
+  changes *which* tasks promote is written — everything except
+  `status_sync_backfill`. Changing the rule re-applies it; off-and-on-again is
+  the escape hatch for re-applying it over demotions you've changed your mind
+  about.
+- **It is deliberately not in `StatusSyncSettingsSchema`.** It is bookkeeping,
+  not a setting, and putting it there would make it writable through
+  `UpdateStatusSyncInput`.
+
+### Every automatic change says so
+
+The other half of the fix, and the more important one: **the app tells you when
+the rule moved something.** Copy lives in `describeStatusSyncNotice` /
+`describeStatusSyncSweep` (`packages/shared`), so the phone and the laptop
+cannot word the same event differently, and so it is testable in node — which
+on mobile is the only place anything is.
+
+- `TasksApi.create`/`update` return an optional `autoSync: { …, notice }`
+  alongside `{ data, error }`. Returned rather than inferred: the interesting
+  write is the one that sent *only* a date and got a status change too, and a
+  caller reconstructing that would have to hold the prior row.
+- `syncScheduledToStatus` returns `notice` and the rows it moved.
+- **A create only reports when it overrode an opinion the caller had.** Landing
+  in Next with no status asked for is the default arriving, not the rule taking
+  something away — and a toast on every quick-add is how a feature gets
+  switched off.
+- **Mobile routes it through `lib/auto-sync-notice.ts`**, a module-level
+  notifier the root installs, because `task-queries.ts` and `status-sync.ts`
+  are plain modules and cannot call `useUndoToast`.
+- **Web announces it on a window event** (`lib/auto-sync-events.ts`), same
+  reasoning as `task-delete-events.ts`: there is no single web write door.
+  Fifteen components call `getClientTasksApi().update()` directly, so the
+  announcement is made by a Proxy in `tasks-client.ts` — the seam they all get
+  their API from, and the same seam demo mode hangs on. A Proxy rather than a
+  subclass, because `TasksApi`'s methods call each other (`complete` goes
+  through `update`) and a subclass would announce one write twice.
 
 "Today" is resolved through `user_preferences.timezone`, never the process
 clock. See the timezone note under Dates above.

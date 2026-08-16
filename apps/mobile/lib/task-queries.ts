@@ -27,6 +27,7 @@ import { getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
 import { refreshTaskWidgets } from './widgets';
 import { scheduleGeofenceSync } from './location-queries';
+import { notifyAutoSync } from './auto-sync-notice';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
 
@@ -555,8 +556,14 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   );
   try {
     const api = await getTasksApi();
-    const { error } = await api.update(id, input);
+    const { error, autoSync } = await api.update(id, input);
     if (error) throw error;
+    // The status ↔ schedule rule may have changed something the caller didn't
+    // ask for — re-dating a task into the horizon moves it to Next. Said here,
+    // at the one door every mobile write goes through, rather than at each of
+    // the swipe / drag / editor / bulk call sites that would each have to
+    // remember to.
+    notifyAutoSync(autoSync?.notice);
   } catch (e) {
     restoreTaskLists(prev);
     throw e;
@@ -888,8 +895,9 @@ export async function moveTask(
   patchCachedOrder(orderedIds);
   try {
     const api = await getTasksApi();
-    const { error } = await api.update(id, input);
+    const { error, autoSync } = await api.update(id, input);
     if (error) throw error;
+    notifyAutoSync(autoSync?.notice);
     // The move landed; the order is a separate write because `sort_order` has
     // to be stamped across the whole destination section, not just this row.
     const { error: orderError } = await api.bulkUpdate(orderPatches(orderedIds));
