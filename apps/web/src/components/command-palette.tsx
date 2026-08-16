@@ -172,9 +172,7 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
         // The icon replaces the colour dot when there is one; it is drawn in
         // the project's colour, so identity is still carried either way.
         icon: p.icon ? (
-          <span style={{ color: p.color }}>
-            <ProjectIcon icon={p.icon} size={13} />
-          </span>
+          <ProjectIcon icon={p.icon} size={13} color={p.color} />
         ) : undefined,
       })),
     [projects]

@@ -52,9 +52,7 @@ export default async function ProjectDetailPage({
             style={{ backgroundColor: project.color }}
           />
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-            <span style={{ color: project.color }}>
-              <ProjectIcon icon={project.icon} size={24} />
-            </span>
+            <ProjectIcon icon={project.icon} size={24} color={project.color} />
             {project.name}
           </h1>
         </div>
