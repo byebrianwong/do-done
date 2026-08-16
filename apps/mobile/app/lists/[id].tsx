@@ -12,7 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Aisle, AisleMemory, Task } from '@do-done/shared';
 import {
   aisleOptions,
@@ -44,6 +44,8 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { useUndoToast } from '@/components/UndoToast';
 import { hapticLight, hapticMedium } from '@/lib/haptics';
 
@@ -69,9 +71,14 @@ export default function ListDetailScreen() {
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
 
+  const router = useRouter();
   const [draft, setDraft] = useState('');
   const [added, setAdded] = useState(0);
   const [picking, setPicking] = useState<Task | null>(null);
+  /** The item whose editor is up. An item is a task, so it is the same sheet. */
+  const [editing, setEditing] = useState<Task | null>(null);
+  /** The list's own name / icon / colour form. */
+  const [editingList, setEditingList] = useState(false);
   const toast = useUndoToast();
   const inputRef = useRef<TextInput>(null);
 
@@ -168,14 +175,25 @@ export default function ListDetailScreen() {
                 </View>
               )
             : undefined,
-          headerRight:
-            got.length > 0
-              ? () => (
-                  <Pressable onPress={onClear} hitSlop={10}>
-                    <Text style={styles.clear}>Clear bought</Text>
-                  </Pressable>
-                )
-              : undefined,
+          headerRight: () => (
+            <View style={styles.headerRight}>
+              {got.length > 0 && (
+                <Pressable onPress={onClear} hitSlop={10}>
+                  <Text style={styles.clear}>Clear bought</Text>
+                </Pressable>
+              )}
+              {/* The list's name, icon and colour were only settable at the
+                  moment it was created. This is the way back to them, and the
+                  only way to delete a list from the phone. */}
+              <Pressable
+                onPress={() => setEditingList(true)}
+                hitSlop={10}
+                accessibilityLabel="Edit list"
+              >
+                <Ionicons name="create-outline" size={21} color="#6366f1" />
+              </Pressable>
+            </View>
+          ),
         }}
       />
       <UpdatingBar visible={loadState.showUpdating} />
@@ -205,8 +223,8 @@ export default function ListDetailScreen() {
         sections={sections}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
-        // Tapping a row while typing must tick it, not just dismiss the
-        // keyboard and swallow the tap.
+        // A tap on a row while typing must reach the row, not be swallowed
+        // dismissing the keyboard.
         // An empty title is the ungrouped case — `groupByAisle` collapses to
         // one unlabelled group when grouping would gain nothing, and that has
         // to render as a plain list with no header at all.
@@ -216,7 +234,11 @@ export default function ListDetailScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <ItemRow item={item} onLongPress={() => setPicking(item)} />
+          <ItemRow
+            item={item}
+            onOpen={() => setEditing(item)}
+            onLongPress={() => setPicking(item)}
+          />
         )}
         refreshControl={
           <RefreshControl
@@ -249,6 +271,25 @@ export default function ListDetailScreen() {
         memory={memory}
         onPick={writeAisle}
         onClose={() => setPicking(null)}
+      />
+
+      {/* The same editor every other row in the app opens — notes, a photo of
+          the label, a store hint, a deadline. `invalidateLists` rather than
+          `invalidateTasks`, because this screen's items are the one query the
+          task caches don't cover. */}
+      <TaskEditModalV2
+        task={editing}
+        visible={editing !== null}
+        onClose={() => setEditing(null)}
+        onSaved={() => invalidateLists(listId)}
+      />
+
+      <ProjectFormSheet
+        visible={editingList}
+        project={list ?? undefined}
+        onClose={() => setEditingList(false)}
+        // The deleted list is this screen, so there is nothing left to show.
+        onDeleted={() => router.back()}
       />
     </View>
   );
@@ -324,32 +365,57 @@ function AislePicker({
   );
 }
 
+/**
+ * One thing to buy.
+ *
+ * Three gestures, and the split between the first two is the point: **the
+ * circle ticks, the words open.** They used to be one target, so a tap meant
+ * for "what did I write here" bought the thing instead — a mistake the user
+ * has to notice and undo, on the surface they tap fastest.
+ *
+ * The circle is 21px and the thumb is not, so its `hitSlop` takes the target
+ * back out to the full height of the row and past its left edge. That keeps
+ * what a walking tap needs — a target it can hit without looking — while the
+ * rest of the row means something else.
+ */
 function ItemRow({
   item,
+  onOpen,
   onLongPress,
 }: {
   item: Task;
+  onOpen: () => void;
   onLongPress: () => void;
 }) {
   const done = item.status === 'done' || item.status === 'cancelled';
   return (
     <Pressable
-      onPress={() => {
-        hapticLight();
-        void toggleComplete(item.id, !done);
-      }}
+      onPress={onOpen}
       onLongPress={() => {
         hapticMedium();
         onLongPress();
       }}
       delayLongPress={300}
       style={({ pressed }) => [styles.itemRow, pressed && styles.pressed]}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: done }}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${item.title}`}
     >
-      <View style={[styles.box, done && styles.boxDone]}>
-        {done && <Ionicons name="checkmark" size={13} color="#ffffff" />}
-      </View>
+      <Pressable
+        onPress={() => {
+          hapticLight();
+          void toggleComplete(item.id, !done);
+        }}
+        hitSlop={{ top: 13, bottom: 13, left: 14, right: 10 }}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: done }}
+        accessibilityLabel={`Mark ${item.title} as ${
+          done ? 'not bought' : 'bought'
+        }`}
+      >
+        <View style={[styles.box, done && styles.boxDone]}>
+          {done && <Ionicons name="checkmark" size={13} color="#ffffff" />}
+        </View>
+      </Pressable>
       <Text style={[styles.itemText, done && styles.itemTextDone]}>
         {item.title}
       </Text>
@@ -367,6 +433,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 8,
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   clear: { fontSize: 13, fontWeight: '600', color: '#6366f1' },
   composer: {
     flexDirection: 'row',

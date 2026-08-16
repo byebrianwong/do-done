@@ -4,6 +4,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { AisleTermsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
 import { isListProject } from "@do-done/shared";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectActions } from "@/components/project-actions";
 import { ListView } from "./list-view";
 
 export default async function ListDetailPage({
@@ -60,6 +61,12 @@ export default async function ListDetailPage({
         <h1 className="truncate text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
           {list.name}
         </h1>
+        {/* The list's own name, icon and colour were only editable at the
+            moment it was created — the same button a project page has fixes
+            that, since the form behind it already knows about lists. */}
+        <div className="ml-auto shrink-0">
+          <ProjectActions project={list} />
+        </div>
       </div>
 
       {/*

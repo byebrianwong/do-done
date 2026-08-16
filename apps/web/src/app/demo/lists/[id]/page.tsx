@@ -5,6 +5,7 @@ import { use } from "react";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectActions } from "@/components/project-actions";
 import { isListProject } from "@do-done/shared";
 import { ListView } from "@/app/(app)/lists/[id]/list-view";
 
@@ -52,6 +53,9 @@ export default function DemoListDetailPage({
         <h1 className="truncate text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
           {list.name}
         </h1>
+        <div className="ml-auto shrink-0">
+          <ProjectActions project={list} />
+        </div>
       </div>
 
       {/*

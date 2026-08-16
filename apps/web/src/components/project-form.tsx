@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   PROJECT_COLOR_OPTIONS,
   DEFAULT_PROJECT_COLORS,
@@ -10,6 +10,7 @@ import {
 import type { Project, ProjectKind } from "@do-done/shared";
 import { projectKind } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
+import { demoHref, isDemoPath } from "@/lib/demo/mode";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 
@@ -34,6 +35,11 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
   const isList = effectiveKind === "list";
   const noun = isList ? "list" : "project";
   const router = useRouter();
+  // Where a delete lands. Derived from the path for the same reason
+  // `SidebarNav` and `taskPath()` do it: a bare "/lists" would send a demo
+  // visitor to the login wall the demo exists to avoid.
+  const pathname = usePathname();
+  const demo = isDemoPath(pathname ?? "");
   const [, startTransition] = useTransition();
   const [name, setName] = useState(project?.name ?? "");
   const [color, setColor] = useState(
@@ -91,7 +97,9 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
       return;
     }
     onClose();
-    startTransition(() => router.push(isList ? "/lists" : "/projects"));
+    startTransition(() =>
+      router.push(demoHref(isList ? "/lists" : "/projects", demo))
+    );
   }
 
   const backdrop = useBackdropDismiss<HTMLDivElement>(onClose);

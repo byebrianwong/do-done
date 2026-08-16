@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { TaskDisplayView } from "@/components/task-display-view";
 import { ProjectOpenProvider } from "@/lib/task-row-behavior";
 import { QuickAddBar } from "@/components/quick-add-bar";
-import { ProjectActions } from "./project-actions";
+import { ProjectActions } from "@/components/project-actions";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ProjectsApi, TasksApi } from "@do-done/api-client";
 import { ProjectIcon } from "@/components/project-icon";

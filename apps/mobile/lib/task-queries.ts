@@ -21,6 +21,7 @@ import type {
   Task,
   TaskFilterInput,
   TaskStatus,
+  UpdateProjectInput,
   UpdateTaskInput,
 } from '@do-done/shared';
 import { getProjectsApi, getTasksApi } from './supabase';
@@ -65,6 +66,31 @@ export const taskKeys = {
 export const tagKeys = {
   all: ['tags'] as const,
   summary: () => [...tagKeys.all, 'summary'] as const,
+};
+
+/**
+ * Shopping lists. Defined here rather than in `list-queries.ts` — which is
+ * where every hook that uses it lives — because the optimistic sweeps below
+ * have to reach the *items*, and a `list-queries` import here would be a cycle.
+ *
+ * A list item is a task, so completing one, deleting it or rescheduling it goes
+ * through the same writes every other row does. But its cache is under this
+ * root rather than `taskKeys`, so a sweep scoped to `taskKeys.all` misses it:
+ * ticking something off left the row sitting exactly where it was until the
+ * screen was left and re-entered, on the one surface where the tick *is* the
+ * feedback.
+ *
+ * `items()` is swept and the other two are not, and that distinction matters:
+ * `index()` caches `Project[]`, which is an array and would sail straight
+ * through an `Array.isArray` guard into an updater written for tasks.
+ */
+export const listKeys = {
+  all: ['lists'] as const,
+  index: () => [...listKeys.all, 'index'] as const,
+  counts: () => [...listKeys.all, 'counts'] as const,
+  /** Prefix for every list's items — what the sweeps below match on. */
+  items: () => [...listKeys.all, 'items'] as const,
+  itemsFor: (listId: string) => [...listKeys.items(), listId] as const,
 };
 
 /**
@@ -321,19 +347,33 @@ function restoreTaskLists(prev: TaskListSnapshot) {
  */
 function patchTaskLists(
   updater: (old: Task[]) => Task[],
-  scope: readonly unknown[] = taskKeys.all
+  scope?: readonly unknown[]
 ) {
-  queryClient.setQueriesData<Task[]>({ queryKey: scope }, (old) =>
-    Array.isArray(old) ? updater(old) : old
-  );
+  for (const key of scope ? [scope] : TASK_LIST_ROOTS) {
+    queryClient.setQueriesData<Task[]>({ queryKey: key }, (old) =>
+      Array.isArray(old) ? updater(old) : old
+    );
+  }
 }
+
+/**
+ * Every root holding a `Task[]`. The shopping-list items are the second one:
+ * they are ordinary task rows kept under their own key, so a sweep that only
+ * knows about `taskKeys` leaves them showing the state before the write.
+ */
+const TASK_LIST_ROOTS: readonly (readonly unknown[])[] = [
+  taskKeys.all,
+  listKeys.items(),
+];
 
 /** Every cached task list, ignoring the caches that hold something else. */
 function cachedTaskLists(): Task[][] {
-  return queryClient
-    .getQueriesData<Task[]>({ queryKey: taskKeys.all })
-    .map(([, list]) => list)
-    .filter((list): list is Task[] => Array.isArray(list));
+  return TASK_LIST_ROOTS.flatMap((key) =>
+    queryClient
+      .getQueriesData<Task[]>({ queryKey: key })
+      .map(([, list]) => list)
+      .filter((list): list is Task[] => Array.isArray(list))
+  );
 }
 
 /**
@@ -409,6 +449,9 @@ export function invalidateTasks() {
   // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
   // it: its cached value is TagSummary[], not Task[].
   queryClient.invalidateQueries({ queryKey: tagKeys.all });
+  // Same argument as tags, one root over: a list's items and its open/bought
+  // counts are a view of task rows, so any write can move them.
+  queryClient.invalidateQueries({ queryKey: listKeys.all });
   // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
   refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and
@@ -813,6 +856,38 @@ export async function createProject(
   if (error) throw error;
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
   return data as Project;
+}
+
+/**
+ * Rename a project or list, or change its colour or icon.
+ *
+ * `projectKeys.all` covers the detail read the list screen's title bar uses,
+ * so the header changes with the write rather than on the next focus.
+ */
+export async function updateProject(
+  id: string,
+  input: UpdateProjectInput
+): Promise<Project> {
+  const api = await getProjectsApi();
+  const { data, error } = await api.update(id, input);
+  if (error) throw error;
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  return data as Project;
+}
+
+/**
+ * Delete a project or list. The tasks in it survive, unfiled — that is what
+ * the column's `on delete set null` does, and what the confirmation says.
+ *
+ * `invalidateTasks()` as well as the project caches, because every row that
+ * pointed at it is now drawing a project that is gone.
+ */
+export async function deleteProject(id: string): Promise<void> {
+  const api = await getProjectsApi();
+  const { error } = await api.delete(id);
+  if (error) throw error;
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  invalidateTasks();
 }
 
 /**

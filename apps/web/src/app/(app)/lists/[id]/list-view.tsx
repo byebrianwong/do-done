@@ -22,6 +22,7 @@ import {
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
+import { useOpenTask } from "@/lib/open-task";
 
 interface ListViewProps {
   list: Project;
@@ -54,6 +55,13 @@ export function ListView({
 }: ListViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  /**
+   * The app-wide editor. An item is a task, so clicking its words opens the
+   * same editor every other row in the app opens — which is where notes, a
+   * photo of the label, a store hint and the deadline all live. Null outside
+   * the provider (Storybook), and the row falls back to plain text there.
+   */
+  const openTask = useOpenTask();
   const [items, setItems] = useState(initialItems);
   const [draft, setDraft] = useState("");
   const [addedCount, setAddedCount] = useState(0);
@@ -61,7 +69,12 @@ export function ListView({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The server is the source of truth; re-sync when it sends a different set.
-  const idsKey = initialItems.map((t) => `${t.id}:${t.status}`).join(",");
+  // The key carries every field a row draws, not just the id and the status:
+  // renaming an item or moving its aisle from the editor changes neither, and
+  // a key blind to those leaves the list showing the old word.
+  const idsKey = initialItems
+    .map((t) => `${t.id}:${t.status}:${t.title}:${(t.tags ?? []).join("|")}`)
+    .join(",");
   useEffect(() => {
     setItems(initialItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,6 +270,7 @@ export function ListView({
                   key={item.id}
                   item={item}
                   onToggle={toggle}
+                  onOpen={openTask?.open}
                   onAisle={setAisle}
                   memory={memory}
                 />
@@ -276,7 +290,12 @@ export function ListView({
               there was still something to walk. */}
           <ul className="grid gap-x-8 sm:grid-cols-2">
             {got.map((item) => (
-              <ItemRow key={item.id} item={item} onToggle={toggle} />
+              <ItemRow
+                key={item.id}
+                item={item}
+                onToggle={toggle}
+                onOpen={openTask?.open}
+              />
             ))}
           </ul>
         </div>
@@ -288,11 +307,17 @@ export function ListView({
 function ItemRow({
   item,
   onToggle,
+  onOpen,
   onAisle,
   memory,
 }: {
   item: Task;
   onToggle: (t: Task) => void;
+  /**
+   * Open the item's editor. Absent outside `OpenTaskProvider`, and then the
+   * title is plain text rather than a control that would do nothing.
+   */
+  onOpen?: (t: Task) => void;
   /** Absent in the cart, where an aisle no longer decides anything. */
   onAisle?: (t: Task, aisle: Aisle | null) => void;
   /** So the select shows the aisle the row is actually filed under. */
@@ -300,13 +325,28 @@ function ItemRow({
 }) {
   const done = item.status === "done" || item.status === "cancelled";
   const aisle = itemAisle(item, memory);
+  const titleClass = `block w-full truncate text-left text-sm ${
+    done
+      ? "text-neutral-400 line-through dark:text-neutral-600"
+      : "text-neutral-900 dark:text-neutral-100"
+  }`;
   return (
-    <li className="group/item flex items-center border-b border-neutral-100 dark:border-neutral-800/70">
+    <li className="group/item flex items-center gap-3 border-b border-neutral-100 dark:border-neutral-800/70">
+      {/*
+        Ticking is the circle's job and only the circle's. The row's words are
+        the door into the item, so the two cannot be one control: a click meant
+        for "open this" that buys the milk instead is a mistake the user has to
+        notice and undo, and on the surface they use fastest.
+
+        The button is padded rather than sized, so the target is the full height
+        of the row even though the ring inside it is 18px.
+      */}
       <button
         type="button"
         onClick={() => onToggle(item)}
         aria-pressed={done}
-        className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left"
+        aria-label={`Mark ${item.title} as ${done ? "not bought" : "bought"}`}
+        className="flex shrink-0 items-center py-2 pr-0.5"
       >
         <span
           aria-hidden
@@ -328,16 +368,21 @@ function ItemRow({
             </svg>
           )}
         </span>
-        <span
-          className={`flex-1 truncate text-sm ${
-            done
-              ? "text-neutral-400 line-through dark:text-neutral-600"
-              : "text-neutral-900 dark:text-neutral-100"
-          }`}
-        >
-          {item.title}
-        </span>
       </button>
+
+      <span className="min-w-0 flex-1">
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(item)}
+            className={`${titleClass} py-2`}
+          >
+            {item.title}
+          </button>
+        ) : (
+          <span className={`${titleClass} py-2`}>{item.title}</span>
+        )}
+      </span>
 
       {/*
         A native <select>, not a custom popover. It is keyboard-operable and
