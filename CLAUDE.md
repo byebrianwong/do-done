@@ -1599,9 +1599,45 @@ a white page:
 
 ## Swiping a task row (mobile)
 
-Swipe **right** for the single Done/Reopen action, which fires as it opens and
-snaps shut. Swipe **left** for Today / Tomorrow / Delete, which are buttons and
-wait to be tapped.
+Swipe **right** for the single Done/Reopen action, which the row plays itself
+and then closes. Swipe **left** for Today / Tomorrow / Delete, which are buttons
+and wait to be tapped.
+
+### The row comes home before it is ticked off
+
+**A swipe past the threshold says two things, and they are sequential**: the row
+is let go of, and *then* the task is done. Both used to fire on the release
+frame, so the check had sprung, the halo had rung out and the strike-through was
+drawn while the row was still 90px to the right and travelling. The travel then
+read as the row catching up with something that had already happened — which is
+what made a return that really was animating feel like a snap back to the edge.
+
+Two constants in `apps/mobile/lib/swipe-actions.ts`, derived from each other and
+tested together:
+
+- **`SWIPE_RETURN_SPRING`** is handed to `ReanimatedSwipeable`'s
+  `animationOptions`, because **the library's default is not a spring you can
+  see**. It ships `{ mass: 2, damping: 1000, stiffness: 700, overshootClamping:
+  true }`, and Reanimated has no overdamped solution — anything with a damping
+  ratio at or above 1 is integrated as *critically* damped, here at ~19 rad/s.
+  Ours is deliberately underdamped (ζ ≈ 0.81) with clamping off, so the row
+  decelerates into its resting place instead of arriving there. The overshoot
+  that buys is ~1.4%, and that is the point: past the row's own edge there is
+  only the list background, so a bounce big enough to *see* would read as a gap
+  opening beside the row. The curve carries the physics, not the rebound.
+- **`SWIPE_RETURN_MS`** is how long the completion waits, matched to that
+  spring's envelope (~3% of the distance left, the frame the row visibly lands
+  on). It is a delay in front of the completion, not an extension of it: the
+  680ms exit envelope, the hold the write waits out, and the undo window are all
+  downstream and untouched.
+
+The wait is a timer, not the library's `onSwipeableClose`. That event fires when
+the spring is *numerically* at rest — later than the frame the eye reads as
+landed, and never at all if anything interrupts it, and a swipe that silently
+failed to complete the task is far worse than one that completes a frame early.
+`handleToggle` cancels any pending timer, so a ring tap during the return can't
+be undone by the swipe that was still owed. Reduce motion skips the wait: there
+is no travel to wait for.
 
 **`ReanimatedSwipeable` reports the direction of the *gesture*, not the panel
 that opened** — the reverse of the `Swipeable` it replaces, and of how

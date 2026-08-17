@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -30,7 +30,11 @@ import {
   rowLongPressAction,
   rowTapAction,
 } from '@/lib/row-gesture';
-import { panelForSwipe } from '@/lib/swipe-actions';
+import {
+  SWIPE_RETURN_MS,
+  SWIPE_RETURN_SPRING,
+  panelForSwipe,
+} from '@/lib/swipe-actions';
 import {
   deleteTask,
   restoreTasks,
@@ -168,6 +172,16 @@ function TaskItem({
   const exit = useRowExit(task.status === 'done');
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
+  // A completion the swipe has asked for and the row's journey home hasn't
+  // finished paying for yet — see `completeAfterReturn`.
+  const returnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (returnTimer.current) clearTimeout(returnTimer.current);
+    },
+    []
+  );
 
   // Multi-select is an explicit mode, armed from the list's ⋯ menu rather than
   // by holding a row. While it is armed a tap toggles the row (instead of
@@ -229,7 +243,45 @@ function TaskItem({
   // instantly), rolls back on error, and reconciles on settle. No local
   // optimistic state or onChange reload needed.
 
+  /**
+   * Tick the task off once the row has sprung back to where it was.
+   *
+   * A swipe that passes the threshold has two things to say and they are
+   * sequential: the row is let go of, and *then* the task is done. Firing both
+   * on the release frame is what made the return read as a snap — by the time
+   * the eye had followed the row home the check had already sprung, the halo
+   * had rung out and the strike-through was drawn, so the travel looked like
+   * the row catching up with something that had already happened rather than
+   * the gesture completing.
+   *
+   * A timer rather than the library's `onSwipeableClose`: that fires when the
+   * spring is *numerically* at rest, which is later than the frame the row
+   * visibly lands on, and never at all if anything interrupts it — a swipe that
+   * silently failed to complete the task is much worse than one that completes
+   * it a frame early. {@link SWIPE_RETURN_MS} is derived from the spring
+   * instead, in `swipe-actions.ts`.
+   */
+  function completeAfterReturn() {
+    // Reduce motion has no travel to wait for: the row is already home.
+    if (prefersReducedMotion()) {
+      handleToggle();
+      return;
+    }
+    if (returnTimer.current) clearTimeout(returnTimer.current);
+    returnTimer.current = setTimeout(() => {
+      returnTimer.current = null;
+      handleToggle();
+    }, SWIPE_RETURN_MS);
+  }
+
   function handleToggle() {
+    // Whatever asked for this is the one that gets it. Without this a ring tap
+    // during the return would tick the task off and the pending swipe would
+    // then untick it.
+    if (returnTimer.current) {
+      clearTimeout(returnTimer.current);
+      returnTimer.current = null;
+    }
     const nextCompleted = !completed;
     if (nextCompleted) hapticSuccess();
     else hapticLight();
@@ -375,7 +427,8 @@ function TaskItem({
   }
 
   // Swipe-right reveals a single complete/reopen action; a full swipe past the
-  // threshold triggers it via onSwipeableWillOpen('left') below.
+  // threshold sends the row home and ticks the task off as it lands — see
+  // `onSwipeableWillOpen` below.
   const renderLeftActions = () => (
     <View style={[styles.swipeAction, styles.swipeLeftAction]}>
       <Ionicons
@@ -452,6 +505,10 @@ function TaskItem({
       rightThreshold={40}
       overshootLeft={false}
       overshootRight={false}
+      // The row travels on a spring you can see, rather than the library's
+      // default — which Reanimated integrates as critically damped and which
+      // therefore has no deceleration to read at all. See `swipe-actions.ts`.
+      animationOptions={SWIPE_RETURN_SPRING}
       // Swiping a row while multi-selecting is ambiguous — disable it so the
       // whole row is a selection target in selection mode.
       enabled={!selectionActive}
@@ -460,11 +517,15 @@ function TaskItem({
       onSwipeableWillOpen={(direction) => {
         // `direction` is the direction of the *gesture*, not the panel that
         // opened — see lib/swipe-actions. Swiping right reveals the single
-        // Done/Reopen action, which fires and snaps closed; swiping left opens
-        // the Today / Tomorrow / Delete buttons and waits to be tapped.
+        // Done/Reopen action, which the row plays on its own and then closes;
+        // swiping left opens the Today / Tomorrow / Delete buttons and waits to
+        // be tapped.
         if (panelForSwipe(direction) === 'complete') {
+          // Turn the row around on the frame the finger leaves it: the open
+          // this event announces has barely started, so the row springs back
+          // from where it was let go rather than from the panel's full width.
           swipeRef.current?.close();
-          handleToggle();
+          completeAfterReturn();
         }
       }}
     >
