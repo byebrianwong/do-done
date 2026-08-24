@@ -1648,6 +1648,32 @@ completely: the row completed the task on the delete gesture, showed
 "Completed …", and did nothing at all on the complete gesture — with the
 Today/Tomorrow/Delete buttons snapping closed before they could be reached.
 
+**Those three buttons may not be `Pressable`s**, and this is not a style
+preference. They are rendered *inside* the swipeable, so the row's pan gesture
+is their ancestor, and it activates after ten points of horizontal travel. React
+Native cancels the press responder the instant an ancestor gesture handler
+activates — the same rule that stops a button firing when you start a scroll on
+it. So a tap whose thumb was still gliding out of the swipe that opened the
+panel was swallowed whole: `onPress` never ran, nothing was written, and the
+swipeable's release handler re-settled the panel where it already was. No error,
+no toast, no row movement, and a second tap usually worked. They are
+`BaseButton`s from gesture-handler now, with `disallowInterruption`, so the press
+is decided in the arena the pan competes in and claims the touch on the down
+event rather than losing to the pan afterwards. The trade is that a drag can no
+longer *start* on a button; the row body is still there to drag, and it is what
+closes the panel.
+
+**The cancel, the patch and the rollback around an optimistic write must name
+the same roots.** `patchTaskLists` grew a second one when shopping lists arrived
+(`listKeys.items()` holds ordinary task rows), while `cancelQueries` and the
+snapshot either side of it still said `taskKeys.all` alone. Both gaps read as
+the same thing — the row not moving. `invalidateTasks()` refetches `listKeys.all`
+after *every* write, so on a list there is usually a fetch in the air; it was
+sent before this write existed, so its answer is the state the user is trying to
+change, and landing on top of the patch puts the row back for a whole round trip.
+`cancelTaskFetches()` and `snapshotTaskLists()` both walk `TASK_LIST_ROOTS` now,
+and `task-optimistic-scope.test.ts` is the regression.
+
 **Completion writes are serialized per task id** (`completionChains` in
 `lib/task-queries.ts`). Undo is a second write to the same row while the first is
 still in the air — the toast goes up as the completion is sent, and the row is

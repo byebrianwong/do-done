@@ -4,8 +4,10 @@ import {
   StyleSheet,
   Text,
   View,
+  type ViewStyle,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
+import { BaseButton } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -428,7 +430,8 @@ function TaskItem({
 
   // Swipe-right reveals a single complete/reopen action; a full swipe past the
   // threshold sends the row home and ticks the task off as it lands — see
-  // `onSwipeableWillOpen` below.
+  // `onSwipeableWillOpen` below. A plain View, not a button: nothing here is
+  // tapped — the gesture itself fires it.
   const renderLeftActions = () => (
     <View style={[styles.swipeAction, styles.swipeLeftAction]}>
       <Ionicons
@@ -445,38 +448,35 @@ function TaskItem({
     <View style={styles.swipeRightActions}>
       {!completed ? (
         <>
-          <Pressable
-            style={[styles.swipeAction, styles.swipeTodayAction]}
+          <SwipeActionButton
+            style={styles.swipeTodayAction}
+            icon="today-outline"
+            label="Today"
             onPress={() => {
               swipeRef.current?.close();
               applyTarget({ kind: 'date', date: todayLocalISO() });
             }}
-          >
-            <Ionicons name="today-outline" size={20} color="#fff" />
-            <Text style={styles.swipeActionText}>Today</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.swipeAction, styles.swipeTomorrowAction]}
+          />
+          <SwipeActionButton
+            style={styles.swipeTomorrowAction}
+            icon="arrow-forward-outline"
+            label="Tomorrow"
             onPress={() => {
               swipeRef.current?.close();
               applyTarget({ kind: 'date', date: addDaysLocalISO(1) });
             }}
-          >
-            <Ionicons name="arrow-forward-outline" size={20} color="#fff" />
-            <Text style={styles.swipeActionText}>Tomorrow</Text>
-          </Pressable>
+          />
         </>
       ) : null}
-      <Pressable
-        style={[styles.swipeAction, styles.swipeDeleteAction]}
+      <SwipeActionButton
+        style={styles.swipeDeleteAction}
+        icon="trash-outline"
+        label="Delete"
         onPress={() => {
           swipeRef.current?.close();
           handleDelete();
         }}
-      >
-        <Ionicons name="trash-outline" size={20} color="#fff" />
-        <Text style={styles.swipeActionText}>Delete</Text>
-      </Pressable>
+      />
     </View>
   );
 
@@ -664,6 +664,60 @@ function TaskItem({
 }
 
 export default React.memo(TaskItem);
+
+/**
+ * One tile in the swipe-left panel — Today, Tomorrow, Delete.
+ *
+ * **Deliberately not a `Pressable`.** The panel is rendered *inside*
+ * `ReanimatedSwipeable`, whose pan gesture wraps the entire row, tiles
+ * included, and activates after ten points of horizontal travel. React
+ * Native's press responder is cancelled the moment an ancestor gesture handler
+ * activates — the same mechanism that stops a button firing when you scroll a
+ * list by starting the drag on it. So a tap whose thumb was still gliding out
+ * of the swipe that opened the panel simply evaporated: `onPress` never ran,
+ * nothing was written, and the swipeable's own release handler re-settled the
+ * panel exactly where it already was. The row sits there unchanged, with no
+ * error and nothing on screen to say a tap was ever seen, and pressing again
+ * usually works — which is exactly what "sometimes Today just doesn't move the
+ * task" looks like, and why it is worst right after the swipe that opened the
+ * panel.
+ *
+ * `BaseButton` is gesture-handler's own button, so the press is decided in the
+ * arena the pan competes in rather than by the responder underneath it, and
+ * `disallowInterruption` makes it cancel the pan on touch-down instead of
+ * losing to it. `pointerInside` is still what fires the action, so sliding off
+ * a tile before lifting cancels, exactly as a `Pressable` did.
+ *
+ * The cost: the row can no longer be dragged from a point that starts on a
+ * tile. That is the right trade for a panel whose entire job is to be tapped —
+ * the row body is still there to drag, and it is what closes the panel.
+ */
+function SwipeActionButton({
+  style,
+  icon,
+  label,
+  onPress,
+}: {
+  style: ViewStyle;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <BaseButton
+      style={[styles.swipeAction, style]}
+      onPress={onPress}
+      // Android only, and the half that matters there: it claims the touch on
+      // the down event rather than waiting for the native view to decide.
+      shouldActivateOnStart
+      disallowInterruption
+      rippleColor="rgba(255,255,255,0.28)"
+    >
+      <Ionicons name={icon} size={20} color="#fff" />
+      <Text style={styles.swipeActionText}>{label}</Text>
+    </BaseButton>
+  );
+}
 
 const styles = StyleSheet.create({
   // Crops the row as the completion collapse clamps its height; without this
