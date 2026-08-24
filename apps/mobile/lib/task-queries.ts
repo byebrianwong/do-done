@@ -313,8 +313,20 @@ type TaskListSnapshot = ReturnType<
   typeof queryClient.getQueriesData<Task[]>
 >;
 
+/**
+ * The rollback token for an optimistic write: every cache `patchTaskLists` is
+ * about to touch, as it stood before it touched it.
+ *
+ * **It has to cover the same roots the patch does.** It read `taskKeys.all`
+ * alone while the patch had already grown a second root, so a failed write put
+ * the task lists back and left the shopping-list items showing a change that
+ * never landed — visible until the next refetch, on the one surface where the
+ * row *is* the feedback.
+ */
 function snapshotTaskLists(): TaskListSnapshot {
-  return queryClient.getQueriesData<Task[]>({ queryKey: taskKeys.all });
+  return TASK_LIST_ROOTS.flatMap((key) =>
+    queryClient.getQueriesData<Task[]>({ queryKey: key })
+  );
 }
 
 function restoreTaskLists(prev: TaskListSnapshot) {
@@ -365,6 +377,26 @@ const TASK_LIST_ROOTS: readonly (readonly unknown[])[] = [
   taskKeys.all,
   listKeys.items(),
 ];
+
+/**
+ * Stop any refetch that would land on top of the optimistic patch about to be
+ * written, across the same roots `patchTaskLists` writes to.
+ *
+ * A fetch already in the air was sent before this write existed, so its answer
+ * is the state the user is trying to change. Letting it resolve afterwards puts
+ * the row back where it started — for a whole round trip, until the write's own
+ * `invalidateTasks()` fetches again — which reads as the tap having done
+ * nothing.
+ *
+ * `taskKeys.all` was the whole of it while it was the whole of `TASK_LIST_ROOTS`;
+ * a shopping list's items are cached under their own root, and `invalidateTasks`
+ * refetches that root on *every* write, so on a list the window was wide open.
+ */
+function cancelTaskFetches(): Promise<void[]> {
+  return Promise.all(
+    TASK_LIST_ROOTS.map((key) => queryClient.cancelQueries({ queryKey: key }))
+  );
+}
 
 /** Every cached task list, ignoring the caches that hold something else. */
 function cachedTaskLists(): Task[][] {
@@ -536,7 +568,7 @@ async function runToggleComplete(
   const superseded = () => (completionSeq.get(id) ?? seq) !== seq;
 
   const holdMs = options.holdMs ?? 0;
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
 
   const dropFromLists = () => {
@@ -592,7 +624,7 @@ async function runToggleComplete(
 
 /** Patch a task in place across every cached list (reschedule, field edits). */
 export async function updateTask(id: string, input: UpdateTaskInput) {
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
   patchTaskLists((old) =>
     old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
@@ -641,7 +673,7 @@ export async function deleteTask(
   options: DeleteTaskOptions = {}
 ): Promise<string[]> {
   const holdMs = options.holdMs ?? 0;
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
   const dropFromLists = () =>
     patchTaskLists((old) => old.filter((t) => t.id !== id));
@@ -734,7 +766,7 @@ async function bulkPatchTasks(
   patches: Array<{ id: string; input: UpdateTaskInput }>
 ): Promise<BulkWriteResult> {
   if (patches.length === 0) return { updated: 0, failed: 0 };
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const byId = new Map(patches.map((p) => [p.id, p.input]));
   const prevById = snapshotTasksById(new Set(byId.keys()));
   patchCachedTasks(byId);
@@ -804,7 +836,7 @@ async function bulkRemoveTasks(
   write: (api: Awaited<ReturnType<typeof getTasksApi>>) => Promise<string[]>
 ): Promise<BulkWriteResult> {
   if (ids.length === 0) return { updated: 0, failed: 0 };
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
   const idSet = new Set(ids);
   patchTaskLists((old) => old.filter((t) => !idSet.has(t.id)), scope);
@@ -935,7 +967,7 @@ function orderPatches(orderedIds: string[]) {
  * finger.
  */
 export async function reorderTasks(orderedIds: string[]) {
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
   patchCachedOrder(orderedIds);
   const api = await getTasksApi();
@@ -964,7 +996,7 @@ export async function moveTask(
   input: UpdateTaskInput,
   orderedIds: string[]
 ) {
-  await queryClient.cancelQueries({ queryKey: taskKeys.all });
+  await cancelTaskFetches();
   const prev = snapshotTaskLists();
   patchCachedTasks(new Map([[id, input]]));
   patchCachedOrder(orderedIds);
