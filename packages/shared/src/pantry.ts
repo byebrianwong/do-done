@@ -73,6 +73,11 @@ export function bandFor(entry: PantryEntry, now: Date = new Date()): PantryBandK
 export interface PantryBandOptions {
   now?: Date;
   /**
+   * Extra terms to leave out, on top of `onList`. Used for entries the
+   * "Probably due" strip has already shown, so nothing appears twice.
+   */
+  exclude?: Iterable<string>;
+  /**
    * Items currently on the list. Any entry whose term matches one of these is
    * left out of the drawer.
    *
@@ -101,6 +106,7 @@ export function pantryBands(
       .map((t) => learnableTerm(t.title))
       .filter((t): t is string => t !== null)
   );
+  for (const term of opts.exclude ?? []) taken.add(term);
 
   const buckets: Record<PantryBandKey, PantryEntry[]> = {
     recent: [],
@@ -189,4 +195,117 @@ export function searchPantry(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ── Cadence ────────────────────────────────────────────
+
+/**
+ * How many buys are needed before the app claims to know an item's rhythm.
+ *
+ * Three buys is two gaps, which is the fewest that can disagree with each
+ * other, so the fewest a median can mean anything over. Two buys give one gap,
+ * and one gap proves nothing: salt bought in January and again in March would
+ * have the app announcing a two-month rhythm.
+ */
+export const CADENCE_MIN_BUYS = 3;
+
+/**
+ * How far past its rhythm an item can drift and still count as due.
+ *
+ * Without a ceiling, every item eventually becomes due and stays that way, and
+ * a spice bought three times and abandoned four years ago would rank as the
+ * most overdue thing on the list. Three times the interval separates "late"
+ * from "no longer buying this". Past that the entry is just old, and the bands
+ * are where old entries belong.
+ */
+export const CADENCE_STALE_FACTOR = 3;
+
+/** Cap on the due strip, so it stays a prompt rather than a second list. */
+export const CADENCE_MAX_SUGGESTIONS = 6;
+
+/** Returns the median gap, or null if there are no usable gaps. */
+export function medianGap(gaps: number[]): number | null {
+  const usable = gaps.filter((g) => Number.isFinite(g) && g > 0);
+  if (usable.length === 0) return null;
+  const sorted = [...usable].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/**
+ * Returns the item's buying rhythm in days, or null if it is not yet known.
+ *
+ * Uses a median rather than a mean, which is why `gaps` is stored as an array
+ * instead of a running average. A single holiday, illness, or week away pulls a
+ * mean far enough that a weekly item would never read as due again. A median is
+ * unaffected by one outlier.
+ */
+export function cadenceDays(entry: PantryEntry): number | null {
+  if (entry.buy_count < CADENCE_MIN_BUYS) return null;
+  return medianGap(entry.gaps);
+}
+
+export type DueState = "due" | "stocked" | "unknown";
+
+export function dueState(
+  entry: PantryEntry,
+  now: Date = new Date()
+): DueState {
+  const rhythm = cadenceDays(entry);
+  if (rhythm === null) return "unknown";
+  const age = daysSince(entry.last_bought_at, now);
+  if (age < rhythm) return "stocked";
+  return age <= rhythm * CADENCE_STALE_FACTOR ? "due" : "unknown";
+}
+
+/**
+ * Returns entries that are probably needed again, most overdue first.
+ *
+ * Ranked by how far past its own rhythm each item is, not by age. Two weeks
+ * late on milk matters more than two weeks late on rice, and only the ratio
+ * captures that.
+ */
+export function dueEntries(
+  entries: PantryEntry[],
+  opts: { now?: Date; onList?: Array<Pick<Task, "title">>; limit?: number } = {}
+): PantryEntry[] {
+  const now = opts.now ?? new Date();
+  const taken = new Set(
+    (opts.onList ?? [])
+      .map((t) => learnableTerm(t.title))
+      .filter((t): t is string => t !== null)
+  );
+
+  return entries
+    .filter((e) => !taken.has(e.term) && dueState(e, now) === "due")
+    .map((entry) => {
+      const rhythm = cadenceDays(entry) ?? 1;
+      return { entry, ratio: daysSince(entry.last_bought_at, now) / rhythm };
+    })
+    .sort((a, b) => b.ratio - a.ratio || b.entry.buy_count - a.entry.buy_count)
+    .slice(0, opts.limit ?? CADENCE_MAX_SUGGESTIONS)
+    .map((s) => s.entry);
+}
+
+/**
+ * Describes the rhythm in words: "about weekly", "every 3 weeks", and so on.
+ *
+ * The wording is hedged on purpose. This is inferred from a handful of shopping
+ * trips, so "every 7 days" would claim more precision than the data supports.
+ * "About weekly" says the same thing and is honest about being an estimate.
+ */
+export function cadenceLabel(entry: PantryEntry): string {
+  const days = cadenceDays(entry);
+  if (days === null) return "";
+  if (days <= 1) return "about daily";
+  if (days <= 4) return `every ${days} days`;
+  if (days <= 10) return days >= 6 && days <= 8 ? "about weekly" : `every ${days} days`;
+  if (days <= 45) {
+    const weeks = Math.round(days / 7);
+    return weeks === 4 ? "about monthly" : `every ${weeks} weeks`;
+  }
+  const months = Math.round(days / 30);
+  return months >= 12 ? "about yearly" : `every ${months} months`;
 }

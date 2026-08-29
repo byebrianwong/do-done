@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { PantryEntry } from "./pantry.js";
 import {
   bandFor,
+  cadenceDays,
+  cadenceLabel,
   daysSince,
+  dueEntries,
+  dueState,
   lastBoughtLabel,
+  medianGap,
   pantryBands,
   searchPantry,
 } from "./pantry.js";
@@ -148,5 +153,131 @@ describe("searchPantry", () => {
 
   it("treats a regex-ish query as text", () => {
     expect(() => searchPantry(pantry, "gre(")).not.toThrow();
+  });
+});
+
+describe("medianGap / cadenceDays", () => {
+  it("takes the middle, and shrugs off an outlier", () => {
+    // Why `gaps` is an array rather than a running average: one holiday month
+    // would drag a mean far enough that a weekly item never reads as due again.
+    expect(medianGap([7, 6, 8, 7, 60])).toBe(7);
+    expect(medianGap([7, 6, 8, 7, 60].map((n) => n))).not.toBe(
+      Math.round([7, 6, 8, 7, 60].reduce((a, b) => a + b) / 5)
+    );
+  });
+
+  it("averages the middle pair for an even count", () => {
+    expect(medianGap([6, 8])).toBe(7);
+  });
+
+  it("ignores zero and nonsense gaps", () => {
+    expect(medianGap([0, 7, 7])).toBe(7);
+    expect(medianGap([])).toBeNull();
+  });
+
+  it("says nothing until three buys", () => {
+    // Two buys is one gap, which proves nothing: salt bought in January and
+    // again in March would otherwise announce a two-month rhythm.
+    expect(cadenceDays(entry("Salt", 5, { buy_count: 2, gaps: [60] }))).toBeNull();
+    expect(
+      cadenceDays(entry("Milk", 5, { buy_count: 3, gaps: [7, 7] }))
+    ).toBe(7);
+  });
+});
+
+describe("dueState", () => {
+  const rhythm = { buy_count: 6, gaps: [7, 7, 6, 8] };
+
+  it("is unknown without enough history", () => {
+    expect(dueState(entry("Salt", 400, { buy_count: 2, gaps: [60] }), NOW)).toBe(
+      "unknown"
+    );
+  });
+
+  it("is stocked inside the rhythm and due once past it", () => {
+    expect(dueState(entry("Milk", 3, rhythm), NOW)).toBe("stocked");
+    expect(dueState(entry("Milk", 7, rhythm), NOW)).toBe("due");
+    expect(dueState(entry("Milk", 12, rhythm), NOW)).toBe("due");
+  });
+
+  it("stops calling something due once it has clearly been abandoned", () => {
+    // Without the ceiling, every item eventually becomes due and stays that
+    // way, and something abandoned years ago would rank first.
+    expect(dueState(entry("Milk", 21, rhythm), NOW)).toBe("due");
+    expect(dueState(entry("Milk", 22, rhythm), NOW)).toBe("unknown");
+  });
+});
+
+describe("dueEntries", () => {
+  const pantry = [
+    // 3 days past a 7-day rhythm → ratio 1.43
+    entry("Milk", 10, { buy_count: 9, gaps: [7, 7, 6, 8] }),
+    // 5 days past a 90-day rhythm → ratio 1.06
+    entry("Rice", 95, { buy_count: 5, gaps: [90, 88, 92] }),
+    // well inside its rhythm
+    entry("Coffee", 4, { buy_count: 8, gaps: [14, 15, 13] }),
+    // no rhythm known
+    entry("Sparklers", 300, { buy_count: 1 }),
+  ];
+
+  it("offers only what is past its own rhythm", () => {
+    expect(dueEntries(pantry, { now: NOW }).map((e) => e.title)).toEqual([
+      "Milk",
+      "Rice",
+    ]);
+  });
+
+  it("ranks by how far past the rhythm, not by age", () => {
+    // Rice is 95 days old and milk 10, but milk is the one that has run out.
+    expect(dueEntries(pantry, { now: NOW })[0].title).toBe("Milk");
+  });
+
+  it("leaves out what is already on the list", () => {
+    expect(
+      dueEntries(pantry, { now: NOW, onList: [{ title: "Milk" }] }).map(
+        (e) => e.title
+      )
+    ).toEqual(["Rice"]);
+  });
+
+  it("caps the strip so it never becomes a second list", () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      entry(`Item ${i}`, 30, { buy_count: 5, gaps: [7, 7, 7] })
+    );
+    expect(dueEntries(many, { now: NOW }).length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("cadenceLabel", () => {
+  it("hedges the wording, since a few trips cannot support a precise claim", () => {
+    expect(cadenceLabel(entry("a", 0, { buy_count: 4, gaps: [7, 7, 7] }))).toBe(
+      "about weekly"
+    );
+    expect(cadenceLabel(entry("a", 0, { buy_count: 4, gaps: [30, 30, 30] }))).toBe(
+      "about monthly"
+    );
+    expect(cadenceLabel(entry("a", 0, { buy_count: 4, gaps: [21, 21, 21] }))).toBe(
+      "every 3 weeks"
+    );
+    expect(cadenceLabel(entry("a", 0, { buy_count: 4, gaps: [90, 92, 88] }))).toBe(
+      "every 3 months"
+    );
+    expect(cadenceLabel(entry("a", 0, { buy_count: 4, gaps: [3, 3, 3] }))).toBe(
+      "every 3 days"
+    );
+  });
+
+  it("says nothing when the rhythm is unknown", () => {
+    expect(cadenceLabel(entry("a", 0, { buy_count: 1 }))).toBe("");
+  });
+});
+
+describe("pantryBands exclude", () => {
+  it("drops what the due strip has already shown", () => {
+    // Excluded from the bands below, so nothing is offered twice on one screen.
+    const pantry = [entry("Milk", 3), entry("Rice", 30)];
+    const bands = pantryBands(pantry, { now: NOW, exclude: ["milk"] });
+    const titles = bands.flatMap((b) => b.entries.map((e) => e.title));
+    expect(titles).toEqual(["Rice"]);
   });
 });

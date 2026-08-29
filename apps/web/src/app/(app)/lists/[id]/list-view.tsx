@@ -38,6 +38,8 @@ import {
   lastBoughtLabel,
   pantryBands,
   searchPantry,
+  cadenceLabel,
+  dueEntries,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
@@ -132,9 +134,23 @@ export function ListView({
     it makes an accidental tick self-correcting: un-ticking puts the row back on
     the list, which hides its pantry entry again.
   */
+  /*
+    Entries past their own measured buying rhythm.
+
+    A sharper version of the three bands. Two weeks and two months approximate a
+    rhythm, so they mis-sort some items: rice bought three weeks ago lands next
+    to a one-off. Once an item has been bought three times, its own gaps answer
+    the question directly.
+
+    The bands remain, and are the right answer while `buy_count` is 1 or 2 —
+    which is everything on the first shop after this ships, and a shrinking
+    share of entries afterwards.
+  */
+  const due = useMemo(() => dueEntries(pantry, { onList: items }), [pantry, items]);
   const bands = useMemo(
-    () => pantryBands(pantry, { onList: items }),
-    [pantry, items]
+    // Excluded from the bands below, so nothing is offered twice on one screen.
+    () => pantryBands(pantry, { onList: items, exclude: due.map((e) => e.term) }),
+    [pantry, items, due]
   );
   const pantryCount = useMemo(
     () => bands.reduce((n, b) => n + b.entries.length, 0),
@@ -484,6 +500,39 @@ export function ListView({
         )}
       </div>
 
+      {/*
+        Sits above the list rather than inside the drawer. This is a prompt
+        about the trip you are about to make, not a record of past ones, so it
+        has to be seen before shopping rather than found afterwards.
+      */}
+      {due.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900/60 dark:bg-indigo-950/20">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-indigo-500">
+            Probably due
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {due.map((entry) => (
+              <li key={entry.term}>
+                <button
+                  type="button"
+                  onClick={() => void addFromPantry(entry)}
+                  title={`${cadenceLabel(entry)} · last bought ${lastBoughtLabel(entry.last_bought_at)}`}
+                  className="flex items-center gap-1.5 rounded-full border border-indigo-300 bg-white px-3 py-1.5 text-sm text-neutral-800 hover:border-indigo-500 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <span aria-hidden className="text-indigo-500">
+                    +
+                  </span>
+                  {entry.title}
+                  <span className="text-xs text-neutral-400">
+                    {lastBoughtLabel(entry.last_bought_at)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {open.length === 0 && got.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-neutral-200 py-12 text-center dark:border-neutral-800">
           <p className="text-sm text-neutral-500">Nothing on this list.</p>
@@ -629,9 +678,14 @@ function PantryBandView({
               <span className="truncate text-sm text-neutral-700 dark:text-neutral-300">
                 {entry.title}
               </span>
-              <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-400">
-                {entry.store ? `${entry.store} · ` : ""}
-                {lastBoughtLabel(entry.last_bought_at)}
+              <span className="ml-auto shrink-0 text-xs text-neutral-400">
+                {[
+                  entry.store,
+                  cadenceLabel(entry),
+                  lastBoughtLabel(entry.last_bought_at),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </button>
             {/*
