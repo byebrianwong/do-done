@@ -7,7 +7,7 @@ describe("must", () => {
   });
 
   it("returns an empty list that really is empty", () => {
-    // The whole point: `[]` with no error is a real answer and must pass
+    // The rule under test: `[]` with no error is a real answer and must pass
     // through to the page's own empty state.
     expect(must({ data: [], error: null }, "your tasks")).toEqual([]);
   });
@@ -89,7 +89,7 @@ describe("mustRow", () => {
 
   it("throws for an error carrying no code at all", () => {
     // A transport failure has no PostgREST code. Absent evidence of "no rows",
-    // the honest answer is that the read failed.
+    // the only safe conclusion is that the read failed.
     expect(() =>
       mustRow({ data: null, error: new Error("fetch failed") }, "this task")
     ).toThrow(ReadError);

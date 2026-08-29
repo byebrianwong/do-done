@@ -103,7 +103,7 @@ describe("useDeleteTasks", () => {
     const undo = screen.getByRole("button", { name: /undo/i });
     await act(() => void undo.click());
     // Restored, not recreated — the row was never destroyed, so Undo gives back
-    // the same task rather than a copy wearing its title.
+    // the same task rather than a new row with the same title.
     expect(restoreSpy).toHaveBeenCalledTimes(1);
   });
 

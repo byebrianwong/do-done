@@ -12,9 +12,9 @@ import { SortableProjectList } from "./sortable-project-list";
 /**
  * Pressed state, shared by every clickable row in the sidebar.
  *
- * This is the only feedback that costs nothing to produce: it lands on
- * pointer-down, before React, the router or the network are involved. The
- * short, explicit duration is the point — Tailwind's default 150ms on a
+ * This is the cheapest feedback available: it lands on pointer-down, before
+ * React, the router or the network are involved. The short, explicit duration
+ * matters — Tailwind's default 150ms on a
  * `transition-colors` is tuned for hover, and reads as lag on a press.
  */
 const PRESS = "transition-[background-color,color,transform] duration-75 active:scale-[0.985]";
