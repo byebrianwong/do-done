@@ -9,7 +9,14 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import type { Aisle, AisleMemory, Project, Task } from "@do-done/shared";
+import type {
+  Aisle,
+  AisleMemory,
+  PantryBand,
+  PantryEntry,
+  Project,
+  Task,
+} from "@do-done/shared";
 import {
   aisleOptions,
   gotItems,
@@ -28,9 +35,13 @@ import {
   extractStoreToken,
   withAisle,
   withStoreHint,
+  lastBoughtLabel,
+  pantryBands,
+  searchPantry,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
+import { getClientPantryApi } from "@/lib/supabase/pantry-client";
 import { useOpenTask } from "@/lib/open-task";
 
 interface ListViewProps {
@@ -98,12 +109,57 @@ export function ListView({
     them the moment something was ticked would be empty when it is most useful.
   */
   const stores = useMemo(() => storesOnList(items), [items]);
+  /*
+    Everything ever bought on this list.
+
+    Loaded on the client rather than passed from the server. The drawer changes
+    on every tick, so a server prop would be one refresh behind the action that
+    changed it. It is also the only source available to the demo sandbox, which
+    is why the aisle memory reloads here too.
+  */
+  const [pantry, setPantry] = useState<PantryEntry[]>([]);
+  const reloadPantry = useCallback(async () => {
+    const api = await getClientPantryApi();
+    const { data } = await api.load(list.id);
+    setPantry(data);
+  }, [list.id]);
+  useEffect(() => {
+    void reloadPantry();
+  }, [reloadPantry]);
+  /*
+    Anything already on the list is left out of the drawer and the composer's
+    suggestions. Offering to put back what is on screen is noise, and excluding
+    it makes an accidental tick self-correcting: un-ticking puts the row back on
+    the list, which hides its pantry entry again.
+  */
+  const bands = useMemo(
+    () => pantryBands(pantry, { onList: items }),
+    [pantry, items]
+  );
+  const pantryCount = useMemo(
+    () => bands.reduce((n, b) => n + b.entries.length, 0),
+    [bands]
+  );
   // What the composer is typing after an `@`, or null if no token is open. An
   // empty string is a real answer: a bare `@` opens the full list.
   const storeQuery = typingStoreToken(draft);
   const storeMatches = useMemo(
     () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
     [stores, storeQuery]
+  );
+  /*
+    The composer's memory. A few keystrokes should be enough to put back
+    something bought repeatedly, with its store already attached.
+
+    Only runs while no `@` token is open. The two suggestion sets answer
+    different questions, and one dropdown cannot mean both at once.
+  */
+  const pantryMatches = useMemo(
+    () =>
+      storeQuery !== null
+        ? []
+        : searchPantry(pantry, draft, { onList: items }),
+    [pantry, draft, items, storeQuery]
   );
   /**
    * The aisle memory, seeded from the server and then owned here.
@@ -167,6 +223,44 @@ export function ListView({
     startTransition(() => router.refresh());
   }
 
+  /**
+   * Adds an item back to the list from the pantry.
+   *
+   * It arrives with the store it was last bought at. That is the difference
+   * between taking a suggestion and typing the word again.
+   */
+  async function addFromPantry(entry: PantryEntry) {
+    if (busy) return;
+    setDraft("");
+    setBusy(true);
+    const api = await getClientTasksApi();
+    const { data } = await api.create({
+      title: entry.title,
+      project_id: list.id,
+      ...(entry.store ? { tags: [storeTag(entry.store)] } : {}),
+    });
+    setBusy(false);
+    inputRef.current?.focus();
+    if (!data) return;
+    setItems((prev) =>
+      prev.some((t) => t.id === data.id) ? prev : [...prev, data]
+    );
+    setAddedCount((n) => n + 1);
+    startTransition(() => router.refresh());
+  }
+
+  /**
+   * Deletes a pantry entry. The only destructive action on this screen.
+   *
+   * Putting a list away is safe now, so it stays one tap. The friction sits
+   * here instead, on the action that cannot be undone.
+   */
+  async function forget(entry: PantryEntry) {
+    setPantry((prev) => prev.filter((e) => e.term !== entry.term));
+    const api = await getClientPantryApi();
+    await api.forget(list.id, entry.term);
+  }
+
   async function toggle(item: Task) {
     const nextDone = item.status !== "done";
     setItems((prev) =>
@@ -183,6 +277,9 @@ export function ListView({
     const api = await getClientTasksApi();
     if (nextDone) await api.complete(item.id);
     else await api.reopen(item.id);
+    // Ticking writes to the pantry, so the drawer has to reload. Awaited, or
+    // the reload races the write that caused it and the entry appears late.
+    if (nextDone) await reloadPantry();
     startTransition(() => router.refresh());
   }
 
@@ -245,11 +342,23 @@ export function ListView({
       <div className="flex items-baseline gap-3">
         <p className="text-xs text-neutral-500">{listSubline(summary)}</p>
         {got.length > 0 && (
+          /*
+            "Put away", not "Clear bought".
+
+            The write is the same — items are still soft-deleted — but nothing
+            important is lost, because each was recorded in the pantry when it
+            was ticked. That is why this stays a single unconfirmed tap on one
+            of the most repeated actions in the app. Adding friction here would
+            cost time every trip to prevent a loss that no longer happens. The
+            friction sits on deleting a pantry entry instead, which is the
+            action that really cannot be undone.
+          */
           <button
             onClick={clearGot}
+            title="Move the bought items off the list. They stay in Bought before."
             className="ml-auto rounded-lg border border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 active:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            Clear bought
+            Put away
           </button>
         )}
       </div>
@@ -283,6 +392,14 @@ export function ListView({
                 setDraft(applyStoreToken(draft, storeMatches[0]));
                 return;
               }
+              // A pantry hit is added straight away rather than completed
+              // into the field. Requiring a second keystroke to confirm would
+              // undo the speed the suggestion exists to provide.
+              if (e.key === "Tab" && !e.shiftKey && pantryMatches.length > 0) {
+                e.preventDefault();
+                void addFromPantry(pantryMatches[0]);
+                return;
+              }
               if (e.key === "Enter") {
                 e.preventDefault();
                 void addItem();
@@ -307,6 +424,35 @@ export function ListView({
           Rendered only when there is something to offer, so a list with no
           stores yet does not show an empty panel on the first `@`.
         */}
+        {storeMatches.length === 0 && pantryMatches.length > 0 && (
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+            {pantryMatches.map((entry, i) => (
+              <li key={entry.term}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void addFromPantry(entry)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                >
+                  <span aria-hidden className="text-neutral-400">
+                    ↩
+                  </span>
+                  <span className="truncate">{entry.title}</span>
+                  <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-neutral-400">
+                    {entry.store && <span>{entry.store}</span>}
+                    <span>{lastBoughtLabel(entry.last_bought_at)}</span>
+                    {i === 0 && (
+                      <kbd className="rounded border border-neutral-200 px-1 text-[10px] dark:border-neutral-700">
+                        Tab
+                      </kbd>
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {storeMatches.length > 0 && (
           <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
             {storeMatches.map((name, i) => (
@@ -382,6 +528,34 @@ export function ListView({
         ))
       )}
 
+      {/*
+        Everything ever bought on this list, in three bands.
+
+        The drawer is what makes "Put away" safe. A ticked item is recorded
+        immediately, so putting the list away moves things here rather than
+        destroying them, and putting one back is a click.
+
+        Only the first band is open by default. After a year "Earlier" holds
+        hundreds of rows, and a list screen should not open two screens below
+        its own list. The composer's search is the way into that band.
+      */}
+      {pantryCount > 0 && (
+        <div className="mt-2 flex flex-col gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-indigo-500">
+            Bought before · {pantryCount}
+          </p>
+          {bands.map((band, i) => (
+            <PantryBandView
+              key={band.key}
+              band={band}
+              defaultOpen={i === 0}
+              onAdd={addFromPantry}
+              onForget={forget}
+            />
+          ))}
+        </div>
+      )}
+
       {got.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
@@ -403,6 +577,80 @@ export function ListView({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Renders one band of the pantry drawer.
+ *
+ * Uses <details> rather than a hand-rolled disclosure. The element is exactly
+ * open/closed state with a label, and it is keyboard-operable and announced to
+ * screen readers without extra work.
+ */
+function PantryBandView({
+  band,
+  defaultOpen,
+  onAdd,
+  onForget,
+}: {
+  band: PantryBand;
+  defaultOpen: boolean;
+  onAdd: (entry: PantryEntry) => void;
+  onForget: (entry: PantryEntry) => void;
+}) {
+  return (
+    <details open={defaultOpen} className="group/band">
+      <summary className="cursor-pointer list-none font-mono text-[10px] uppercase tracking-wider text-neutral-400 marker:content-none hover:text-neutral-600 dark:hover:text-neutral-300">
+        <span aria-hidden className="inline-block w-3 transition-transform group-open/band:rotate-90">
+          ›
+        </span>
+        {band.label} · {band.entries.length}
+      </summary>
+      <ul className="mt-1 grid gap-x-8 lg:grid-cols-2">
+        {band.entries.map((entry) => (
+          <li
+            key={entry.term}
+            className="group/pantry flex items-center gap-2 border-b border-neutral-100 py-1 dark:border-neutral-800/70"
+          >
+            {/*
+              The name is the button. Unlike an item row, nothing else competes
+              for the tap: a pantry entry has one possible action, so the words
+              can be the target.
+            */}
+            <button
+              type="button"
+              onClick={() => onAdd(entry)}
+              title={`Put ${entry.title} back on the list`}
+              className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+            >
+              <span aria-hidden className="text-neutral-300 group-hover/pantry:text-indigo-500 dark:text-neutral-600">
+                +
+              </span>
+              <span className="truncate text-sm text-neutral-700 dark:text-neutral-300">
+                {entry.title}
+              </span>
+              <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-400">
+                {entry.store ? `${entry.store} · ` : ""}
+                {lastBoughtLabel(entry.last_bought_at)}
+              </span>
+            </button>
+            {/*
+              Deleting is the only irreversible action on this screen, so it is
+              the only control hidden until you point at its row.
+            */}
+            <button
+              type="button"
+              onClick={() => onForget(entry)}
+              aria-label={`Never suggest ${entry.title} again`}
+              title="Never suggest this again"
+              className="shrink-0 rounded px-1 text-xs text-neutral-300 opacity-0 transition-opacity hover:text-red-500 focus:opacity-100 group-hover/pantry:opacity-100 dark:text-neutral-600"
+            >
+              ✕
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

@@ -658,11 +658,44 @@ export class TasksApi {
       await this.cascadeProject(id, updated.project_id);
     }
 
+    const userId = this.userId;
+    const supabase = this.supabase;
+
+    /*
+      Ticking a shopping item off records it in the pantry.
+
+      Done here rather than at each place a tick happens, because this is the
+      single door web, mobile and MCP all write through. The other candidate was
+      `clearGot`, which would miss two cases: an item ticked but never cleared,
+      and an item deleted by hand after being bought.
+
+      Fire-and-forget, and errors are swallowed, for the same reason as the pet
+      code below it. The task row is already correct, and a lost pantry entry
+      costs one extra correction later, where a failed tick costs the user the
+      thing they came to the shop for.
+    */
+    if (isCompletionTransition && updated.is_list_item && updated.project_id) {
+      const listId = updated.project_id;
+      void (async () => {
+        try {
+          const [{ PantryApi }, { storeHint }] = await Promise.all([
+            import("./pantry.js"),
+            import("@do-done/shared"),
+          ]);
+          await new PantryApi(supabase, userId).record(
+            listId,
+            updated.title,
+            storeHint(updated)
+          );
+        } catch {
+          // swallow — the pantry must never break a tick
+        }
+      })();
+    }
+
     // Pet feeding — completion + edit are independent and may both fire on
     // the same write (e.g. user saves the task with a new description AND
     // marks it done in one PATCH).
-    const userId = this.userId;
-    const supabase = this.supabase;
     if (isCompletionTransition || prior !== null) {
       void (async () => {
         try {

@@ -10,6 +10,7 @@ export {
 export type { AttachmentUpload } from "./attachments.js";
 export { ProjectsApi } from "./projects.js";
 export { AisleTermsApi } from "./aisle-terms.js";
+export { PantryApi } from "./pantry.js";
 export { LocationsApi } from "./locations.js";
 export type { LocationWithPending } from "./locations.js";
 export { PetsApi } from "./pets.js";

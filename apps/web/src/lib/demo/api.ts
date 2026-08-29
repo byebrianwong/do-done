@@ -6,6 +6,7 @@ import type {
   CreateTaskInput,
   DisplayConfig,
   Location,
+  PantryEntry,
   Project,
   Task,
   TaskFilterInput,
@@ -24,6 +25,8 @@ import {
   isListProject,
   learnableTerm,
   splitProjects,
+  daysSince,
+  storeHint,
 } from "@do-done/shared";
 import type { Aisle, AisleMemory } from "@do-done/shared";
 import type {
@@ -32,12 +35,14 @@ import type {
   BulkUpdateResult,
   LocationsApi,
   LocationWithPending,
+  PantryApi,
   ProjectsApi,
   TasksApi,
   UserPrefsApi,
 } from "@do-done/api-client";
 import { TASK_COMPLETE_EXIT_MS, TASK_DELETE_EXIT_MS } from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
+import { demoPantryFor } from "./seed";
 import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
 
 /**
@@ -346,6 +351,19 @@ class DemoTasksApiImpl {
     );
     if (becomingDone || leavingDone) this.writeCompletion(next);
     else this.write(next);
+    /*
+      Records the buy, mirroring the same branch in `TasksApi.update`. The
+      sandbox needs its own copy because its writes never reach the real API. A
+      rule enforced only there would leave the demo drawer frozen at whatever
+      the seed installed, on the one surface built for trying the feature out.
+    */
+    if (becomingDone && updated.is_list_item && updated.project_id) {
+      void demoPantry.record(
+        updated.project_id,
+        updated.title,
+        storeHint(updated)
+      );
+    }
     return ok(updated);
   }
 
@@ -927,9 +945,89 @@ class DemoAisleTermsApiImpl {
   }
 }
 
+/**
+ * The sandbox's pantry.
+ *
+ * Unlike the aisle memory beside it, this is seeded. An empty drawer shows
+ * nothing useful: the feature is about what a list looks like after months of
+ * shopping, and a first-time visitor has no history of their own.
+ */
+class DemoPantryApiImpl {
+  private entries = new Map<string, Map<string, PantryEntry>>();
+
+  private forList(listId: string): Map<string, PantryEntry> {
+    let list = this.entries.get(listId);
+    if (!list) {
+      list = new Map();
+      // Filled from the seed on first access rather than at module load. List
+      // ids are only known once the seed has assigned them, and a visitor who
+      // never opens Amazon should not pay for building its history.
+      for (const entry of demoPantryFor(listId)) list.set(entry.term, entry);
+      this.entries.set(listId, list);
+    }
+    return list;
+  }
+
+  /** Installs a starting history, as the seed does on first render. */
+  preload(listId: string, entries: PantryEntry[]) {
+    const list = this.forList(listId);
+    for (const entry of entries) if (!list.has(entry.term)) list.set(entry.term, entry);
+  }
+
+  async load(listId: string) {
+    return {
+      data: [...this.forList(listId).values()].sort((a, b) =>
+        b.last_bought_at.localeCompare(a.last_bought_at)
+      ),
+      error: null,
+    };
+  }
+
+  async record(listId: string, title: string, store: string | null = null) {
+    const term = learnableTerm(title);
+    if (!term) return { term: null, error: null };
+    const list = this.forList(listId);
+    const prev = list.get(term);
+    const now = nowISO();
+    if (!prev) {
+      list.set(term, {
+        term,
+        title,
+        last_bought_at: now,
+        buy_count: 1,
+        gaps: [],
+        store,
+      });
+      return { term, error: null };
+    }
+    // The same-day rule from `record_pantry_buy`: two ticks in one day count as
+    // one shop. This is also what makes tick / untick / tick harmless.
+    const gap = daysSince(prev.last_bought_at, new Date(now));
+    list.set(term, {
+      ...prev,
+      title,
+      store: store ?? prev.store,
+      ...(gap === 0
+        ? {}
+        : {
+            last_bought_at: now,
+            buy_count: prev.buy_count + 1,
+            gaps: [...prev.gaps, gap].slice(-10),
+          }),
+    });
+    return { term, error: null };
+  }
+
+  async forget(listId: string, term: string) {
+    this.forList(listId).delete(term);
+    return { error: null };
+  }
+}
+
 const demoLocations = new DemoLocationsApiImpl();
 const demoProjects = new DemoProjectsApiImpl();
 const demoAisleTerms = new DemoAisleTermsApiImpl();
+const demoPantry = new DemoPantryApiImpl();
 const demoPrefs = new DemoUserPrefsApiImpl();
 
 // Structural doubles, so the casts are the seam's one deliberate lie. They are
@@ -941,3 +1039,7 @@ export const demoLocationsApi = demoLocations as unknown as LocationsApi;
 export const demoProjectsApi = demoProjects as unknown as ProjectsApi;
 export const demoUserPrefsApi = demoPrefs as unknown as UserPrefsApi;
 export const demoAisleTermsApi = demoAisleTerms as unknown as AisleTermsApi;
+export const demoPantryApi = demoPantry as unknown as PantryApi;
+/** Lets the seed install a history, so a visitor arrives with one. */
+export const preloadDemoPantry = (listId: string, entries: PantryEntry[]) =>
+  demoPantry.preload(listId, entries);
