@@ -12,8 +12,14 @@ import { Stack } from 'expo-router';
 export default function ListsLayout() {
   return (
     <Stack>
-      {/* The index draws its own title bar, like every other tab root. */}
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      {/* The index draws its own title bar, like every other tab root — but
+          it still needs a `title`, because that is what the pushed screen's
+          back button is labelled with. Without it the button reads "index",
+          the route's filename. */}
+      <Stack.Screen
+        name="index"
+        options={{ headerShown: false, title: 'Lists' }}
+      />
       <Stack.Screen name="[id]" options={{ headerShown: true }} />
     </Stack>
   );
