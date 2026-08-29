@@ -15,6 +15,7 @@ import {
   gotItems,
   groupByAisle,
   itemAisle,
+  itemSubline,
   listSubline,
   openItems,
   summarizeList,
@@ -264,7 +265,7 @@ export function ListView({
                 {group.label}
               </p>
             )}
-            <ul className="grid gap-x-8 sm:grid-cols-2">
+            <ul className="grid gap-x-8 lg:grid-cols-2">
               {group.items.map((item) => (
                 <ItemRow
                   key={item.id}
@@ -288,7 +289,7 @@ export function ListView({
           {/* The cart is never grouped: it's a record of what happened, not a
               route through anything, and aisle headers over it would imply
               there was still something to walk. */}
-          <ul className="grid gap-x-8 sm:grid-cols-2">
+          <ul className="grid gap-x-8 lg:grid-cols-2">
             {got.map((item) => (
               <ItemRow
                 key={item.id}
@@ -325,13 +326,28 @@ function ItemRow({
 }) {
   const done = item.status === "done" || item.status === "cancelled";
   const aisle = itemAisle(item, memory);
-  const titleClass = `block w-full truncate text-left text-sm ${
+  /*
+    No `truncate`. An item name is short, so two lines is a sensible ceiling.
+    A one-line ellipsis was hiding the end of anything longer than a word or
+    two, inside a grid that had already halved the available width.
+    `break-words` handles the one case wrapping cannot: a single long string
+    with nowhere to break.
+  */
+  const titleClass = `block w-full break-words text-left text-sm ${
     done
       ? "text-neutral-400 line-through dark:text-neutral-600"
       : "text-neutral-900 dark:text-neutral-100"
   }`;
+  // The store and the day as one muted line, the same shape `rowSubline` gives
+  // a task row. Empty for most items, in which case nothing renders.
+  const subline = itemSubline(item).join(" · ");
   return (
-    <li className="group/item flex items-center gap-3 border-b border-neutral-100 dark:border-neutral-800/70">
+    /*
+      `items-start`, not `items-center`. A row can now be two lines of title
+      plus a subline, and a ring centred against that looks detached from the
+      word it ticks off.
+    */
+    <li className="group/item flex items-start gap-3 border-b border-neutral-100 dark:border-neutral-800/70">
       {/*
         Ticking is the circle's job and only the circle's. The row's words are
         the door into the item, so the two cannot be one control: a click meant
@@ -370,17 +386,22 @@ function ItemRow({
         </span>
       </button>
 
-      <span className="min-w-0 flex-1">
+      <span className="flex min-w-0 flex-1 flex-col py-2">
         {onOpen ? (
           <button
             type="button"
             onClick={() => onOpen(item)}
-            className={`${titleClass} py-2`}
+            className={titleClass}
           >
             {item.title}
           </button>
         ) : (
-          <span className={`${titleClass} py-2`}>{item.title}</span>
+          <span className={titleClass}>{item.title}</span>
+        )}
+        {subline && (
+          <span className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+            {subline}
+          </span>
         )}
       </span>
 
@@ -396,7 +417,7 @@ function ItemRow({
         `hidden`, so tabbing still reaches it.
       */}
       {onAisle && (
-        <label className="shrink-0">
+        <label className="shrink-0 self-center">
           <span className="sr-only">Aisle for {item.title}</span>
           <select
             value={aisle ?? ""}

@@ -1,5 +1,7 @@
 import type { Project, Task } from "./schemas.js";
 import { isListProject } from "./schemas.js";
+import { shortDayLabel } from "./task-row.js";
+import { formatRelativeDay, formatTimeOfDay, isOverdue } from "./utils.js";
 
 /**
  * Shopping lists: the decisions, as pure functions.
@@ -159,6 +161,84 @@ export function sameStore(a: string, b: string): boolean {
 export function normalizeStore(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
+// ── The item row ───────────────────────────────────
+
+/**
+ * Builds the muted line under an item's name, e.g. "Trader Joe's · Sat Aug 30".
+ *
+ * An unset field adds nothing to the line: no placeholder, no empty chip, no
+ * reserved space. Most items have a name and nothing else, so most rows are a
+ * single word. This matches how `rowSubline` treats a task.
+ *
+ * This does not call `rowSubline`, because a shopping item and a task need
+ * different facts. An item has no project worth naming (it is the list you are
+ * looking at), no status worth naming (the tick says it), and no recurrence. It
+ * does have a store, which a task row has nowhere to show. The only shared part
+ * is the date, which is one call to `shortDayLabel`.
+ *
+ * The caller joins the parts with a middot, same as `rowSubline`.
+ */
+export interface ItemSublineContext {
+  now?: Date;
+  /**
+   * Leave the store out — for a list already grouped by store, where the
+   * header above the row has just named it. The store-shaped twin of
+   * `rowSubline`'s `projectName: null`.
+   */
+  hideStore?: boolean;
+}
+
+export function itemSubline(item: Task, ctx: ItemSublineContext = {}): string[] {
+  const now = ctx.now ?? new Date();
+  const parts: string[] = [];
+
+  if (!ctx.hideStore) {
+    const store = storeHint(item);
+    if (store) parts.push(store);
+  }
+
+  // A bought item stops here. Its date is no longer actionable once it is in
+  // the cart, so printing it would just label the cart with stale days.
+  if (isGot(item)) return parts;
+
+  const when = schedulePart(item, now);
+  if (when) parts.push(when);
+  if (item.deadline_date) {
+    const label = shortDayLabel(item.deadline_date, now);
+    if (label) parts.push(`Deadline ${label}`);
+  }
+
+  return parts;
+}
+
+/**
+ * Formats the scheduled day, or the item's age once it is overdue.
+ *
+ * Overdue items print "3 days ago" rather than a date, same as the task row.
+ * That is the actionable form: it tells you this is something you keep
+ * forgetting, not just something dated.
+ *
+ * There is no `hideScheduledDay` option. A shopping list groups by aisle, and
+ * an aisle header never names a day, so nothing would ever pass it.
+ */
+function schedulePart(item: Task, now: Date): string {
+  const date = item.scheduled_date;
+  const time = item.scheduled_time ? formatTimeOfDay(item.scheduled_time) : "";
+  if (!date) return time;
+
+  if (isOverdue(item, now)) {
+    const age = formatRelativeDay(date, now);
+    const phrase = age
+      ? age.charAt(0).toUpperCase() + age.slice(1)
+      : shortDayLabel(date, now);
+    return time ? `${phrase}, ${time}` : phrase;
+  }
+
+  const day = shortDayLabel(date, now);
+  return time ? `${day} ${time}` : day;
+}
+
 
 // ── Summarising a list ─────────────────────────────────
 
