@@ -18,8 +18,16 @@ import {
   itemSubline,
   listSubline,
   openItems,
+  storeHint,
+  storeSuggestions,
+  storeTag,
+  storesOnList,
   summarizeList,
+  typingStoreToken,
+  applyStoreToken,
+  extractStoreToken,
   withAisle,
+  withStoreHint,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
@@ -84,6 +92,19 @@ export function ListView({
   const open = openItems(items);
   const got = gotItems(items);
   const summary = summarizeList(items);
+  /*
+    Every store already named on this list, most-used first. Bought items count
+    too. The cart holds last week's stores, and a suggestion list that dropped
+    them the moment something was ticked would be empty when it is most useful.
+  */
+  const stores = useMemo(() => storesOnList(items), [items]);
+  // What the composer is typing after an `@`, or null if no token is open. An
+  // empty string is a real answer: a bare `@` opens the full list.
+  const storeQuery = typingStoreToken(draft);
+  const storeMatches = useMemo(
+    () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
+    [stores, storeQuery]
+  );
   /**
    * The aisle memory, seeded from the server and then owned here.
    *
@@ -111,19 +132,27 @@ export function ListView({
   );
 
   async function addItem() {
-    const title = draft.trim();
+    // `@` names a store, the way `#` names a project. Parsed here rather than
+    // in `parseTaskInput`, because elsewhere in the app `@` usually means a
+    // person. See `extractStoreToken`.
+    const { title, store } = extractStoreToken(draft);
     if (!title || busy) return;
     // Cleared *before* the write, not after: the field has to be ready for the
     // next word immediately, which is the whole point of the burst composer.
     setDraft("");
     setBusy(true);
     const api = await getClientTasksApi();
-    const { data, error } = await api.create({ title, project_id: list.id });
+    const { data, error } = await api.create({
+      title,
+      project_id: list.id,
+      ...(store ? { tags: [storeTag(store)] } : {}),
+    });
     setBusy(false);
     inputRef.current?.focus();
     if (error || !data) {
-      // Put it back rather than losing what they typed.
-      setDraft(title);
+      // Restore what they typed, `@store` included. Restoring the parsed title
+      // would silently drop the store when the network fails.
+      setDraft(store ? `${title} @${store}` : title);
       return;
     }
     // Append only if the row isn't already here. The optimistic add and the
@@ -185,6 +214,24 @@ export function ListView({
     startTransition(() => router.refresh());
   }
 
+  /**
+   * Sets or clears an item's store.
+   *
+   * One write, unlike an aisle correction, which is two. There is no lesson to
+   * record: a store describes this purchase, not the words. Buying batteries at
+   * Target once does not mean batteries always come from Target, whereas
+   * "bananas are produce" is a fact about the language and worth remembering.
+   */
+  async function setStore(item: Task, store: string | null) {
+    const tags = withStoreHint(item.tags, store);
+    setItems((prev) =>
+      prev.map((t) => (t.id === item.id ? { ...t, tags } : t))
+    );
+    const api = await getClientTasksApi();
+    await api.update(item.id, { tags });
+    startTransition(() => router.refresh());
+  }
+
   async function clearGot() {
     if (got.length === 0) return;
     setItems(open);
@@ -213,29 +260,81 @@ export function ListView({
         own — each row is one tap from being ticked or deleted, so a separate
         undo affordance here would be a third way to do the same thing.
       */}
-      <div className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-neutral-800">
-        <span aria-hidden className="text-indigo-500">
-          +
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={draft}
-          autoFocus
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void addItem();
-            }
-          }}
-          placeholder="Add an item — press Enter to keep going"
-          className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-        />
-        {addedCount > 0 && (
-          <span className="text-xs tabular-nums text-neutral-400">
-            {addedCount} added
+      <div className="relative">
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-neutral-800">
+          <span aria-hidden className="text-indigo-500">
+            +
           </span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              /*
+                Tab accepts the top suggestion, and only when there is one.
+                This is the binding `SuggestedFacets` already uses, so the two
+                never mean different things. With nothing to accept, Tab still
+                moves focus as normal.
+              */
+              if (e.key === "Tab" && !e.shiftKey && storeMatches.length > 0) {
+                e.preventDefault();
+                setDraft(applyStoreToken(draft, storeMatches[0]));
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void addItem();
+              }
+            }}
+            placeholder="Add an item — press Enter to keep going"
+            className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+          />
+          {addedCount > 0 && (
+            <span className="text-xs tabular-nums text-neutral-400">
+              {addedCount} added
+            </span>
+          )}
+        </div>
+
+        {/*
+          The stores already on this list, offered while an `@` token is open.
+          Two keystrokes and a click covers most shops, and typing a name that
+          is not in the list creates it. There is no separate "create" step,
+          because the token itself is the store.
+
+          Rendered only when there is something to offer, so a list with no
+          stores yet does not show an empty panel on the first `@`.
+        */}
+        {storeMatches.length > 0 && (
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+            {storeMatches.map((name, i) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  // The input must keep focus — this is a burst composer and
+                  // the next word is already coming.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setDraft(applyStoreToken(draft, name));
+                    inputRef.current?.focus();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                >
+                  <span aria-hidden className="text-neutral-400">
+                    @
+                  </span>
+                  {name}
+                  {i === 0 && (
+                    <kbd className="ml-auto rounded border border-neutral-200 px-1 text-[10px] text-neutral-400 dark:border-neutral-700">
+                      Tab
+                    </kbd>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
@@ -273,6 +372,8 @@ export function ListView({
                   onToggle={toggle}
                   onOpen={openTask?.open}
                   onAisle={setAisle}
+                  onStore={setStore}
+                  stores={stores}
                   memory={memory}
                 />
               ))}
@@ -310,6 +411,8 @@ function ItemRow({
   onToggle,
   onOpen,
   onAisle,
+  onStore,
+  stores = [],
   memory,
 }: {
   item: Task;
@@ -321,11 +424,16 @@ function ItemRow({
   onOpen?: (t: Task) => void;
   /** Absent in the cart, where an aisle no longer decides anything. */
   onAisle?: (t: Task, aisle: Aisle | null) => void;
+  /** Absent in the cart, for the same reason. */
+  onStore?: (t: Task, store: string | null) => void;
+  /** Stores already on this list, offered as completions. */
+  stores?: string[];
   /** So the select shows the aisle the row is actually filed under. */
   memory?: AisleMemory;
 }) {
   const done = item.status === "done" || item.status === "cancelled";
   const aisle = itemAisle(item, memory);
+  const store = storeHint(item);
   /*
     No `truncate`. An item name is short, so two lines is a sensible ceiling.
     A one-line ellipsis was hiding the end of anything longer than a word or
@@ -416,6 +524,49 @@ function ItemRow({
         a list at rest is a list of words. `sr-only`-style opacity rather than
         `hidden`, so tabbing still reaches it.
       */}
+      {/*
+        The store, as a text input backed by a <datalist>.
+
+        Not a <select>, because the answer is "one of these or a new one" and a
+        select cannot express the second half. That would make the composer the
+        only place a store could be created, which is wrong for the row you are
+        looking at when you realise the bread is better somewhere else. A
+        datalist gives suggestions and keyboard support with no popover to build.
+
+        Committed on blur and on Enter rather than per keystroke, since a store
+        is free text and writing every keystroke would send "T", "Tr", "Tra" to
+        the API on the way to "Target".
+      */}
+      {onStore && (
+        <label className="shrink-0 self-center">
+          <span className="sr-only">Store for {item.title}</span>
+          <input
+            type="text"
+            list={`stores-${item.id}`}
+            defaultValue={store ?? ""}
+            placeholder="Store"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                e.currentTarget.value = store ?? "";
+                e.currentTarget.blur();
+              }
+            }}
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next === (store ?? "")) return;
+              onStore(item, next || null);
+            }}
+            className="w-24 cursor-pointer rounded border-0 bg-transparent px-1 py-1 text-[11px] text-neutral-400 opacity-0 transition-opacity placeholder:text-neutral-400 focus:opacity-100 group-hover/item:opacity-100 dark:text-neutral-500"
+          />
+          <datalist id={`stores-${item.id}`}>
+            {stores.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </label>
+      )}
+
       {onAisle && (
         <label className="shrink-0 self-center">
           <span className="sr-only">Aisle for {item.title}</span>
