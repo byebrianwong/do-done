@@ -68,7 +68,7 @@ export const MINIMIZE_TRAVEL_PX = 24;
  *
  * The two failure modes are not symmetrical. A bar that minimized a little too
  * eagerly costs a glance; a bar that will not come back is the user pulling at
- * their own navigation and being told no. So getting it back is always the
+ * their own navigation and getting nothing back. So getting it back is always the
  * easier of the two gestures.
  */
 export const EXPAND_TRAVEL_PX = 12;

@@ -18,7 +18,7 @@ import { useEffect, useRef } from "react";
  * rows, and both of them are leaving.
  *
  * The deleter is what waits — see `useDeleteTasks`, which holds the refresh for
- * the animation's envelope. Nothing here is load-bearing for the data: a row
+ * the animation's envelope. Nothing here affects the data: a row
  * that never hears the event simply disappears the way it always did.
  */
 export const TASK_DELETING_EVENT = "do-done:task-deleting";

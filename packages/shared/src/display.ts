@@ -397,7 +397,7 @@ export interface DisplayContext {
   today?: string;
   /**
    * Let shopping-list items through the filter. Off by default, and that
-   * default is the point: a list item is not part of the task universe, so
+   * default matters here: a list item is not part of the task universe, so
    * every existing caller gets the isolation without being changed, and the
    * only surfaces that see items are the ones that asked.
    *

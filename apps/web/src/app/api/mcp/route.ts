@@ -15,7 +15,7 @@ const BEARER_PREFIX = "Bearer ";
 /**
  * 401 that tells the client how to authenticate.
  *
- * The `resource_metadata` pointer is the load-bearing part: per RFC 9728 it is
+ * The `resource_metadata` pointer is the part that matters: per RFC 9728 it is
  * how Claude discovers the authorization server and starts the OAuth flow.
  * Without it a client sees only an opaque "unauthorized" and gives up — which
  * is exactly what the static-token-only version of this route did.

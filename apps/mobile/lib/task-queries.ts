@@ -659,8 +659,8 @@ export interface DeleteTaskOptions {
    * play over it.
    *
    * Without it the optimistic patch drops the row on the same tick as the tap,
-   * which is the whole reason a deletion had no gesture: the row was there, and
-   * then it wasn't. Zero (the default) is the old behaviour, and is what a
+   * which is why a deletion had no gesture at all: the row was there, and then
+   * it was not. Zero (the default) is the old behaviour, and is what a
    * caller with nothing on screen to animate should pass.
    */
   holdMs?: number;

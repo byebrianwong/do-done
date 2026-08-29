@@ -248,7 +248,7 @@ export function AppPreview() {
       </div>
 
       <div className="flex">
-        {/* Sidebar — hidden on narrow screens, where the list is the point. */}
+        {/* Sidebar — hidden on narrow screens, where the list is what matters. */}
         <div className="hidden w-40 shrink-0 border-r border-neutral-200 bg-neutral-50 p-2.5 sm:block dark:border-neutral-800 dark:bg-neutral-950/40">
           <div className="mb-2.5 flex items-center gap-2 rounded-lg bg-indigo-500 px-2.5 py-1.5 text-[11px] font-semibold text-white">
             <svg

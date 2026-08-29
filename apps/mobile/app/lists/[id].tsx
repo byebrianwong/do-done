@@ -164,8 +164,7 @@ export default function ListDetailScreen() {
     const { title, store } = extractStoreToken(draft);
     if (!title) return;
     // Cleared before the write, never after: the field has to be ready for the
-    // next word on the same frame, which is the whole point of a burst
-    // composer. `blurOnSubmit={false}` keeps the keyboard up with it.
+    // next word on the same frame, which is what a burst composer is for. `blurOnSubmit={false}` keeps the keyboard up with it.
     setDraft('');
     try {
       await addListItem(listId, {
@@ -756,7 +755,7 @@ function ItemSheet({
             ))}
             {/* "Automatic", not "Other": clearing hands the word back to the
                 lexicon, which usually has an opinion — so the row does not
-                land in Other, and a label saying it would be a lie. */}
+                land in Other, so a label saying it would misdescribe it. */}
             <Pressable
               onPress={() => onAisle(item, null)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
@@ -778,7 +777,7 @@ function ItemSheet({
 /**
  * One thing to buy.
  *
- * Three gestures, and the split between the first two is the point: **the
+ * Three gestures, and the split between the first two is what matters: **the
  * circle ticks, the words open.** They used to be one target, so a tap meant
  * for "what did I write here" bought the thing instead — a mistake the user
  * has to notice and undo, on the surface they tap fastest.

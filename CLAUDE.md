@@ -1062,7 +1062,7 @@ scale to 80%, and the row goes from 50pt to 30pt. Scrolling up restores it. All
 five tabs stay in place and stay tappable the whole time.
 
 **It minimizes, it does not hide.** Hiding chrome is the pattern for reading
-surfaces, where the session is long and the content is the point. A task list is
+surfaces, where the session is long and the content is what matters. A task list is
 scan-and-act: you scroll to find a row, tick it or open it, and switching views
 is often the next thing you do. A switcher you have to scroll back up to reach
 has been taken away rather than tidied.
@@ -1090,7 +1090,7 @@ place are all derived from it on the UI thread. Two separate animations could
 only agree at the ends, which on a scroll-driven change is most of the time they
 are visible.
 
-### The bar floats, and lists must pay for that
+### The bar floats, so every list adds its own bottom padding
 
 `BottomTabView` lays its tab bar out as a flex sibling of the screens. A bar with
 an animating height in that flow would resize the screen, and therefore
@@ -1123,8 +1123,8 @@ on an actual flip, so the spring starts once per direction change.
   mind.
 - **Expanding is deliberately half the threshold of minimizing.** The failure
   modes are not symmetrical. A bar that minimized too eagerly costs a glance; a
-  bar that will not come back is the user pulling at their own navigation and
-  being told no.
+  bar that will not come back means the user is pulling at their own navigation
+  and getting nothing back.
 - **Neither rubber band is a gesture.** The top one is easy — it reads as a
   negative offset. The bottom one is not: flick to the end of a list and it
   overshoots ten or fifteen points and settles back, which arrives as a clean run
@@ -1147,7 +1147,7 @@ on an actual flip, so the spring starts once per direction change.
 - **Reduce Motion turns it off rather than making it instant.** Elsewhere in the
   app that setting lands on the end state, because the end state is the thing
   that happened — a task really is done and its row really is gone. Nothing
-  happened here. The minimize *is* the decoration, so the honest reading is to
+  happened here. The minimize *is* the decoration, so the right response is to
   leave the bar alone rather than jump-cut it between two sizes on every flick.
 - **A screen reader turns it off too.** VoiceOver and TalkBack scroll the list
   themselves, so the bar would resize under an exploring finger.
@@ -1611,8 +1611,9 @@ deletion     dim and tint where it stands, then slide LEFT           removed
 **Direction carries it.** Rightward continues mobile's swipe-right-to-complete;
 leftward continues the swipe that reveals Delete. A tap inherits each vector for
 free, and neither reads as the other even peripherally. The deletion is also
-*shorter* than the completion's 680ms and travels further: that hold is a beat to
-enjoy, this one only has to be long enough to see which row is going.
+*shorter* than the completion's 680ms and travels further. That hold marks a
+state the task passed through; this one only has to be long enough to see which
+row is going.
 
 Constants and their rationale live beside the completion's in
 `packages/shared/src/constants.ts`. `delete-motion.test.ts` asserts the
@@ -2701,8 +2702,8 @@ compose one. So `lib/digest-plan.ts` plans several occurrences out to `HORIZON_D
 the same reasoning, as the status-sync sweep.
 
 A repeating DAILY trigger is the obvious thing to reach for and is useless here: it would deliver the
-same frozen sentence every morning until the app was next opened, which for the user this serves is
-the whole point of failure.
+same frozen sentence every morning until the app was next opened — which is precisely how it would
+fail the user it is meant to serve.
 
 - **`MIN_LEAD_MS` (2 min) exists because re-arming cancels.** An app opened at 07:59:30 would
   otherwise cancel the 08:00 digest and schedule its replacement for an instant already past — which
@@ -2713,7 +2714,7 @@ the whole point of failure.
   fastest way to get the feature switched off — and it teaches the user to swipe this app's
   notifications away unread, which is also how they miss a location reminder. The settings screen
   says so, so the first quiet morning reads as the rule rather than as a bug. "Send one now" is the
-  one exception: the user asked, so "nothing today" is the honest answer to a button that exists to
+  one exception: the user asked, so "nothing today" is the correct answer to a button that exists to
   prove the feature works.
 - **Times resolve through `user_preferences.timezone`, never the device clock.** A digest is a
   wall-clock event in the user's life, and the two disagree while travelling. `zonedClockToUtc` does

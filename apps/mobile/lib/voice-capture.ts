@@ -321,8 +321,8 @@ export function useVoiceCapture(
         // than a broken one.
         continuous: true,
         addsPunctuation: true,
-        // The whole point: the recogniser writes the WAV it is already
-        // listening to, so nothing else has to open the microphone.
+        // The recogniser writes the WAV it is already listening to, so nothing
+        // else has to open the microphone.
         recordingOptions: { persist: true },
         volumeChangeEventOptions: { enabled: true, intervalMillis: 150 },
       });

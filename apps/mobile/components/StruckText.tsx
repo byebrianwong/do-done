@@ -144,8 +144,8 @@ const styles = StyleSheet.create({
   clip: {
     position: 'absolute',
     // Anchored left/top only — `right` is deliberately unset so the animated
-    // width is the one thing deciding how much shows. The whole point: the
-    // rules are laid out at full width and revealed by this container growing,
+    // width is the one thing deciding how much shows. The rules are laid out at
+    // full width and revealed by this container growing,
     // so every line draws from its own left edge at once.
     left: 0,
     top: 0,

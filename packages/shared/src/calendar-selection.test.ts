@@ -20,7 +20,7 @@ describe("isCalendarVisible", () => {
   });
 
   it("ignores Google's flags once a selection is stored", () => {
-    // Unticked in Google but not hidden in DoDone: the whole point of the
+    // Unticked in Google but not hidden in DoDone: the reason for the
     // picker is that the two lists can differ.
     expect(isCalendarVisible(cal("a"), [])).toBe(true);
     expect(isCalendarVisible(cal("b", { selected: true }), ["b"])).toBe(false);

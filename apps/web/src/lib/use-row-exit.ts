@@ -94,7 +94,7 @@ export function prefersReducedMotion(): boolean {
  *
  * Timers are cleared on unmount, but note what that does *not* cover: the
  * caller must have already written the change to the server before calling
- * `start`. Nothing here is load-bearing for the data, only for the pixels.
+ * `start`. Nothing here affects the data, only the pixels.
  */
 /**
  * A flag that is true for `ms` and then isn't, for marking a moment rather than

@@ -883,8 +883,8 @@ function ItemRow({
             {/*
               "Automatic", not "Other": clearing a correction hands the word
               back to the lexicon, which will usually have an opinion — so the
-              row does not land in the Other group, and a label saying it would
-              would be a lie about what the control does.
+              row does not land in the Other group, so a label saying it would
+              misdescribe what the control does.
             */}
             <option value="">Automatic</option>
             {aisleOptions().map((o) => (

@@ -460,7 +460,7 @@ const SYNC_ON = {
 /**
  * The horizon SYNC_ON resolves to right now. Derived the same way the code
  * derives it — through the preferences timezone, not the machine clock, which
- * is the whole point and is a day out from `todayLocalISO()` for half of each
+ * is the entire reason it exists, and is a day out from `todayLocalISO()` for half of each
  * day in the Americas.
  */
 const horizon = () =>
@@ -1090,7 +1090,7 @@ describe("TasksApi.restore", () => {
 
   it("never reads the rows it is restoring", async () => {
     // It can't: the RLS select policy hides deleted rows, so a read-then-write
-    // would find nothing to write. One blind UPDATE is the point.
+    // would find nothing to write. One blind UPDATE is the fix.
     const { supabase, ops } = makeOpStub();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api = new TasksApi(supabase as any, "user-1");
@@ -1203,7 +1203,7 @@ describe("the task universe excludes list items", () => {
   }
 
   it("filters is_list_item on every listing read", async () => {
-    // The whole point of routing the fifteen reads through read(): none of
+    // Why the fifteen reads all go through read(): none of
     // them had to be changed, and none of them can forget.
     for (const call of [
       (a: TasksApi) => a.list(),

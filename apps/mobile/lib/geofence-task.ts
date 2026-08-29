@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// Type-only, so it erases at compile and costs nothing at load. The dwell and
+// Type-only, so it erases at compile and adds nothing at load. The dwell and
 // cooldown *values* come from the same package but are pulled in dynamically
 // inside the handler — see the note below on what static imports cost here.
 import type { TriggerType } from '@do-done/shared';

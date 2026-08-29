@@ -99,8 +99,8 @@ export interface RowExit {
    */
   startDelete: () => void;
   /**
-   * True while a deletion is running — the hold included, which is the point:
-   * the hold is where the row still has its height and has to say it is going.
+   * True while a deletion is running, hold included. The hold is where the row
+   * still has its height and has to show that it is going.
    * Drives the red wash the row paints under itself.
    */
   deleting: boolean;
@@ -185,9 +185,9 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     // closes, and which way it travels is what tells the two exits apart.
     // Rightward continues the swipe that completes a task; leftward continues
     // the swipe that reveals Delete. Either way a tap inherits the vector for
-    // free. It costs nothing — `transform` never touches layout, so the
-    // collapse underneath is unaffected and the rows below still travel for
-    // exactly the collapse's duration.
+    // free, and it is free in layout terms as well: `transform` never touches
+    // layout, so the collapse underneath is unaffected and the rows below still
+    // travel for exactly the collapse's duration.
     transform: [
       { translateX: progress.value * slidePx.value },
       { scale: 1 - progress.value * (1 - slideScale.value) },

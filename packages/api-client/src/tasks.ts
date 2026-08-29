@@ -458,7 +458,7 @@ export class TasksApi {
    * Goes through PostgREST's `overlaps`, which is what the `idx_tasks_tags`
    * GIN index is there for — the alternative (fetch a page of tasks and
    * filter in the client) silently misses anything past the page limit, which
-   * on a tag view is the whole point of the page.
+   * on a tag view is the entire reason the page exists.
    */
   async listByTag(
     tag: string,

@@ -1446,7 +1446,7 @@ export function TaskItem({
                  Only this wrapper is pinned. The other chips have the same
                  shrinkable-box-around-unshrinkable-content shape, but they sit
                  inline after the title where nothing is claiming to be a
-                 column, so their overflow costs nothing — and pinning them is
+                 column, so their overflow is harmless — and pinning them is
                  not free: on a row that is genuinely over capacity something
                  has to absorb the squeeze, and taking chips out of the pool
                  just moves the damage onto whatever is still flexible (the

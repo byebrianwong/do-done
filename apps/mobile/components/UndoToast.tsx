@@ -163,7 +163,7 @@ export function UndoToastProvider({
                 <Text style={styles.undoLabel}>Undo</Text>
                 {/* The window, drawn draining. This is the difference between
                     "there is an Undo" and "there is an Undo *and you have
-                    time*" — which is the whole reason the window is as long as
+                    time*" — which is why the window is as long as
                     it is. Anchored left so it shortens from the right. */}
                 <Animated.View
                   style={[

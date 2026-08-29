@@ -10,8 +10,8 @@
  *  2. **Fitting.** A height *budget*, spent row by row. The old
  *     `rowCapacity` divided the widget height by a flat 26 dp and hoped, which
  *     was wrong in both directions the moment rows stopped being uniform — and
- *     a "+N more" computed off a wrong capacity is a lie about the user's own
- *     task list.
+ *     a "+N more" computed off a wrong capacity reports a wrong number about
+ *     the user's own task list.
  *
  * Everything a row displays is decided by `@do-done/shared`'s `rowGutter` /
  * `rowSubline` / `rowEstimate`, the same functions the in-app row calls. The
@@ -242,7 +242,7 @@ export interface LayoutOptions {
   now?: Date;
 }
 
-/** Minimum width in dp at which the estimate column earns its space. */
+/** Minimum width in dp at which the estimate column is worth its space. */
 export const ESTIMATE_MIN_WIDTH_DP = 200;
 
 /**
@@ -345,7 +345,7 @@ export function layoutRows(
         overdue: group.key === 'overdue',
       };
       const headerCost = rowHeight(header, rows.length === 0);
-      // A header only earns its height if a task can follow it.
+      // A header is only worth its height if a task can follow it.
       const withFirstTask = headerCost + rowHeight(built[0], false);
       if (used + withFirstTask > budgetDp) break;
       rows.push(header);

@@ -5,7 +5,7 @@
  * It **minimizes; it does not hide.** The labels fade, the icons shrink, and
  * the row goes from 50pt to 30pt — but all five destinations stay where they
  * are and stay tappable. Hiding the bar outright is the pattern reading
- * surfaces use, where the session is long and the content is the whole point.
+ * surfaces use, where the session is long and the content is what matters.
  * A task list is a scan-and-act surface: you scroll to find a row, tick it or
  * open it, and switching views is often the very next thing you do. A switcher
  * you have to scroll back up to reach has been taken away, not tidied.

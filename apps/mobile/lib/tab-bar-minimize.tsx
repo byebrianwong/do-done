@@ -70,7 +70,7 @@ AccessibilityInfo.addEventListener('screenReaderChanged', (v) => {
  * - **Reduce Motion.** Elsewhere in the app that setting lands on the end
  *   state and drops the decorative layers, because the end state is the thing
  *   that happened — a task really is done and its row really is gone. Nothing
- *   happened here. The minimize *is* the decoration, so the honest reading of
+ *   happened here. The minimize *is* the decoration, so the right reading of
  *   "reduce motion" is not to jump-cut the bar between two sizes on every
  *   flick, it is to leave the bar alone.
  * - **A screen reader.** VoiceOver and TalkBack move focus and scroll the list

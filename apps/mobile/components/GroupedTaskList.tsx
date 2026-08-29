@@ -51,7 +51,7 @@ interface Props {
    * True everywhere a section is a slice of one axis of one list. False on a
    * tag view, which cuts across projects and statuses — its "Open" section is
    * not a section of *work*, so a count taken from it would fire the spark on
-   * a guess. Passing nothing is how a surface says it can't tell (see
+   * a guess. Passing nothing is how a surface says it cannot tell (see
    * `sparkReason`), which is exactly what `false` produces here.
    */
   sectionCounts?: boolean;
@@ -60,7 +60,7 @@ interface Props {
    *
    * `applyDisplay` emits every non-terminal status column even when empty, on
    * purpose: they are drop targets, so a task can be dragged into a status
-   * nothing currently has. That pays for itself on All, where most columns are
+   * nothing currently has. That is worth it on All, where most columns are
    * populated — and costs on a project or tag page, where a handful of tasks
    * sit under two or three empty headers ("INBOX (0)", "LATER (0)") that push
    * the actual work down the screen. Those two screens listed only non-empty
