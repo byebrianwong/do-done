@@ -415,17 +415,26 @@ const TASK_SEED: TaskSeed[] = [
 
   // ── Shopping lists ────────────────────────────────────────────────
   //
-  // Undated and unprioritised on purpose: a thing to buy has no day and no
-  // rank, and giving these any would be seeding the exact confusion the
-  // `is_list_item` flag exists to prevent. None of them appear in Today,
-  // Inbox, Upcoming or All — that absence is the feature, and it is visible
-  // in the sandbox precisely because these rows exist.
-  { title: "Whole milk", project: P.groceries },
+  // Mostly unprioritised and undated, because most things to buy are. None of
+  // them appear in Today, Inbox, Upcoming or All. That absence is the feature,
+  // and it is visible in the sandbox because these rows exist.
+  //
+  // Two deliberate exceptions, both there to exercise `itemSubline`: a store
+  // hint, which the row is the only place in the app to show; and one dated
+  // item, which also shows that a list item with a scheduled date still does
+  // not reach Today. The old "no dates at all" rule left that untested.
+  { title: "Whole milk", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Bananas", project: P.groceries },
-  { title: "Greek yoghurt", project: P.groceries },
+  { title: "Greek yoghurt", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Sourdough", project: P.groceries },
-  { title: "Paper towels", project: P.groceries },
+  { title: "Paper towels", project: P.groceries, tags: ["at:Target"] },
   { title: "Parmesan", project: P.groceries },
+  {
+    title: "Ice for the cool box",
+    project: P.groceries,
+    tags: ["at:Target"],
+    day: 2,
+  },
   { title: "Eggs", project: P.groceries, status: "done", doneDaysAgo: 0 },
   { title: "Butter", project: P.groceries, status: "done", doneDaysAgo: 0 },
   { title: "USB-C cable, 2m", project: P.amazon },

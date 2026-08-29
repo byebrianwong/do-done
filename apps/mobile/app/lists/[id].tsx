@@ -19,6 +19,7 @@ import {
   gotItems,
   groupByAisle,
   itemAisle,
+  itemSubline,
   listSubline,
   openItems,
   summarizeList,
@@ -388,6 +389,9 @@ function ItemRow({
   onLongPress: () => void;
 }) {
   const done = item.status === 'done' || item.status === 'cancelled';
+  // The store and the day as one muted line, the same shape `rowSubline` gives
+  // every other row in the app. Empty for most items, so nothing renders.
+  const subline = itemSubline(item).join(' · ');
   return (
     <Pressable
       onPress={onOpen}
@@ -416,9 +420,25 @@ function ItemRow({
           {done && <Ionicons name="checkmark" size={13} color="#ffffff" />}
         </View>
       </Pressable>
-      <Text style={[styles.itemText, done && styles.itemTextDone]}>
-        {item.title}
-      </Text>
+      {/*
+        The title and subline are a column, so the column takes the row's spare
+        width and the Text inside it must not.
+
+        `styles.itemText` therefore has no `flex: 1`, and must not get one back.
+        Flex-basis resolves against the container's main axis, so `flex: 1` here
+        would set a vertical basis of 0 and collapse the title to height 0. This
+        is the same trap documented on the task row's title.
+      */}
+      <View style={styles.itemBody}>
+        <Text style={[styles.itemText, done && styles.itemTextDone]}>
+          {item.title}
+        </Text>
+        {subline !== '' && (
+          <Text style={styles.itemSubline} numberOfLines={1}>
+            {subline}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -468,7 +488,9 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Not 'center'. A row can be two lines of title plus a subline, and a ring
+    // centred against that looks detached from the word it ticks off.
+    alignItems: 'flex-start',
     gap: 12,
     backgroundColor: '#ffffff',
     marginHorizontal: 12,
@@ -489,8 +511,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   boxDone: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
-  itemText: { flex: 1, fontSize: 15, color: '#111827' },
+  // Fills the row's width, so the title inside it does not have to. See above.
+  itemBody: { flex: 1, gap: 2 },
+  itemText: { fontSize: 15, color: '#111827' },
   itemTextDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
+  itemSubline: { fontSize: 12, color: '#6b7280' },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(17,24,39,0.45)',

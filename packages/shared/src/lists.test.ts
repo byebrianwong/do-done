@@ -5,6 +5,7 @@ import {
   STORE_TAG_PREFIX,
   gotItems,
   isGot,
+  itemSubline,
   listSubline,
   normalizeStore,
   openItems,
@@ -217,6 +218,106 @@ describe("summarizeList / listSubline", () => {
     expect(listSubline({ open: 0, got: 5, elsewhere: 0 })).toBe(
       "Nothing on it · 5 in the cart"
     );
+  });
+});
+
+// A fixed "now" so every relative label below is deterministic.
+const NOW = new Date(2026, 7, 12, 9, 41); // Wed 12 Aug 2026, local
+
+function fullItem(over: Partial<Task> = {}): Task {
+  return {
+    id: "00000000-0000-0000-0000-000000000001",
+    user_id: "00000000-0000-0000-0000-000000000002",
+    title: "Milk",
+    description: null,
+    status: "inbox",
+    priority: "p4",
+    project_id: "00000000-0000-0000-0000-0000000000aa",
+    scheduled_date: null,
+    scheduled_time: null,
+    deadline_date: null,
+    deadline_time: null,
+    duration_minutes: null,
+    recurrence_rule: null,
+    calendar_event_id: null,
+    tags: [],
+    parent_task_id: null,
+    depth: 0,
+    sort_order: 0,
+    focus_override: null,
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+    completed_at: null,
+    ...over,
+  };
+}
+
+describe("itemSubline", () => {
+  // The rule this function exists to keep: a bare item renders as a bare word.
+  it("says nothing at all about an item with nothing set", () => {
+    expect(itemSubline(fullItem(), { now: NOW })).toEqual([]);
+  });
+
+  it("names the store", () => {
+    const withStore = fullItem({ tags: [storeTag("Trader Joe's")] });
+    expect(itemSubline(withStore, { now: NOW })).toEqual(["Trader Joe's"]);
+  });
+
+  it("names the scheduled day — including today, which used to vanish", () => {
+    expect(
+      itemSubline(fullItem({ scheduled_date: "2026-08-12" }), { now: NOW })
+    ).toEqual(["Today"]);
+    expect(
+      itemSubline(fullItem({ scheduled_date: "2026-08-14" }), { now: NOW })
+    ).toEqual(["Fri, Aug 14"]);
+  });
+
+  it("puts the store before the day, the way a person says it", () => {
+    const item = fullItem({
+      tags: [storeTag("Target")],
+      scheduled_date: "2026-08-13",
+    });
+    expect(itemSubline(item, { now: NOW })).toEqual(["Target", "Tomorrow"]);
+  });
+
+  it("prints an overdue item's age, not its date", () => {
+    // "3 days ago" is the actionable form. It says this is something you keep
+    // forgetting, which a bare date does not.
+    expect(
+      itemSubline(fullItem({ scheduled_date: "2026-08-09" }), { now: NOW })
+    ).toEqual(["3 days ago"]);
+  });
+
+  it("carries a deadline as well as a scheduled day", () => {
+    const item = fullItem({
+      scheduled_date: "2026-08-13",
+      deadline_date: "2026-08-15",
+    });
+    expect(itemSubline(item, { now: NOW })).toEqual([
+      "Tomorrow",
+      "Deadline Sat, Aug 15",
+    ]);
+  });
+
+  it("drops the store when the caller has already named it", () => {
+    // What a store-grouped list needs: the header above the row already said it.
+    const item = fullItem({
+      tags: [storeTag("Target")],
+      scheduled_date: "2026-08-13",
+    });
+    expect(itemSubline(item, { now: NOW, hideStore: true })).toEqual([
+      "Tomorrow",
+    ]);
+  });
+
+  it("stops at the store once an item is in the cart", () => {
+    // A bought item's date is no longer actionable once it is in the cart.
+    const item = fullItem({
+      status: "done",
+      tags: [storeTag("Target")],
+      scheduled_date: "2026-08-09",
+    });
+    expect(itemSubline(item, { now: NOW })).toEqual(["Target"]);
   });
 });
 
