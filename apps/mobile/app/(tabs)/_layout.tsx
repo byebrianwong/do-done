@@ -10,6 +10,23 @@ import { toggleAgendaMode, toggleTasksMode, useViewMode } from '@/lib/view-mode'
 const TINT_COLOR = '#6366f1';
 
 /**
+ * Re-tapping Lists or Projects goes back up to that tab's index.
+ *
+ * Spelled out rather than left to the navigator. React Navigation's JS bottom
+ * tabs only pop a nested stack automatically through `popToTopOnBlur`, which
+ * is the *unstable* native navigator's option and is about blur rather than a
+ * press — so the gesture this design leans on would have been an undocumented
+ * default we happened to be getting. `navigate` at an already-open screen pops
+ * back to it, and is a no-op when the index is already what's showing.
+ */
+function popToIndex(
+  navigation: { navigate: (name: string, params?: object) => void },
+  tab: 'lists' | 'projects'
+): void {
+  navigation.navigate(tab, { screen: 'index' });
+}
+
+/**
  * Four tabs: Agenda, Tasks, Lists, Projects.
  *
  * **The labels never change; the icon does.** The tab bar answers "where can I
@@ -99,6 +116,11 @@ export default function TabLayout() {
               <Ionicons name="cart" size={size} color={color} />
             ),
           }}
+          listeners={({ navigation }) => ({
+            tabPress: () => {
+              if (navigation.isFocused()) popToIndex(navigation, 'lists');
+            },
+          })}
         />
         <Tabs.Screen
           name="projects"
@@ -108,6 +130,11 @@ export default function TabLayout() {
               <Ionicons name="folder" size={size} color={color} />
             ),
           }}
+          listeners={({ navigation }) => ({
+            tabPress: () => {
+              if (navigation.isFocused()) popToIndex(navigation, 'projects');
+            },
+          })}
         />
       </Tabs>
     </TabBarMinimizeProvider>
