@@ -3,17 +3,17 @@ import type { TaskPriority, TaskStatus } from "./schemas.js";
 /**
  * How long a task's notes (`description`) may be.
  *
- * This number is load-bearing in three places that must agree: the DB CHECK
- * constraint on `tasks.description`, the Zod schemas, and the `maxLength` on
- * every notes input. When they disagreed — an unbounded textarea over a
- * 5,000-char CHECK — passing the limit didn't just reject the notes, it made
- * the *whole task* unsaveable: the autosave hook diffs against the snapshot it
- * mounted with, so the oversized description rode along in every subsequent
- * PATCH and took the user's title, priority and date edits down with it, with
- * nothing but a red dot to say why.
+ * Three places must agree on this number: the DB CHECK constraint on
+ * `tasks.description`, the Zod schemas, and the `maxLength` on every notes
+ * input. When they disagreed — an unbounded textarea over a 5,000-char CHECK —
+ * passing the limit did not just reject the notes, it made the *whole task*
+ * unsaveable. The autosave hook diffs against the snapshot it mounted with, so
+ * the oversized description rode along in every subsequent PATCH and took the
+ * user's title, priority and date edits down with it, with nothing but a red dot
+ * to say why.
  *
  * So the inputs stop at exactly this many characters. The DB check is the
- * backstop for writes that don't come through an editor (MCP, SQL); it can
+ * backstop for writes that do not come through an editor (MCP, SQL); it must
  * never be the thing a typing user meets.
  *
  * 50,000 is roughly 20 pages — past any plausible task note, and still far
@@ -27,36 +27,36 @@ export const TASK_DESCRIPTION_MAX_LENGTH = 50_000;
  * **This is the only place a priority colour is written down.** Every surface
  * that draws one — the row's gutter, the editor's bar meter, the week view's
  * busyness dots, the command palette, bulk actions, the quick-add chip, the
- * Android widget — reads it from here. There have been three hand-kept copies
- * of this ramp at various times and they were never all in agreement; the row
- * and the picker two inches from it drew different colours for the same task.
+ * Android widget — reads it from here. There have been three hand-kept copies of
+ * this ramp at various times and they were never all in agreement; the row and
+ * the picker two inches from it drew different colours for the same task.
  *
- * The ramp used to be red → orange → yellow → grey, which is the one an
- * English speaker reaches for and the one that fails hardest in practice:
+ * The ramp used to be red → orange → yellow → grey. That is the one an English
+ * speaker reaches for, and the one that fails hardest in practice:
  *
- * - **Yellow can't be seen on white.** `#eab308` lands at 1.92:1 against a
+ * - **Yellow cannot be seen on white.** `#eab308` lands at 1.92:1 against a
  *   white surface, well under the 3:1 a non-text indicator needs — and most
  *   surfaces here draw priority small and on white.
- * - **Red, orange and yellow are one hue family.** Under deuteranopia, the
- *   most common form of red-green colour blindness, the first three collapse
- *   into a single warm smear, so the ramp carries no information at all for
- *   roughly one man in sixteen.
+ * - **Red, orange and yellow are one hue family.** Under deuteranopia, the most
+ *   common form of red-green colour blindness, the first three collapse into a
+ *   single warm smear, so the ramp carries no information at all for roughly one
+ *   man in sixteen.
  *
  * Slate at P3 breaks the warm family, so the ramp separates by temperature as
  * well as lightness and survives both colour blindness and a greyscale
  * screenshot. It is deliberately **not** indigo, which it was until this ramp
  * was unified: `#6366f1` is the app's accent, the colour that means *selected*
- * on every other control, so a middling priority was wearing the one hue that
- * already had a job.
+ * on every other control, so a middling priority was wearing a hue that already
+ * had a job.
  *
- * **P2 is under 3:1 on white and there is no warm colour that isn't** — orange
+ * **P2 is under 3:1 on white and there is no warm colour that is not** — orange
  * `#f97316` is 2.80:1, amber `#f59e0b` 2.15:1, yellow 1.92:1. (An earlier note
  * here claimed amber cleared 3:1. It does not; it is barely better than the
  * yellow it replaced.) Orange is the best of them and is what both task rows
  * already drew, so the unified ramp adopts the row's value rather than the
- * picker's. This is exactly why colour is never the only channel: every
- * surface pairs it with bar length, lit-bar count or a label, because no ramp
- * survives being screenshotted in greyscale either.
+ * picker's. This is why colour is never the only channel: every surface pairs it
+ * with bar length, lit-bar count or a label, because no ramp survives being
+ * screenshotted in greyscale either.
  */
 export const PRIORITY_CONFIG: Record<
   TaskPriority,
@@ -65,11 +65,11 @@ export const PRIORITY_CONFIG: Record<
   p1: { label: "Urgent", color: "#ef4444", score: 40 },
   p2: { label: "High", color: "#f97316", score: 30 },
   p3: { label: "Medium", color: "#64748b", score: 20 },
-  // Deliberately the quietest of the four. "Low" is the only name this rank
-  // has anywhere in the product, and the column is `not null default 'p4'`, so
-  // it is also what a task gets when nobody picks — which makes it both a rank
-  // and the absence of a choice, indistinguishably. That is why the task row's
-  // gutter is the one surface that draws nothing for it; see `rowGutter` in
+  // Deliberately the quietest of the four. "Low" is the only name this rank has
+  // anywhere in the product, and the column is `not null default 'p4'`, so it is
+  // also what a task gets when nobody picks. That makes it both a rank and the
+  // absence of a choice, indistinguishably, which is why the task row's gutter
+  // is the one surface that draws nothing for it. See `rowGutter` in
   // task-row.ts.
   p4: { label: "Low", color: "#a3a3a3", score: 10 },
 };
@@ -77,8 +77,8 @@ export const PRIORITY_CONFIG: Record<
 /**
  * Late, which is not a priority and so does not live in the ramp above.
  *
- * A deeper red than P1's, because it outranks it: in the row's gutter these
- * two can never appear together, and the one that wins is this one.
+ * A deeper red than P1's, because it outranks it: in the row's gutter these two
+ * can never appear together, and this one wins.
  */
 export const OVERDUE_COLOR = "#dc2626";
 
@@ -128,7 +128,7 @@ export const QUICK_WIN_MAX_MINUTES = 15;
 export const QUICK_WIN_PARTIAL_MAX_MINUTES = 30;
 
 /**
- * How long `projects.icon` may be — the `char_length(icon) <= 64` check on the
+ * How long `projects.icon` may be. The `char_length(icon) <= 64` check on the
  * column and the `z.string().max()` in `ProjectSchema` both read this.
  *
  * It was ten while the column held only a character. It now also holds a
@@ -140,8 +140,8 @@ export const QUICK_WIN_PARTIAL_MAX_MINUTES = 30;
  * one is about what fits legibly in a 20 px ring, not about the column.
  *
  * It lives here rather than beside the Phosphor code so that `schemas.ts` can
- * read it without pulling the generated path data — 245 KB — into every
- * consumer of a Zod schema.
+ * read it without pulling the generated path data — 245 KB — into every consumer
+ * of a Zod schema.
  */
 export const PROJECT_ICON_MAX_LENGTH = 64;
 
@@ -149,16 +149,15 @@ export const PROJECT_ICON_MAX_LENGTH = 64;
 //
 // A project's colour is the row's *identity* channel — the ring on every task
 // belonging to it (see the task-row note in the root CLAUDE.md). So the palette
-// is built for telling projects apart at 20 px, not for covering a colour
-// wheel: every entry is a mid-weight hue at roughly the same saturation, and
-// the order walks the spectrum so a wrapped grid reads as a rainbow rather than
-// a jumble.
+// is built for telling projects apart at 20 px, not for covering a colour wheel:
+// every entry is a mid-weight hue at roughly the same saturation, and the order
+// walks the spectrum so a wrapped grid reads as a rainbow rather than a jumble.
 //
-// It is twelve wide and two deep, and the two rows are the point. The first is
-// the spectrum at full brightness; the second walks the *same* sweep in darker
-// shades and finishes on the neutrals. That pairing is what lets two projects
-// both be "the green one" and still be told apart at a glance, and it gives
-// four quiet choices for a project that shouldn't shout.
+// It is twelve wide and two deep, and the pairing between the rows matters. The
+// first row is the spectrum at full brightness; the second walks the *same*
+// sweep in darker shades and finishes on the neutrals. That is what lets two
+// projects both be "the green one" and still be told apart at a glance, and it
+// gives four quiet choices for a project that should not stand out.
 //
 // Twelve is also why the grid is `grid-cols-12` rather than a wrapping row: a
 // palette that reflows to 11-and-1 as the dialog narrows loses the pairing.
@@ -198,8 +197,8 @@ export const PROJECT_COLOR_OPTIONS: readonly ProjectColorOption[] = [
 
 /**
  * Just the hex values, in the same order. Every swatch row in both apps maps
- * over this; call sites that want a label read `PROJECT_COLOR_OPTIONS`.
- * The first entry is the colour a new project starts on.
+ * over this; call sites that want a label read `PROJECT_COLOR_OPTIONS`. The
+ * first entry is the colour a new project starts on.
  */
 export const DEFAULT_PROJECT_COLORS: readonly string[] =
   PROJECT_COLOR_OPTIONS.map((c) => c.value);
@@ -207,9 +206,9 @@ export const DEFAULT_PROJECT_COLORS: readonly string[] =
 /**
  * The eight the palette used to be, for the swatch rows that live inside a
  * popover over a keyboard — the inline "new project" forms on both capture
- * surfaces. Four wrapped rows of dots is a fine thing to scan in a dialog and a
- * wall in a popover, and capture is not where a colour gets chosen carefully:
- * the full palette is one visit to the project's own form away.
+ * surfaces. Four wrapped rows of dots is fine to scan in a dialog and too much
+ * in a popover, and capture is not where a colour gets chosen carefully: the
+ * full palette is one visit to the project's own form away.
  */
 export const COMPACT_PROJECT_COLORS: readonly string[] = [
   "#6366f1", // indigo (primary)
@@ -235,8 +234,8 @@ export function projectColorName(hex: string): string {
 // Radius presets. The floor is 100 m on purpose: both Play Services and
 // CoreLocation resolve position from Wi-Fi/cell as well as GPS, and a typical
 // urban fix lands 20-60 m off (worse indoors, worse still on cell alone).
-// Regions tighter than ~100 m therefore miss arrivals and fire spurious
-// exits when the fix drifts while you sit still.
+// Regions tighter than ~100 m therefore miss arrivals and fire spurious exits
+// when the fix drifts while you sit still.
 export const LOCATION_RADIUS_PRESETS: readonly {
   meters: number;
   label: string;
@@ -254,20 +253,20 @@ export const MIN_LOCATION_RADIUS_METERS = 100;
 // An "enter" event fires the moment you clip the boundary, so driving past a
 // shop at 50 km/h would fire "Buy milk". Instead of notifying on the event we
 // schedule the notification this far out and cancel it if an "exit" arrives
-// first — a dwell filter built from the enter/exit pair expo-location gives
-// us. 90 s is long enough to drop drive-bys and short enough that the reminder
-// still lands while you're parking.
+// first — a dwell filter built from the enter/exit pair expo-location gives us.
+// 90 s is long enough to drop drive-bys and short enough that the reminder still
+// lands while you are parking.
 export const GEOFENCE_DWELL_SECONDS = 90;
 
 // Position drift at the boundary makes regions flap: enter/exit/enter within a
-// minute or two while you sit at a desk near the edge. Once a task has fired
-// for a location, suppress it this long before it can fire again.
+// minute or two while you sit at a desk near the edge. Once a task has fired for
+// a location, suppress it this long before it can fire again.
 export const GEOFENCE_COOLDOWN_MINUTES = 30;
 
-// Hard platform ceilings on simultaneously monitored regions. iOS is the
-// binding one by a wide margin — CoreLocation silently stops monitoring
-// anything past 20, so we register the most recently used locations and tell
-// the user which ones are dormant rather than letting them fail quietly.
+// Hard platform ceilings on simultaneously monitored regions. iOS is the binding
+// one by a wide margin — CoreLocation silently stops monitoring anything past
+// 20, so we register the most recently used locations and tell the user which
+// ones are dormant rather than letting them fail quietly.
 export const GEOFENCE_MAX_REGIONS = { ios: 20, android: 100 } as const;
 
 // ─── Task completion feedback ───────────────────────────────────────────────
@@ -275,22 +274,22 @@ export const GEOFENCE_MAX_REGIONS = { ios: 20, android: 100 } as const;
 // Ticking a task off used to be the least satisfying thing in the app: the row
 // vanished on the same frame as the tap, so there was no acknowledgement of the
 // tap, no moment where the task read as *done*, and the rows below jumped up
-// into the gap. These three phases give the action a shape — and both apps read
+// into the gap. These three phases give the action a shape, and both apps read
 // them from here so web and mobile stay the same gesture.
 //
 // The row is what animates, not the list. It plays the check, holds, then
-// collapses its own height to zero; the rows below slide up simply because the
-// row above them is shrinking. That needs no cooperation from dnd-kit or
-// DraggableFlatList, which is exactly why it's done this way.
+// collapses its own height to zero; the rows below slide up because the row
+// above them is shrinking. That needs no cooperation from dnd-kit or
+// DraggableFlatList, which is why it is done this way.
 
 /** Check mark springs in. Overlaps the hold — this is the tap's receipt. */
 export const TASK_COMPLETE_CHECK_MS = 220;
 
 /**
  * How long the row sits there visibly completed — filled checkbox, struck-out
- * title — before it starts to leave. Short enough not to feel like a stall,
- * long enough to read as a state the task passed through rather than a flicker
- * on its way out.
+ * title — before it starts to leave. Short enough not to feel like a stall, long
+ * enough to read as a state the task passed through rather than a flicker on its
+ * way out.
  */
 export const TASK_COMPLETE_HOLD_MS = 420;
 
@@ -319,18 +318,18 @@ export const TASK_COMPLETE_EXIT_MS =
 //   420 → 680   the row slides right as its height closes  (exit)
 //
 // The line finishes at 230ms, right as the check finishes at 220: one is the
-// control acknowledging the tap, the other is the text acknowledging it, and
-// the eye may be on either. The slide is strictly after the hold, so it never
-// shares the stage with them.
+// control acknowledging the tap, the other is the text acknowledging it, and the
+// eye may be on either. The slide is strictly after the hold, so it never shares
+// the stage with them.
 
 /**
  * The ring squashes for this long before it fills.
  *
- * Anticipation is what separates a control that responds from one that
- * reports. Web drives it from `:active`, so it really is the press; mobile
- * folds it into the completion itself, because a 22px ring under a thumb is
- * occluded at exactly the moment it would be visible — and because swipe-to-
- * complete has no press to anticipate from.
+ * Without it the control reports the result but never acknowledges the press.
+ * Web drives it from `:active`, so it really is the press; mobile folds it into
+ * the completion itself, because a 22px ring under a thumb is hidden at exactly
+ * the moment it would be visible, and because swipe-to-complete has no press to
+ * anticipate from.
  */
 export const TASK_COMPLETE_ANTICIPATE_MS = 90;
 
@@ -346,8 +345,7 @@ export const TASK_COMPLETE_HALO_MS = 340;
  * It used to be a class toggle — instant, on the tap's own frame, while
  * everything around it eased. That made it the only un-animated part of the
  * gesture, and it sits where the eye already is, because it is where the words
- * are. Crossing something out is the most literal metaphor in task management;
- * drawing it turns it back into a gesture.
+ * are. Drawing it makes it part of the same gesture as the rest.
  */
 export const TASK_COMPLETE_STRIKE_MS = 190;
 
@@ -364,14 +362,14 @@ export const TASK_COMPLETE_TITLE_DELAY_MS = 90;
 /**
  * How far the row travels as it leaves.
  *
- * A pure height collapse is the animation of *removal* — it is what a deleted
- * row does (see the deletion block below, which is exactly that). But a
- * completed task hasn't gone anywhere: it is in the Completed view, it fed the
- * pet, and it is undoable for the length of {@link UNDO_TOAST_TTL_MS}. Sliding
- * it out says "filed", which is what actually happened.
+ * A pure height collapse is the animation of *removal*, which is what a deleted
+ * row does (see the deletion block below). But a completed task has not gone
+ * anywhere: it is in the Completed view, it fed the pet, and it is undoable for
+ * the length of {@link UNDO_TOAST_TTL_MS}. Sliding it out says "filed", which is
+ * what actually happened.
  *
  * Rightward is not arbitrary on mobile, where swipe-*right* is already the
- * complete gesture — the exit continues the direction the finger was already
+ * complete gesture. The exit continues the direction the finger was already
  * travelling, and the tap inherits the same vector for free.
  */
 export const TASK_COMPLETE_SLIDE_PX = 26;
@@ -383,10 +381,10 @@ export const TASK_COMPLETE_SLIDE_SCALE = 0.972;
 //
 // Deleting had no gesture at all: the row was there, and then the list was one
 // row shorter. On web the only frame that ever showed the change was the one
-// after `router.refresh()`; on mobile the optimistic cache patch dropped the
-// row on the same tick as the tap. Nothing said *which* row went, so the only
-// way to find out was to read the toast — and the toast is the fallback, not
-// the feedback.
+// after `router.refresh()`; on mobile the optimistic cache patch dropped the row
+// on the same tick as the tap. Nothing said *which* row went, so the only way to
+// find out was to read the toast — and the toast is the fallback, not the
+// feedback.
 //
 // It is deliberately **not** the completion gesture wearing red. Two things are
 // being said, and they must not be confusable at a glance:
@@ -399,13 +397,12 @@ export const TASK_COMPLETE_SLIDE_SCALE = 0.972;
 // each vector for free, and neither reads as the other even peripherally.
 
 /**
- * How long the row sits there condemned — dimmed, tinted, still at full height
- * — before it starts to close.
+ * How long the row sits there condemned — dimmed, tinted, still at full height —
+ * before it starts to close.
  *
- * Shorter than the completion hold on purpose. That hold is a beat to enjoy: a
- * state the task passed through on its way to being done. This one is only long
- * enough to see which row is going, and lingering on a deletion would be the
- * app savouring the one action nobody wants to repeat.
+ * Shorter than the completion hold on purpose. That hold marks a state the task
+ * passed through on its way to being done. This one is only long enough to see
+ * which row is going.
  */
 export const TASK_DELETE_HOLD_MS = 200;
 
@@ -415,8 +412,8 @@ export const TASK_DELETE_COLLAPSE_MS = 240;
 /**
  * When the row is finally gone and the data layer may drop it — the deletion's
  * counterpart to {@link TASK_COMPLETE_EXIT_MS}, and the same contract: every
- * removal (web's `router.refresh()`, mobile's cache patch) waits this long so
- * it lands on an already-invisible row.
+ * removal (web's `router.refresh()`, mobile's cache patch) waits this long so it
+ * lands on an already-invisible row.
  */
 export const TASK_DELETE_EXIT_MS =
   TASK_DELETE_HOLD_MS + TASK_DELETE_COLLAPSE_MS;
@@ -427,7 +424,7 @@ export const TASK_DELETE_EXIT_MS =
  *
  * Further than the completion's nudge, too. A completed row is being put
  * somewhere and stays recognisable; a deleted one is being taken out of the
- * list, so it may leave like it means it.
+ * list, so it travels further.
  */
 export const TASK_DELETE_SLIDE_PX = -36;
 
@@ -437,8 +434,8 @@ export const TASK_DELETE_SLIDE_SCALE = 0.94;
 /**
  * How far the row fades while it is condemned but still at full height.
  *
- * Not to zero: the row has to stay readable through the hold, because reading
- * it is the entire point of the hold. The rest of the fade happens under the
+ * Not to zero: the row has to stay readable through the hold, because reading it
+ * is the entire point of the hold. The rest of the fade happens under the
  * collapse.
  */
 export const TASK_DELETE_DIM_OPACITY = 0.5;
@@ -449,15 +446,15 @@ export const TASK_DELETE_DIM_OPACITY = 0.5;
  * How long an undo toast stays up, and therefore how long a destructive action
  * can be taken back.
  *
- * Six seconds was the old value and it was measured against the wrong thing:
- * the time it takes to *read* the toast, not the time it takes to notice the
- * list is wrong, work out which row went, decide that wasn't what you meant,
- * and get the pointer down there. Deletion is where that gap bites — there is
- * no Completed view to recover from, so the toast is the only door — so the
+ * Six seconds was the old value and it was measured against the wrong thing: the
+ * time it takes to *read* the toast, not the time it takes to notice the list is
+ * wrong, work out which row went, decide that was not what you meant, and get
+ * the pointer down there. Deletion is where that gap bites — there is no
+ * Completed view to recover from, so the toast is the only way back — so the
  * window is now half again as long, and the toast draws it draining rather than
  * asking the user to guess how much of it is left.
  *
- * Both surfaces read it from here so the promise can't differ by platform.
+ * Both surfaces read it from here so the promise cannot differ by platform.
  */
 export const UNDO_TOAST_TTL_MS = 9000;
 
@@ -465,30 +462,30 @@ export const UNDO_TOAST_TTL_MS = 9000;
  * How long a deleted task's row survives before it is really destroyed.
  *
  * Deleting sets `tasks.deleted_at` and hides the row; `TasksApi.purgeDeleted()`
- * comes along afterwards and hard-deletes anything older than this, clearing
- * the attachment bytes on the way. That gap is what lets Undo hand back *the
- * same task* — same id, same subtasks, same files — rather than a recreated
- * likeness of it.
+ * comes along afterwards and hard-deletes anything older than this, clearing the
+ * attachment bytes on the way. That gap is what lets Undo hand back *the same
+ * task* — same id, same subtasks, same files — rather than creating a new row
+ * with the same title.
  *
  * An hour, and the number is deliberately close to the undo window rather than
  * comfortably past it. **This is not a trash can**: nothing in either app lists
  * deleted tasks or offers a way to reach them, so a longer window would buy the
- * user nothing and cost them a promise — "deleted" has to keep meaning deleted.
- * An hour is only slack for the purge sweep, which runs when an app is open
- * rather than on a server timer, so a device that is closed the moment after a
- * delete still converges the next time it is opened.
+ * user nothing and weaken what "deleted" means. An hour is only slack for the
+ * purge sweep, which runs when an app is open rather than on a server timer, so
+ * a device that is closed the moment after a delete still converges the next
+ * time it is opened.
  */
 export const TASK_TRASH_RETENTION_MS = 60 * 60 * 1000;
 
 /**
- * How many Google calendars DoDone will read events from per page load. Each
- * one is a separate `events.list` round-trip, so a user subscribed to holidays,
+ * How many Google calendars DoDone will read events from per page load. Each one
+ * is a separate `events.list` round-trip, so a user subscribed to holidays,
  * weather, four sports teams and a handful of shared calendars would otherwise
  * fan a single Today render out into 20+ sequential API calls.
  *
  * The cap used to be 10 and applied to whatever order Google returned, which
- * silently dropped calendars off the end with nothing on screen to say so. It
- * is now a limit on what the user has explicitly *chosen* in Settings, and the
+ * silently dropped calendars off the end with nothing on screen to say so. It is
+ * now a limit on what the user has explicitly *chosen* in Settings, and the
  * picker refuses to let them tick past it.
  */
 export const MAX_DISPLAY_CALENDARS = 20;

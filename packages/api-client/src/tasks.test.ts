@@ -1017,7 +1017,7 @@ describe("TasksApi.delete — the row survives", () => {
     await api.delete("task-1");
 
     // The single most important assertion in this file: a hard delete here is
-    // what made Undo a lie. Restoring the same task is only possible while the
+    // what made Undo misreport what it did. Restoring the same task is only possible while the
     // row is still there.
     const writes = tasksOps(ops).filter((o) => o.op !== "select");
     expect(writes.map((w) => w.op)).toEqual(["update"]);

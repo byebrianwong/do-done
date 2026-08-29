@@ -53,7 +53,7 @@ export function locationReminderLabel(links: TaskLocationLink[]): string {
 
 /**
  * The shortest true thing a task *row* can say about its reminders — a place
- * name, or a count once naming one would be a lie about the rest.
+ * name, or a count once naming one would misrepresent the rest.
  *
  * Deliberately shorter than `locationReminderLabel`: a row has one line for
  * everything a task is, and the direction is the part a reader can infer or go

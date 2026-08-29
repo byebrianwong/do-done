@@ -325,7 +325,7 @@ export class TasksApi {
     }
     // `scheduled_date <= through` is already false for NULL (SQL three-valued
     // logic), so undated tasks are excluded — stated explicitly because that
-    // exclusion is load-bearing, not incidental.
+    // exclusion is required, not incidental.
     const { data, error } = await query
       .not("scheduled_date", "is", null)
       .select("id, title");
@@ -401,9 +401,9 @@ export class TasksApi {
    * the rest would multiply the payload for fields nothing reads.
    *
    * Bounded and newest-first, unlike `listTags`, which has to sweep everything
-   * because a tag it misses simply doesn't exist to the app. A suggestion has
-   * no such duty — it is a guess from recent habit, and older rows both weigh
-   * less and describe a project list that has since moved on.
+   * because a tag it misses does not exist to the app at all. A suggestion has
+   * no such requirement — it is a guess from recent habit, and older rows both
+   * weigh less and describe a project list that has since moved on.
    *
    * The aggregation is `buildSuggestionIndex` in `@do-done/shared`, so the
    * demo sandbox and any future mobile caller guess the same way.
@@ -646,7 +646,7 @@ export class TasksApi {
     // and leaving its subtasks in whatever they were is the same bug the
     // create-time inheritance above fixed, arriving a day later — the subtasks
     // are the same work, and a project page that shows the parent without them
-    // is lying about what's left. Awaited, not fired and forgotten, so the
+    // misreports what is left. Awaited, not fired and forgotten, so the
     // caller's cache invalidation lands after the children have moved.
     //
     // Tested against the *result*, not the input, so a project acquired by
@@ -779,19 +779,18 @@ export class TasksApi {
    *
    * **Nothing is destroyed here.** The rows are stamped with `deleted_at` and
    * disappear from every read; the subtasks stay subtasks, the attachment rows
-   * stay attached, the bytes stay in the bucket, the location links stay
-   * linked, and the id goes on being the id. `restore()` puts it all back by
-   * clearing one column, which is what makes Undo give back *the same task*
-   * rather than a copy wearing its title. `purgeDeleted()` is what eventually
-   * does the real destroying.
+   * stay attached, the bytes stay in the bucket, the location links stay linked,
+   * and the id stays the same. `restore()` puts it all back by clearing one
+   * column, which is what lets Undo give back *the same task* rather than a new
+   * row with the same title. `purgeDeleted()` does the real destroying later.
    *
    * This used to be a hard delete, and the reversal was `create()` from a
-   * client-side snapshot — a new row, a new id, no subtasks, no files, and
-   * every link handed out before the delete still broken afterwards.
+   * client-side snapshot — a new row, a new id, no subtasks, no files, and every
+   * link handed out before the delete still broken afterwards.
    *
    * Returns the ids it touched, because that list *is* the undo token: it was
-   * computed against the live tree, so a subtask deleted separately five
-   * minutes ago is not in it and a restore correctly leaves it deleted.
+   * computed against the live tree, so a subtask deleted separately five minutes
+   * ago is not in it and a restore correctly leaves it deleted.
    */
   async delete(
     id: string
@@ -839,18 +838,18 @@ export class TasksApi {
    * This is where the hard delete went, and it still owns the one piece of
    * cleanup no foreign key can do: the attachment **bytes**. A Storage object
    * has no FK to follow, so a cascade reaches the `task_attachments` rows and
-   * leaves the files paying rent forever with nothing in the app pointing at
-   * them. Bytes first, rows second — an attachment row pointing at absent
-   * bytes renders as permanently broken, while bytes with no row are merely
-   * invisible, so a failure between the two lands on the invisible side.
+   * leaves the files in the bucket forever with nothing in the app pointing at
+   * them. Bytes first, rows second — an attachment row pointing at absent bytes
+   * renders as permanently broken, while bytes with no row are merely invisible,
+   * so a failure between the two lands on the invisible side.
    *
-   * Best-effort on the Storage half by design: a bucket hiccup must not leave
+   * Best-effort on the Storage half by design: a bucket failure must not leave
    * rows that can never be collected.
    *
    * Driven from the apps rather than a server timer (web's `StatusSyncRunner`,
    * mobile's sweeps) — the same shape as `syncScheduledToStatus`, and for the
    * same reason: it is one filtered read that returns nothing in the ordinary
-   * case, and it needs no infrastructure that a preview deploy won't have.
+   * case, and it needs no infrastructure that a preview deploy will not have.
    */
   async purgeDeleted(
     retentionMs: number = TASK_TRASH_RETENTION_MS
