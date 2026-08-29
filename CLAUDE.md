@@ -13,10 +13,49 @@ Write plainly. This applies to code comments, commit messages, docs, and UI copy
 - Keep the reasoning and the caveats. Say when something is untested or a
   trade-off. Plain does not mean leaving things out.
 
-Commit subjects say what changed, not what it means. Write
-`fix(mobile): finish the swipe-return animation before completing the task`,
-not `the row springs home before it is ticked off`. Commit bodies should stay as
-detailed as they are now — they explain the reasoning, which is worth keeping.
+Commit subjects say what changed, not what it means. Bodies should stay as
+detailed as they are — they carry the reasoning, which is worth keeping.
+
+**The hard part is ignoring the surrounding text.** The comments next to your
+edit pull harder than any rule stated up here, and matching the local style is
+usually good practice. It is wrong here. That pull is how the elaborate register
+spread the first time, and it is why the repo needed a full pass in August 2026.
+
+### Before and after
+
+Real pairs from that pass. Each one is a different way of saying less than it
+looks like.
+
+**Metaphor carrying the explanation** — `packages/shared/src/spark.ts`:
+
+- ✗ Celebrating *every* completion is how a delight becomes a tax: by the
+  fortieth task of the week the burst is something the user is waiting out
+  rather than enjoying.
+- ✓ Only some completions burst. If every one did, it would fire around forty
+  times a week, and users would start waiting it out.
+
+**A commit subject that names a theme** instead of a change:
+
+- ✗ `the row springs home before it is ticked off`
+- ✓ `fix(mobile): finish the swipe-return animation before completing the task`
+
+**A heading that names a theme** instead of stating the rule — this file:
+
+- ✗ `Store hints sort; they never filter`
+- ✓ `Store hints change the order, never what is shown`
+
+**Personification** — `apps/web/src/components/task-item.tsx`:
+
+- ✗ a signal that fires everywhere has stopped being one
+- ✓ a mark that appears everywhere carries no information
+
+**Metaphor in passing** — `packages/api-client/src/attachments.ts`:
+
+- ✗ the bytes would be left paying rent forever
+- ✓ the bytes would be left in the bucket forever
+
+Note what survives in every pair: the reason, the number, the consequence. None
+of these are shorter because something was dropped.
 
 ## Naming
 

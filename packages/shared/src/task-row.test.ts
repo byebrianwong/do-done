@@ -242,7 +242,7 @@ describe("recurrenceShortLabel", () => {
 });
 
 describe("rowSchedule + hideSchedule", () => {
-  // The whole point of splitting it out: what the line drops is exactly what
+  // Why it is split out: what the line drops is exactly what
   // the column prints, so a caller that does both loses nothing and repeats
   // nothing. Asserted against the same task rather than two hand-written
   // strings, so the two can't drift apart in a future edit.
