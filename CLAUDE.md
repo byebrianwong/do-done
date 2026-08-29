@@ -170,10 +170,15 @@ handful of untriaged rows on most days and had a whole tab to itself.
 | Projects | the project you were last in | goes up to all projects |
 
 **Re-tapping a tab is the second half of every rule.** On the two swap tabs it
-swaps; on Lists and Projects it pops back to the index, which React Navigation
-already does for a focused tab holding a stack. One gesture, and it always
-means "the other thing here". It is also what makes remembering safe: getting
-out of a resumed screen is never more than one tap.
+swaps; on Lists and Projects it pops back to the index. One gesture, and it
+always means "the other thing here". It is also what makes remembering safe:
+getting out of a resumed screen is never more than one tap.
+
+That pop is written out in `popToIndex`, not left to the navigator. React
+Navigation's JS bottom tabs only pop a nested stack through `popToTopOnBlur`,
+which belongs to the *unstable native* navigator and is about blur rather than
+a press — so the one gesture this design leans on would otherwise have been an
+undocumented default we happened to be getting.
 
 ### Two views, one tab
 

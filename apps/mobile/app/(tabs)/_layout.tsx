@@ -38,9 +38,10 @@ function popToIndex(
  * only new vocabulary in the change.
  *
  * **Re-tapping a tab is the second half of every rule.** On the two swap tabs
- * it swaps; on Lists and Projects it pops the stack back to the index, which
- * React Navigation already does for a focused tab — so those two need no
- * listener, and getting out of a resumed screen is never more than one tap.
+ * it swaps; on Lists and Projects it pops the stack back to the index (see
+ * `popToIndex`). One gesture, always meaning "the other thing here" — and it
+ * is what makes remembering a screen safe, because getting out of a resumed
+ * one is never more than one tap.
  */
 export default function TabLayout() {
   const { agenda, tasks } = useViewMode();
