@@ -41,6 +41,8 @@ import {
   lastBoughtLabel,
   pantryBands,
   searchPantry,
+  cadenceLabel,
+  dueEntries,
 } from '@do-done/shared';
 
 import {
@@ -133,9 +135,23 @@ export default function ListDetailScreen() {
     what is on screen is noise, and excluding it makes an accidental tick
     self-correcting: un-ticking puts the row back, which hides its entry again.
   */
-  const bands = useMemo(
-    () => pantryBands(pantry, { onList: items }),
+  /*
+    Entries past their own measured buying rhythm.
+
+    A sharper version of the three bands. Two weeks and two months approximate a
+    rhythm and mis-sort some items. Once an item has been bought three times its
+    own gaps answer the question directly. The bands remain the answer while
+    `buy_count` is 1 or 2.
+  */
+  const due = useMemo(
+    () => dueEntries(pantry, { onList: items }),
     [pantry, items]
+  );
+  const bands = useMemo(
+    // Excluded from the bands below, so nothing is offered twice on one screen.
+    () =>
+      pantryBands(pantry, { onList: items, exclude: due.map((e) => e.term) }),
+    [pantry, items, due]
   );
   const pantryCount = useMemo(
     () => bands.reduce((n, b) => n + b.entries.length, 0),
@@ -422,6 +438,38 @@ export default function ListDetailScreen() {
         // An empty title is the ungrouped case — `groupByAisle` collapses to
         // one unlabelled group when grouping would gain nothing, and that has
         // to render as a plain list with no header at all.
+        /*
+          Above the list rather than inside the drawer. This is a prompt about
+          the trip you are about to make, not a record of past ones, so it has
+          to be seen before shopping rather than found afterwards.
+        */
+        ListHeaderComponent={
+          due.length > 0 ? (
+            <View style={styles.due}>
+              <Text style={styles.dueHeader}>Probably due</Text>
+              <View style={styles.duePills}>
+                {due.map((entry) => (
+                  <Pressable
+                    key={entry.term}
+                    onPress={() => void putBack(entry)}
+                    style={({ pressed }) => [
+                      styles.duePill,
+                      pressed && styles.pressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add ${entry.title} — ${cadenceLabel(entry)}, last bought ${lastBoughtLabel(entry.last_bought_at)}`}
+                  >
+                    <Ionicons name="add" size={14} color="#6366f1" />
+                    <Text style={styles.duePillText}>{entry.title}</Text>
+                    <Text style={styles.duePillAge}>
+                      {lastBoughtLabel(entry.last_bought_at)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null
+        }
         renderSectionHeader={({ section }) =>
           section.title ? (
             <Text style={styles.sectionHeader}>{section.title}</Text>
@@ -586,8 +634,13 @@ function PantryBandView({
               {entry.title}
             </Text>
             <Text style={styles.pantryAge}>
-              {entry.store ? `${entry.store} · ` : ''}
-              {lastBoughtLabel(entry.last_bought_at)}
+              {[
+                entry.store,
+                cadenceLabel(entry),
+                lastBoughtLabel(entry.last_bought_at),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
           </Pressable>
         ))}
@@ -848,6 +901,36 @@ const styles = StyleSheet.create({
   },
   pantryChipText: { fontSize: 13, fontWeight: '600', color: '#111827' },
   pantryChipAge: { fontSize: 11, color: '#9ca3af' },
+  due: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 10,
+    backgroundColor: '#eef0fe',
+    borderRadius: 12,
+  },
+  dueHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338ca',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 4,
+    paddingBottom: 7,
+  },
+  duePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  duePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  duePillText: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  duePillAge: { fontSize: 11, color: '#9ca3af' },
   pantry: {
     marginTop: 18,
     marginHorizontal: 12,
