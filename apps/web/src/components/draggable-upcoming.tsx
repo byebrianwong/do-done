@@ -277,11 +277,15 @@ function DateGroup({
             items={taskIds}
             strategy={verticalListSortingStrategy}
           >
+            {/* The empty day still has to be a drop target, but that height is
+                only worth paying for mid-drag: at rest it was 40px of nothing
+                between a day's tasks and its own "Add task", which left the
+                composer nearer the *next* day's heading than its own. */}
             <div
               ref={setNodeRef}
-              className={`min-h-[2.5rem] space-y-0.5 rounded-md p-0.5 transition-colors ${
-                isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""
-              }`}
+              className={`space-y-0.5 rounded-md p-0.5 transition-colors ${
+                isDragActive ? "min-h-[2.5rem]" : ""
+              } ${isOver ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""}`}
             >
               {/* The empty-state hint is drag guidance — show it only mid-drag. */}
               {isDragActive && taskIds.length === 0 && (
