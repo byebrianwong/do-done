@@ -157,8 +157,8 @@ answer it differently.
 
 `SvgWidget` takes a raw SVG string and renders it through AndroidSVG; the library
 bundles `com.caverock:androidsvg-aar` and registers the widget in
-`WidgetFactory.java`, so the path exists — but it's the least-travelled one in
-that library. The fallback is `ImageWidget`, which is the well-worn path:
+`WidgetFactory.java`, so the path exists — but it is the least-used one in
+that library. The fallback is `ImageWidget`, which is far more widely used:
 
 - Rasterize the same SVG to a PNG (that's how `assets/images/quick-add-preview.png`
   was produced — headless Chromium screenshot of `quickAddTileSvg()` at 240×240

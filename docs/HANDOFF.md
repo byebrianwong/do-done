@@ -244,7 +244,8 @@ Renumbered and re-verified; the old list had entries about deleted files.
    Stdio MCP servers are cached for the session — restart Claude Code after.
    *(The tools themselves live in `packages/mcp-server/src/tools/`, not
    `apps/mcp/src/tools/`, which no longer exists **[verified]**.)*
-9. **`apps/web/vercel.json` drives the build, and its oddities are load-bearing**
+9. **`apps/web/vercel.json` drives the build, and every one of its oddities is
+   required**
    **[unverified — can't reach Vercel from a container]**: `cd ../..` because
    Vercel's Root Directory is `apps/web` but pnpm must install from the workspace
    root; `corepack enable` because Vercel's bundled pnpm has a workspace-deps bug;

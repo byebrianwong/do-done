@@ -25,9 +25,9 @@ schema.
 
 ## Dates
 
-The failure this surface is built to prevent: a client asked "what have I got on
-today?", looks for a deadline, finds none, and answers "nothing is dated" — while
-the user is looking at a full Today screen. DoDone schedules on
+This surface exists to prevent one specific failure: a client is asked "what have
+I got on today?", looks for a deadline, finds none, and answers "nothing is
+dated" — while the user is looking at a full Today screen. DoDone schedules on
 **`scheduled_date`**; `deadline_date` is a rarely-set hard deadline. The columns
 used to be named `when_date` / `due_date`, which is what made the mistake so easy
 to make; they were renamed in `20260804000001_rename_task_date_fields.sql`, and
@@ -46,8 +46,8 @@ things enforce the model:
   question — its description says so, because it was previously the tool clients
   reached for when asked about today.
 - **The field names carry the meaning on their own.** `scheduled_date` and
-  `deadline_date` need no gloss, which is the point of the rename: a caller that
-  ignores every paragraph above still can't read one as the other.
+  `deadline_date` need no gloss. That is what the rename bought: a caller that
+  ignores every paragraph above still cannot read one as the other.
 
 `src/clock.ts` resolves "today" through `user_preferences.timezone`, never the
 process clock: the hosted transport runs in UTC, so for a user behind UTC every
