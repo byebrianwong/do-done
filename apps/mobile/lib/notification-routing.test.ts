@@ -34,3 +34,18 @@ describe('routeForNotification', () => {
     expect(routeForNotification({ taskId: 42 })).toBeNull();
   });
 });
+
+
+describe('per-task reminders', () => {
+  it('opens the task a reminder is about', () => {
+    expect(
+      routeForNotification({ kind: 'task-reminder', taskId: 'abc' })
+    ).toBe('/task/abc');
+  });
+
+  it('opens Today for the day-start roundup, which names several tasks', () => {
+    expect(
+      routeForNotification({ kind: 'day-start', dateISO: '2026-08-24' })
+    ).toBe('/today');
+  });
+});

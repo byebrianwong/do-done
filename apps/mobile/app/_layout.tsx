@@ -24,6 +24,7 @@ import { queryClient } from '@/lib/query-client';
 import { persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { startDigestScheduling } from '@/lib/digests';
+import { startTaskReminderScheduling } from '@/lib/task-reminders';
 import {
   ensureChannels,
   getNotifications,
@@ -181,7 +182,18 @@ function RootLayoutNav() {
     return startDigestScheduling();
   }, [session?.user?.id]);
 
-  // Show notifications that fire while the app is on screen, and make sure both
+  // Arm the per-task reminders, on the same trigger and for the same reason.
+  // This is only half their re-arm story: a reminder is armed against one
+  // specific task at one specific instant, so `invalidateTasks()` re-arms too
+  // (debounced), which is what catches a task created or re-dated while the
+  // app is open. No-op unless the user switched reminders on. See
+  // lib/task-reminder-plan.ts.
+  useEffect(() => {
+    if (!session?.user) return;
+    return startTaskReminderScheduling();
+  }, [session?.user?.id]);
+
+  // Show notifications that fire while the app is on screen, and make sure the
   // Android channels exist.
   //
   // Once per launch, and here rather than at module scope in the background

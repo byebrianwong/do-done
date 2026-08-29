@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { NotificationSettings } from '@do-done/shared';
+import {
+  NotificationSettingsSchema,
+  type NotificationSettings,
+} from '@do-done/shared';
 import { MIN_LEAD_MS, planDigests, planQueryRange } from './digest-plan';
 
+// Built through the schema rather than as a literal, so a field added to
+// NotificationSettings later doesn't break this file — the defaults are the
+// point here, not the exact shape.
 function settings(over: Partial<NotificationSettings> = {}): NotificationSettings {
-  return {
-    notify_daily_digest: false,
-    notify_daily_digest_time: '08:00',
-    notify_weekly_digest: false,
-    notify_weekly_digest_weekday: 1,
-    notify_weekly_digest_time: '08:00',
-    ...over,
-  };
+  return NotificationSettingsSchema.parse(over);
 }
 
 // 2026-08-15 is a Saturday. 06:00 UTC is 02:00 in New York (EDT, UTC−4).

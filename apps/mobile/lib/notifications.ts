@@ -58,26 +58,34 @@ export function notificationsSupported(): boolean {
 
 // ── Channels ───────────────────────────────────────────
 //
-// Two, not one. Android lets the user silence a channel without silencing the
-// app, and "a reminder because I walked into a shop" and "a summary of my
-// morning" are genuinely different subscriptions — someone may well want the
-// first at high importance and the second quiet. One shared channel would make
-// muting the digest also mute the thing they're standing in front of.
+// Three, not one. Android lets the user silence a channel without silencing the
+// app, and "a reminder because I walked into a shop", "a summary of my
+// morning" and "the task I set for 3pm is at 3pm" are genuinely different
+// subscriptions — someone may well want the timely ones at high importance and
+// the summary quiet. One shared channel would make muting the digest also mute
+// the thing they're standing in front of.
 
 export const LOCATION_CHANNEL_ID = 'location-reminders';
 export const DIGEST_CHANNEL_ID = 'digests';
+export const TASK_CHANNEL_ID = 'task-reminders';
 
 /** The channel a notification of this kind belongs in. */
-export type NotificationChannel = 'location' | 'digest';
+export type NotificationChannel = 'location' | 'digest' | 'task';
+
+const CHANNEL_IDS: Record<NotificationChannel, string> = {
+  location: LOCATION_CHANNEL_ID,
+  digest: DIGEST_CHANNEL_ID,
+  task: TASK_CHANNEL_ID,
+};
 
 export function channelIdFor(kind: NotificationChannel): string {
-  return kind === 'location' ? LOCATION_CHANNEL_ID : DIGEST_CHANNEL_ID;
+  return CHANNEL_IDS[kind];
 }
 
 let channelsReady: Promise<void> | null = null;
 
 /**
- * Create both channels. Idempotent (creating an existing channel is a no-op),
+ * Create all three channels. Idempotent (creating an existing channel is a no-op),
  * memoised per JS context, and safe to call from a background task.
  *
  * Called at module load from the entry point rather than alongside the
@@ -104,6 +112,19 @@ export function ensureChannels(): Promise<void> {
         // shade, but it is not worth interrupting whatever is on screen. A
         // heads-up banner every morning is what gets a channel muted.
         importance: N.AndroidImportance.DEFAULT,
+      });
+      await N.setNotificationChannelAsync(TASK_CHANNEL_ID, {
+        name: 'Task reminders',
+        description: 'Scheduled tasks, when the time you set for them arrives.',
+        // HIGH, like the location channel and unlike the digest. A reminder
+        // whose whole value is landing at 2:55 for a 3pm task is worth
+        // interrupting for; arriving silently in the shade an hour later is
+        // the same as not arriving. The day-start roundup shares the channel
+        // because it is the same subscription — "announce my scheduled work"
+        // — and splitting it would mean a fourth thing to explain for a
+        // notification that fires once a day.
+        importance: N.AndroidImportance.HIGH,
+        vibrationPattern: [0, 200, 150, 200],
       });
     } catch (e) {
       console.warn('[notifications] channel setup failed', e);

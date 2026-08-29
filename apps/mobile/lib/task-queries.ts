@@ -28,6 +28,7 @@ import { getProjectsApi, getTasksApi } from './supabase';
 import { queryClient } from './query-client';
 import { refreshTaskWidgets } from './widgets';
 import { scheduleGeofenceSync } from './location-queries';
+import { scheduleTaskReminderSync } from './task-reminders';
 import { notifyAutoSync } from './auto-sync-notice';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
@@ -457,6 +458,11 @@ export function invalidateTasks() {
   // Completing the last task at a place should retire its geofence, and
   // reopening one should bring it back. Debounced — this runs on every write.
   scheduleGeofenceSync();
+  // A per-task reminder is armed against a specific task at a specific
+  // instant, so the moment it most needs to exist is the moment the task is
+  // created or re-dated. Foreground-only re-arming would miss exactly that.
+  // Debounced for the same reason as the two above.
+  scheduleTaskReminderSync();
 }
 
 export interface ToggleCompleteOptions {
