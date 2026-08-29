@@ -21,12 +21,35 @@
  * the same thing — but a voice note is one tap from here, one tap from the
  * composer's own mic, and one from the launcher's "Voice task", which is
  * enough doors for it.
+ *
+ * **It rides the tab bar.** The bar floats over the screen now and shrinks as
+ * you scroll (see `MinimizingTabBar`), so this button can no longer sit a flat
+ * 16pt off the bottom of a screen the bar had already shortened — it would be
+ * behind the bar. It rests above the *expanded* bar and translates down by
+ * exactly what the bar sheds, off the same shared value, so the gap between
+ * the two never changes. A transform rather than an animated `bottom`, so the
+ * sweep costs no layout.
+ *
+ * On a screen with no tab bar under it — a pushed project — there is no
+ * provider, the progress stays 0, and the button sits in the corner it always
+ * did.
  */
 
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useTabBarMinimize } from '@/lib/tab-bar-minimize';
+import { TAB_BAR_ROW_HEIGHT, tabRowHeight } from '@/lib/tab-bar-motion';
+
+/** The button's gap from whatever is below it — the bar, or the screen edge. */
+const FAB_GAP = 16;
 
 interface QuickAddButtonProps {
   /**
@@ -48,6 +71,22 @@ export default function QuickAddButton({
   scheduledDate,
 }: QuickAddButtonProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const minimize = useTabBarMinimize();
+  // A local stand-in so the animated style below is not a conditional hook.
+  // It never moves, which is exactly right where there is no bar.
+  const fallback = useSharedValue(0);
+  const progress = minimize?.progress ?? fallback;
+
+  const restingBottom = minimize
+    ? insets.bottom + TAB_BAR_ROW_HEIGHT + FAB_GAP
+    : FAB_GAP;
+
+  const ride = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: TAB_BAR_ROW_HEIGHT - tabRowHeight(progress.value) },
+    ],
+  }));
 
   const open = (voice: boolean) =>
     router.push({
@@ -63,29 +102,35 @@ export default function QuickAddButton({
     });
 
   return (
-    <Pressable
-      testID="quick-add-button"
-      accessibilityRole="button"
-      accessibilityLabel="Add task"
-      accessibilityHint="Long press to dictate a task"
-      style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-      onPress={() => open(false)}
-      onLongPress={() => open(true)}
-      hitSlop={6}
+    <Animated.View
+      style={[styles.anchor, { bottom: restingBottom }, ride]}
     >
-      <Ionicons name="add" size={30} color="#fff" />
-    </Pressable>
+      <Pressable
+        testID="quick-add-button"
+        accessibilityRole="button"
+        accessibilityLabel="Add task"
+        accessibilityHint="Long press to dictate a task"
+        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        onPress={() => open(false)}
+        onLongPress={() => open(true)}
+        hitSlop={6}
+      >
+        <Ionicons name="add" size={30} color="#fff" />
+      </Pressable>
+    </Animated.View>
   );
 }
 
+
 const styles = StyleSheet.create({
-  // Sits just above the tab bar, in the corner the thumb reaches. The screen's
-  // content area already stops at the top of the tab bar, so this is the gap
-  // above it.
-  fab: {
+  // The layer that does the moving. `bottom` is set from the safe area and the
+  // expanded bar; the transform takes it down as the bar shrinks.
+  anchor: {
     position: 'absolute',
     right: 16,
-    bottom: 16,
+  },
+  // Sits just above the tab bar, in the corner the thumb reaches.
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,
