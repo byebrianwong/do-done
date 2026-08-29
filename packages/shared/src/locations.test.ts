@@ -47,7 +47,7 @@ describe("locationReminderLabel", () => {
     ).toBe("Arriving at and leaving Tesco");
   });
 
-  it("counts distinct places once naming one would be a lie", () => {
+  it("counts distinct places once naming one would misrepresent the rest", () => {
     expect(
       locationReminderLabel([link("Tesco", "enter"), link("Boots", "enter")])
     ).toBe("2 places");

@@ -52,8 +52,8 @@ describe('nextMinimizeState', () => {
   });
 
   it('expands more readily than it minimizes', () => {
-    // The asymmetry is the point: a bar that will not come back is the user
-    // pulling at their own navigation and being told no, which is a far worse
+    // The asymmetry is deliberate: a bar that will not come back is the user
+    // pulling at their own navigation and getting nothing back, which is a far worse
     // failure than one that minimized a little eagerly. Same travel, opposite
     // directions, different verdicts.
     const travel = EXPAND_TRAVEL_PX;

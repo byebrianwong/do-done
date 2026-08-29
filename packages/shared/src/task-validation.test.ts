@@ -16,7 +16,7 @@ describe("partitionTaskPatch", () => {
     expect(invalid).toEqual({});
   });
 
-  // The whole point: one bad field must not cost the user the good ones. When
+  // The rule under test: one bad field must not cost the user the good ones. When
   // the patch went to the server whole, an over-long note took the title and
   // priority down with it — and kept doing so on every later save.
   it("holds back only the offending field and lets its neighbours through", () => {

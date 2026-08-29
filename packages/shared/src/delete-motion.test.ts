@@ -48,7 +48,8 @@ describe("task deletion motion", () => {
   });
 
   it("holds for less time than a completion", () => {
-    // The completion hold is a beat to enjoy. This one is only long enough to
+    // The completion hold marks a state the task passed through. This one is
+    // only long enough to
     // see which row is going.
     expect(TASK_DELETE_HOLD_MS).toBeLessThan(TASK_COMPLETE_HOLD_MS);
     expect(TASK_DELETE_EXIT_MS).toBeLessThan(TASK_COMPLETE_EXIT_MS);

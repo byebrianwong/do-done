@@ -755,7 +755,7 @@ function ItemSheet({
             ))}
             {/* "Automatic", not "Other": clearing hands the word back to the
                 lexicon, which usually has an opinion — so the row does not
-                land in Other, and a label saying it would be a lie. */}
+                land in Other, so a label saying it would misdescribe it. */}
             <Pressable
               onPress={() => onAisle(item, null)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}

@@ -91,7 +91,7 @@ describe("parseNotificationSettings", () => {
     expect(settings).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
   });
 
-  // The whole point of the per-field .catch(): one unreadable field must not
+  // What the per-field .catch() is for: one unreadable field must not
   // silently switch off a digest the user turned on, because the only symptom
   // would be a notification that stops arriving.
   it("keeps the switches when one field is unreadable", () => {
