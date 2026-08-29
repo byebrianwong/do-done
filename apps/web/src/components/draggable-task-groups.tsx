@@ -44,6 +44,13 @@ import {
   useIsCompact,
 } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
+import {
+  STICKY_SECTION_HEADER,
+  SectionCaret,
+  SectionCount,
+  SectionDot,
+  sectionHeaderClass,
+} from "./section-header";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
@@ -148,6 +155,7 @@ export function DraggableTaskGroups({
       <TaskRowBehaviorProvider
         keepsCompleted={config.showCompleted}
         density={config.density}
+        rowStyle={config.rowStyle}
       >
       <div>
         {groups.map((g) => (
@@ -403,6 +411,7 @@ export function DraggableTaskGroups({
       <TaskRowBehaviorProvider
         keepsCompleted={config.showCompleted}
         density={config.density}
+        rowStyle={config.rowStyle}
       >
       <div>
         {groups.map((g) => {
@@ -509,33 +518,19 @@ function GroupSection({
   const showHeader = !hideHeader && !!group.label;
   const headerInner = (
     <>
-      <svg
-        className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
-        viewBox="0 0 12 12"
-        fill="none"
-        aria-hidden
-      >
-        <path
-          d="M4.5 2.5 8 6l-3.5 3.5"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      {group.color ? (
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: group.color }}
-        />
-      ) : null}
-      {group.label}
-      <span className="text-neutral-400">({group.count})</span>
+      <SectionCaret collapsed={collapsed} />
+      {group.color ? <SectionDot color={group.color} /> : null}
+      <span className="truncate">{group.label}</span>
+      <SectionCount value={group.count} />
     </>
   );
-  const headerClass = `flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${
-    compact ? "mb-0.5" : "mb-2"
-  }`;
+  // The pinned band needs the section's own left padding so the label lines up
+  // with the row titles under it, and `-mx` so its background reaches past
+  // them — a header narrower than the rows it covers lets them show at the
+  // edges as they scroll under.
+  const headerClass = `${sectionHeaderClass(compact)} ${STICKY_SECTION_HEADER} ${
+    compact ? "mb-0.5" : "mb-1"
+  } -mx-1 px-1`;
 
   return (
     <section className={`group ${compact ? "mb-2.5" : "mb-6"}`}>
@@ -545,13 +540,12 @@ function GroupSection({
             type="button"
             onClick={onToggleCollapse}
             aria-expanded={!collapsed}
-            className={`${headerClass} transition-opacity hover:opacity-70`}
-            style={{ color: group.color ?? "#9ca3af" }}
+            className={`${headerClass} text-left transition-colors hover:text-neutral-900 dark:hover:text-neutral-100`}
           >
             {headerInner}
           </button>
         ) : (
-          <h2 className={headerClass} style={{ color: group.color ?? "#9ca3af" }}>
+          <h2 className={headerClass}>
             {headerInner}
           </h2>
         )
@@ -601,7 +595,7 @@ function SortableRow({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+     
       suppressHydrationWarning
       {...attributes}
       {...listeners}

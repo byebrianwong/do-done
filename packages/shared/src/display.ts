@@ -63,6 +63,27 @@ export type SortDir = z.infer<typeof SortDir>;
 export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
 
+/**
+ * How a row states everything that isn't its title. Like `density`, purely a
+ * render concern — `applyDisplay` ignores it — but it lives in the config so it
+ * persists and syncs with the rest of the view's Display settings.
+ *
+ * "quiet" collapses the metadata into one muted line under the title, so the
+ * only colour left in the row is the two slots that carry meaning: the ring
+ * (which project) and the gutter (how urgent). It is what the mobile row has
+ * always drawn, via `rowSubline` in task-row.ts.
+ *
+ * "detailed" is the row as it was: each fact its own filled chip, and each chip
+ * an editor you can open in place. That is a real thing to want and the reason
+ * this is a setting rather than a replacement — quiet trades those four inline
+ * editors for a calm list, and which trade is right depends on whether you are
+ * reading the list or working through it.
+ *
+ * Mobile has no such switch: it has never had chips to go back to.
+ */
+export const RowStyle = z.enum(["quiet", "detailed"]);
+export type RowStyle = z.infer<typeof RowStyle>;
+
 export const SortRuleSchema = z.object({
   field: SortField,
   dir: SortDir.default("asc"),
@@ -120,6 +141,12 @@ export const DisplayConfigSchema = z.object({
   showSubtasks: z.boolean().default(true),
   // Row height / spacing. Render-only (see Density).
   density: Density.default("comfortable"),
+  // How the row states its metadata. Render-only (see RowStyle).
+  //
+  // A top-level field rather than a `filters` clause, for the same reason
+  // `showSubtasks` is one: it describes how a list *draws*, not a narrowing the
+  // user applied, so it must never light the "Filter · N" badge.
+  rowStyle: RowStyle.default("quiet"),
   // Group keys (e.g. "status:next") the user has collapsed in this view. Purely
   // a render concern — applyDisplay ignores it. Excluded from "is this the
   // default view?" checks (see isDisplayDefault) so collapsing doesn't read as
@@ -139,6 +166,7 @@ export const DEFAULT_DISPLAY: DisplayConfig = {
   showCompleted: false,
   showSubtasks: true,
   density: "comfortable",
+  rowStyle: "quiet",
   collapsed: [],
 };
 
@@ -252,6 +280,12 @@ export const DENSITY_OPTIONS: { key: Density; label: string; hint: string }[] = 
   { key: "compact", label: "Compact", hint: "Fit more on screen" },
 ];
 
+export const ROW_STYLE_OPTIONS: { key: RowStyle; label: string; hint: string }[] =
+  [
+    { key: "quiet", label: "Quiet", hint: "One muted line" },
+    { key: "detailed", label: "Detailed", hint: "Chips you can edit" },
+  ];
+
 // ── Config mutation helpers (shared by web + mobile menus) ──
 
 export function withDensity(config: DisplayConfig, density: Density): DisplayConfig {
@@ -260,6 +294,17 @@ export function withDensity(config: DisplayConfig, density: Density): DisplayCon
 
 export function isCompact(config: DisplayConfig): boolean {
   return config.density === "compact";
+}
+
+export function withRowStyle(
+  config: DisplayConfig,
+  rowStyle: RowStyle
+): DisplayConfig {
+  return { ...config, rowStyle };
+}
+
+export function isQuietRow(config: DisplayConfig): boolean {
+  return config.rowStyle === "quiet";
 }
 
 export function withGroup(config: DisplayConfig, group: GroupKey): DisplayConfig {

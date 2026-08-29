@@ -1835,6 +1835,144 @@ One behaviour was removed on purpose: the row's project chip used to open a
 picker inline. The chip is gone and no other element in the row is a natural
 target, so the picker now lives only in the editor, one tap away.
 
+## Quiet rows and detailed rows (web)
+
+Web can now draw the row either way, and it is a Display setting:
+`DisplayConfig.rowStyle` is `"quiet"` or `"detailed"`.
+
+| | What the row shows |
+| --- | --- |
+| `quiet` (default) | One muted line under the title, plus a date column on the right. Colour appears twice: the project ring and the urgency gutter. |
+| `detailed` | The chips as they were — each fact its own filled pill, and each pill an editor you open in place. |
+
+Quiet is what the mobile row has always drawn. Both platforms now build that
+line with `rowSubline` from `@do-done/shared`, so they cannot word the same task
+differently.
+
+- **It is a setting because the trade is real.** Quiet gives up four inline
+  editors (project, estimate, status, and the chips' hover targets) to get a
+  calm list. Which is right depends on whether you are reading the list or
+  working through it, so the answer is a control rather than a decision.
+- **It is a top-level field, not a `filters` clause** — same reasoning as
+  `showSubtasks`. It describes how a list draws, not a narrowing the user
+  applied, so it must never light the "Filter · N" badge.
+- **It defaults to `quiet`, and `parseDisplayConfig` backfills that** for every
+  config saved before the field existed. This deliberately changes how existing
+  saved views look; the setting is how you get the old row back.
+- **Mobile has no such switch.** It has never had chips to go back to.
+- **`useIsQuietRow()` threads it**, exactly like `useIsCompact()` — through
+  `TaskRowBehaviorProvider`, because `TaskItem` is rendered from a dozen call
+  sites that shouldn't each have to carry the value.
+
+Two shared-package additions make the split possible without duplicating rules:
+
+- **`rowSchedule(task, ctx)`** returns the "when" part on its own — the
+  schedule, or what a finished task says in its place. `rowSubline` calls it for
+  its first part, so there is one implementation.
+- **`RowSublineContext.hideSchedule`** drops exactly what `rowSchedule` returns,
+  for a caller drawing the date in a column of its own. Web's quiet row sets it;
+  mobile does not, because a phone row has no width for a column.
+- **`RowSublineContext.hideStatus`** is the status-shaped twin of
+  `projectName: null`: a status-grouped list has already put the word in the
+  header above every row it applies to. Web passes its existing
+  `hideStatusBadge`; mobile's `GroupedTaskList` passes `config.group ===
+  'status'`, which it had never suppressed before.
+
+**The quiet row drops the edit pencil and halves the action strip** (`w-12` →
+`w-6`). A click on the row already opens the editor and so does the context
+menu. The strip still reserves a *fixed* width, though, and that part is not
+cosmetic: the date is placed by `ml-auto` against this strip, so a strip that
+varies in width moves the column the dates are trying to form.
+
+## Sticky list headers
+
+**The page title and the group headers stay on screen.** Before this, one screen
+into a long list nothing said which list you were in or which section a row sat
+under.
+
+The two platforms needed opposite fixes. On web everything scrolled away. On
+mobile the screen title was already pinned — it is a `View` above the list, not
+part of it — and only the section headers were missing.
+
+### Web
+
+Three CSS variables in `globals.css`, applied through three classes, because the
+offsets stack:
+
+| Token | What it is |
+| --- | --- |
+| `--dd-appbar-h` | The app shell's own top bar. `3.5rem`, zeroed at `md` where the bar is `md:hidden`. |
+| `--dd-pagebar-h` | The list's own sticky title bar. |
+| `--dd-stick-top` | What a sticky *group* header sets `top` to. |
+
+`.dd-stick-scope` raises `--dd-stick-top` for the subtree `StickyPageBar` wraps,
+so a group header pins under the page bar on a view that has one and under the
+app bar on a view that doesn't (the project page draws its own heading). No call
+site carries a number of its own.
+
+- **`StickyPageBar` keeps the big title in flow and hands off to a 48px bar.**
+  Pinning the heading at full size would spend ~56px of every screen on a word
+  the sidebar already highlights. The Display menu lives in the bar, so it stays
+  reachable — it used to scroll away with the title.
+- **The handoff is an IntersectionObserver on a sentinel, not a scroll handler.**
+  It answers the question when it changes rather than on every frame, and it
+  works however the scroll happened. `rootMargin` accepts neither `calc()` nor a
+  custom property, so the tokens are resolved to pixels in JS and re-resolved on
+  resize — crossing the `md` breakpoint changes one of them.
+- **A pinned header must have an opaque background.** Without one the rows
+  scroll *through* the words instead of under them. It is the failure a static
+  screenshot cannot show, which is why `STICKY_SECTION_HEADER` carries the
+  background rather than leaving it to each call site.
+- **Group headers already sat inside their own `<section>`**, which is exactly
+  the containment sticky wants: a header pins while its own rows are on screen
+  and is pushed out by the next one.
+- **Two sections are deliberately not sticky.** Today's Focus is capped at
+  `FOCUS_MAX` (3) rows, so a header there could never pin before the section
+  ended; and both Focus and Overdue are tinted cards, where a pinned band would
+  have to match the card's fill exactly or read as a seam.
+
+### Mobile
+
+`SectionedDraggableList` is a `DraggableFlatList` over a flattened array of
+header-and-task rows — that flattening is what lets a task be dragged between
+sections — so `SectionList`'s `stickySectionHeadersEnabled` is not available and
+the indices are computed instead.
+
+**`ListHeaderComponent` occupies index 0 when it is present**, and
+VirtualizedList matches `stickyHeaderIndices` against `dataIndex + stickyOffset`
+without adding the offset itself. Forget it and every section pins its first
+*task* instead of its name — which looks deliberate enough that nobody would
+report it.
+
+The Completed screen was already a `SectionList` with
+`stickySectionHeadersEnabled`, so it needed no change.
+
+### The label itself
+
+`text-xs font-semibold uppercase tracking-wider` was the single strongest
+period marker in the app, and it also failed at its job: at 12px, grey, in caps
+the header was *quieter* than the near-black rows it named. It is sentence case
+at 13px (web) / 14px (mobile) in the body colour now, with the count as a pill
+rather than "(6)" so it reads as a quantity rather than as part of the sentence.
+
+The group's colour moved to the dot beside the label instead of tinting the
+words. Tinting both spent the same signal twice, and it was what forced the text
+so light in the first place.
+
+One shared module per platform — `components/section-header.tsx` and
+`components/SectionHeader.tsx` — because there were four copies of that
+StyleSheet and four is how a section comes to be named one way on one screen and
+another way on the next.
+
+### The contrast this exposed
+
+A subline is not a chip. Once the metadata stopped being decoration beside the
+title and became the only place a project, an estimate or a place is stated, the
+neutral it was drawn in stopped being defensible: `neutral-400` measures 2.5:1
+on white. Both platforms' sublines moved to `neutral-500` (4.8:1), and the count
+pill to `neutral-600` (`neutral-500` on a `neutral-100` pill is 4.35:1, under
+the bar for 11px text).
+
 ## Attachments
 
 A task can carry files. Two halves that must stay in agreement:

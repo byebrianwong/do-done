@@ -163,17 +163,25 @@ export function OverdueSection({ tasks }: OverdueSectionProps) {
   return (
     <section className="mb-6 rounded-xl border border-red-100 bg-red-50/40 p-3 dark:border-red-950/60 dark:bg-red-950/20">
       <header className="mb-2 flex items-center justify-between gap-2">
+        {/* Not pinned, unlike the grouped lists' headers: this is a tinted card
+            of its own, so a pinned band would have to match its red exactly or
+            read as a seam — and the section sits at the top of the view, where
+            there is nothing above it to scroll under. */}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-700 dark:text-red-400"
+          aria-expanded={open}
+          className="flex items-center gap-2 py-0.5 text-[13px] font-semibold text-red-700 dark:text-red-400"
         >
           <svg
-            className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
+            className={`h-3 w-3 shrink-0 transition-transform motion-reduce:transition-none ${
+              open ? "rotate-90" : ""
+            }`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
             strokeWidth={2}
+            aria-hidden
           >
             <path
               strokeLinecap="round"
@@ -181,7 +189,10 @@ export function OverdueSection({ tasks }: OverdueSectionProps) {
               d="M9 5l7 7-7 7"
             />
           </svg>
-          Overdue ({visible.length})
+          Overdue
+          <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-red-700 dark:bg-red-950/60 dark:text-red-300">
+            {visible.length}
+          </span>
         </button>
         <div className="flex items-center gap-1.5">
           <span className="hidden text-xs font-medium text-red-700/70 sm:inline dark:text-red-400/70">

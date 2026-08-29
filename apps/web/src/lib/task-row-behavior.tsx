@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import type { Density, Task } from "@do-done/shared";
+import type { Density, RowStyle, Task } from "@do-done/shared";
 
 /**
  * Does the surrounding list keep a task once it has been completed?
@@ -35,6 +35,20 @@ const KeepsCompletedContext = createContext(false);
  * roomy layout they were designed at.
  */
 const DensityContext = createContext<Density>("comfortable");
+
+/**
+ * How the surrounding list wants its rows to state their metadata.
+ *
+ * Threaded exactly like {@link DensityContext} and for the same reason: the row
+ * is rendered from a dozen call sites and none of them should have to carry a
+ * value they don't otherwise care about.
+ *
+ * The default is "quiet" so a surface with no Display menu of its own — the
+ * single-task page, the modal's subtask list, a Storybook story — matches what
+ * the lists around it draw. A row with no context is far more likely to be
+ * sitting beside quiet rows than to be the one place chips are wanted.
+ */
+const RowStyleContext = createContext<RowStyle>("quiet");
 
 /**
  * How many tasks are still open in the list the row sits in, and in its project.
@@ -118,15 +132,21 @@ export function useProjectOpenCount(): number | null {
 export function TaskRowBehaviorProvider({
   keepsCompleted,
   density = "comfortable",
+  rowStyle = "quiet",
   children,
 }: {
   keepsCompleted: boolean;
   density?: Density;
+  rowStyle?: RowStyle;
   children: ReactNode;
 }) {
   return (
     <KeepsCompletedContext.Provider value={keepsCompleted}>
-      <DensityContext.Provider value={density}>{children}</DensityContext.Provider>
+      <DensityContext.Provider value={density}>
+        <RowStyleContext.Provider value={rowStyle}>
+          {children}
+        </RowStyleContext.Provider>
+      </DensityContext.Provider>
     </KeepsCompletedContext.Provider>
   );
 }
@@ -144,4 +164,12 @@ export function useRowDensity(): Density {
 /** True when the current list is in compact density. */
 export function useIsCompact(): boolean {
   return useContext(DensityContext) === "compact";
+}
+
+/**
+ * True when the row should state its metadata as one muted line rather than as
+ * chips. See `RowStyle` in @do-done/shared for what the trade is.
+ */
+export function useIsQuietRow(): boolean {
+  return useContext(RowStyleContext) === "quiet";
 }

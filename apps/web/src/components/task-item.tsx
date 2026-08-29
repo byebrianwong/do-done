@@ -40,7 +40,10 @@ import {
   locationReminderLabel,
   locationRowLabel,
   resolveQuickSchedule,
+  rowEstimate,
   rowGutter,
+  rowSchedule,
+  rowSubline,
 } from "@do-done/shared";
 import type { Task, Project, TaskPriority } from "@do-done/shared";
 import { formatRrule } from "@do-done/task-engine";
@@ -49,6 +52,7 @@ import { useRowExit } from "@/lib/use-row-exit";
 import { useTaskDeleting } from "@/lib/task-delete-events";
 import {
   useIsCompact,
+  useIsQuietRow,
   useKeepsCompleted,
   useProjectOpenCount,
   useSectionOpenCount,
@@ -428,6 +432,24 @@ function taskDateColor(dateStr: string): string {
   return "text-neutral-500 bg-neutral-100 dark:bg-neutral-800";
 }
 
+/**
+ * The same three states as {@link taskDateColor}, in text alone.
+ *
+ * The quiet row spends its colour on the ring and the gutter, so the date
+ * states lateness in weight and hue only — no filled pill. Late is still red
+ * because the gutter's dot is already saying so and the two must agree; today
+ * keeps its amber, and every other day is plain.
+ */
+function taskDateTextColor(dateStr: string): string {
+  const date = new Date(dateStr + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date < today) return "text-red-600 dark:text-red-400";
+  if (date.getTime() === today.getTime())
+    return "text-orange-600 dark:text-orange-400";
+  return "text-neutral-500 dark:text-neutral-400";
+}
+
 export interface SchedulePatch {
   scheduled_date?: string | null;
   scheduled_time?: string | null;
@@ -445,12 +467,19 @@ function InlineScheduleEditor({
   deadlineDate,
   deadlineTime,
   onChange,
+  quiet = false,
 }: {
   scheduledDate: string | null;
   scheduledTime: string | null;
   deadlineDate: string | null;
   deadlineTime: string | null;
   onChange: (patch: SchedulePatch) => void;
+  /**
+   * Render as plain right-aligned text instead of a pill — the quiet row's
+   * date column. Still the same button and the same popover: quiet is about
+   * what the row looks like at rest, not about taking the editor away.
+   */
+  quiet?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -473,13 +502,14 @@ function InlineScheduleEditor({
   let label: string | null = null;
   let chipClass = "";
   let title = "";
+  const dateColor = quiet ? taskDateTextColor : taskDateColor;
   if (scheduledDate) {
     label = formatTaskDate(scheduledDate) + (scheduledTime ? ` ${formatTimeOfDay(scheduledTime)}` : "");
-    chipClass = taskDateColor(scheduledDate);
+    chipClass = dateColor(scheduledDate);
     title = scheduledTime ? `Scheduled for ${scheduledDate} at ${scheduledTime}` : `Scheduled for ${scheduledDate}`;
   } else if (deadlineDate) {
     label = formatTaskDate(deadlineDate) + (deadlineTime ? ` ${formatTimeOfDay(deadlineTime)}` : "");
-    chipClass = taskDateColor(deadlineDate);
+    chipClass = dateColor(deadlineDate);
     title = deadlineTime ? `Deadline ${deadlineDate} at ${deadlineTime}` : `Deadline ${deadlineDate}`;
   }
   if (!label) return null;
@@ -502,7 +532,11 @@ function InlineScheduleEditor({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`${title} — click to reschedule`}
-        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize transition-shadow hover:ring-1 hover:ring-inset hover:ring-neutral-300 dark:hover:ring-neutral-700 ${chipClass}`}
+        className={
+          quiet
+            ? `shrink-0 rounded px-1 py-0.5 text-xs font-medium capitalize tabular-nums transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${chipClass}`
+            : `shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize transition-shadow hover:ring-1 hover:ring-inset hover:ring-neutral-300 dark:hover:ring-neutral-700 ${chipClass}`
+        }
       >
         {label}
       </button>
@@ -683,6 +717,10 @@ export function TaskItem({
   // about what the row renders — every chip and control is still here — so the
   // only branches below are on spacing and type scale.
   const compact = useIsCompact();
+  // Quiet rows state their metadata as one muted line instead of as chips.
+  // See `RowStyle` in @do-done/shared for what the trade is, and the Display
+  // menu's "Row" control for where it is made.
+  const quiet = useIsQuietRow();
   // What the surroundings know that the row cannot: whether ticking this off
   // empties its section or finishes its project. Both are null on surfaces with
   // no such notion, which simply means those rules can't fire there.
@@ -810,6 +848,58 @@ export function TaskItem({
     !!statusCfg &&
     task.status !== "not_started" &&
     task.status !== "inbox";
+
+  // ── The quiet row's subline ──────────────────────────
+  //
+  // Built from the *optimistic* values rather than from `task`, so an inline
+  // edit shows in the line on the same frame it shows in the control that made
+  // it — the row holds its own copies of priority, estimate, schedule and
+  // project until the refresh lands.
+  const rowTask = useMemo(
+    () => ({
+      ...task,
+      priority,
+      duration_minutes: duration,
+      scheduled_date: scheduledDate,
+      scheduled_time: scheduledTime,
+      project_id: projectId,
+    }),
+    [task, priority, duration, scheduledDate, scheduledTime, projectId]
+  );
+  // With no scheduled date the date column falls back to showing the deadline,
+  // so the line must not also say it. Handled by hiding the field rather than
+  // by filtering the rendered string, which would be a guess about wording.
+  const columnShowsDeadline = !scheduledDate && !!task.deadline_date;
+  const sublineParts = useMemo(() => {
+    if (!quiet) return [];
+    const parts = rowSubline(
+      columnShowsDeadline ? { ...rowTask, deadline_date: null } : rowTask,
+      {
+        projectName: project?.name ?? null,
+        // The column beside the title carries the schedule; `rowSubline` drops
+        // exactly what `rowSchedule` returns, so nothing is said twice and
+        // nothing is lost.
+        hideSchedule: true,
+        // Same reason the chip honoured it: a status-grouped list has already
+        // put this word in the header above every row it applies to.
+        hideStatus: hideStatusBadge,
+      }
+    );
+    // Three facts the shared subline deliberately leaves out, because the phone
+    // row has nowhere to put them: an estimate (mobile gives it its own column),
+    // a place, and tags. A wide row has the width.
+    const estimate = rowEstimate(rowTask);
+    if (estimate) parts.push(estimate);
+    if (placeLabel) parts.push(placeLabel);
+    return parts;
+  }, [
+    quiet,
+    rowTask,
+    columnShowsDeadline,
+    project?.name,
+    placeLabel,
+    hideStatusBadge,
+  ]);
 
   async function handleToggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -1286,8 +1376,78 @@ export function TaskItem({
                 <LinkifiedText text={task.title} />
               </span>
             </span>
+
+            {/* The quiet row's one muted line. neutral-500 rather than the
+                neutral-400 the chips used: this is now the only place a
+                project, an estimate or a place is stated, and 400 on white is
+                about 2.5:1 — fine for decoration, not for information.
+
+                Clamped to one line at every width. The line is a summary; a
+                task carrying six facts should not become the tallest row in
+                the list to prove it. */}
+            {quiet && (sublineParts.length > 0 || task.tags.length > 0) ? (
+              <span className="line-clamp-1 text-xs leading-4 text-neutral-500 dark:text-neutral-400">
+                {sublineParts.map((part, i) => (
+                  <span key={`p${i}`}>
+                    {i > 0 ? <span aria-hidden> · </span> : null}
+                    {part}
+                  </span>
+                ))}
+                {/* Tags stay links even here — they are the one piece of row
+                    metadata that navigates rather than describes, and dropping
+                    them to plain text would quietly remove the only way into a
+                    tag from a list. */}
+                {task.tags.map((tag, i) => (
+                  <span key={tag}>
+                    {sublineParts.length > 0 || i > 0 ? (
+                      <span aria-hidden> · </span>
+                    ) : null}
+                    <Link
+                      href={tagPath(tag)}
+                      onClick={(e) => e.stopPropagation()}
+                      title={`Show everything tagged #${tag}`}
+                      className="transition-colors hover:text-indigo-600 dark:hover:text-indigo-400"
+                    >
+                      #{tag}
+                    </Link>
+                  </span>
+                ))}
+              </span>
+            ) : null}
           </div>
 
+          {/* The quiet row says all of that in the line above; what is left
+              here is the date, in a column of its own. Everything the chips
+              could edit is still reachable — the gutter is the priority
+              editor, the date below is the schedule editor, and a click
+              anywhere on the row opens the rest. */}
+          {quiet ? (
+            <div
+              className={`${align.meta} flex shrink-0 items-center @lg:ml-auto`}
+            >
+              {completed ? (
+                <span
+                  className="shrink-0 px-1 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400"
+                  title={
+                    task.completed_at
+                      ? `Completed ${new Date(task.completed_at).toLocaleString()}`
+                      : "Completed"
+                  }
+                >
+                  {rowSchedule({ ...rowTask, status: "done" })}
+                </span>
+              ) : (
+                <InlineScheduleEditor
+                  quiet
+                  scheduledDate={scheduledDate}
+                  scheduledTime={scheduledTime}
+                  deadlineDate={task.deadline_date}
+                  deadlineTime={task.deadline_time}
+                  onChange={handleScheduleChange}
+                />
+              )}
+            </div>
+          ) : (
           <div
             className={`flex flex-wrap items-center @lg:contents ${
               compact ? "gap-1.5" : "gap-2"
@@ -1473,6 +1633,7 @@ export function TaskItem({
               )
             )}
           </div>
+          )}
         </div>
 
         {/* Always visible on touch (no hover); reveal on hover for pointer
@@ -1495,34 +1656,49 @@ export function TaskItem({
             are `shrink-0`, so they will spill left over the date chip rather
             than quietly widening the strip. */}
         <div
-          className={`flex w-12 shrink-0 items-center justify-end gap-1 opacity-100 transition-opacity ${align.band} md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
+          className={`flex shrink-0 items-center justify-end gap-1 opacity-100 transition-opacity ${align.band} ${
+            /* Quiet drops the edit pencil, so the strip only has to reserve one
+               button's width. The pencil is the least earned control on the
+               row: a click anywhere already opens the editor, and so does the
+               context menu, so the strip was 48px of every row spent on a
+               third way to do it — visible only on the devices that have hover.
+
+               It cannot simply be removed in both modes. The date chip is
+               placed by `ml-auto` *against* this strip, so a strip that varies
+               in width moves the column the dates are trying to form; what
+               keeps that edge still is reserving a fixed width whatever is in
+               it. Quiet reserves less because it has less to hold. */
+            quiet ? "w-6" : "w-12"
+          } md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
           onClick={(e) => e.stopPropagation()}
         >
           {canSchedule && duration && (
             <ScheduleButton taskId={task.id} durationMinutes={duration} />
           )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditor();
-            }}
-            className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-            aria-label="Edit task"
-          >
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+          {!quiet && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditor();
+              }}
+              className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+              aria-label="Edit task"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-              />
-            </svg>
-          </button>
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       </div>
