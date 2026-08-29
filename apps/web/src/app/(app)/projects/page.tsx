@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { NewProjectButton, NewProjectMount } from "./projects-list-client";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { ProjectsApi } from "@do-done/api-client";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 import { ProjectIcon } from "@/components/project-icon";
 
 export default async function ProjectsPage() {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  const projects = new ProjectsApi(supabase, user.id);
-  const { data } = await projects.listWithCounts();
+  const { projectsApi } = await requireServerApis();
+  const data = await read(projectsApi.listWithCounts(), "your projects");
 
   return (
     <div className="mx-auto max-w-3xl">

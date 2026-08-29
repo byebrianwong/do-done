@@ -2,10 +2,8 @@ import { addDaysLocalISO, type Task } from "@do-done/shared";
 import { UpcomingView } from "@/components/upcoming-view";
 import { InboxFilterToggle } from "@/components/inbox-filter-toggle";
 import { getDisplayEvents } from "@/lib/calendar-events";
-import {
-  getServerTasksApi,
-  getServerProjectsApi,
-} from "@/lib/supabase/tasks-server";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function UpcomingPage({
   searchParams,
@@ -15,28 +13,23 @@ export default async function UpcomingPage({
   const params = await searchParams;
   const hideInbox = params.inbox === "hide";
 
-  const tasksApi = await getServerTasksApi();
-  const projectsApi = await getServerProjectsApi();
+  const { tasksApi, projectsApi } = await requireServerApis();
   // One horizon for tasks and events so the view never shows a day whose
   // events were silently not fetched.
   const HORIZON_DAYS = 30;
 
-  const [
-    { data: rawTasks = [] },
-    { data: rawUndated = [] },
-    { data: rawOverdue = [] },
-    { data: projects = [] },
-    events,
-  ] = await Promise.all([
-    tasksApi ? tasksApi.getUpcoming(HORIZON_DAYS) : Promise.resolve({ data: [] }),
-    tasksApi ? tasksApi.listUndated() : Promise.resolve({ data: [] }),
-    tasksApi ? tasksApi.listOverdue() : Promise.resolve({ data: [] }),
-    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
-    // Events for the same horizon, padded a day each side: the server's
-    // "today" can differ from the viewer's near midnight, and the per-day
-    // grouping drops anything outside the visible columns anyway.
-    getDisplayEvents(addDaysLocalISO(-1), addDaysLocalISO(HORIZON_DAYS + 2)),
-  ]);
+  const [rawTasks, rawUndated, rawOverdue, projects, events] =
+    await Promise.all([
+      read(tasksApi.getUpcoming(HORIZON_DAYS), "your upcoming tasks"),
+      read(tasksApi.listUndated(), "your undated tasks"),
+      read(tasksApi.listOverdue(), "your overdue tasks"),
+      read(projectsApi.list(), "your projects"),
+      // Not a `read` — see today/page.tsx. Events for the same horizon,
+      // padded a day each side: the server's "today" can differ from the
+      // viewer's near midnight, and the per-day grouping drops anything
+      // outside the visible columns anyway.
+      getDisplayEvents(addDaysLocalISO(-1), addDaysLocalISO(HORIZON_DAYS + 2)),
+    ]);
 
   // getUpcoming's today−1 skew buffer overlaps listOverdue on yesterday's rows,
   // so dedupe by id when combining the three task sources. UpcomingView buckets

@@ -1,17 +1,12 @@
 import { TaskDisplayView } from "@/components/task-display-view";
-import {
-  getServerTasksApi,
-  getServerProjectsApi,
-} from "@/lib/supabase/tasks-server";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function CompletedPage() {
-  const tasksApi = await getServerTasksApi();
-  const projectsApi = await getServerProjectsApi();
-  const [{ data: completed = [] }, { data: projects = [] }] = await Promise.all([
-    tasksApi
-      ? tasksApi.listCompleted({ limit: 200 })
-      : Promise.resolve({ data: [] }),
-    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  const { tasksApi, projectsApi } = await requireServerApis();
+  const [completed, projects] = await Promise.all([
+    read(tasksApi.listCompleted({ limit: 200 }), "your completed tasks"),
+    read(projectsApi.list(), "your projects"),
   ]);
 
   return (

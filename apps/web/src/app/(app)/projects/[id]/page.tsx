@@ -4,8 +4,8 @@ import { TaskDisplayView } from "@/components/task-display-view";
 import { ProjectOpenProvider } from "@/lib/task-row-behavior";
 import { QuickAddBar } from "@/components/quick-add-bar";
 import { ProjectActions } from "@/components/project-actions";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { ProjectsApi, TasksApi } from "@do-done/api-client";
+import { read, readRow } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 import { ProjectIcon } from "@/components/project-icon";
 
 export default async function ProjectDetailPage({
@@ -14,25 +14,19 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { tasksApi, projectsApi } = await requireServerApis();
 
-  const projectsApi = new ProjectsApi(supabase, user.id);
-  const tasksApi = new TasksApi(supabase, user.id);
-
-  const [{ data: project, error }, { data: tasks }, { data: allProjects }] =
-    await Promise.all([
-      projectsApi.getById(id),
+  const [project, tasks, allProjects] = await Promise.all([
+    readRow(projectsApi.getById(id), "this project"),
+    read(
       tasksApi.list({ project_id: id, limit: 100, offset: 0 }),
-      projectsApi.list(),
-    ]);
+      "this project's tasks"
+    ),
+    read(projectsApi.list(), "your projects"),
+  ]);
 
-  if (error || !project) {
-    notFound();
-  }
+  // Only a genuinely absent row is a 404 — a failed read has already thrown.
+  if (!project) notFound();
 
   return (
     <div className="mx-auto max-w-3xl">
