@@ -2,7 +2,7 @@
  * Contract tests for the calendar-list fetch behind the "Calendars to show"
  * screen.
  *
- * Two things here are load-bearing and invisible on a device. A user who has
+ * Two things here matter and are invisible on a device. A user who has
  * never connected Google Calendar must reach an explanatory screen rather than
  * a generic error, which depends on the 400 being mapped to its own error type
  * (and not retried). And `hidden` has three meanings, not two: an array is a

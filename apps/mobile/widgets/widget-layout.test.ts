@@ -169,8 +169,8 @@ describe('spending the height budget', () => {
     const dated = { scheduled_time: '09:00', scheduled_date: todayLocalISO() };
     const bare = layoutRows(groupsOf([10]), [], 300);
     const withSub = layoutRows(groupsOf([10], dated), [], 300);
-    // The whole point of the budget: identical inputs but for what the rows
-    // have to say, and the sparser list gets more of them on screen.
+    // What the budget buys: identical inputs but for what the rows have to say,
+    // and the sparser list gets more of them on screen.
     expect(bare.rows.length).toBeGreaterThan(withSub.rows.length);
     expect(ROW_HEIGHT_WITH_SUBLINE).toBeGreaterThan(ROW_HEIGHT_BARE);
   });

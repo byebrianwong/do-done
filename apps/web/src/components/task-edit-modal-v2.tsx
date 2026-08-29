@@ -463,7 +463,7 @@ function TaskCover({
   const gradient = `linear-gradient(118deg, ${base}, ${shiftHue(base, 14, 0.16)})`;
 
   return (
-    // Two layers, and the split is load-bearing: **the artwork clips, the
+    // Two layers, and the split matters: **the artwork clips, the
     // controls don't**. The watermark bleeds off the corner and the texture
     // runs to the edges, both of which need `overflow-hidden` — but every
     // control down here (project, priority, estimate) opens a popover
@@ -669,7 +669,7 @@ function PriorityStripe({
  * control. Hiding it below High meant a Medium or Low task had no visible
  * priority anywhere in the editor and no target to change one with except a
  * 7px stripe, so the rank read as absent rather than as low. The exception
- * rule still holds where it costs nothing to be quiet — the stripe above stays
+ * rule still holds where there is no cost to being quiet — the stripe above stays
  * a hairline below High, and the task row's gutter still draws nothing at all
  * for P4.
  */

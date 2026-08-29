@@ -315,7 +315,7 @@ function TaskItem({
     }
 
     // In a list that keeps completed tasks there is nothing to leave: the row
-    // stays put wearing its completed styling, and the cache can drop it (from
+    // stays put, with its completed styling, and the cache can drop it (from
     // whatever list it *is* leaving) immediately.
     const leaving = !keepsCompleted && !prefersReducedMotion();
     if (leaving) exit.start();

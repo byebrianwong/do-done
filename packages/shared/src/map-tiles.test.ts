@@ -89,7 +89,7 @@ describe("buildTileGrid", () => {
       expect(tile.x).toBeGreaterThanOrEqual(0);
       expect(tile.x).toBeLessThan(n);
     }
-    // Both edges of the world are represented, which is the point.
+    // Both edges of the world are represented, which is what this checks.
     expect(tiles.some((t) => t.x === n - 1)).toBe(true);
     expect(tiles.some((t) => t.x === 0)).toBe(true);
   });

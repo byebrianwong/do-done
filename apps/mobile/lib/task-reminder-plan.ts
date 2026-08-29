@@ -100,7 +100,7 @@ function instantFor(
  * cancels and recreates everything, so an instant that passes between the
  * cancel and the schedule is delivered *immediately* by expo-notifications. A
  * reminder for a 9am task arriving at 2pm because the user happened to open the
- * app is worse than no reminder — it is a lie about what time it is.
+ * app is worse than no reminder: it reports the wrong time.
  *
  * `tasks` may be any superset of the relevant rows; filtering happens here so
  * the caller can satisfy the whole plan with one query.

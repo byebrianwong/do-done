@@ -11,7 +11,7 @@ export default async function TagDetailPage({
   const { tag: raw } = await params;
   // Next has already percent-decoded the segment; `decodeTagParam` is a no-op
   // on an ordinary tag and is here so a double-encoded link doesn't 404
-  // silently — it costs nothing and both platforms call the same helper.
+  // silently — it is cheap and both platforms call the same helper.
   const tag = decodeTagParam(raw);
 
   const { tasksApi, projectsApi } = await requireServerApis();

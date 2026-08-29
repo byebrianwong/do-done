@@ -55,7 +55,7 @@ describe("the swipe's return", () => {
 
   it("does not clamp the overshoot away", () => {
     // Clamping halts the spring the frame it crosses zero, cutting off the
-    // settle that is the whole point of choosing ζ < 1.
+    // settle that choosing ζ < 1 exists to produce.
     expect(SWIPE_RETURN_SPRING.overshootClamping).toBe(false);
   });
 

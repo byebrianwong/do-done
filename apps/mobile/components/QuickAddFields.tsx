@@ -454,7 +454,7 @@ export function useQuickAddFields(
 /**
  * A chip's options, floating directly above the card and anchored to the chip
  * that opened it. Lives in the composer's own view hierarchy so the text input
- * never loses focus — the whole point of the surface.
+ * never loses focus, which is what this surface has to guarantee.
  */
 function Popover({
   left,

@@ -230,7 +230,7 @@ export default function TodayScreen() {
           // to add by saying so. It is set per row rather than for the screen
           // because the Focus section pulls in work that isn't today's — a
           // task scheduled Friday, or none at all — and "Fri, Aug 21" sitting
-          // under the Today heading is the whole point of those rows.
+          // under the Today heading is exactly what those rows need to say.
           hideScheduledDay={task.scheduled_date === localDay}
           openInSection={openCount(section.data)}
         />

@@ -24,7 +24,7 @@ const eslintConfig = defineConfig([
       // pattern of syncing optimistic local state back from props after a
       // router.refresh (e.g. task-item, week-view, the draggable lists) — an
       // intentional choice, not a bug. Keep it visible as a warning instead of
-      // failing the whole lint. The genuinely load-bearing hook rules
+      // failing the whole lint. The hook rules that genuinely matter
       // (rules-of-hooks, set-state-in-render, impure-during-render) stay errors.
       "react-hooks/set-state-in-effect": "warn",
     },

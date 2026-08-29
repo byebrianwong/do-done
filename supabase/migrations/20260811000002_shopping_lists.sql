@@ -13,7 +13,7 @@
 -- page and a sidebar slot — and is already reachable by typing its name, so
 -- `milk #groceries` files into a list the day this lands.
 --
--- Two columns, and the second one is the whole isolation story.
+-- Two columns, and the second one carries the whole isolation rule.
 
 -- ── projects.kind ──────────────────────────────────────
 
@@ -108,7 +108,7 @@ end;
 $$;
 
 comment on function project_cascade_kind() is
-  'AFTER UPDATE on projects: converting a project to a list (or back) re-flags every task in it. Guarded on the value actually changing, so an ordinary project rename costs nothing.';
+  'AFTER UPDATE on projects: converting a project to a list (or back) re-flags every task in it. Guarded on the value actually changing, so an ordinary project rename does no work.';
 
 drop trigger if exists projects_cascade_kind on projects;
 create trigger projects_cascade_kind
