@@ -245,7 +245,7 @@ body {
 }
 
 /*
- * The wave is ambient, never load-bearing: the static runway tint underneath
+ * The wave is ambient, never required: the static runway tint underneath
  * already shows the span, so reduced motion simply drops the moving band.
  */
 @media (prefers-reduced-motion: reduce) {
