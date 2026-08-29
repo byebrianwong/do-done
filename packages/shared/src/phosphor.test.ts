@@ -112,7 +112,7 @@ describe("parseProjectIcon", () => {
   });
 
   it("reports an icon it cannot draw as nothing, never as text", () => {
-    // The whole point: a row that treated this as an emoji would print
+    // The rule under test: a row that treated this as an emoji would print
     // "ph:not-a-real-icon:fill" inside a 20px ring.
     expect(parseProjectIcon("ph:not-a-real-icon:fill").kind).toBe("none");
     expect(parseProjectIcon("ph:").kind).toBe("none");

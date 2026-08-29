@@ -3,21 +3,19 @@
 /**
  * How a list names one of its sections.
  *
- * The label used to be `text-xs font-semibold uppercase tracking-wider` in the
- * group's own colour, which failed at the one job it has: at 12px, grey, in
- * caps, the header was *quieter* than the 14px near-black rows underneath it,
- * so the eye read the rows and skipped the thing telling you what they were.
- * Sentence case at 13px in the body colour is louder than the rows without
- * being bigger than them.
+ * The label was `text-xs font-semibold uppercase tracking-wider` in the group's
+ * own colour, which failed at its one job: at 12px, grey, in caps it was
+ * quieter than the 14px near-black rows underneath, so the eye read the rows
+ * and skipped the thing naming them. Sentence case at 13px in the body colour
+ * is louder than the rows without being bigger.
  *
- * The colour moved to the dot beside the label rather than being dropped. A
- * status or a project reads as a category, and a dot is the honest channel for
- * that; tinting the words as well spent the same signal twice and was what
- * forced the text so light in the first place.
+ * The group's colour moved to the dot beside the label rather than being
+ * dropped. A dot is the right channel for a category; tinting the words too
+ * spent the same signal twice, and that is what forced the text so light.
  *
  * Four call sites share this — the grouped list, Today's sections, Upcoming's
- * day columns and the overdue section — so that a section can't be named one
- * way on one screen and another way on the next.
+ * day columns and the overdue section — so a section cannot be named one way on
+ * one screen and another way on the next.
  */
 export function sectionHeaderClass(
   compact: boolean,
@@ -39,10 +37,9 @@ export function sectionHeaderClass(
 /**
  * The count beside a section's name.
  *
- * A pill rather than "(6)" so it reads as a quantity attached to the label
- * rather than as part of the sentence, and so the number keeps the same
- * position from section to section — `tabular-nums` is what stops a "12" from
- * sitting differently to a "6".
+ * A pill rather than "(6)", so it reads as a quantity attached to the label
+ * rather than as part of the sentence. `tabular-nums` keeps a "12" sitting
+ * where a "6" did.
  */
 export function SectionCount({ value }: { value: number }) {
   // neutral-600 in light rather than the neutral-500 the muted text uses:
@@ -91,21 +88,20 @@ export function SectionCaret({ collapsed }: { collapsed: boolean }) {
 /**
  * The classes that pin a section header to the top of the scroll.
  *
- * **The opaque background is the part that matters.** Without one the rows
- * scroll *through* the header instead of under it and the two sets of words
- * overlap for the whole length of the scroll — a failure that is invisible in a
- * static screenshot and obvious the moment anyone scrolls. It is a translucent
- * background plus `backdrop-blur` rather than a solid fill so the list still
- * reads as one surface.
+ * **The opaque background is the part that matters.** Without one, rows scroll
+ * through the header instead of under it and the two sets of words overlap for
+ * the length of the scroll. A static screenshot cannot show that; it is obvious
+ * the moment anyone scrolls. Translucent plus `backdrop-blur` rather than a
+ * solid fill, so the list still reads as one surface.
  *
- * `top` comes from `--dd-stick-top`, applied by the `.dd-section-sticky` class
- * in globals.css. StickyPageBar raises that variable for the subtree it wraps,
- * so a header pins under the page bar on a view that has one and under the app
- * bar on a view that doesn't, with no per-call-site number to keep in step.
+ * `top` comes from `--dd-stick-top`, applied by `.dd-section-sticky` in
+ * globals.css. StickyPageBar raises that variable for the subtree it wraps, so
+ * a header pins under the page bar on a view that has one and under the app bar
+ * on a view that does not, with no per-call-site number to keep in step.
  *
- * Each header is inside its own `<section>`, which is exactly the containment
- * this wants: a header pins while its own rows are on screen and leaves with
- * them, pushed out by the next section's header.
+ * Each header sits inside its own `<section>`, which is the containment this
+ * wants: a header pins while its own rows are on screen, then is pushed out by
+ * the next section's header.
  */
 export const STICKY_SECTION_HEADER =
   "dd-section-sticky sticky z-10 bg-white/90 backdrop-blur dark:bg-neutral-950/90";

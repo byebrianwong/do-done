@@ -460,7 +460,7 @@ const SYNC_ON = {
 /**
  * The horizon SYNC_ON resolves to right now. Derived the same way the code
  * derives it — through the preferences timezone, not the machine clock, which
- * is the whole point and is a day out from `todayLocalISO()` for half of each
+ * is the entire reason it exists, and is a day out from `todayLocalISO()` for half of each
  * day in the Americas.
  */
 const horizon = () =>
@@ -1017,7 +1017,7 @@ describe("TasksApi.delete — the row survives", () => {
     await api.delete("task-1");
 
     // The single most important assertion in this file: a hard delete here is
-    // what made Undo a lie. Restoring the same task is only possible while the
+    // what made Undo misreport what it did. Restoring the same task is only possible while the
     // row is still there.
     const writes = tasksOps(ops).filter((o) => o.op !== "select");
     expect(writes.map((w) => w.op)).toEqual(["update"]);
@@ -1090,7 +1090,7 @@ describe("TasksApi.restore", () => {
 
   it("never reads the rows it is restoring", async () => {
     // It can't: the RLS select policy hides deleted rows, so a read-then-write
-    // would find nothing to write. One blind UPDATE is the point.
+    // would find nothing to write. One blind UPDATE is the fix.
     const { supabase, ops } = makeOpStub();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api = new TasksApi(supabase as any, "user-1");
@@ -1203,7 +1203,7 @@ describe("the task universe excludes list items", () => {
   }
 
   it("filters is_list_item on every listing read", async () => {
-    // The whole point of routing the fifteen reads through read(): none of
+    // Why the fifteen reads all go through read(): none of
     // them had to be changed, and none of them can forget.
     for (const call of [
       (a: TasksApi) => a.list(),

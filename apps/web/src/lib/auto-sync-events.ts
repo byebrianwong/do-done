@@ -19,7 +19,7 @@ import { useUndoToast } from "@/components/undo-toast";
  * would be silently back to the old behaviour. Announcing it at the seam every
  * one of them gets its API from covers all of them at once.
  *
- * Nothing here is load-bearing for the data. A page with no listener mounted
+ * Nothing here affects the data. A page with no listener mounted
  * writes exactly as it did before; it just doesn't say so.
  */
 export const AUTO_SYNC_EVENT = "do-done:auto-sync";

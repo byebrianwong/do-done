@@ -64,22 +64,21 @@ export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
 
 /**
- * How a row states everything that isn't its title. Like `density`, purely a
- * render concern — `applyDisplay` ignores it — but it lives in the config so it
- * persists and syncs with the rest of the view's Display settings.
+ * How a row states everything that isn't its title. Like `density`, this is
+ * purely a render concern — `applyDisplay` ignores it — but it lives in the
+ * config so it persists and syncs with the view's other Display settings.
  *
- * "quiet" collapses the metadata into one muted line under the title, so the
- * only colour left in the row is the two slots that carry meaning: the ring
- * (which project) and the gutter (how urgent). It is what the mobile row has
- * always drawn, via `rowSubline` in task-row.ts.
+ * "quiet" puts the metadata on one muted line under the title, leaving colour
+ * to the two slots that carry meaning: the ring (which project) and the gutter
+ * (how urgent). It is what the mobile row draws, via `rowSubline`.
  *
  * "detailed" is the row as it was: each fact its own filled chip, and each chip
- * an editor you can open in place. That is a real thing to want and the reason
- * this is a setting rather than a replacement — quiet trades those four inline
- * editors for a calm list, and which trade is right depends on whether you are
- * reading the list or working through it.
+ * an editor you open in place. This is a setting rather than a replacement
+ * because the trade is real. Quiet gives up those four inline editors to get a
+ * calm list, and which is right depends on whether you are reading the list or
+ * working through it.
  *
- * Mobile has no such switch: it has never had chips to go back to.
+ * Mobile has no such switch. It has never had chips to go back to.
  */
 export const RowStyle = z.enum(["quiet", "detailed"]);
 export type RowStyle = z.infer<typeof RowStyle>;
@@ -442,7 +441,7 @@ export interface DisplayContext {
   today?: string;
   /**
    * Let shopping-list items through the filter. Off by default, and that
-   * default is the point: a list item is not part of the task universe, so
+   * default matters here: a list item is not part of the task universe, so
    * every existing caller gets the isolation without being changed, and the
    * only surfaces that see items are the ones that asked.
    *

@@ -7,7 +7,7 @@
  * user per visitor — either a shared login every visitor can trash, or
  * anonymous sign-ins (disabled on the project, and a row per drive-by crawler).
  * A sandbox has neither problem: every visitor gets their own copy, nobody can
- * break anyone else's, and it costs nothing to run.
+ * break anyone else's, and it is cheap to run.
  *
  * Mode is decided by the URL, not a cookie or a context: `getClientTasksApi()`
  * and friends are called from deep inside components that know nothing about

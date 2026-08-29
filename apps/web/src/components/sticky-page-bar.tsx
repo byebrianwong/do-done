@@ -5,26 +5,26 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 /**
  * A list's title, pinned.
  *
- * The page title used to scroll away with everything else, so one screen into a
- * long list nothing on the page said which list it was — and the Display menu,
- * which lives beside the title, went with it. Both are now in a bar that stays.
+ * The page title scrolled away with everything else, so one screen into a long
+ * list nothing said which list it was — and the Display menu, which sits beside
+ * the title, went with it. Both are now in a bar that stays.
  *
  * **The big title still leads.** Pinning it at full size would spend ~56px of
- * every screen on a word the sidebar already highlights, so the heading sits in
- * flow where it always did and hands off to a compact 48px bar as it leaves.
- * That is iOS's large-title behaviour, and it is also what the phone does here
- * already — its title bar is a sibling of the list and never scrolls.
+ * every screen on a word the sidebar already highlights, so the heading stays
+ * in flow and hands off to a compact 48px bar as it leaves. That is iOS's
+ * large-title behaviour, and close to what the phone already does here: its
+ * title bar is a sibling of the list and never scrolls.
  *
  * **The handoff is an IntersectionObserver on a sentinel, not a scroll
- * handler.** A scroll listener does the work on every frame of every scroll to
- * answer a question that changes twice; the observer answers it when it
- * changes. It also reports correctly however the scroll happened — a wheel, a
- * keyboard, an anchor jump, `scrollIntoView` after a route change.
+ * handler.** A scroll listener works on every frame to answer a question that
+ * changes twice. The observer answers it when it changes, and it reports
+ * correctly however the scroll happened — wheel, keyboard, anchor jump, or
+ * `scrollIntoView` after a route change.
  *
  * The bar raises `--dd-stick-top` for everything it wraps (`.dd-stick-scope`),
- * so group headers inside pin *beneath* it rather than under it. Both offsets
- * live in globals.css as classes, so the two numbers that have to agree are
- * written down once rather than at each element that pins.
+ * so group headers inside pin beneath it rather than under it. Both offsets are
+ * classes in globals.css, so the two numbers that have to agree are written
+ * once rather than at each element that pins.
  */
 export function StickyPageBar({
   title,

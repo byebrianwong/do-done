@@ -84,7 +84,7 @@ import type { TasksApi } from "./tasks.js";
  *   - `flushOnExit` flushes a still-pending save when the modal unmounts.
  *     Without it, closing within the debounce window drops the edit entirely
  *     (use-debounce no-ops a queued timer once the hook is unmounted), so the
- *     "Saved" the user saw would be a lie.
+ *     "Saved" the user saw would have been wrong.
  *   - `undoAll` cancels the pending debounce before writing the snapshot
  *     (otherwise a flushed save could land after the revert).
  *   - Errors from individual saves don't roll back local state — surface
@@ -404,7 +404,7 @@ export function useAutoSaveTask(
       retryAttemptsRef.current = 0;
       setLastSavedAt(new Date());
       if (heldBack) {
-        // Some of it landed, some didn't. "Saved" would be a lie about the rest.
+        // Some of it landed, some did not. "Saved" would misreport the rest.
         setLastError(invalidError());
         dispatch({ type: "failure" });
       } else {

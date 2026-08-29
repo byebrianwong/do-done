@@ -39,7 +39,7 @@ create index if not exists idx_tasks_deleted_at
 -- ── 2. Hide them at the row level ──────────────────────────
 --
 -- `TasksApi` filters every read itself (see the `read()` helper there), and
--- that is the load-bearing half: the MCP server holds a **service-role**
+-- that is the half that matters: the MCP server holds a **service-role**
 -- client, which bypasses RLS entirely, so a policy alone would leave every
 -- deleted task visible to the one consumer that talks to an agent.
 --

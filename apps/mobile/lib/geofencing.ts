@@ -10,7 +10,7 @@ import {
   requestNotificationPermission,
 } from './notifications';
 // Importing this module is what defines the background task. It is ALSO
-// imported from `index.js` — that import is the load-bearing one, since this
+// imported from `index.js` — that import is the one that matters, since this
 // module is only ever reached from inside the React tree and the OS delivers
 // geofence events with no React tree at all. See geofence-task.ts.
 import { GEOFENCE_TASK } from './geofence-task';
@@ -33,7 +33,7 @@ export async function hasGeofencePermissions(): Promise<boolean> {
 }
 
 /**
- * The user's position, but only if reading it costs nothing: no prompt, no fix,
+ * The user's position, but only if reading it is free: no prompt, no fix,
  * no wait. Returns null the moment either would be needed.
  *
  * This is what biases place search towards where you are and puts the "you"

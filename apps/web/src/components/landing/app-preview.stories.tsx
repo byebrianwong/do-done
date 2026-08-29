@@ -37,8 +37,8 @@ export const Default: Story = {};
  * Phone width, where the row sheds its furniture: the tag, project name and
  * estimate are all `hidden sm:`/`md:`, so what is left is the gutter, the ring,
  * the title and the date. The two things this page is really claiming — which
- * project, how urgent — are the two that survive, which is the point of
- * spending the row's only two colour slots on them.
+ * project, how urgent — are the two that survive, which is why the row spends
+ * its only two colour slots on them.
  */
 export const Narrow: Story = {
   parameters: {

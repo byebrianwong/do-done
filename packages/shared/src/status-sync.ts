@@ -1,8 +1,8 @@
 // ── Status ↔ schedule auto-sync ─────────────────────────
 //
-// Two halves of one idea: a task's status and the day it's scheduled for are
-// saying the same thing twice, and keeping them agreeing by hand is chores.
-// With this on, the app keeps them in step in both directions:
+// A task's status and the day it is scheduled for often say the same thing
+// twice, and keeping them in agreement by hand is busywork. With this on, the
+// app keeps them in step in both directions:
 //
 //   promote  — a task scheduled on or before the horizon is moved *up* to the
 //              chosen status ("anything within 3 days is Next"). Never moves a
@@ -17,14 +17,13 @@
 // that leaves the date alone. So moving a task Next → Not started by hand
 // sticks, and stays stuck until you next touch its date.
 //
-// That distinction is the whole point. Enforcing it as an invariant meant a
-// demotion snapped back instantly and there was no way to say "yes, I know
-// it's tomorrow, leave it where I put it" — the app simply refused the edit,
-// with nothing on screen saying why. A rule that fires on a change is a rule
-// the user can work with; one that holds a field pinned is a rule they can
-// only fight.
+// That distinction matters. Enforcing it as an invariant meant a demotion
+// snapped back instantly, with no way to say "yes, I know it's tomorrow, leave
+// it where I put it". The app simply refused the edit, with nothing on screen
+// saying why. A rule that fires on a change can be worked with; one that holds
+// a field pinned can only be fought.
 //
-// The horizon is a single setting shared by both halves, so they can't
+// The horizon is a single setting shared by both halves, so they cannot
 // disagree: promote pulls in exactly the window backfill schedules into.
 //
 // Off by default. Both halves toggle independently — the promote half rewrites
@@ -186,9 +185,9 @@ export interface StatusSyncTask {
  * Date → status. Returns the status the task should be moved to, or null to
  * leave it alone.
  *
- * Fires when the task has a scheduled date on or before the horizon (an
- * *overdue* task is inside the horizon too — it's as near as near gets) and
- * sits below the target in the lifecycle.
+ * Fires when the task has a scheduled date on or before the horizon and sits
+ * below the target in the lifecycle. An overdue task counts as inside the
+ * horizon.
  */
 export function promotedStatus(
   task: StatusSyncTask,

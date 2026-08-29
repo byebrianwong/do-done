@@ -13,27 +13,50 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import type { Aisle, AisleMemory, Task } from '@do-done/shared';
+import type {
+  Aisle,
+  AisleMemory,
+  PantryBand,
+  PantryEntry,
+  Task,
+} from '@do-done/shared';
 import {
   aisleOptions,
   gotItems,
   groupByAisle,
   itemAisle,
+  itemSubline,
   listSubline,
   openItems,
+  storeHint,
+  storeSuggestions,
+  storeTag,
+  storesOnList,
   summarizeList,
+  typingStoreToken,
+  applyStoreToken,
+  extractStoreToken,
   withAisle,
+  withStoreHint,
+  lastBoughtLabel,
+  pantryBands,
+  searchPantry,
+  cadenceLabel,
+  dueEntries,
 } from '@do-done/shared';
 
 import {
   addListItem,
   clearGotItems,
+  forgetPantryEntry,
   invalidateLists,
+  invalidatePantry,
   rememberAisle,
   restoreItems,
   useAisleMemory,
   useList,
   useListItems,
+  usePantry,
 } from '@/lib/list-queries';
 import { toggleComplete, updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
@@ -70,6 +93,10 @@ export default function ListDetailScreen() {
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
+  // Everything ever bought on this list. Empty until it loads, which is the
+  // correct fallback: the screen is then a plain shopping list, which is what
+  // it was before this existed.
+  const { data: pantry = [] } = usePantry(listId);
 
   const router = useRouter();
   const [draft, setDraft] = useState('');
@@ -85,31 +112,117 @@ export default function ListDetailScreen() {
   const open = useMemo(() => openItems(items), [items]);
   const got = useMemo(() => gotItems(items), [items]);
   const summary = useMemo(() => summarizeList(items), [items]);
+  // Every store already named on this list, most-used first. Bought items
+  // count too: the cart holds last week's stores, and dropping them on a tick
+  // would empty the suggestions when they are most useful.
+  const stores = useMemo(() => storesOnList(items), [items]);
+  // What the composer is typing after an `@`, or null if no token is open. An
+  // empty string is a real answer: a bare `@` opens the full list.
+  const storeQuery = typingStoreToken(draft);
+  const storeMatches = useMemo(
+    () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
+    [stores, storeQuery]
+  );
+  // The composer's memory. Only runs while no `@` token is open: the two
+  // suggestion sets answer different questions and one strip cannot mean both.
+  const pantryMatches = useMemo(
+    () =>
+      storeQuery !== null ? [] : searchPantry(pantry, draft, { onList: items }),
+    [pantry, draft, items, storeQuery]
+  );
+  /*
+    Anything already on the list is left out of the drawer. Offering to put back
+    what is on screen is noise, and excluding it makes an accidental tick
+    self-correcting: un-ticking puts the row back, which hides its entry again.
+  */
+  /*
+    Entries past their own measured buying rhythm.
+
+    A sharper version of the three bands. Two weeks and two months approximate a
+    rhythm and mis-sort some items. Once an item has been bought three times its
+    own gaps answer the question directly. The bands remain the answer while
+    `buy_count` is 1 or 2.
+  */
+  const due = useMemo(
+    () => dueEntries(pantry, { onList: items }),
+    [pantry, items]
+  );
+  const bands = useMemo(
+    // Excluded from the bands below, so nothing is offered twice on one screen.
+    () =>
+      pantryBands(pantry, { onList: items, exclude: due.map((e) => e.term) }),
+    [pantry, items, due]
+  );
+  const pantryCount = useMemo(
+    () => bands.reduce((n, b) => n + b.entries.length, 0),
+    [bands]
+  );
 
   const submit = useCallback(async () => {
-    const title = draft.trim();
+    // `@` names a store, the way `#` names a project. See `extractStoreToken`
+    // for why only the list composers parse it, not `parseTaskInput`.
+    const { title, store } = extractStoreToken(draft);
     if (!title) return;
     // Cleared before the write, never after: the field has to be ready for the
-    // next word on the same frame, which is the whole point of a burst
-    // composer. `blurOnSubmit={false}` keeps the keyboard up with it.
+    // next word on the same frame, which is what a burst composer is for. `blurOnSubmit={false}` keeps the keyboard up with it.
     setDraft('');
     try {
-      await addListItem(listId, { title });
+      await addListItem(listId, {
+        title,
+        ...(store ? { tags: [storeTag(store)] } : {}),
+      });
       setAdded((n) => n + 1);
       hapticLight();
     } catch {
-      // Give back what they typed rather than losing it to a dropped network.
-      setDraft(title);
+      // Restore what they typed, `@store` included. Restoring the parsed title
+      // would silently drop the store when the network fails.
+      setDraft(store ? `${title} @${store}` : title);
       toast.show({ message: "Couldn't add that — try again" });
     }
   }, [draft, listId, toast]);
+
+  /**
+   * Adds an item back to the list from the pantry.
+   *
+   * It arrives with the store it was last bought at. That is the difference
+   * between taking a suggestion and typing the word again.
+   */
+  const putBack = useCallback(
+    async (entry: PantryEntry) => {
+      setDraft('');
+      try {
+        await addListItem(listId, {
+          title: entry.title,
+          ...(entry.store ? { tags: [storeTag(entry.store)] } : {}),
+        });
+        setAdded((n) => n + 1);
+        hapticLight();
+      } catch {
+        toast.show({ message: "Couldn't add that — try again" });
+      }
+    },
+    [listId, toast]
+  );
+
+  /** Deletes a pantry entry. The only destructive action on this screen. */
+  const forget = useCallback(
+    async (entry: PantryEntry) => {
+      try {
+        await forgetPantryEntry(listId, entry.term);
+        toast.show({ message: `Won't suggest ${entry.title} again` });
+      } catch {
+        toast.show({ message: "Couldn't forget that" });
+      }
+    },
+    [listId, toast]
+  );
 
   const onClear = useCallback(async () => {
     try {
       const ids = await clearGotItems(listId);
       if (ids.length === 0) return;
       toast.show({
-        message: `Cleared ${ids.length} item${ids.length === 1 ? '' : 's'}`,
+        message: `Put away ${ids.length} item${ids.length === 1 ? '' : 's'}`,
         undo: async () => {
           await restoreItems(listId, ids);
         },
@@ -163,6 +276,27 @@ export default function ListDetailScreen() {
     [listId, toast]
   );
 
+  /**
+   * Sets or clears an item's store.
+   *
+   * One write, unlike an aisle correction, which is two. There is no lesson to
+   * record: a store describes this purchase, not the words. Buying batteries at
+   * Target once does not mean batteries always come from Target, whereas
+   * "bananas are produce" is a fact about the language and worth remembering.
+   */
+  const writeStore = useCallback(
+    async (item: Task, store: string | null) => {
+      setPicking(null);
+      try {
+        await updateTask(item.id, { tags: withStoreHint(item.tags, store) });
+        invalidateLists(listId);
+      } catch {
+        toast.show({ message: "Couldn't change the store" });
+      }
+    },
+    [listId, toast]
+  );
+
   return (
     <View style={styles.container}>
       <Stack.Screen
@@ -178,8 +312,14 @@ export default function ListDetailScreen() {
           headerRight: () => (
             <View style={styles.headerRight}>
               {got.length > 0 && (
+                /*
+                  "Put away", not "Clear bought". The write is the same — items
+                  are still soft-deleted — but nothing important is lost,
+                  because each was recorded in the pantry when it was ticked.
+                  That is why it stays one unconfirmed tap.
+                */
                 <Pressable onPress={onClear} hitSlop={10}>
-                  <Text style={styles.clear}>Clear bought</Text>
+                  <Text style={styles.clear}>Put away</Text>
                 </Pressable>
               )}
               {/* The list's name, icon and colour were only settable at the
@@ -217,6 +357,75 @@ export default function ListDetailScreen() {
         {added > 0 && <Text style={styles.added}>{added} added</Text>}
       </View>
 
+      {/*
+        The stores already on this list, offered while an `@` token is open.
+
+        A horizontal strip rather than a dropdown, so it sits directly under the
+        field and above the keyboard, where the thumb already is. It pushes
+        nothing else around, since the row only exists while a token is open.
+      */}
+      {/*
+        The composer's memory: a few keystrokes to put back something bought
+        repeatedly, with its store attached. Tapping adds it directly rather
+        than completing the field, since a confirm step would undo the speed.
+      */}
+      {storeMatches.length === 0 && pantryMatches.length > 0 && (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="always"
+          showsHorizontalScrollIndicator={false}
+          style={styles.storeStrip}
+          contentContainerStyle={styles.storeStripInner}
+        >
+          {pantryMatches.map((entry) => (
+            <Pressable
+              key={entry.term}
+              onPress={() => {
+                void putBack(entry);
+                inputRef.current?.focus();
+              }}
+              style={({ pressed }) => [
+                styles.pantryChip,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.pantryChipText}>{entry.title}</Text>
+              <Text style={styles.pantryChipAge}>
+                {lastBoughtLabel(entry.last_bought_at)}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
+      {storeMatches.length > 0 && (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="always"
+          showsHorizontalScrollIndicator={false}
+          style={styles.storeStrip}
+          contentContainerStyle={styles.storeStripInner}
+        >
+          {storeMatches.map((name) => (
+            <Pressable
+              key={name}
+              onPress={() => {
+                setDraft(applyStoreToken(draft, name));
+                // The field must keep focus — this is a burst composer and the
+                // next word is already coming.
+                inputRef.current?.focus();
+              }}
+              style={({ pressed }) => [
+                styles.storeChip,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.storeChipText}>@{name}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       <Text style={styles.subline}>{listSubline(summary)}</Text>
 
       <SectionList
@@ -228,6 +437,38 @@ export default function ListDetailScreen() {
         // An empty title is the ungrouped case — `groupByAisle` collapses to
         // one unlabelled group when grouping would gain nothing, and that has
         // to render as a plain list with no header at all.
+        /*
+          Above the list rather than inside the drawer. This is a prompt about
+          the trip you are about to make, not a record of past ones, so it has
+          to be seen before shopping rather than found afterwards.
+        */
+        ListHeaderComponent={
+          due.length > 0 ? (
+            <View style={styles.due}>
+              <Text style={styles.dueHeader}>Probably due</Text>
+              <View style={styles.duePills}>
+                {due.map((entry) => (
+                  <Pressable
+                    key={entry.term}
+                    onPress={() => void putBack(entry)}
+                    style={({ pressed }) => [
+                      styles.duePill,
+                      pressed && styles.pressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add ${entry.title} — ${cadenceLabel(entry)}, last bought ${lastBoughtLabel(entry.last_bought_at)}`}
+                  >
+                    <Ionicons name="add" size={14} color="#6366f1" />
+                    <Text style={styles.duePillText}>{entry.title}</Text>
+                    <Text style={styles.duePillAge}>
+                      {lastBoughtLabel(entry.last_bought_at)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null
+        }
         renderSectionHeader={({ section }) =>
           section.title ? (
             <Text style={styles.sectionHeader}>{section.title}</Text>
@@ -238,6 +479,11 @@ export default function ListDetailScreen() {
             item={item}
             onOpen={() => setEditing(item)}
             onLongPress={() => setPicking(item)}
+            // Ticking writes to the pantry, so the drawer has to reload. The
+            // write is fire-and-forget inside `TasksApi.update`, so this is a
+            // refetch rather than an optimistic patch: the client does not know
+            // what the gap arithmetic decided.
+            onToggled={() => invalidatePantry(listId)}
           />
         )}
         refreshControl={
@@ -264,12 +510,38 @@ export default function ListDetailScreen() {
         }
         contentContainerStyle={styles.listContent}
         onScrollBeginDrag={() => Keyboard.dismiss()}
+        /*
+          The pantry sits under the list as its footer. It is where the list
+          came from, so scrolling past what is left to buy to reach it is the
+          right order. A separate tab would turn putting one item back into a
+          navigation.
+        */
+        ListFooterComponent={
+          pantryCount > 0 ? (
+            <View style={styles.pantry}>
+              <Text style={styles.pantryHeader}>
+                Bought before · {pantryCount}
+              </Text>
+              {bands.map((band, i) => (
+                <PantryBandView
+                  key={band.key}
+                  band={band}
+                  defaultOpen={i === 0}
+                  onAdd={putBack}
+                  onForget={forget}
+                />
+              ))}
+            </View>
+          ) : null
+        }
       />
 
-      <AislePicker
+      <ItemSheet
         item={picking}
         memory={memory}
-        onPick={writeAisle}
+        stores={stores}
+        onAisle={writeAisle}
+        onStore={writeStore}
         onClose={() => setPicking(null)}
       />
 
@@ -296,31 +568,123 @@ export default function ListDetailScreen() {
 }
 
 /**
- * Correcting an item's aisle.
+ * Renders one band of the pantry drawer.
  *
- * Behind a long-press rather than a control on the row: the row's one job is
- * to be tapped while walking, and a second target competing for that surface
- * would cost mis-ticks. Fixing an aisle is rare, deliberate and usually done
- * sitting down, so it can afford to be hidden behind a gesture.
+ * Only the first is open by default. After a year "Earlier" holds hundreds of
+ * rows, and a list screen should not open two screens below its own list. The
+ * composer's search is the way into that band.
  *
- * A `Modal` is fine here where it isn't in the quick-add composer — nothing on
- * this screen is keyboard-anchored at the moment a row is long-pressed, so
- * there is no IME for a second window to drop.
+ * The name is the tap target, unlike an item row. A pantry entry has one
+ * possible action, so nothing else competes for the words.
  */
-function AislePicker({
+function PantryBandView({
+  band,
+  defaultOpen,
+  onAdd,
+  onForget,
+}: {
+  band: PantryBand;
+  defaultOpen: boolean;
+  onAdd: (entry: PantryEntry) => void;
+  onForget: (entry: PantryEntry) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={styles.bandHeader}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Ionicons
+          name={open ? 'chevron-down' : 'chevron-forward'}
+          size={13}
+          color="#9ca3af"
+        />
+        <Text style={styles.bandLabel}>
+          {band.label} · {band.entries.length}
+        </Text>
+      </Pressable>
+      {open &&
+        band.entries.map((entry) => (
+          <Pressable
+            key={entry.term}
+            onPress={() => onAdd(entry)}
+            /*
+              Deleting is the only irreversible action on this screen, so it is
+              behind a long press rather than a visible control. Same reasoning
+              as the aisle picker.
+            */
+            onLongPress={() => {
+              hapticMedium();
+              onForget(entry);
+            }}
+            delayLongPress={450}
+            style={({ pressed }) => [
+              styles.pantryRow,
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Put ${entry.title} back on the list`}
+          >
+            <Ionicons name="add" size={16} color="#9ca3af" />
+            <Text style={styles.pantryTitle} numberOfLines={1}>
+              {entry.title}
+            </Text>
+            <Text style={styles.pantryAge}>
+              {[
+                entry.store,
+                cadenceLabel(entry),
+                lastBoughtLabel(entry.last_bought_at),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          </Pressable>
+        ))}
+    </View>
+  );
+}
+
+/**
+ * Lets the user correct an item's aisle and its store.
+ *
+ * Behind a long press rather than controls on the row. The row's job is to be
+ * tapped while walking, and extra targets on that surface would cause mis-ticks.
+ * Both corrections are rare and usually made sitting down, so a hidden gesture
+ * is an acceptable cost.
+ *
+ * Store sits above aisle because it changes more often. An aisle is a fact
+ * about the words and is usually right first time; a store is a fact about
+ * this week.
+ *
+ * A `Modal` is safe here, unlike in the quick-add composer. Nothing on this
+ * screen is keyboard-anchored when a row is long-pressed, so there is no IME
+ * for a second window to drop. The new-store field opens its own keyboard
+ * inside that window, which is unaffected.
+ */
+function ItemSheet({
   item,
   memory,
-  onPick,
+  stores,
+  onAisle,
+  onStore,
   onClose,
 }: {
   item: Task | null;
   /** So the tick sits on the aisle the row is actually filed under. */
   memory?: AisleMemory;
-  onPick: (item: Task, aisle: Aisle | null) => void;
+  /** Stores already on this list, listed above the free-text field. */
+  stores: string[];
+  onAisle: (item: Task, aisle: Aisle | null) => void;
+  onStore: (item: Task, store: string | null) => void;
   onClose: () => void;
 }) {
+  const [newStore, setNewStore] = useState('');
   if (!item) return null;
   const current = itemAisle(item, memory);
+  const store = storeHint(item);
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={styles.backdrop}>
@@ -328,11 +692,56 @@ function AislePicker({
           <Text style={styles.sheetTitle} numberOfLines={1}>
             {item.title}
           </Text>
-          <ScrollView bounces={false}>
+          <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.sheetSection}>Where you get it</Text>
+            {stores.map((name) => (
+              <Pressable
+                key={name}
+                onPress={() => onStore(item, name)}
+                style={({ pressed }) => [
+                  styles.option,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.optionText}>{name}</Text>
+                {store !== null && store === name && (
+                  <Ionicons name="checkmark" size={17} color="#6366f1" />
+                )}
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => onStore(item, null)}
+              style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+            >
+              <Text style={[styles.optionText, styles.optionMuted]}>
+                Anywhere
+              </Text>
+              {store === null && (
+                <Ionicons name="checkmark" size={17} color="#6366f1" />
+              )}
+            </Pressable>
+            {/* A store the list has not seen before. The composer's `@` covers
+                this when adding; this covers realising it at the shelf. */}
+            <View style={styles.newStoreRow}>
+              <TextInput
+                value={newStore}
+                onChangeText={setNewStore}
+                placeholder="Another shop…"
+                placeholderTextColor="#9ca3af"
+                style={styles.newStoreInput}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  const name = newStore.trim();
+                  if (name) onStore(item, name);
+                }}
+              />
+            </View>
+
+            <Text style={styles.sheetSection}>Aisle</Text>
             {aisleOptions().map((option) => (
               <Pressable
                 key={option.value}
-                onPress={() => onPick(item, option.value)}
+                onPress={() => onAisle(item, option.value)}
                 style={({ pressed }) => [
                   styles.option,
                   pressed && styles.pressed,
@@ -346,9 +755,9 @@ function AislePicker({
             ))}
             {/* "Automatic", not "Other": clearing hands the word back to the
                 lexicon, which usually has an opinion — so the row does not
-                land in Other, and a label saying it would be a lie. */}
+                land in Other, so a label saying it would misdescribe it. */}
             <Pressable
-              onPress={() => onPick(item, null)}
+              onPress={() => onAisle(item, null)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
             >
               <Text style={[styles.optionText, styles.optionMuted]}>
@@ -368,7 +777,7 @@ function AislePicker({
 /**
  * One thing to buy.
  *
- * Three gestures, and the split between the first two is the point: **the
+ * Three gestures, and the split between the first two is what matters: **the
  * circle ticks, the words open.** They used to be one target, so a tap meant
  * for "what did I write here" bought the thing instead — a mistake the user
  * has to notice and undo, on the surface they tap fastest.
@@ -382,12 +791,17 @@ function ItemRow({
   item,
   onOpen,
   onLongPress,
+  onToggled,
 }: {
   item: Task;
   onOpen: () => void;
   onLongPress: () => void;
+  onToggled: () => void;
 }) {
   const done = item.status === 'done' || item.status === 'cancelled';
+  // The store and the day as one muted line, the same shape `rowSubline` gives
+  // every other row in the app. Empty for most items, so nothing renders.
+  const subline = itemSubline(item).join(' · ');
   return (
     <Pressable
       onPress={onOpen}
@@ -403,7 +817,7 @@ function ItemRow({
       <Pressable
         onPress={() => {
           hapticLight();
-          void toggleComplete(item.id, !done);
+          void toggleComplete(item.id, !done).then(onToggled, onToggled);
         }}
         hitSlop={{ top: 13, bottom: 13, left: 14, right: 10 }}
         accessibilityRole="checkbox"
@@ -416,9 +830,25 @@ function ItemRow({
           {done && <Ionicons name="checkmark" size={13} color="#ffffff" />}
         </View>
       </Pressable>
-      <Text style={[styles.itemText, done && styles.itemTextDone]}>
-        {item.title}
-      </Text>
+      {/*
+        The title and subline are a column, so the column takes the row's spare
+        width and the Text inside it must not.
+
+        `styles.itemText` therefore has no `flex: 1`, and must not get one back.
+        Flex-basis resolves against the container's main axis, so `flex: 1` here
+        would set a vertical basis of 0 and collapse the title to height 0. This
+        is the same trap documented on the task row's title.
+      */}
+      <View style={styles.itemBody}>
+        <Text style={[styles.itemText, done && styles.itemTextDone]}>
+          {item.title}
+        </Text>
+        {subline !== '' && (
+          <Text style={styles.itemSubline} numberOfLines={1}>
+            {subline}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -448,6 +878,98 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 15, color: '#111827', padding: 0 },
   added: { fontSize: 11, color: '#9ca3af', fontVariant: ['tabular-nums'] },
+  storeStrip: { flexGrow: 0, marginTop: 8 },
+  storeStripInner: { paddingHorizontal: 12, gap: 8 },
+  storeChip: {
+    backgroundColor: '#eef0fe',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  storeChipText: { fontSize: 13, fontWeight: '600', color: '#4338ca' },
+  pantryChip: {
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  pantryChipText: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  pantryChipAge: { fontSize: 11, color: '#9ca3af' },
+  due: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 10,
+    backgroundColor: '#eef0fe',
+    borderRadius: 12,
+  },
+  dueHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338ca',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 4,
+    paddingBottom: 7,
+  },
+  duePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  duePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  duePillText: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  duePillAge: { fontSize: 11, color: '#9ca3af' },
+  pantry: {
+    marginTop: 18,
+    marginHorizontal: 12,
+    padding: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+  },
+  pantryHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6366f1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  bandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 4,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  bandLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  pantryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 9,
+  },
+  pantryTitle: { flex: 1, fontSize: 14, color: '#374151' },
+  pantryAge: { fontSize: 11, color: '#9ca3af' },
   subline: {
     fontSize: 12,
     color: '#6b7280',
@@ -468,7 +990,9 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Not 'center'. A row can be two lines of title plus a subline, and a ring
+    // centred against that looks detached from the word it ticks off.
+    alignItems: 'flex-start',
     gap: 12,
     backgroundColor: '#ffffff',
     marginHorizontal: 12,
@@ -489,8 +1013,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   boxDone: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
-  itemText: { flex: 1, fontSize: 15, color: '#111827' },
+  // Fills the row's width, so the title inside it does not have to. See above.
+  itemBody: { flex: 1, gap: 2 },
+  itemText: { fontSize: 15, color: '#111827' },
   itemTextDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
+  itemSubline: { fontSize: 12, color: '#6b7280' },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(17,24,39,0.45)',
@@ -522,6 +1049,25 @@ const styles = StyleSheet.create({
   },
   optionText: { fontSize: 15, color: '#111827' },
   optionMuted: { color: '#6b7280' },
+  sheetSection: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  newStoreRow: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 2 },
+  newStoreInput: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#111827',
+  },
   empty: { alignItems: 'center', paddingTop: 56, paddingHorizontal: 32 },
   emptyText: { fontSize: 15, fontWeight: '600', color: '#6b7280' },
   emptyHint: {

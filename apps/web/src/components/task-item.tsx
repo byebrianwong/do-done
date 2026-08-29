@@ -189,8 +189,8 @@ const GUTTER_MARK = {
  * falls with the rank, and nothing at all for a P4.
  *
  * This replaces the four priority bars, which lit one segment for a P4 and so
- * put a mark on every row in the list — a signal that fires everywhere has
- * stopped being one, and P4 is what a task gets by never being triaged.
+ * put a mark on every row in the list. A mark that appears everywhere carries
+ * no information, and P4 is what a task gets by never being triaged.
  * Priority is *ordinal*, so it belongs in position and length rather than in
  * hue; the ring beside it spends hue on the project, which is nominal. Same
  * encoding as the mobile row, decided by the same `rowGutter` in
@@ -435,10 +435,10 @@ function taskDateColor(dateStr: string): string {
 /**
  * The same three states as {@link taskDateColor}, in text alone.
  *
- * The quiet row spends its colour on the ring and the gutter, so the date
- * states lateness in weight and hue only — no filled pill. Late is still red
- * because the gutter's dot is already saying so and the two must agree; today
- * keeps its amber, and every other day is plain.
+ * The quiet row spends its colour on the ring and the gutter, so the date says
+ * lateness in hue only, with no filled pill. Late stays red because the
+ * gutter's dot already says so and the two must agree. Today keeps its amber;
+ * every other day is plain.
  */
 function taskDateTextColor(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -475,9 +475,9 @@ function InlineScheduleEditor({
   deadlineTime: string | null;
   onChange: (patch: SchedulePatch) => void;
   /**
-   * Render as plain right-aligned text instead of a pill — the quiet row's
-   * date column. Still the same button and the same popover: quiet is about
-   * what the row looks like at rest, not about taking the editor away.
+   * Render as plain right-aligned text instead of a pill: the quiet row's date
+   * column. Same button, same popover. Quiet is about what the row looks like
+   * at rest, not about taking the editor away.
    */
   quiet?: boolean;
 }) {
@@ -851,10 +851,10 @@ export function TaskItem({
 
   // ── The quiet row's subline ──────────────────────────
   //
-  // Built from the *optimistic* values rather than from `task`, so an inline
-  // edit shows in the line on the same frame it shows in the control that made
-  // it — the row holds its own copies of priority, estimate, schedule and
-  // project until the refresh lands.
+  // Built from the optimistic values rather than from `task`, so an inline edit
+  // shows in the line on the same frame it shows in the control that made it.
+  // The row holds its own copies of priority, estimate, schedule and project
+  // until the refresh lands.
   const rowTask = useMemo(
     () => ({
       ...task,
@@ -885,9 +885,9 @@ export function TaskItem({
         hideStatus: hideStatusBadge,
       }
     );
-    // Three facts the shared subline deliberately leaves out, because the phone
-    // row has nowhere to put them: an estimate (mobile gives it its own column),
-    // a place, and tags. A wide row has the width.
+    // Three facts the shared subline leaves out because a phone row has nowhere
+    // to put them: the estimate (mobile gives it its own column), the place,
+    // and tags. A wide row has the space.
     const estimate = rowEstimate(rowTask);
     if (estimate) parts.push(estimate);
     if (placeLabel) parts.push(placeLabel);
@@ -936,7 +936,7 @@ export function TaskItem({
     }
 
     // In a list that keeps completed tasks there is nothing to leave — the row
-    // stays put wearing its completed styling. Everywhere else it holds for a
+    // stays put, with its completed styling. Everywhere else it holds for a
     // beat and then collapses, so the rows below slide up into the gap.
     //
     // The exit starts now rather than after the write, or a slow connection
@@ -1379,11 +1379,12 @@ export function TaskItem({
 
             {/* The quiet row's one muted line. neutral-500 rather than the
                 neutral-400 the chips used: this is now the only place a
-                project, an estimate or a place is stated, and 400 on white is
-                about 2.5:1 — fine for decoration, not for information.
+                project, an estimate or a place is stated, and 400 on white
+                measures about 2.5:1 — fine for decoration, not for
+                information.
 
-                Clamped to one line at every width. The line is a summary; a
-                task carrying six facts should not become the tallest row in
+                Clamped to one line at every width. The line is a summary, and
+                a task carrying six facts should not become the tallest row in
                 the list to prove it. */}
             {quiet && (sublineParts.length > 0 || task.tags.length > 0) ? (
               <span className="line-clamp-1 text-xs leading-4 text-neutral-500 dark:text-neutral-400">
@@ -1393,10 +1394,9 @@ export function TaskItem({
                     {part}
                   </span>
                 ))}
-                {/* Tags stay links even here — they are the one piece of row
-                    metadata that navigates rather than describes, and dropping
-                    them to plain text would quietly remove the only way into a
-                    tag from a list. */}
+                {/* Tags stay links here. They are the one piece of row
+                    metadata that navigates rather than describes, and plain
+                    text would remove the only way into a tag from a list. */}
                 {task.tags.map((tag, i) => (
                   <span key={tag}>
                     {sublineParts.length > 0 || i > 0 ? (
@@ -1416,11 +1416,11 @@ export function TaskItem({
             ) : null}
           </div>
 
-          {/* The quiet row says all of that in the line above; what is left
+          {/* The quiet row says all of that in the line above. What is left
               here is the date, in a column of its own. Everything the chips
-              could edit is still reachable — the gutter is the priority
-              editor, the date below is the schedule editor, and a click
-              anywhere on the row opens the rest. */}
+              could edit is still reachable: the gutter is the priority editor,
+              the date below is the schedule editor, and a click anywhere on
+              the row opens the rest. */}
           {quiet ? (
             <div
               className={`${align.meta} flex shrink-0 items-center @lg:ml-auto`}
@@ -1606,7 +1606,7 @@ export function TaskItem({
                  Only this wrapper is pinned. The other chips have the same
                  shrinkable-box-around-unshrinkable-content shape, but they sit
                  inline after the title where nothing is claiming to be a
-                 column, so their overflow costs nothing — and pinning them is
+                 column, so their overflow is harmless — and pinning them is
                  not free: on a row that is genuinely over capacity something
                  has to absorb the squeeze, and taking chips out of the pool
                  just moves the damage onto whatever is still flexible (the
@@ -1657,17 +1657,17 @@ export function TaskItem({
             than quietly widening the strip. */}
         <div
           className={`flex shrink-0 items-center justify-end gap-1 opacity-100 transition-opacity ${align.band} ${
-            /* Quiet drops the edit pencil, so the strip only has to reserve one
-               button's width. The pencil is the least earned control on the
-               row: a click anywhere already opens the editor, and so does the
-               context menu, so the strip was 48px of every row spent on a
-               third way to do it — visible only on the devices that have hover.
+            /* Quiet drops the edit pencil, so the strip reserves one button's
+               width instead of two. The pencil is the least earned control on
+               the row: a click anywhere already opens the editor, and so does
+               the context menu, so the strip spent 48px of every row on a third
+               way to do it, visible only on devices that have hover.
 
                It cannot simply be removed in both modes. The date chip is
-               placed by `ml-auto` *against* this strip, so a strip that varies
-               in width moves the column the dates are trying to form; what
-               keeps that edge still is reserving a fixed width whatever is in
-               it. Quiet reserves less because it has less to hold. */
+               placed by `ml-auto` against this strip, so a strip that varies in
+               width moves the column the dates are trying to form. Reserving a
+               fixed width is what keeps that edge still; quiet reserves less
+               because it has less to hold. */
             quiet ? "w-6" : "w-12"
           } md:opacity-0 md:group-hover/row:opacity-100 md:focus-within:opacity-100`}
           onClick={(e) => e.stopPropagation()}

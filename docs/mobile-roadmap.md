@@ -93,8 +93,8 @@ RETURNING` with the old values — not just relocating the pet call.
 It also matters much less than it did: the write is off the interaction's critical
 path entirely now that 0.2/0.3 landed, so this is throughput and correctness-under-
 concurrency, not perceived speed. **Effort: M.** _(Status: 🟡 pet feeding
-detached; the `SELECT` remains, now load-bearing for `completed_at` and status
-sync.)_
+detached; the `SELECT` remains, and `completed_at` and status sync now
+depend on it.)_
 
 ---
 

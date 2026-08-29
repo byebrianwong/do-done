@@ -302,7 +302,7 @@ export function DisplayMenu({
 /**
  * One labelled block of pills.
  *
- * The `role="group"` is load-bearing, not decoration. Pill labels are not
+ * The `role="group"` is functional, not decoration. Pill labels are not
  * unique across the menu — "Status" is both a Group by and a Sort by option,
  * and "Priority" is all three of a group, a sort and a filter — so a query for
  * a button by name alone is ambiguous, and grows *more* ambiguous every time a

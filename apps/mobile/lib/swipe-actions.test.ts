@@ -55,7 +55,7 @@ describe("the swipe's return", () => {
 
   it("does not clamp the overshoot away", () => {
     // Clamping halts the spring the frame it crosses zero, cutting off the
-    // settle that is the whole point of choosing ζ < 1.
+    // settle that choosing ζ < 1 exists to produce.
     expect(SWIPE_RETURN_SPRING.overshootClamping).toBe(false);
   });
 
@@ -69,7 +69,7 @@ describe("the swipe's return", () => {
 
   it("delays the completion without extending it", () => {
     // The 680ms exit envelope, the hold the write waits out and the undo window
-    // are all downstream of the tick, and none of them move. What has to hold is
+    // all start after the tick, and none of them move. What has to hold is
     // that the whole sequence still fits inside the window that can undo it.
     expect(SWIPE_RETURN_MS + TASK_COMPLETE_EXIT_MS).toBeLessThan(
       UNDO_TOAST_TTL_MS

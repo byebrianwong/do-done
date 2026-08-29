@@ -45,8 +45,8 @@ function useSettled(active: boolean, delayMs: number): boolean {
 
 /**
  * A 2px indeterminate bar: a short segment sweeping left to right. Indeterminate
- * on purpose — a list refresh has no measurable progress, and a bar that
- * pretends otherwise is a lie the user can see stalling.
+ * on purpose — a list refresh has no measurable progress, and a bar claiming
+ * otherwise visibly stalls.
  */
 export function UpdatingBar({ visible }: { visible: boolean }) {
   const show = useSettled(visible, 350);

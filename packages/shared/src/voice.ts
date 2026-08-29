@@ -3,8 +3,8 @@
  *
  * A recording produces two artefacts and DoDone keeps both: the audio, stored
  * as an ordinary attachment, and the transcript, which becomes the task's text.
- * Keeping the audio is the point of the feature rather than a nicety — a
- * recogniser mishears names and numbers constantly, so the recording is the
+ * Keeping the audio is part of the feature, not a nicety. A recogniser
+ * mishears names and numbers constantly, so the recording is the
  * record of what was said and the transcript is a convenience over it.
  *
  * The split from one run of speech into a title and a description lives here,
@@ -43,7 +43,7 @@ export const VOICE_TITLE_MAX_CHARS = 100;
  * Dictation puts a period on abbreviations too, so "Call Dr. Smith about the
  * quote" offers a boundary after "Call Dr" — obeying it would title the task
  * with half a name. Requiring three words means such a boundary is skipped and
- * the next real one is used, which costs nothing on ordinary speech: a genuine
+ * the next real one is used, which is harmless on ordinary speech: a genuine
  * opening sentence shorter than three words is not a title worth keeping.
  */
 const MIN_TITLE_WORDS = 3;

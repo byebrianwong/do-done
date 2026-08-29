@@ -14,7 +14,8 @@
  * **This is the file that needs `react-native-svg`,** which is a native module:
  * an install that predates it renders nothing here until it is rebuilt. That is
  * why `parseProjectIcon` reports an undrawable icon as `none` rather than
- * falling back to text — a bare coloured ring is the honest failure.
+ * falling back to text: a bare coloured ring is the only failure here that
+ * still looks deliberate.
  */
 
 import React from 'react';

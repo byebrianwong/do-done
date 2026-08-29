@@ -97,7 +97,7 @@ export default function TagDetailScreen() {
         // A tag cuts across projects and statuses, so this screen genuinely
         // cannot tell whether a completion emptied anything — a section here is
         // not a section of *work*, it is a slice of several. Withholding the
-        // count is how a surface says "I can't tell", which keeps the
+        // count is how a surface says "I cannot tell", which keeps the
         // celebration rules from firing on a guess.
         sectionCounts={false}
         hideEmptyGroups

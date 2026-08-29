@@ -128,7 +128,7 @@ describe("nextSaveStatus", () => {
   }
 
   it("acknowledges the first keystroke before the debounce fires", () => {
-    // The whole point: an `edit` alone — no commit, no round-trip — already
+    // The rule under test: an `edit` alone — no commit, no round-trip — already
     // moves the indicator off its resting state.
     expect(nextSaveStatus("idle", { type: "edit" })).toBe("pending");
   });

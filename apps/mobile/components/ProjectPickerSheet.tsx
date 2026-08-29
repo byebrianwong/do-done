@@ -5,7 +5,7 @@
  * provisions a project and selects it in one step.
  *
  * Presentation mirrors PickerSheet in TaskEditModalV2.tsx, but the stateful
- * create flow earns it a dedicated component.
+ * create flow is why this is a separate component.
  */
 
 import React, { useEffect, useRef, useState } from 'react';

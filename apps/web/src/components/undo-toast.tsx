@@ -142,7 +142,7 @@ export function UndoToastProvider({ children }: { children: React.ReactNode }) {
                 {/* The window, drawn draining. The button is only useful while
                     it lasts, and a countdown is the difference between "there
                     is an Undo" and "there is an Undo *and you have time*" —
-                    which is the whole reason the window was widened. Keyed on
+                    which is why the window was widened. Keyed on
                     the toast id so a second toast restarts the run rather than
                     inheriting the first one's remaining time. */}
                 <span

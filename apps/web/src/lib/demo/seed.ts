@@ -1,7 +1,9 @@
 import {
   addDaysLocalISO,
+  learnableTerm,
   todayLocalISO,
   type CalendarEvent,
+  type PantryEntry,
   type Location,
   type Project,
   type Task,
@@ -415,23 +417,86 @@ const TASK_SEED: TaskSeed[] = [
 
   // ── Shopping lists ────────────────────────────────────────────────
   //
-  // Undated and unprioritised on purpose: a thing to buy has no day and no
-  // rank, and giving these any would be seeding the exact confusion the
-  // `is_list_item` flag exists to prevent. None of them appear in Today,
-  // Inbox, Upcoming or All — that absence is the feature, and it is visible
-  // in the sandbox precisely because these rows exist.
-  { title: "Whole milk", project: P.groceries },
+  // Mostly unprioritised and undated, because most things to buy are. None of
+  // them appear in Today, Inbox, Upcoming or All. That absence is the feature,
+  // and it is visible in the sandbox because these rows exist.
+  //
+  // Two deliberate exceptions, both there to exercise `itemSubline`: a store
+  // hint, which the row is the only place in the app to show; and one dated
+  // item, which also shows that a list item with a scheduled date still does
+  // not reach Today. The old "no dates at all" rule left that untested.
+  { title: "Whole milk", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Bananas", project: P.groceries },
-  { title: "Greek yoghurt", project: P.groceries },
+  { title: "Greek yoghurt", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Sourdough", project: P.groceries },
-  { title: "Paper towels", project: P.groceries },
+  { title: "Paper towels", project: P.groceries, tags: ["at:Target"] },
   { title: "Parmesan", project: P.groceries },
+  {
+    title: "Ice for the cool box",
+    project: P.groceries,
+    tags: ["at:Target"],
+    day: 2,
+  },
   { title: "Eggs", project: P.groceries, status: "done", doneDaysAgo: 0 },
   { title: "Butter", project: P.groceries, status: "done", doneDaysAgo: 0 },
   { title: "USB-C cable, 2m", project: P.amazon },
   { title: "Replacement kettle filter", project: P.amazon },
   { title: "Birthday card", project: P.amazon },
 ];
+
+/**
+ * The sandbox's shopping history.
+ *
+ * Seeded because an empty drawer shows nothing useful: the pantry is about what
+ * a list looks like after months of shopping, and a visitor arriving at `/demo`
+ * has no history of their own.
+ *
+ * The entries span all three bands on purpose — weekly items in the last
+ * fortnight, monthly items behind them, and twice-a-year items further back.
+ * The bands only make sense when all three have something in them.
+ */
+const PANTRY_SEED: Array<{
+  list: number;
+  title: string;
+  daysAgo: number;
+  buys: number;
+  store?: string;
+  /** Days between recent buys, which is what cadence is measured from. */
+  gaps?: number[];
+}> = [
+  // Last 2 weeks — the weekly shop.
+  { list: P.groceries, title: "Greek yoghurt", daysAgo: 6, buys: 14, store: "Trader Joe's", gaps: [7, 6, 8, 7, 6] },
+  { list: P.groceries, title: "Spinach", daysAgo: 6, buys: 9, gaps: [7, 8, 6, 7] },
+  { list: P.groceries, title: "Chicken thighs", daysAgo: 9, buys: 11, store: "Trader Joe's", gaps: [8, 7, 6, 9] },
+  { list: P.groceries, title: "Coffee beans", daysAgo: 11, buys: 8, gaps: [14, 12, 15, 13] },
+  { list: P.groceries, title: "Tomatoes", daysAgo: 13, buys: 6, gaps: [10, 9, 12] },
+  // Last 2 months — the fortnightly and monthly things.
+  { list: P.groceries, title: "Olive oil", daysAgo: 24, buys: 4, gaps: [90, 84, 96] },
+  { list: P.groceries, title: "Rice", daysAgo: 31, buys: 5, gaps: [88, 92, 85] },
+  { list: P.groceries, title: "Dish soap", daysAgo: 38, buys: 6, store: "Target", gaps: [44, 40, 46] },
+  { list: P.groceries, title: "Bin bags", daysAgo: 45, buys: 5, store: "Target", gaps: [60, 55, 58] },
+  { list: P.groceries, title: "Frozen berries", daysAgo: 55, buys: 3, gaps: [50, 60] },
+  // Earlier — the twice-a-year things, and the one-off nobody will buy again.
+  { list: P.groceries, title: "Baking soda", daysAgo: 96, buys: 3, gaps: [150, 170] },
+  { list: P.groceries, title: "Vanilla extract", daysAgo: 140, buys: 2, gaps: [200] },
+  { list: P.groceries, title: "Foil", daysAgo: 190, buys: 3, gaps: [180, 200] },
+  { list: P.groceries, title: "Birthday candles", daysAgo: 240, buys: 1 },
+  { list: P.amazon, title: "Printer paper", daysAgo: 20, buys: 4, gaps: [70, 80, 75] },
+  { list: P.amazon, title: "AA batteries", daysAgo: 74, buys: 3, gaps: [120, 140] },
+];
+
+/** Builds the seeded history for one list, dated relative to now. */
+export function demoPantryFor(listId: string): PantryEntry[] {
+  const now = Date.now();
+  return PANTRY_SEED.filter((e) => demoId(e.list + 1) === listId).map((e) => ({
+    term: learnableTerm(e.title) ?? e.title.toLowerCase(),
+    title: e.title,
+    last_bought_at: new Date(now - e.daysAgo * 86_400_000).toISOString(),
+    buy_count: e.buys,
+    gaps: e.gaps ?? [],
+    store: e.store ?? null,
+  }));
+}
 
 export interface DemoSeed {
   projects: Project[];

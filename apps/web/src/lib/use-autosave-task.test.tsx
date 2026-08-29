@@ -221,8 +221,8 @@ describe("useAutoSaveTask — one bad field doesn't sink the rest", () => {
       await vi.advanceTimersByTimeAsync(DEBOUNCE);
     });
 
-    // `priority` committed, but the notes did not — "Saved" would be a lie
-    // about the part the user is most likely watching.
+    // `priority` committed, but the notes did not — "Saved" would misreport the
+    // part the user is most likely watching.
     expect(result.current.status).toBe("error");
     expect(result.current.hasUnsavedWork).toBe(true);
   });

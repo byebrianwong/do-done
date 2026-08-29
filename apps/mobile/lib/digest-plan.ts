@@ -33,8 +33,8 @@ import {
  *
  * A repeating DAILY trigger would need none of this and is the obvious thing to
  * reach for. It is also useless: it would deliver the same frozen sentence every
- * morning until the app was next opened, which for the user this is meant to
- * serve is the whole point of failure.
+ * morning until the app was next opened — which is precisely how it would fail
+ * the user it is meant to serve.
  */
 
 /** How far ahead to arm. A week covers a normal gap between app opens. */

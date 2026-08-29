@@ -10,6 +10,14 @@
  * Sections drive an internal `rows` copy that updates optimistically on drop
  * (no snap-back) and re-syncs whenever the `sections` prop changes (after the
  * mutation reconciles through the query cache).
+ *
+ * It is also where the minimizing tab bar is fed, because it is the one door
+ * every task list on a tab goes through — Today and Upcoming render it
+ * directly, Inbox and All reach it via `GroupedTaskList`. Wiring it here
+ * rather than at each screen is the difference between one call site and five
+ * that can drift. `useTabBarScrollSync` answers with nothing on a screen that
+ * has no tab bar under it (a pushed project, a tag, Completed), so the same
+ * list is inert there without knowing where it is mounted.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -18,10 +26,13 @@ import type {
   StyleProp,
   ViewStyle,
 } from 'react-native';
+import { StyleSheet } from 'react-native';
 import DraggableFlatList, {
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import type { Task } from '@do-done/shared';
+
+import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 
 export type DraggableSection = { key: string; title: string; data: Task[] };
 
@@ -97,6 +108,27 @@ export default function SectionedDraggableList({
   ListEmptyComponent,
 }: Props) {
   const [rows, setRows] = useState<Row[]>(() => flatten(sections));
+  const tabBar = useTabBarScrollSync();
+
+  // The tab bar floats over the screen rather than sitting beside it in flow,
+  // so this list runs all the way to the bottom edge and has to reserve the
+  // bar's own height on top of whatever bottom padding the screen asked for.
+  // Added to that padding rather than replacing it: the screen's number is
+  // what keeps the last row clear of the floating add button, and this one is
+  // what keeps it clear of the bar. Constant, never the animated height — a
+  // padding that tracked the sweep would re-measure the list every frame.
+  const contentStyle = useMemo(() => {
+    if (tabBar.contentInset === 0) return contentContainerStyle;
+    const own = StyleSheet.flatten(contentContainerStyle) as
+      | ViewStyle
+      | undefined;
+    const base =
+      typeof own?.paddingBottom === 'number' ? own.paddingBottom : 0;
+    return [
+      contentContainerStyle,
+      { paddingBottom: base + tabBar.contentInset },
+    ];
+  }, [contentContainerStyle, tabBar.contentInset]);
 
   // Re-sync the internal `rows` copy whenever `sections` changes. The signature
   // must cover task *content*, not just id/order: a field edit (e.g. changing a
@@ -113,6 +145,7 @@ export default function SectionedDraggableList({
   }, [sig]);
 
   function handleDragEnd({ data, to }: { data: Row[]; from: number; to: number }) {
+    tabBar.setDragging(false);
     const moved = data[to];
     if (!moved || moved.kind !== 'task') {
       setRows(data);
@@ -146,20 +179,20 @@ export default function SectionedDraggableList({
   /**
    * Which rows pin to the top as you scroll past them.
    *
-   * This list is a flat `DraggableFlatList` — headers and tasks in one array,
-   * which is what lets a task be dragged from one section into another — so
-   * `SectionList`'s `stickySectionHeadersEnabled` is not available here and the
+   * This is a flat `DraggableFlatList` — headers and tasks in one array, which
+   * is what lets a task be dragged from one section into another — so
+   * `SectionList`'s `stickySectionHeadersEnabled` is not available and the
    * indices have to be computed.
    *
-   * **`ListHeaderComponent` occupies index 0 when it is present**, and
+   * **`ListHeaderComponent` occupies index 0 when present**, and
    * VirtualizedList matches these numbers against `dataIndex + stickyOffset`
-   * without adding the offset itself. Forgetting it pins the row *after* each
-   * header — every section would stick its first task instead of its name,
-   * which looks deliberate enough that nobody would report it as a bug.
+   * without adding the offset itself. Forget it and every section pins the row
+   * after its header — its first task instead of its name, which looks
+   * deliberate enough that nobody would report it.
    *
-   * Recomputed from `rows` rather than from `sections` because `rows` is what
-   * is being rendered: mid-drag it is the local copy, and a header's index
-   * moves as a task crosses a section boundary.
+   * Computed from `rows` rather than `sections` because `rows` is what is being
+   * rendered: mid-drag it is the local copy, and a header's index moves as a
+   * task crosses a section boundary.
    */
   const stickyHeaderIndices = useMemo(() => {
     const offset = ListHeaderComponent ? 1 : 0;
@@ -190,8 +223,23 @@ export default function SectionedDraggableList({
           ? renderHeader(item.section)
           : renderTask(item.task, drag, isActive, sectionOf(item.sectionKey))
       }
+      // Dragging a row near the bottom of the screen makes the library
+      // auto-scroll the list, which would minimize the bar in response to a
+      // movement the user did not make. The freeze can only ever *keep the bar
+      // out*, so a drag whose end somehow never fires leaves the bar expanded
+      // rather than stuck away.
+      onDragBegin={() => tabBar.setDragging(true)}
+      // The library sets its own `onScroll` after spreading props, so this is
+      // the only way in — and it is already hopping to JS on every frame
+      // whether or not anyone listens. Undefined off a tab, where there is no
+      // bar to drive.
+      onScrollOffsetChange={tabBar.onScrollOffsetChange}
+      // Between them these give the list's scroll range, which is the only way
+      // to tell the bounce at the end of a flick from a small upward scroll.
+      onContentSizeChange={tabBar.onContentSizeChange}
+      onLayout={tabBar.onListLayout}
       refreshControl={refreshControl}
-      contentContainerStyle={contentContainerStyle}
+      contentContainerStyle={contentStyle}
       ListHeaderComponent={ListHeaderComponent}
       ListEmptyComponent={ListEmptyComponent}
     />

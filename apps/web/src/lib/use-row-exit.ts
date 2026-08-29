@@ -43,9 +43,9 @@ export interface RowExit {
   /** True once the row should be rendered at zero height. */
   collapsing: boolean;
   /**
-   * True from the first frame of a deletion until the row is gone — the hold
-   * included, which is the point: the hold is where the row still has its
-   * height and has to *say* it is going.
+   * True from the first frame of a deletion until the row is gone, hold
+   * included. The hold is where the row still has its height and has to show
+   * that it is going.
    */
   deleting: boolean;
   /**
@@ -94,7 +94,7 @@ export function prefersReducedMotion(): boolean {
  *
  * Timers are cleared on unmount, but note what that does *not* cover: the
  * caller must have already written the change to the server before calling
- * `start`. Nothing here is load-bearing for the data, only for the pixels.
+ * `start`. Nothing here affects the data, only the pixels.
  */
 /**
  * A flag that is true for `ms` and then isn't, for marking a moment rather than

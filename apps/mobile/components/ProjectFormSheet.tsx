@@ -122,7 +122,7 @@ export function ProjectFormSheet({
    *
    * A task has an undo toast and `restore()` behind it; a project delete has
    * neither, and it unfiles everything that pointed at the row. So this is the
-   * one place in the app where asking first is still the honest option.
+   * one place in the app where asking first is still the right call.
    */
   const confirmDelete = () => {
     if (!project) return;
