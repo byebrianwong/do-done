@@ -5,7 +5,7 @@ import {
   ThemeProvider,
 } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
@@ -15,6 +15,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
+import { LoginScreen } from '@/components/LoginScreen';
 import { useColorScheme } from '@/components/useColorScheme';
 import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
@@ -99,7 +100,6 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { session, loading } = useAuth();
-  const segments = useSegments();
   const router = useRouter();
   // Point `lib/`'s automatic-change notices at the live toast. Kept in a ref
   // and installed once: the toast context's value is a fresh object on every
@@ -112,17 +112,6 @@ function RootLayoutNav() {
     () => setAutoSyncNotifier((message) => showToast.current({ message })),
     []
   );
-
-  useEffect(() => {
-    if (loading) return;
-    const inAuthGroup = (segments[0] as string) === '(auth)';
-    if (!session && !inAuthGroup) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace('/(auth)/login' as any);
-    } else if (session && inAuthGroup) {
-      router.replace('/(tabs)');
-    }
-  }, [session, loading, segments, router]);
 
   // Re-register geofences whenever the user signs in. Silent by design: this
   // never prompts for location, it only re-arms regions for users who already
@@ -204,12 +193,17 @@ function RootLayoutNav() {
   // for a location reminder, whose body *is* a task title. Registered here
   // rather than in the geofence task because responding to a tap needs the
   // router, which needs the React tree the background task doesn't have.
+  const signedIn = Boolean(session);
   useEffect(() => {
     const N = getNotifications();
     if (!N) return;
     const sub = N.addNotificationResponseReceivedListener(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (response: any) => {
+        // There is no navigator to route with while signed out — see below —
+        // and the task the notification names isn't readable either. Landing
+        // on the login screen is already the right answer.
+        if (!signedIn) return;
         const path = routeForNotification(
           response?.notification?.request?.content?.data
         );
@@ -218,12 +212,37 @@ function RootLayoutNav() {
       }
     );
     return () => sub.remove();
-  }, [router]);
+  }, [router, signedIn]);
+
+  // Signed out: the login screen *is* the app, rendered in place of the
+  // navigator rather than pushed onto it.
+  //
+  // This used to be a `router.replace('/(auth)/login')` from an effect, which
+  // meant a signed-out launch rendered the tab bar, then navigated away from
+  // it. Android pins its autofill view structure to the screen that was up
+  // when the session started and a native-stack navigation never tells it
+  // otherwise, so 1Password and Gboard saw no fields and offered nothing on
+  // either input. The reasoning, and why there is no JS-level way to reset
+  // that structure, is written out in components/LoginScreen.tsx.
+  //
+  // Rendering it here also unmounts the whole navigator while signed out, so
+  // the previous account's screens and their queries go with it — which the
+  // replace happened to do too, and which a login screen layered *over* the
+  // navigator would not.
+  //
+  // After every hook above, so the hook order is the same either way.
+  if (!loading && !session) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <LoginScreen />
+        <DevBanner />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         <Stack.Screen name="completed" options={{ title: 'Completed' }} />

@@ -12,15 +12,47 @@ Background on the mechanisms is in the "Password-manager autofill" section of
 
 ## What already works
 
-Autofill itself — 1Password offering to fill email + password — works from the
-merged code alone, on both surfaces, with no further setup:
+Autofill itself — 1Password offering to fill email + password — needs no
+further setup on either surface:
 
-- `apps/mobile/app/(auth)/login.tsx` — `autoComplete` (→ Android
+- `apps/mobile/components/LoginScreen.tsx` — `autoComplete` (→ Android
   `autofillHints`), `textContentType` (→ iOS AutoFill), `importantForAutofill`.
-- `apps/web/src/app/(auth)/login/page.tsx` — `name` + `autocomplete`.
+- `apps/web/src/components/auth-card.tsx` — `name` + `autocomplete`.
 
-The mobile JS change already shipped over EAS Update to the `preview` channel,
-so installed preview builds have it.
+Both are pure JS and ship over EAS Update.
+
+### Android needed a second fix: the screen must not be navigated to
+
+Correct hints turned out not to be enough on Android, and the symptom was
+identical to having none — no 1Password sheet and no Gboard suggestion on
+either field.
+
+Android builds its autofill view structure per *activity*, and a native-stack
+navigation replaces that activity's content without telling `AutofillManager`
+(the documented remedy, `AutofillManager.cancel()`, is called by neither React
+Navigation nor react-native-screens, and no JS API reaches it). The session
+stays pinned to the screen you navigated away from, so the login fields are
+simply not in it. Open upstream with no fix: react-native-screens
+[#349](https://github.com/software-mansion/react-native-screens/issues/349) /
+[#3130](https://github.com/software-mansion/react-native-screens/issues/3130),
+react-navigation
+[#12210](https://github.com/react-navigation/react-navigation/issues/12210) /
+[#12717](https://github.com/react-navigation/react-navigation/issues/12717).
+
+**Confirming it takes five seconds:** put the app in the background, come back,
+and tap the email field. Resuming the activity rebuilds the structure, so a
+prompt that appears only after that round-trip is this bug rather than a hint
+problem.
+
+The fix was to stop navigating to the screen at all. `app/(auth)/` is gone;
+`components/LoginScreen.tsx` is rendered by `app/_layout.tsx` in place of the
+navigator whenever there is no session, so the fields are children of the
+activity's root view from the first frame. See the "Password-manager autofill"
+section of [`CLAUDE.md`](../CLAUDE.md) for the rules that follow from that.
+
+**Unverified on a device.** Nothing in CI can render a React Native screen, let
+alone drive Android's autofill framework, so this is reasoned rather than
+observed. Run the end-to-end check below on a preview build.
 
 ## What's left
 
@@ -109,9 +141,13 @@ against the installed signature at fill time, so step 1 takes effect on its own.
 
 ## Troubleshooting
 
-- **No prompt at all** — the autofill hints aren't reaching the OS. Confirm the
-  build actually includes the merged `login.tsx` (check EAS Update picked it up,
-  or rebuild), and that 1Password is the selected autofill service.
+- **No prompt at all** — three candidates, in the order worth checking. First,
+  background the app and come back: if the prompt appears then, it is the
+  native-stack bug above, and the install predates the fix for it. Second,
+  confirm 1Password is the selected autofill service. Third, confirm the build
+  is actually running the current bundle — Settings → App version shows the
+  sha, and an install too old to take OTA updates sits on a stale one insisting
+  it is current (see "An install that's too old to update" in `CLAUDE.md`).
 - **Prompt appears but no matching item** — that's the association half, i.e.
   steps 1–3 here. Check the `.well-known` URLs return 200.
 - **Association files return 404** — the env var is unset in that Vercel

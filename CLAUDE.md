@@ -2698,13 +2698,57 @@ a rebuild.
 Login fields on **both** platforms carry explicit autofill metadata. Without it
 the OS can't classify them and 1Password never offers to fill:
 
-- Mobile (`apps/mobile/app/(auth)/login.tsx`): `autoComplete` (→ Android
+- Mobile (`apps/mobile/components/LoginScreen.tsx`): `autoComplete` (→ Android
   `autofillHints`), `textContentType` (→ iOS AutoFill), and
   `importantForAutofill`.
-- Web (`apps/web/src/app/(auth)/login/page.tsx`): `name` and `autocomplete`.
+- Web (`apps/web/src/components/auth-card.tsx`): `name` and `autocomplete`.
 
 Both flip the password field between `current-password` and `new-password` based
 on signin/signup mode, so managers offer generation instead of a fill.
+
+### The signed-out screen is not a route
+
+Correct hints are necessary and were never sufficient on Android. **A screen
+you *navigate to* is one the OS will not offer autofill on**, and for a while
+that was this app's login screen: nothing appeared on either field, from
+1Password or from Gboard.
+
+Android builds its autofill view structure per *activity*, and a native-stack
+navigation replaces that activity's content without telling `AutofillManager`.
+The documented remedy is `AutofillManager.cancel()`, which neither React
+Navigation nor react-native-screens calls and which no JS API reaches. So the
+fill session stays pinned to the screen you navigated away from, the fields you
+navigated *to* are not in it, and the OS answers "Content can't be autofilled".
+Open upstream on both sides with no fix — react-native-screens#349 and #3130,
+react-navigation#12210 and #12717.
+
+**The tell takes five seconds on a phone: background the app and come back.**
+Resuming the activity is the other thing that rebuilds the structure, so
+autofill works for the rest of that launch. A fill prompt that appears only
+after that round-trip is this bug and not the hints.
+
+So being signed out is a **state of the app, not a destination inside it**.
+`components/LoginScreen.tsx` is rendered by `app/_layout.tsx` *in place of* the
+navigator, and the `(auth)` route group is gone — a file under `app/` is a
+route whether or not anything links to it, and a route is arrived at by
+navigating. Two consequences worth keeping:
+
+- **Signing out unmounts the navigator**, so the previous account's screens and
+  their queries go with it. The `router.replace('/(auth)/login')` this replaced
+  did that too; a login screen layered *over* the navigator would not, which is
+  why it isn't one.
+- **`settings.tsx` returns to the tab root before signing out**, because
+  whatever route was last on screen is where the navigator remounts on the next
+  sign-in.
+
+**The hints were never the problem**, and that is worth not re-deriving: RN's
+JS layer rewrites `current-password` → `password` and `new-password` →
+`password-new` before they reach Android's `autofillHints`
+(`autoCompleteWebToAutoCompleteAndroidMap` in RN's `TextInput.js`), so the
+iOS-flavoured spellings on that screen are right on both platforms. Passing an
+Android-invalid value would be silent and total, though — RN logs one line to
+logcat and calls `setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_NO)`, hiding
+the field from the framework outright.
 
 **App ↔ site association is a separate mechanism.** It is what makes a saved
 `dodone.byebrianwong.com` login match the *app*, rather than the app being its

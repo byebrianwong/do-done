@@ -70,7 +70,7 @@ The login screen and quick-add expose `testID`s so flows are
 resolution-independent. Capture is two steps now — the plus button opens the
 composer, and the composer holds the input:
 
-- `app/(auth)/login.tsx` — `login-email`, `login-password`, `login-submit`
+- `components/LoginScreen.tsx` — `login-email`, `login-password`, `login-submit`
 - `components/QuickAddButton.tsx` — `quick-add-button`
 - `components/QuickAddComposer.tsx` — `quick-add-input`, `quick-add-submit`,
   `quick-add-mic`
