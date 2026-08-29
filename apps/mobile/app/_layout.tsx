@@ -34,6 +34,7 @@ import {
 import { routeForNotification } from '@/lib/notification-routing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
+import { hydrateViewModes } from '@/lib/view-mode';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
@@ -65,6 +66,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  // Which half of the Agenda and Tasks tabs the app was last left on. Read
+  // once, here, so it has landed before the tab bar draws its icons.
+  useEffect(() => {
+    hydrateViewModes();
+  }, []);
 
   useEffect(() => {
     if (loaded) {
@@ -270,8 +277,8 @@ function RootLayoutNav() {
         />
         <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         <Stack.Screen name="search" options={{ headerShown: false }} />
-        <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />
         <Stack.Screen name="today" options={{ headerShown: false }} />
+        <Stack.Screen name="upcoming" options={{ headerShown: false }} />
         <Stack.Screen
           name="quick-add"
           options={{

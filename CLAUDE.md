@@ -152,6 +152,106 @@ transparent modal over the list.
   four doors into the same recorder (see *Voice notes → Ways in*), and the
   composer's own mic is one tap further on.
 
+## The bottom bar (mobile)
+
+Four tabs: **Agenda, Tasks, Lists, Projects**. It was five — Today, Inbox,
+Upcoming, All, Projects — and Lists was not among them.
+
+The change is about how fast you can reach things. Getting to the grocery list
+took three taps (Projects, the cart button, the list), and it took three taps
+again the next day because nothing was remembered. Meanwhile Inbox held a
+handful of untriaged rows on most days and had a whole tab to itself.
+
+| Tab | Opens on | Tapped again |
+| --- | --- | --- |
+| Agenda | Today | swaps to Upcoming, and back |
+| Tasks | All | swaps to Inbox, and back |
+| Lists | the list you were last in | goes up to all lists |
+| Projects | the project you were last in | goes up to all projects |
+
+**Re-tapping a tab is the second half of every rule.** On the two swap tabs it
+swaps; on Lists and Projects it pops back to the index, which React Navigation
+already does for a focused tab holding a stack. One gesture, and it always
+means "the other thing here". It is also what makes remembering safe: getting
+out of a resumed screen is never more than one tap.
+
+### Two views, one tab
+
+Today and Upcoming answer the same question at two ranges, and so do All and
+Inbox. Giving each its own tab spent a fifth of the bar on the distinction.
+
+**Only the view you are on is named.** The header shows one word plus a small
+tinted circle with two swap arrows (`components/SwapTitle.tsx`), and the glyph
+turns over when you use it, so the swap has a direction. Printing both words
+would spend the header's width on a word you are not looking at.
+
+Two arrows rather than the other view's icon: a calendar beside "Today" reads
+as "pick a date" and a star beside "Upcoming" reads as "favourite", and both of
+those are real actions in this app. Arrows can only mean switch.
+
+- **The mode is a module store** (`lib/view-mode.tsx`), not a context, for the
+  same reason `lib/auto-sync-notice.ts` is one: the deep-link routes `/today`
+  and `/upcoming` — which the home-screen widgets, the launcher shortcuts and
+  the digest notifications open — sit outside the tab layout and still have to
+  say which half they mean. Both are `Redirect`s that set the mode first.
+- **It is not in the query cache.** This is navigation, not data, and
+  `invalidateTasks()` sweeps everything under `taskKeys.all`.
+- **It is persisted**, so the app reopens on whichever half you were last using.
+  `hydrateViewModes()` runs once from the root layout. A mode set by a deep link
+  wins over a restore that lands later — the link is the newer instruction.
+- **The four view bodies are unchanged**, just moved: `components/views/`
+  holds what used to be `app/(tabs)/{index,upcoming,all,inbox}.tsx`. Each lost
+  its title `<Text>` and gained `<AgendaTitle />` or `<TasksTitle />`.
+
+### The labels never change; the icon does
+
+The tab bar answers "where can I go". The screen's own title answers "where am
+I". A map whose labels move under your thumb is a worse map, and now that the
+header names exactly one view it is already doing the second job. So the first
+two tabs keep one name each and swap only their glyph — star ⟷ calendar, list
+⟷ tray.
+
+That needed a cover word for Today and Upcoming: **"Agenda"**. It is the only
+new vocabulary in the change.
+
+**The Tasks tab carries the inbox count as a badge**, and only while you are on
+All. On the Inbox itself the badge would be telling you what you are already
+reading. The badge is what keeps triage visible now that the Inbox has no tab.
+
+### Lists and Projects remember where you were
+
+Both tabs are **stacks**, not screens (`app/(tabs)/lists/`,
+`app/(tabs)/projects/`). That is what lets a list open *inside* the tab, keeping
+the tab bar — which is what the pop-to-index gesture needs. Because `(tabs)` is
+a route group, the URLs are unchanged: `/lists/<id>`, `/projects/<id>`.
+
+`lib/tab-resume.ts` holds the rule, with `resumeDecision` as a pure function so
+the node suite covers it. This is exactly the kind of rule that fails silently
+on a device — a tab that opens on the wrong screen, or one that navigates in a
+loop — and `apps/mobile` has no renderer.
+
+- **The memory is the last screen you saw in that section**, which may be the
+  index. Backing out to the index is itself a visit, so it clears the memory and
+  the next tap lands on the index. The index screen writes `null` on focus.
+- **It never expires.** A week later the Lists tab still opens Groceries,
+  because a week later that is still the list you keep. A time limit would only
+  make the tab unpredictable.
+- **It survives a relaunch** — one AsyncStorage key each. A cold start is when
+  the shortcut is worth most.
+- **A deleted or missing target falls back to the index**, silently. The stored
+  id is checked against the loaded list before the tab restores it, so a list
+  deleted on the laptop cannot strand the phone on an empty screen. That is also
+  why the decision returns `wait` while the ids are still loading: deciding
+  early would forget a good memory just because the list had not arrived.
+- **The restore runs once per launch**, tracked in module state. Without that,
+  popping back to the index would bounce straight into the list you just left.
+
+Two doors closed with this: the cart button on the Projects tab and the
+"Shopping lists" row in Settings. Both existed to reach a feature with no tab
+of its own, and the Settings row specifically existed because the cart button
+only appeared once a list existed — so there was no way to make a first one.
+The Lists tab is permanent and has its own **+**.
+
 ## Subtasks follow their parent's project
 
 A subtask is the same work as its parent, one level down, so it lives in the
@@ -1412,7 +1512,7 @@ worth printing.
 | | Where |
 | --- | --- |
 | Web | `Lists` under Projects in the sidebar → `/lists` → `/lists/<id>` |
-| Mobile | Projects tab ⟶ cart button → `/lists` → `/lists/<id>` |
+| Mobile | The **Lists** tab → `/lists` → `/lists/<id>` |
 
 Neither list screen uses the app's list machinery — not `TaskDisplayView`, not
 `GroupedTaskList`. Every axis those exist to offer (group by status, sort by
@@ -1430,9 +1530,14 @@ plus `submitBehavior="submit"`.
 disposable: the list survives, its history doesn't pile up in it, and the ids
 it returns are an undo token `TasksApi.restore` takes directly.
 
-**The sidebar section and the mobile cart button appear only once a list
-exists.** A permanent heading for an unused feature is exactly the ambient
-clutter this design is arguing against.
+**Web's sidebar section appears only once a list exists.** A permanent heading
+for an unused feature is exactly the ambient clutter this design is arguing
+against.
+
+**Mobile went the other way**: Lists is one of the four tabs, always there.
+A tab is not a heading in a list of headings — the bar has four slots and each
+one is a place, so the cost of a permanent slot is paid in reach rather than in
+clutter. See *The bottom bar (mobile)*.
 
 #### The row: the circle ticks, the words open
 

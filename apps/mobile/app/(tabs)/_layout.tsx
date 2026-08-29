@@ -2,9 +2,35 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useInboxTasks } from '@/lib/task-queries';
+import { toggleAgendaMode, toggleTasksMode, useViewMode } from '@/lib/view-mode';
+
 const TINT_COLOR = '#6366f1';
 
+/**
+ * Four tabs: Agenda, Tasks, Lists, Projects.
+ *
+ * **The labels never change; the icon does.** The tab bar answers "where can I
+ * go" and the screen's own title answers "where am I" — a map whose labels move
+ * under your thumb is a worse map, and now that the header names exactly one
+ * view it is already doing that job. So the first two tabs keep one name each
+ * and swap only their glyph (star ⟷ calendar, list ⟷ tray) to show which half
+ * is showing. "Agenda" is the cover word Today and Upcoming needed; it is the
+ * only new vocabulary in the change.
+ *
+ * **Re-tapping a tab is the second half of every rule.** On the two swap tabs
+ * it swaps; on Lists and Projects it pops the stack back to the index, which
+ * React Navigation already does for a focused tab — so those two need no
+ * listener, and getting out of a resumed screen is never more than one tap.
+ */
 export default function TabLayout() {
+  const { agenda, tasks } = useViewMode();
+  // Already cached — the Inbox view reads the same query. The badge is what
+  // keeps triage visible now that the Inbox has no tab of its own, so it is
+  // withheld on the one screen that would be telling you what you are reading.
+  const { data: inbox = [] } = useInboxTasks();
+  const inboxCount = tasks === 'all' ? inbox.length : 0;
+
   return (
     <Tabs
       screenOptions={{
@@ -18,36 +44,46 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Today',
+          title: 'Agenda',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="star" size={size} color={color} />
+            <Ionicons
+              name={agenda === 'upcoming' ? 'calendar' : 'star'}
+              size={size}
+              color={color}
+            />
           ),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            if (navigation.isFocused()) toggleAgendaMode();
+          },
+        })}
       />
       <Tabs.Screen
-        name="inbox"
+        name="tasks"
         options={{
-          title: 'Inbox',
+          title: 'Tasks',
+          tabBarBadge: inboxCount > 0 ? inboxCount : undefined,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="file-tray" size={size} color={color} />
+            <Ionicons
+              name={tasks === 'inbox' ? 'file-tray' : 'list'}
+              size={size}
+              color={color}
+            />
           ),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            if (navigation.isFocused()) toggleTasksMode();
+          },
+        })}
       />
       <Tabs.Screen
-        name="upcoming"
+        name="lists"
         options={{
-          title: 'Upcoming',
+          title: 'Lists',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="all"
-        options={{
-          title: 'All',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list" size={size} color={color} />
+            <Ionicons name="cart" size={size} color={color} />
           ),
         }}
       />

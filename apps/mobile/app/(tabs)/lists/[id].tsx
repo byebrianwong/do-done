@@ -12,7 +12,12 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import type { Aisle, AisleMemory, Task } from '@do-done/shared';
 import {
   aisleOptions,
@@ -37,6 +42,7 @@ import {
 } from '@/lib/list-queries';
 import { toggleComplete, updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { saveResume } from '@/lib/tab-resume';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   ListError,
@@ -70,6 +76,14 @@ export default function ListDetailScreen() {
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
+
+  // What the Lists tab opens on next time. Written while you are looking at
+  // the list rather than when you leave it, so a kill from here still counts.
+  useFocusEffect(
+    useCallback(() => {
+      saveResume('lists', listId);
+    }, [listId])
+  );
 
   const router = useRouter();
   const [draft, setDraft] = useState('');
