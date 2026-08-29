@@ -2055,6 +2055,21 @@ pill to `neutral-600` (`neutral-500` on a `neutral-100` pill measures 4.35:1,
 under the bar for 11px text). Mobile's section header went from `#6b7280`
 (4.39:1) to `#111827`.
 
+The quiet row's date column has the same problem in a second place: the chip it
+replaced sat on its own `orange-50` fill, which lifted `orange-600` to a passing
+ratio, while the same text on the page measures 3.58:1. It is `amber-700`
+(5.03:1) now — the reason `colors.status.warning` in `packages/ui` is amber and
+not yellow.
+
+**Known and measured: muted text is marginal on a *selected* row.** Selection
+paints the row `indigo-50`, and because the metadata is now text rather than
+chips with their own fills, it composites over that: `neutral-500` measures
+4.24:1 there, `red-600` 4.27:1, `amber-700` 4.50:1. Darkening the resting
+palette to clear a transient multi-select state would make every ordinary row
+heavier to fix the rare one, so it is left as is. The aggregate still moved a
+long way the right direction — Chromatic's accessibility diff for the change
+was net −422 contrast violations.
+
 ## Attachments
 
 A task can carry files. Two halves that must stay in agreement:
