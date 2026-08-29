@@ -130,8 +130,7 @@ describe("useRowExit — deleting", () => {
     expect(result.current.kind).toBe("delete");
 
     // A deletion holds for less time than a completion does. Reading the
-    // completion's hold here would leave the row condemned for an extra beat,
-    // which is the app savouring a deletion.
+    // completion's hold here would leave the row condemned for an extra beat.
     act(() => void vi.advanceTimersByTime(TASK_DELETE_HOLD_MS - 1));
     expect(result.current.collapsing).toBe(false);
     act(() => void vi.advanceTimersByTime(1));

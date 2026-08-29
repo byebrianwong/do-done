@@ -210,7 +210,7 @@ export function ListView({
     const { title, store } = extractStoreToken(draft);
     if (!title || busy) return;
     // Cleared *before* the write, not after: the field has to be ready for the
-    // next word immediately, which is the whole point of the burst composer.
+    // next word immediately, which is what the burst composer exists for.
     setDraft("");
     setBusy(true);
     const api = await getClientTasksApi();
@@ -312,7 +312,8 @@ export function ListView({
     setItems((prev) =>
       prev.map((t) => (t.id === item.id ? { ...t, tags } : t))
     );
-    // Two writes, and the second is the point. The tag fixes *this* row; the
+    // Two writes, and the second one is why this is here. The tag fixes *this*
+    // row; the
     // lesson fixes the same words next week, after this item has been cleared
     // and purged. Picking "Automatic" un-teaches, so the lexicon takes the
     // word back rather than a stored blank having to beat it.

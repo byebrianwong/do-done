@@ -43,9 +43,9 @@ export interface RowExit {
   /** True once the row should be rendered at zero height. */
   collapsing: boolean;
   /**
-   * True from the first frame of a deletion until the row is gone — the hold
-   * included, which is the point: the hold is where the row still has its
-   * height and has to *say* it is going.
+   * True from the first frame of a deletion until the row is gone, hold
+   * included. The hold is where the row still has its height and has to show
+   * that it is going.
    */
   deleting: boolean;
   /**

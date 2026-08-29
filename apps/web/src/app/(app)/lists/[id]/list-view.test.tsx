@@ -80,7 +80,7 @@ describe("a shopping-list row", () => {
     await userEvent.click(screen.getByRole("button", { name: "Bananas" }));
 
     expect(paramId()).toBe("item-1");
-    // The whole point: reading an item must not buy it.
+    // The rule under test: reading an item must not buy it.
     expect(complete).not.toHaveBeenCalled();
   });
 

@@ -127,7 +127,7 @@ export function useTasksHeldForEditing(tasks: Task[]): Task[] {
     const out: Task[] = tasks.map((t) => held.get(t.id) ?? t);
     for (const [id, task] of held) {
       if (tasks.some((t) => t.id === id)) continue;
-      // Reading the ref here is the point of it: the answer is "where was this
+      // Reading the ref here is what it is for: the answer is "where was this
       // row the last time we committed", which is by definition not derivable
       // from this render's inputs. It only ever changes in response to one of
       // the dependencies below, so the memo stays consistent with it.

@@ -1959,7 +1959,7 @@ function NotesField({
         <textarea
           value={text}
           autoFocus={editing}
-          // The cap is the whole point: without it the browser happily accepts
+          // The cap is why this is here: without it the browser happily accepts
           // notes the `tasks_description_check` constraint rejects, and the
           // rejected description then rides along in every later autosave patch
           // — so the task stops saving *at all*, not just its notes. `maxLength`
@@ -2820,8 +2820,8 @@ function TaskEditModalBody({
   const handleDelete = useCallback(async () => {
     setDeleting(true);
     // Close before the write, not after it. The row this task has in the list
-    // behind the modal is about to start leaving, and the whole point of that
-    // animation is being seen — held until the delete resolved, the modal would
+    // behind the modal is about to start leaving, and that animation only helps
+    // if it is seen — held until the delete resolved, the modal would
     // still be covering the list for the first half of it.
     //
     // `closeNow`, not `handleClose`: the row is gone, so there is no unsaved

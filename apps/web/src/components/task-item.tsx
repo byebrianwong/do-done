@@ -185,8 +185,8 @@ const GUTTER_MARK = {
  * falls with the rank, and nothing at all for a P4.
  *
  * This replaces the four priority bars, which lit one segment for a P4 and so
- * put a mark on every row in the list — a signal that fires everywhere has
- * stopped being one, and P4 is what a task gets by never being triaged.
+ * put a mark on every row in the list. A mark that appears everywhere carries
+ * no information, and P4 is what a task gets by never being triaged.
  * Priority is *ordinal*, so it belongs in position and length rather than in
  * hue; the ring beside it spends hue on the project, which is nominal. Same
  * encoding as the mobile row, decided by the same `rowGutter` in
@@ -846,7 +846,7 @@ export function TaskItem({
     }
 
     // In a list that keeps completed tasks there is nothing to leave — the row
-    // stays put wearing its completed styling. Everywhere else it holds for a
+    // stays put, with its completed styling. Everywhere else it holds for a
     // beat and then collapses, so the rows below slide up into the gap.
     //
     // The exit starts now rather than after the write, or a slow connection

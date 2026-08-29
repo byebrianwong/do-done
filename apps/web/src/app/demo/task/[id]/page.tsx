@@ -37,7 +37,7 @@ export default function DemoTaskDetailPage({
 
   return (
     // This page IS the task, so ticking it off must not collapse the row out
-    // from under the reader — it stays, wearing its completed styling.
+    // from under the reader. It stays, with its completed styling.
     <TaskRowBehaviorProvider keepsCompleted>
       <div className="mx-auto max-w-3xl">
         <div className="mb-2 text-xs">
