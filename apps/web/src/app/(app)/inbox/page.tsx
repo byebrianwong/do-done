@@ -1,18 +1,16 @@
 import { QuickAddBar } from "@/components/quick-add-bar";
 import { TaskDisplayView } from "@/components/task-display-view";
-import {
-  getServerTasksApi,
-  getServerProjectsApi,
-} from "@/lib/supabase/tasks-server";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function InboxPage() {
-  const tasksApi = await getServerTasksApi();
-  const projectsApi = await getServerProjectsApi();
-  const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
-    tasksApi
-      ? tasksApi.list({ status: "inbox", limit: 50, offset: 0 })
-      : Promise.resolve({ data: [] }),
-    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  const { tasksApi, projectsApi } = await requireServerApis();
+  const [tasks, projects] = await Promise.all([
+    read(
+      tasksApi.list({ status: "inbox", limit: 50, offset: 0 }),
+      "your inbox"
+    ),
+    read(projectsApi.list(), "your projects"),
   ]);
 
   return (

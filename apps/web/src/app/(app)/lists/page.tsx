@@ -1,25 +1,24 @@
 import Link from "next/link";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { ProjectsApi, TasksApi } from "@do-done/api-client";
+import { ReadError, read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 import { listSubline } from "@do-done/shared";
 import { ProjectIcon } from "@/components/project-icon";
 import { NewListButton, NewListMount } from "./lists-client";
 
 export default async function ListsPage() {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { tasksApi, projectsApi } = await requireServerApis();
 
   // Two reads rather than one join: the counts come from the shopping-list
   // side of the isolation (`TasksApi.listCounts` reads only items) and the
   // lists themselves from the project side. A single query would have to
   // remember which side of that line each row falls on.
-  const [{ lists }, { data: counts }] = await Promise.all([
-    new ProjectsApi(supabase, user.id).listByKind(),
-    new TasksApi(supabase, user.id).listCounts(),
+  const [{ lists, error: listsError }, counts] = await Promise.all([
+    // `listByKind` returns { projects, lists, error }, not { data, error },
+    // so it is unwrapped by hand rather than through `read`.
+    projectsApi.listByKind(),
+    read(tasksApi.listCounts(), "your list counts"),
   ]);
+  if (listsError) throw new ReadError("your lists", listsError);
 
   return (
     <div className="mx-auto max-w-3xl">

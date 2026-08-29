@@ -1,17 +1,12 @@
 import { AllTasksView } from "@/components/all-tasks-view";
-import {
-  getServerTasksApi,
-  getServerProjectsApi,
-} from "@/lib/supabase/tasks-server";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function AllTasksPage() {
-  const tasksApi = await getServerTasksApi();
-  const projectsApi = await getServerProjectsApi();
-  const [{ data: tasks = [] }, { data: projects = [] }] = await Promise.all([
-    tasksApi
-      ? tasksApi.list({ limit: 500, offset: 0 })
-      : Promise.resolve({ data: [] }),
-    projectsApi ? projectsApi.list() : Promise.resolve({ data: [] }),
+  const { tasksApi, projectsApi } = await requireServerApis();
+  const [tasks, projects] = await Promise.all([
+    read(tasksApi.list({ limit: 500, offset: 0 }), "your tasks"),
+    read(projectsApi.list(), "your projects"),
   ]);
 
   return <AllTasksView tasks={tasks} projects={projects} />;

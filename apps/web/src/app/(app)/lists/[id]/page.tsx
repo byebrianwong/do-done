@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { AisleTermsApi, ProjectsApi, TasksApi } from "@do-done/api-client";
+import { AisleTermsApi } from "@do-done/api-client";
+import { read, readRow } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 import { isListProject } from "@do-done/shared";
 import { ProjectIcon } from "@/components/project-icon";
 import { ProjectActions } from "@/components/project-actions";
@@ -13,27 +14,20 @@ export default async function ListDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { supabase, userId, tasksApi, projectsApi } = await requireServerApis();
 
-  const projectsApi = new ProjectsApi(supabase, user.id);
-  const tasksApi = new TasksApi(supabase, user.id);
+  const [list, items, { data: memory }] = await Promise.all([
+    readRow(projectsApi.getById(id), "this list"),
+    // `listItems` is the deliberate opt-in — the one read on this surface
+    // that asks for the rows every other read in the app filters out.
+    read(tasksApi.listItems(id), "this list's items"),
+    // Never fails loudly, so deliberately not a `read`: a memory that doesn't
+    // load degrades to the lexicon's guess, which is a good answer.
+    new AisleTermsApi(supabase, userId).load(),
+  ]);
 
-  const [{ data: list, error }, { data: items }, { data: memory }] =
-    await Promise.all([
-      projectsApi.getById(id),
-      // `listItems` is the deliberate opt-in — the one read on this surface
-      // that asks for the rows every other read in the app filters out.
-      tasksApi.listItems(id),
-      // Never fails loudly: a memory that doesn't load degrades to the
-      // lexicon's guess, which is a good answer.
-      new AisleTermsApi(supabase, user.id).load(),
-    ]);
-
-  if (error || !list) notFound();
+  // Only a genuinely absent row is a 404 — a failed read has already thrown.
+  if (!list) notFound();
 
   // A project reached through /lists is a wrong URL rather than a missing one,
   // so it redirects instead of 404ing. This is reachable in practice: converting

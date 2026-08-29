@@ -24,6 +24,13 @@ export default defineConfig({
         replacement: resolve(__dirname, ".storybook/supabase-client.mock.ts"),
       },
       { find: /^@\//, replacement: resolve(__dirname, "src") + "/" },
+      // `server-only` is Next's build-time guard with no runtime behaviour,
+      // and it is not a dependency of this app, so Vite cannot resolve it.
+      // Stub it so a server module's pure logic stays testable.
+      {
+        find: /^server-only$/,
+        replacement: resolve(__dirname, "vitest.server-only.stub.ts"),
+      },
     ],
   },
   test: {

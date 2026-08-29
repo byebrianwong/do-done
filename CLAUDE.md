@@ -861,6 +861,49 @@ almost invisible. It is now one keyframe set whose first quarter is the fade-in.
 `app-shell.test.tsx` mocks `next/link`, so that mock must export `useLinkStatus`
 or every test in the file dies on the nav rows.
 
+## A failed read is not an empty account (web)
+
+**Every server page under `(app)` must tell "the read failed" apart from
+"there is nothing here."** They used to be the same thing on screen.
+
+`TasksApi` and `ProjectsApi` return `{ data, error }` and set `data` to `[]`
+when a read fails. So a page that destructured `data` and dropped `error`
+rendered an outage as an empty list, under its own empty-state copy: "No tasks
+in your inbox." The detail pages were worse — `if (error || !task) notFound()`
+told the user a task did not exist because a read had 401'd, on a link they had
+just been handed.
+
+This shipped, and a Supabase incident then rejected every authenticated read
+with `PGRST303 JWT issued at future`. The app reported a full account as empty
+for hours, and it looked exactly like data loss.
+
+- **`lib/read-result.ts` is the seam.** `read()` throws `ReadError` when a list
+  read fails. `readRow()` is for `getById`, and returns `null` only when the
+  row is genuinely absent.
+- **`readRow` exists because `.single()` reports "no rows" as an error**
+  (`PGRST116`, HTTP 406). Routing that through `read()` would turn every real
+  404 into "couldn't load". Only that one code means absent; anything else,
+  including an error with no code at all, is a failure.
+- **The fix is in the web helper, not in the shared API.** Switching `getById`
+  to `.maybeSingle()` would read better, but mobile's `task-queries.ts` and
+  `list-queries.ts` branch on that `error`, and MCP reads it too.
+- **`app/(app)/error.tsx` is the boundary**, so the shell and sidebar survive
+  and the user can navigate away. Its copy says the data is still there,
+  because the whole failure was that an outage read as deletion.
+- **It takes `unstable_retry`, not `reset`.** This is Next 16. `reset` only
+  re-renders what the boundary already has; `unstable_retry` re-fetches, which
+  is the only useful thing to do when the fetch is what failed.
+- **`requireServerApis()` redirects when there is no session** rather than
+  handing back a null API. A signed-out visitor used to get the same empty
+  lists a failed read did.
+- **Calendar events are deliberately exempt.** `getDisplayEvents` is
+  best-effort and returns `[]` — events are decoration on a page whose
+  substance is the tasks, and a Google outage should not blank the list.
+- **The boundary does not cover `(app)/layout.tsx`.** Next's error file does
+  not wrap the layout in its own segment, so a failed read there still empties
+  the sidebar's project list quietly. That needs `global-error.js`.
+
+
 ## Cold start (mobile)
 
 **"Nothing scheduled today" is an answer, and the app must not give it before it

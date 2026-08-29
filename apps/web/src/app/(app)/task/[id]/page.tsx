@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TaskItem } from "@/components/task-item";
 import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { ProjectsApi, TasksApi } from "@do-done/api-client";
+import { read, readRow } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function TaskDetailPage({
   params,
@@ -11,25 +11,18 @@ export default async function TaskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { tasksApi, projectsApi } = await requireServerApis();
 
-  const projectsApi = new ProjectsApi(supabase, user.id);
-  const tasksApi = new TasksApi(supabase, user.id);
+  const [task, subtasks, projects] = await Promise.all([
+    readRow(tasksApi.getById(id), "this task"),
+    read(tasksApi.listSubtasks(id), "this task's subtasks"),
+    read(projectsApi.list(), "your projects"),
+  ]);
 
-  const [{ data: task, error }, { data: subtasks }, { data: projects }] =
-    await Promise.all([
-      tasksApi.getById(id),
-      tasksApi.listSubtasks(id),
-      projectsApi.list(),
-    ]);
-
-  if (error || !task) {
-    notFound();
-  }
+  // Only a genuinely absent row is a 404. A read that *failed* has already
+  // thrown, because `error || !task` here told someone their task did not
+  // exist on the strength of a 401 — a link they had just been handed.
+  if (!task) notFound();
 
   return (
     // This page IS the task, so ticking it off must not collapse the row out

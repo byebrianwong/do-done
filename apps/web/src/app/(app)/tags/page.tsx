@@ -1,11 +1,10 @@
 import { TagsIndex } from "@/components/tags-index";
-import { getServerTasksApi } from "@/lib/supabase/tasks-server";
+import { read } from "@/lib/read-result";
+import { requireServerApis } from "@/lib/supabase/tasks-server";
 
 export default async function TagsPage() {
-  const tasksApi = await getServerTasksApi();
-  const { data: tags = [] } = tasksApi
-    ? await tasksApi.listTags()
-    : { data: [] };
+  const { tasksApi } = await requireServerApis();
+  const tags = await read(tasksApi.listTags(), "your tags");
 
   return <TagsIndex tags={tags} />;
 }
