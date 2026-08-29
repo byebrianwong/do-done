@@ -18,9 +18,9 @@ import type { Task } from "./schemas.js";
  * language, which is a much smaller and much more stable problem. This is the
  * one place in DoDone where shipping a lexicon beats learning from history.
  *
- * The corollary is the honest limit: it knows groceries, in English. Everything
- * it does not recognise is uncategorised, which is a first-class state and not
- * a failure — see `groupByAisle`.
+ * The limit follows from that: it knows groceries, in English. Everything it
+ * does not recognise is uncategorised, which is a first-class state and not a
+ * failure — see `groupByAisle`.
  */
 
 // ── Aisles ─────────────────────────────────────────────
@@ -29,8 +29,8 @@ import type { Task } from "./schemas.js";
  * The aisles, in the order a supermarket is usually walked: fresh round the
  * outside first, then the dry middle, then the non-food tail.
  *
- * This order is the whole point of grouping — a list sorted this way is a route
- * rather than an inventory. It is deliberately *one* order rather than a
+ * This order is what makes the grouping useful: a list sorted this way is a
+ * route rather than an inventory. It is deliberately *one* order rather than a
  * per-store one: every supermarket differs, but they differ around this shape,
  * and a wrong-but-consistent order still beats no order at all. Per-store
  * ordering is a real follow-up and a separate decision.

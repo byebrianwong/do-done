@@ -89,7 +89,7 @@ const TEXT_EXTENSIONS = new Set([
 /**
  * Extensions that play as audio.
  *
- * `wav` earns its place at the front: it's what the speech recogniser persists
+ * `wav` is first because it is what the speech recogniser persists
  * on both platforms, so every voice note in the app arrives as one — and both
  * Android's document picker and iOS hand a .wav over as
  * `application/octet-stream` often enough that the MIME fallback alone would
