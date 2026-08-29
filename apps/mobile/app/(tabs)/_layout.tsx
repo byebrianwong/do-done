@@ -25,9 +25,12 @@ const TINT_COLOR = '#6366f1';
  */
 export default function TabLayout() {
   const { agenda, tasks } = useViewMode();
-  // Already cached — the Inbox view reads the same query. The badge is what
-  // keeps triage visible now that the Inbox has no tab of its own, so it is
-  // withheld on the one screen that would be telling you what you are reading.
+  // Already cached — the Inbox view reads the same query, and the persisted
+  // cache means the badge is right on the first frame of a warm start. It is
+  // what keeps triage visible now that the Inbox has no tab of its own, so it
+  // is withheld on the one screen that would be telling you what you are
+  // reading. `useInboxTasks` fetches a page of 50, so this is "50" rather than
+  // an exact count past that — a nudge, not an audit.
   const { data: inbox = [] } = useInboxTasks();
   const inboxCount = tasks === 'all' ? inbox.length : 0;
 
