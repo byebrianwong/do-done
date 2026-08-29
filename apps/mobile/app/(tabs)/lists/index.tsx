@@ -14,6 +14,7 @@ import type { Project } from '@do-done/shared';
 import { listSubline } from '@do-done/shared';
 
 import { useLists, useListCounts } from '@/lib/list-queries';
+import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
@@ -40,6 +41,9 @@ export default function ListsScreen() {
   const loadState = useListLoadState(listsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+  // Not a `SectionedDraggableList`, so it drives the minimizing tab bar and
+  // reserves its height itself.
+  const tabBar = useTabBarScrollSync();
   const [showCreate, setShowCreate] = useState(false);
   const [remembered, setRemembered] = useState<string | null | undefined>(
     undefined
@@ -166,7 +170,20 @@ export default function ListsScreen() {
             </View>
           )
         }
-        contentContainerStyle={styles.listContent}
+        // The bar floats over the screen, so the last list has to be able to
+        // scroll clear of it. See `useTabBarScrollSync`.
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: 40 + tabBar.contentInset },
+        ]}
+        onScroll={(e) =>
+          tabBar.onScrollOffsetChange?.(e.nativeEvent.contentOffset.y)
+        }
+        onContentSizeChange={tabBar.onContentSizeChange}
+        onLayout={tabBar.onListLayout}
+        onScrollBeginDrag={() => tabBar.setDragging(true)}
+        onScrollEndDrag={() => tabBar.setDragging(false)}
+        scrollEventThrottle={16}
       />
 
       <ProjectFormSheet

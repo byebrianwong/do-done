@@ -20,6 +20,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import {
   hasResumeTried,
   loadResume,
@@ -38,6 +39,9 @@ export default function ProjectsScreen() {
   const loadState = useListLoadState(projectsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+  // This is the one tab that doesn't go through `SectionedDraggableList`, so
+  // it drives the minimizing tab bar itself.
+  const tabBar = useTabBarScrollSync();
 
   // Local copy so a drag reorders instantly; re-seeded whenever the server list
   // changes (a create, a reconcile after reorder, another device's edit).
@@ -109,6 +113,7 @@ export default function ProjectsScreen() {
   }, [sig]);
 
   const handleDragEnd = ({ data }: { data: ProjectRow[] }) => {
+    tabBar.setDragging(false);
     setOrdered(data); // optimistic
     reorderProjects(data.map((p) => p.id)).catch(() => {
       setOrdered(workProjects); // rollback to server truth
@@ -188,6 +193,10 @@ export default function ProjectsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         onDragEnd={handleDragEnd}
+        onDragBegin={() => tabBar.setDragging(true)}
+        onScrollOffsetChange={tabBar.onScrollOffsetChange}
+        onContentSizeChange={tabBar.onContentSizeChange}
+        onLayout={tabBar.onListLayout}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -209,7 +218,12 @@ export default function ProjectsScreen() {
             </View>
           )
         }
-        contentContainerStyle={styles.listContent}
+        // The bar floats over the screen, so the last project has to be able
+        // to scroll clear of it. See `useTabBarScrollSync`.
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: 40 + tabBar.contentInset },
+        ]}
       />
 
       <ProjectFormSheet
@@ -244,7 +258,8 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingTop: 8,
-    paddingBottom: 40,
+    // Bottom padding is applied at the call site, where the floating tab bar's
+    // height is known.
     flexGrow: 1,
   },
   projectRow: {

@@ -1,5 +1,7 @@
 import type { Project, Task } from "./schemas.js";
 import { isListProject } from "./schemas.js";
+import { shortDayLabel } from "./task-row.js";
+import { formatRelativeDay, formatTimeOfDay, isOverdue } from "./utils.js";
 
 /**
  * Shopping lists: the decisions, as pure functions.
@@ -92,6 +94,92 @@ export function storesOnList(items: Pick<Task, "tags">[]): string[] {
     .map(([name]) => name);
 }
 
+// ── Typing a store ─────────────────────────────────
+
+/**
+ * Matches a store token: `@` followed by the rest of the line.
+ *
+ * `@` is used rather than `#` because `#` already means "project first, tag
+ * otherwise". A shopping list is a project, so `milk #groceries` files an item.
+ * Reusing `#` would make `#target` ambiguous once someone names a project
+ * Target. `@` also reads correctly out loud: milk at Trader Joe's.
+ *
+ * The token runs to the end of the line so a store name can contain spaces.
+ * Real ones usually do: "Trader Joe's", "Whole Foods", "the corner shop". A
+ * `\S+` token would split those into a store called "Trader" and a title
+ * ending in "Joe's". The rule is simply: the store goes last.
+ *
+ * The `@` must start the line or follow a space, so an email address in an
+ * item name is not treated as a store. A trailing `@` with nothing after it
+ * matches nothing, which is the correct reading of a half-typed token.
+ *
+ * This is not wired into `parseTaskInput`. That parser reads every task title
+ * in the app, where `@` usually means a person, so a global rule would file
+ * "@sam" as a shop. Only the list composers parse store tokens.
+ */
+const STORE_TOKEN = /(^|\s)@(\S.*)$/;
+
+export interface StoreToken {
+  /** The item name, with the token taken out. */
+  title: string;
+  /** The store named, or null when the text names none. */
+  store: string | null;
+}
+
+export function extractStoreToken(text: string): StoreToken {
+  const match = STORE_TOKEN.exec(text);
+  if (!match) return { title: text.trim(), store: null };
+  const store = match[2].trim();
+  const title = text.slice(0, match.index).trim();
+  return { title, store: store || null };
+}
+
+/**
+ * Returns the store token being typed right now, for autocomplete.
+ *
+ * This differs from `extractStoreToken`, which reports what the user meant.
+ * This reports what they are part-way through. A bare "@" returns an empty
+ * query, so every store matches and the full list opens on the keypress. The
+ * extractor reads the same input as naming no store, which is also correct.
+ */
+export function typingStoreToken(text: string): string | null {
+  const match = /(^|\s)@(.*)$/.exec(text);
+  return match ? match[2] : null;
+}
+
+/** Replace the token being typed with a chosen store, ready to commit. */
+export function applyStoreToken(text: string, store: string): string {
+  const match = /(^|\s)@(.*)$/.exec(text);
+  const head = match ? text.slice(0, match.index).trim() : text.trim();
+  return head ? `${head} @${store}` : `@${store}`;
+}
+
+/**
+ * Returns known stores matching the query, best match first.
+ *
+ * Prefix matches come first, since that is what the typist is steering toward.
+ * Substring matches still appear, so "joe" finds "Trader Joe's". Matching uses
+ * `normalizeStore`, the same key `sameStore` uses, so punctuation and spacing
+ * never decide whether a suggestion shows.
+ */
+export function storeSuggestions(
+  known: string[],
+  query: string,
+  limit = 5
+): string[] {
+  const q = normalizeStore(query);
+  if (!q) return known.slice(0, limit);
+  const prefix: string[] = [];
+  const contains: string[] = [];
+  for (const name of known) {
+    const key = normalizeStore(name);
+    if (key.startsWith(q)) prefix.push(name);
+    else if (key.includes(q)) contains.push(name);
+  }
+  return [...prefix, ...contains].slice(0, limit);
+}
+
+
 // ── Standing in a shop ─────────────────────────────────
 
 export interface ShopOrder<T> {
@@ -159,6 +247,84 @@ export function sameStore(a: string, b: string): boolean {
 export function normalizeStore(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
+// ── The item row ───────────────────────────────────
+
+/**
+ * Builds the muted line under an item's name, e.g. "Trader Joe's · Sat Aug 30".
+ *
+ * An unset field adds nothing to the line: no placeholder, no empty chip, no
+ * reserved space. Most items have a name and nothing else, so most rows are a
+ * single word. This matches how `rowSubline` treats a task.
+ *
+ * This does not call `rowSubline`, because a shopping item and a task need
+ * different facts. An item has no project worth naming (it is the list you are
+ * looking at), no status worth naming (the tick says it), and no recurrence. It
+ * does have a store, which a task row has nowhere to show. The only shared part
+ * is the date, which is one call to `shortDayLabel`.
+ *
+ * The caller joins the parts with a middot, same as `rowSubline`.
+ */
+export interface ItemSublineContext {
+  now?: Date;
+  /**
+   * Leave the store out — for a list already grouped by store, where the
+   * header above the row has just named it. The store-shaped twin of
+   * `rowSubline`'s `projectName: null`.
+   */
+  hideStore?: boolean;
+}
+
+export function itemSubline(item: Task, ctx: ItemSublineContext = {}): string[] {
+  const now = ctx.now ?? new Date();
+  const parts: string[] = [];
+
+  if (!ctx.hideStore) {
+    const store = storeHint(item);
+    if (store) parts.push(store);
+  }
+
+  // A bought item stops here. Its date is no longer actionable once it is in
+  // the cart, so printing it would just label the cart with stale days.
+  if (isGot(item)) return parts;
+
+  const when = schedulePart(item, now);
+  if (when) parts.push(when);
+  if (item.deadline_date) {
+    const label = shortDayLabel(item.deadline_date, now);
+    if (label) parts.push(`Deadline ${label}`);
+  }
+
+  return parts;
+}
+
+/**
+ * Formats the scheduled day, or the item's age once it is overdue.
+ *
+ * Overdue items print "3 days ago" rather than a date, same as the task row.
+ * That is the actionable form: it tells you this is something you keep
+ * forgetting, not just something dated.
+ *
+ * There is no `hideScheduledDay` option. A shopping list groups by aisle, and
+ * an aisle header never names a day, so nothing would ever pass it.
+ */
+function schedulePart(item: Task, now: Date): string {
+  const date = item.scheduled_date;
+  const time = item.scheduled_time ? formatTimeOfDay(item.scheduled_time) : "";
+  if (!date) return time;
+
+  if (isOverdue(item, now)) {
+    const age = formatRelativeDay(date, now);
+    const phrase = age
+      ? age.charAt(0).toUpperCase() + age.slice(1)
+      : shortDayLabel(date, now);
+    return time ? `${phrase}, ${time}` : phrase;
+  }
+
+  const day = shortDayLabel(date, now);
+  return time ? `${day} ${time}` : day;
+}
+
 
 // ── Summarising a list ─────────────────────────────────
 

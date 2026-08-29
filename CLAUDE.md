@@ -1158,6 +1158,127 @@ bulk action stayed dead for the rest of the session.
   exactly like one that worked. `lib/task-cache-shape.test.ts` is the
   regression, and it asserts the *write went out*, not just the settled cache.
 
+## The tab bar minimizes as you scroll (mobile)
+
+Scrolling down a list shrinks the bottom tab bar: the labels fade, the icons
+scale to 80%, and the row goes from 50pt to 30pt. Scrolling up restores it. All
+four tabs stay in place and stay tappable the whole time.
+
+**A hand-written bar has to draw everything the default one did.**
+`tabBarBadge` is the one that bit: the Tasks tab's inbox count is set in
+`app/(tabs)/_layout.tsx` and would simply never have appeared. It renders
+inside the scaling wrapper, so it shrinks with the icon rather than floating
+free of it as the bar minimizes.
+
+**It minimizes, it does not hide.** Hiding chrome is the pattern for reading
+surfaces, where the session is long and the content is the point. A task list is
+scan-and-act: you scroll to find a row, tick it or open it, and switching views
+is often the next thing you do. A switcher you have to scroll back up to reach
+has been taken away rather than tidied.
+
+The gain is 20pt of list, which is about a third of a task row. The bar also
+sheds five labels and 40% of its height, and that visual weight is most of why
+the change reads as roomier than 20pt sounds.
+
+**The safe-area inset is never interpolated.** Shaving it too would roughly
+double the gain, and it is what iOS 26's own minimized tab bar does, but it puts
+the icons' bottom edge within a few points of the home indicator's gesture zone,
+where the system eats the first upward swipe.
+
+### Where the pieces live
+
+| File | What |
+| --- | --- |
+| `lib/tab-bar-motion.ts` | The policy: thresholds, the state machine, the interpolations. Pure, node-tested. |
+| `lib/tab-bar-minimize.tsx` | The provider holding the one shared value, plus `useTabBarScrollSync` for lists. |
+| `components/MinimizingTabBar.tsx` | The bar. Passed to `<Tabs tabBar={...}>` in `app/(tabs)/_layout.tsx`. |
+
+`progress` is a single Reanimated shared value, 0 expanded to 1 minimized. The
+bar's height, its labels' opacity, its icons' scale and the add button's resting
+place are all derived from it on the UI thread. Two separate animations could
+only agree at the ends, which on a scroll-driven change is most of the time they
+are visible.
+
+### The bar floats, and lists must pay for that
+
+`BottomTabView` lays its tab bar out as a flex sibling of the screens. A bar with
+an animating height in that flow would resize the screen, and therefore
+re-measure the `FlatList` inside it, on every frame of a scroll. So the bar is
+`position: absolute` and out of flow entirely.
+
+Two consequences:
+
+- **Every list on a tab needs extra bottom padding** — the expanded bar's
+  height — so its last row can scroll clear of the bar. That is
+  `useTabBarScrollSync().contentInset`, added to whatever padding the screen
+  already asked for. It is constant, never the animated height: a padding that
+  tracked the sweep would re-measure the list every frame, which is the thing
+  the floating bar exists to avoid.
+- **The add button rests above the expanded bar and translates down** by exactly
+  what the bar sheds, off the same shared value. A transform, not an animated
+  `bottom`, so the sweep costs no layout. Off a tab there is no provider, the
+  progress stays 0, and it sits in the corner it always did.
+
+### Rules in the state machine
+
+`nextMinimizeState` runs once per scroll frame on the JS thread and returns its
+own argument on all but two frames of a scroll. The shared value is written only
+on an actual flip, so the spring starts once per direction change.
+
+- **Hysteresis, or the bar flickers.** A momentum scroll changes direction
+  constantly. Minimizing needs 24pt of downward travel from the last turning
+  point; expanding needs 12pt upward. `anchor` is that turning point, not the
+  last offset — a reversal has to be measured from where the finger changed its
+  mind.
+- **Expanding is deliberately half the threshold of minimizing.** The failure
+  modes are not symmetrical. A bar that minimized too eagerly costs a glance; a
+  bar that will not come back is the user pulling at their own navigation and
+  being told no.
+- **Neither rubber band is a gesture.** The top one is easy — it reads as a
+  negative offset. The bottom one is not: flick to the end of a list and it
+  overshoots ten or fifteen points and settles back, which arrives as a clean run
+  of *decreasing* offsets sitting right on the 12pt expand threshold. Reaching
+  the bottom of a list popped the bar open about half the time. `clampToScrollRange`
+  needs the list's scroll range, which is why the lists also report
+  `onContentSizeChange` and `onLayout`. That range is tracked **per list**, not in
+  the provider: all five tab screens are mounted at once and each has its own.
+- **`canMinimize` is a one-way veto.** It can keep the bar out, never trap it in.
+  Its callers are things that can get stuck — a drag whose end never fires, an
+  accessibility flag read asynchronously at launch — so a stuck veto leaves the
+  bar permanently expanded, which is the app as it was before this existed.
+- **A drag freezes it.** Dragging a row near the bottom auto-scrolls the list,
+  and that is the library moving it, not the user.
+- **A tab change resets it**, state and anchor both. The list you arrive at has
+  its own offset.
+
+### Accessibility
+
+- **Reduce Motion turns it off rather than making it instant.** Elsewhere in the
+  app that setting lands on the end state, because the end state is the thing
+  that happened — a task really is done and its row really is gone. Nothing
+  happened here. The minimize *is* the decoration, so the honest reading is to
+  leave the bar alone rather than jump-cut it between two sizes on every flick.
+- **A screen reader turns it off too.** VoiceOver and TalkBack scroll the list
+  themselves, so the bar would resize under an exploring finger.
+- **Labels are still announced when they are invisible.** `accessibilityLabel`
+  carries them, so nothing a screen reader needs rides on the label's opacity.
+- **A minimized 30pt row is under every platform's touch minimum**, so each tab's
+  `hitSlop` reaches down into the safe-area inset (dead space) and 10pt up into
+  the list, which reserves far more than that in padding.
+
+The bar is hand-written rather than a wrapper around `BottomTabBar` because that
+component takes its height from `tabBarStyle`, a plain style prop on an RN
+`Animated.View`, with nowhere to put a Reanimated value. Press handling is copied
+from the default: emit `tabPress`, navigate only if nothing prevented it and the
+tab isn't already focused. `@react-navigation/bottom-tabs` is now a direct
+dependency of `apps/mobile` for that component's prop types; it resolves to the
+same copy expo-router already uses.
+
+**This is pure JS and ships over OTA.** No new native module, no config plugin.
+Verified on the iOS simulator; the Android half is the same code with no
+platform branches except the press ripple, and Android's stretch overscroll
+doesn't move `contentOffset` at all, so the bounce rule is inert there.
+
 ## The task editor sheet (mobile)
 
 **Everything under the finger runs on the UI thread.** The sheet's rise, its
