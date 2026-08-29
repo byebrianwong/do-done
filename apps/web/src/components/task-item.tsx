@@ -645,7 +645,7 @@ function ContextMenuPositioner({
   return (
     <div
       ref={ref}
-      className="absolute max-h-[calc(100vh-16px)] overflow-y-auto"
+      className="absolute max-h-[calc(100vh-16px)] dd-scroll overflow-y-auto"
       style={{
         top: pos?.top ?? anchor.y,
         left: pos?.left ?? anchor.x,

@@ -119,7 +119,7 @@ export function PetPanelContainer({
   return (
     <div
       className={
-        "hidden self-start sticky top-0 h-dvh overflow-y-auto xl:block " +
+        "hidden self-start sticky top-0 h-dvh dd-scroll overflow-y-auto xl:block " +
         (className ?? "")
       }
       style={{ width: 320 }}

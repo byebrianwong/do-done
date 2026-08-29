@@ -223,7 +223,7 @@ export function BulkActionBar({ projects = [] }: { projects?: Project[] }) {
           open={menu === "move"}
           onOpenChange={(o) => setMenu(o ? "move" : null)}
         >
-          <div className="max-h-56 space-y-0.5 overflow-y-auto p-1">
+          <div className="max-h-56 space-y-0.5 dd-scroll overflow-y-auto p-1">
             <button
               type="button"
               role="menuitem"

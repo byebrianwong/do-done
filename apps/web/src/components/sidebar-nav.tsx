@@ -233,7 +233,7 @@ export function SidebarNav({
   const base = isDemoPath(pathname) ? DEMO_BASE : "";
 
   return (
-    <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pt-2 pb-4">
+    <nav className="flex-1 space-y-0.5 dd-scroll overflow-y-auto px-3 pt-2 pb-4">
       <button
         type="button"
         onClick={() => openQuickAdd()}

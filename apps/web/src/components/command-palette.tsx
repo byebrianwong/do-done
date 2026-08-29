@@ -360,7 +360,7 @@ export function CommandPalette({ projects }: { projects: Project[] }) {
           </kbd>
         </div>
 
-        <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-1">
+        <div ref={listRef} className="max-h-[50vh] dd-scroll overflow-y-auto p-1">
           {searching && (
             <div className="px-3 py-3 text-xs text-neutral-400">Searching...</div>
           )}

@@ -623,3 +623,31 @@ body {
   /* And the tick would sit un-drawn; show the completed state instead. */
   .dd-tick-fill { transform: scale(1); }
 }
+
+/*
+ * Scrollbars inside popovers, menus and inline panels.
+ *
+ * A scroll container that says nothing about its scrollbar gets the platform
+ * default. On a dark popover that default is a light track with a near-white
+ * thumb — a bright bar down the side of a dark menu, wider than the project
+ * dots next to it, and painted over the panel's own rounded corner because the
+ * track is a full-height opaque rectangle.
+ *
+ * A transparent track removes both problems: nothing is left to square off the
+ * corner, and the bar only appears where the thumb is. `thin` brings its weight
+ * closer to the text beside it. The thumb colours are neutral-300 and
+ * neutral-700 — one step in from each theme's panel border.
+ *
+ * This is one class rather than a repeated utility string because it was
+ * already copied inline in two places and missing everywhere else.
+ */
+.dd-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(212 212 212) transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  .dd-scroll {
+    scrollbar-color: rgb(64 64 64) transparent;
+  }
+}

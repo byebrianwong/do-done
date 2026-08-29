@@ -311,10 +311,10 @@ export function CalendarSection({
                 </span>
               </div>
 
-              {/* color-scheme so the scrollbar track follows the theme —
-                  the default light track cuts a white stripe down the dark
-                  list. */}
-              <div className="mt-1.5 max-h-64 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-800 dark:[color-scheme:dark]">
+              {/* dd-scroll draws the scrollbar; color-scheme stays because the
+                  rows hold native checkboxes, which the UA renders light
+                  without it. */}
+              <div className="mt-1.5 max-h-64 dd-scroll overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-800 dark:[color-scheme:dark]">
                 {calendars.map((c) => {
                   const checked = visibleIds.has(c.id);
                   // At the limit, the only useful click is unticking — leave
