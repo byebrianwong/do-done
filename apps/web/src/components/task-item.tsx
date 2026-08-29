@@ -445,8 +445,11 @@ function taskDateTextColor(dateStr: string): string {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   if (date < today) return "text-red-600 dark:text-red-400";
+  // amber-700, not the orange-600 the chip uses. The chip sits on an orange-50
+  // fill that lifts it; this text sits on the page, where orange-600 measures
+  // 3.6:1. Same reason `colors.status.warning` in packages/ui is amber.
   if (date.getTime() === today.getTime())
-    return "text-orange-600 dark:text-orange-400";
+    return "text-amber-700 dark:text-amber-400";
   return "text-neutral-500 dark:text-neutral-400";
 }
 

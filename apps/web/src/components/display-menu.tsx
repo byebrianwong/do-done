@@ -161,7 +161,7 @@ export function DisplayMenu({
               ) : null}
             </div>
             {!isManualSort(config) ? (
-              <p className="mt-1.5 text-[11px] text-neutral-400">
+              <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                 Drag a task to switch to manual order.
               </p>
             ) : null}
@@ -198,7 +198,7 @@ export function DisplayMenu({
                 </Pill>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] text-neutral-400">
+            <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
               {config.rowStyle === "quiet"
                 ? "Details on one line. Colour is the project ring and the urgency mark."
                 : "Each detail its own chip, and each chip an editor."}
