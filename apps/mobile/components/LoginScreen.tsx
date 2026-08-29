@@ -1,3 +1,31 @@
+/**
+ * The signed-out screen. Deliberately **not** a route.
+ *
+ * It used to live at `app/(auth)/login.tsx`, reached by a `router.replace`
+ * from the root layout once `getSession()` came back empty. That navigation is
+ * what broke Android autofill: 1Password and Google's keyboard offered nothing
+ * on either field, and the OS reported "Content can't be autofilled".
+ *
+ * Android builds its autofill view structure per activity, and a native-stack
+ * navigation swaps the activity's content without telling `AutofillManager`
+ * about it — the documented remedy is `AutofillManager.cancel()`, which
+ * neither React Navigation nor react-native-screens calls and which no JS API
+ * exposes. So the session stays pinned to the screen we navigated *away* from,
+ * and the fields we navigated *to* are invisible to it. The tell is that
+ * backgrounding the app and returning fixes it for that launch, because
+ * resuming the activity is the other thing that rebuilds the structure. It is
+ * open upstream on both sides (react-native-screens#349 / #3130,
+ * react-navigation#12210 / #12717) with no fix and no JS-level workaround.
+ *
+ * Hence: being signed out is a *state* of the app, not a destination inside
+ * it. `app/_layout.tsx` renders this in place of the navigator, so the fields
+ * are children of the activity's root view from the first frame and nothing
+ * navigates to reach them. It also drops the flash of the tab bar that the
+ * redirect used to show on a signed-out launch.
+ *
+ * **Keep it out of `app/`.** A file under there is a route whether or not
+ * anything links to it, and a route is arrived at by navigating.
+ */
 import React, { useRef, useState } from 'react';
 import {
   View,
@@ -11,7 +39,7 @@ import {
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 
-export default function LoginScreen() {
+export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');

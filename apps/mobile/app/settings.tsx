@@ -327,7 +327,15 @@ export default function SettingsScreen() {
           styles.signoutButton,
           pressed && styles.signoutButtonPressed,
         ]}
-        onPress={() => supabase.auth.signOut()}
+        // Back to the tab root *before* signing out. Being signed out
+        // unmounts the whole navigator (see app/_layout.tsx), and whatever
+        // route was last on screen is where it remounts on the next sign-in —
+        // which would otherwise drop the next person straight into this
+        // screen.
+        onPress={() => {
+          router.replace('/(tabs)');
+          void supabase.auth.signOut();
+        }}
       >
         <Text style={styles.signoutText}>Sign out</Text>
       </Pressable>
