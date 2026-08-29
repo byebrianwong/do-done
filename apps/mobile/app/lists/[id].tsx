@@ -22,8 +22,16 @@ import {
   itemSubline,
   listSubline,
   openItems,
+  storeHint,
+  storeSuggestions,
+  storeTag,
+  storesOnList,
   summarizeList,
+  typingStoreToken,
+  applyStoreToken,
+  extractStoreToken,
   withAisle,
+  withStoreHint,
 } from '@do-done/shared';
 
 import {
@@ -86,21 +94,38 @@ export default function ListDetailScreen() {
   const open = useMemo(() => openItems(items), [items]);
   const got = useMemo(() => gotItems(items), [items]);
   const summary = useMemo(() => summarizeList(items), [items]);
+  // Every store already named on this list, most-used first. Bought items
+  // count too: the cart holds last week's stores, and dropping them on a tick
+  // would empty the suggestions when they are most useful.
+  const stores = useMemo(() => storesOnList(items), [items]);
+  // What the composer is typing after an `@`, or null if no token is open. An
+  // empty string is a real answer: a bare `@` opens the full list.
+  const storeQuery = typingStoreToken(draft);
+  const storeMatches = useMemo(
+    () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
+    [stores, storeQuery]
+  );
 
   const submit = useCallback(async () => {
-    const title = draft.trim();
+    // `@` names a store, the way `#` names a project. See `extractStoreToken`
+    // for why only the list composers parse it, not `parseTaskInput`.
+    const { title, store } = extractStoreToken(draft);
     if (!title) return;
     // Cleared before the write, never after: the field has to be ready for the
     // next word on the same frame, which is the whole point of a burst
     // composer. `blurOnSubmit={false}` keeps the keyboard up with it.
     setDraft('');
     try {
-      await addListItem(listId, { title });
+      await addListItem(listId, {
+        title,
+        ...(store ? { tags: [storeTag(store)] } : {}),
+      });
       setAdded((n) => n + 1);
       hapticLight();
     } catch {
-      // Give back what they typed rather than losing it to a dropped network.
-      setDraft(title);
+      // Restore what they typed, `@store` included. Restoring the parsed title
+      // would silently drop the store when the network fails.
+      setDraft(store ? `${title} @${store}` : title);
       toast.show({ message: "Couldn't add that — try again" });
     }
   }, [draft, listId, toast]);
@@ -164,6 +189,27 @@ export default function ListDetailScreen() {
     [listId, toast]
   );
 
+  /**
+   * Sets or clears an item's store.
+   *
+   * One write, unlike an aisle correction, which is two. There is no lesson to
+   * record: a store describes this purchase, not the words. Buying batteries at
+   * Target once does not mean batteries always come from Target, whereas
+   * "bananas are produce" is a fact about the language and worth remembering.
+   */
+  const writeStore = useCallback(
+    async (item: Task, store: string | null) => {
+      setPicking(null);
+      try {
+        await updateTask(item.id, { tags: withStoreHint(item.tags, store) });
+        invalidateLists(listId);
+      } catch {
+        toast.show({ message: "Couldn't change the store" });
+      }
+    },
+    [listId, toast]
+  );
+
   return (
     <View style={styles.container}>
       <Stack.Screen
@@ -218,6 +264,41 @@ export default function ListDetailScreen() {
         {added > 0 && <Text style={styles.added}>{added} added</Text>}
       </View>
 
+      {/*
+        The stores already on this list, offered while an `@` token is open.
+
+        A horizontal strip rather than a dropdown, so it sits directly under the
+        field and above the keyboard, where the thumb already is. It pushes
+        nothing else around, since the row only exists while a token is open.
+      */}
+      {storeMatches.length > 0 && (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="always"
+          showsHorizontalScrollIndicator={false}
+          style={styles.storeStrip}
+          contentContainerStyle={styles.storeStripInner}
+        >
+          {storeMatches.map((name) => (
+            <Pressable
+              key={name}
+              onPress={() => {
+                setDraft(applyStoreToken(draft, name));
+                // The field must keep focus — this is a burst composer and the
+                // next word is already coming.
+                inputRef.current?.focus();
+              }}
+              style={({ pressed }) => [
+                styles.storeChip,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.storeChipText}>@{name}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       <Text style={styles.subline}>{listSubline(summary)}</Text>
 
       <SectionList
@@ -267,10 +348,12 @@ export default function ListDetailScreen() {
         onScrollBeginDrag={() => Keyboard.dismiss()}
       />
 
-      <AislePicker
+      <ItemSheet
         item={picking}
         memory={memory}
-        onPick={writeAisle}
+        stores={stores}
+        onAisle={writeAisle}
+        onStore={writeStore}
         onClose={() => setPicking(null)}
       />
 
@@ -297,31 +380,43 @@ export default function ListDetailScreen() {
 }
 
 /**
- * Correcting an item's aisle.
+ * Lets the user correct an item's aisle and its store.
  *
- * Behind a long-press rather than a control on the row: the row's one job is
- * to be tapped while walking, and a second target competing for that surface
- * would cost mis-ticks. Fixing an aisle is rare, deliberate and usually done
- * sitting down, so it can afford to be hidden behind a gesture.
+ * Behind a long press rather than controls on the row. The row's job is to be
+ * tapped while walking, and extra targets on that surface would cause mis-ticks.
+ * Both corrections are rare and usually made sitting down, so a hidden gesture
+ * is an acceptable cost.
  *
- * A `Modal` is fine here where it isn't in the quick-add composer — nothing on
- * this screen is keyboard-anchored at the moment a row is long-pressed, so
- * there is no IME for a second window to drop.
+ * Store sits above aisle because it changes more often. An aisle is a fact
+ * about the words and is usually right first time; a store is a fact about
+ * this week.
+ *
+ * A `Modal` is safe here, unlike in the quick-add composer. Nothing on this
+ * screen is keyboard-anchored when a row is long-pressed, so there is no IME
+ * for a second window to drop. The new-store field opens its own keyboard
+ * inside that window, which is unaffected.
  */
-function AislePicker({
+function ItemSheet({
   item,
   memory,
-  onPick,
+  stores,
+  onAisle,
+  onStore,
   onClose,
 }: {
   item: Task | null;
   /** So the tick sits on the aisle the row is actually filed under. */
   memory?: AisleMemory;
-  onPick: (item: Task, aisle: Aisle | null) => void;
+  /** Stores already on this list, listed above the free-text field. */
+  stores: string[];
+  onAisle: (item: Task, aisle: Aisle | null) => void;
+  onStore: (item: Task, store: string | null) => void;
   onClose: () => void;
 }) {
+  const [newStore, setNewStore] = useState('');
   if (!item) return null;
   const current = itemAisle(item, memory);
+  const store = storeHint(item);
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={styles.backdrop}>
@@ -329,11 +424,56 @@ function AislePicker({
           <Text style={styles.sheetTitle} numberOfLines={1}>
             {item.title}
           </Text>
-          <ScrollView bounces={false}>
+          <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.sheetSection}>Where you get it</Text>
+            {stores.map((name) => (
+              <Pressable
+                key={name}
+                onPress={() => onStore(item, name)}
+                style={({ pressed }) => [
+                  styles.option,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.optionText}>{name}</Text>
+                {store !== null && store === name && (
+                  <Ionicons name="checkmark" size={17} color="#6366f1" />
+                )}
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => onStore(item, null)}
+              style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+            >
+              <Text style={[styles.optionText, styles.optionMuted]}>
+                Anywhere
+              </Text>
+              {store === null && (
+                <Ionicons name="checkmark" size={17} color="#6366f1" />
+              )}
+            </Pressable>
+            {/* A store the list has not seen before. The composer's `@` covers
+                this when adding; this covers realising it at the shelf. */}
+            <View style={styles.newStoreRow}>
+              <TextInput
+                value={newStore}
+                onChangeText={setNewStore}
+                placeholder="Another shop…"
+                placeholderTextColor="#9ca3af"
+                style={styles.newStoreInput}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  const name = newStore.trim();
+                  if (name) onStore(item, name);
+                }}
+              />
+            </View>
+
+            <Text style={styles.sheetSection}>Aisle</Text>
             {aisleOptions().map((option) => (
               <Pressable
                 key={option.value}
-                onPress={() => onPick(item, option.value)}
+                onPress={() => onAisle(item, option.value)}
                 style={({ pressed }) => [
                   styles.option,
                   pressed && styles.pressed,
@@ -349,7 +489,7 @@ function AislePicker({
                 lexicon, which usually has an opinion — so the row does not
                 land in Other, and a label saying it would be a lie. */}
             <Pressable
-              onPress={() => onPick(item, null)}
+              onPress={() => onAisle(item, null)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
             >
               <Text style={[styles.optionText, styles.optionMuted]}>
@@ -468,6 +608,15 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 15, color: '#111827', padding: 0 },
   added: { fontSize: 11, color: '#9ca3af', fontVariant: ['tabular-nums'] },
+  storeStrip: { flexGrow: 0, marginTop: 8 },
+  storeStripInner: { paddingHorizontal: 12, gap: 8 },
+  storeChip: {
+    backgroundColor: '#eef0fe',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  storeChipText: { fontSize: 13, fontWeight: '600', color: '#4338ca' },
   subline: {
     fontSize: 12,
     color: '#6b7280',
@@ -547,6 +696,25 @@ const styles = StyleSheet.create({
   },
   optionText: { fontSize: 15, color: '#111827' },
   optionMuted: { color: '#6b7280' },
+  sheetSection: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  newStoreRow: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 2 },
+  newStoreInput: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#111827',
+  },
   empty: { alignItems: 'center', paddingTop: 56, paddingHorizontal: 32 },
   emptyText: { fontSize: 15, fontWeight: '600', color: '#6b7280' },
   emptyHint: {

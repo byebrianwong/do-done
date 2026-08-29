@@ -3,6 +3,8 @@ import type { Project, Task } from "./schemas.js";
 import { isListProject, projectKind } from "./schemas.js";
 import {
   STORE_TAG_PREFIX,
+  applyStoreToken,
+  extractStoreToken,
   gotItems,
   isGot,
   itemSubline,
@@ -13,8 +15,10 @@ import {
   sameStore,
   splitProjects,
   storeHint,
+  storeSuggestions,
   storeTag,
   storesOnList,
+  typingStoreToken,
   summarizeList,
   withStoreHint,
 } from "./lists.js";
@@ -218,6 +222,107 @@ describe("summarizeList / listSubline", () => {
     expect(listSubline({ open: 0, got: 5, elsewhere: 0 })).toBe(
       "Nothing on it · 5 in the cart"
     );
+  });
+});
+
+describe("extractStoreToken", () => {
+  it("reads a store off the end of the line", () => {
+    expect(extractStoreToken("milk @Trader Joe's")).toEqual({
+      title: "milk",
+      store: "Trader Joe's",
+    });
+  });
+
+  it("keeps multi-word stores whole", () => {
+    // Why the token runs to end-of-line. A `\S+` token would give a store
+    // called "Whole" and an item called "milk Foods".
+    expect(extractStoreToken("oat milk @Whole Foods").store).toBe(
+      "Whole Foods"
+    );
+  });
+
+  it("leaves an item with no token alone", () => {
+    expect(extractStoreToken("  bananas  ")).toEqual({
+      title: "bananas",
+      store: null,
+    });
+  });
+
+  it("does not read an email address as a store", () => {
+    // The @ has to open the line or follow a space.
+    expect(extractStoreToken("ask matt@example.com about the cake")).toEqual({
+      title: "ask matt@example.com about the cake",
+      store: null,
+    });
+  });
+
+  it("ignores a half-typed token", () => {
+    // Mid-keystroke, before any store has been named.
+    expect(extractStoreToken("milk @").store).toBeNull();
+  });
+
+  it("survives a token with no item name", () => {
+    // The composer rejects an empty title; the parser just reports one.
+    expect(extractStoreToken("@Target")).toEqual({ title: "", store: "Target" });
+  });
+});
+
+describe("typingStoreToken / applyStoreToken", () => {
+  it("reports an empty query for a bare @, where the extractor reports none", () => {
+    // The two answer different questions: what is being typed now, versus what
+    // the user meant. A bare @ should open the full list.
+    expect(typingStoreToken("milk @")).toBe("");
+    expect(extractStoreToken("milk @").store).toBeNull();
+  });
+
+  it("reports the partial store being typed", () => {
+    expect(typingStoreToken("milk @tra")).toBe("tra");
+  });
+
+  it("reports nothing when no token is open", () => {
+    expect(typingStoreToken("milk")).toBeNull();
+  });
+
+  it("completes the open token", () => {
+    expect(applyStoreToken("milk @tra", "Trader Joe's")).toBe(
+      "milk @Trader Joe's"
+    );
+  });
+
+  it("appends a token when none is open", () => {
+    expect(applyStoreToken("milk", "Target")).toBe("milk @Target");
+  });
+
+  it("handles a store chosen before anything was typed", () => {
+    expect(applyStoreToken("@", "Target")).toBe("@Target");
+  });
+});
+
+describe("storeSuggestions", () => {
+  const known = ["Trader Joe's", "Target", "Whole Foods", "Trader's Hardware"];
+
+  it("offers everything for an empty query", () => {
+    expect(storeSuggestions(known, "")).toEqual(known);
+  });
+
+  it("puts prefix matches ahead of contained ones", () => {
+    // "joe" should find Trader Joe's, but never ahead of a real prefix match.
+    expect(storeSuggestions(known, "trader")).toEqual([
+      "Trader Joe's",
+      "Trader's Hardware",
+    ]);
+    expect(storeSuggestions(known, "joe")).toEqual(["Trader Joe's"]);
+  });
+
+  it("matches through punctuation and spacing", () => {
+    // Uses the same normalised key as `sameStore`, so punctuation never decides
+    // whether a suggestion appears.
+    expect(storeSuggestions(known, "traderjoes")).toEqual(["Trader Joe's"]);
+    expect(storeSuggestions(known, "whole foods")).toEqual(["Whole Foods"]);
+  });
+
+  it("returns nothing for a store nobody uses", () => {
+    expect(storeSuggestions(known, "aldi")).toEqual([]);
   });
 });
 

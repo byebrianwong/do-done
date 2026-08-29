@@ -94,6 +94,92 @@ export function storesOnList(items: Pick<Task, "tags">[]): string[] {
     .map(([name]) => name);
 }
 
+// ── Typing a store ─────────────────────────────────
+
+/**
+ * Matches a store token: `@` followed by the rest of the line.
+ *
+ * `@` is used rather than `#` because `#` already means "project first, tag
+ * otherwise". A shopping list is a project, so `milk #groceries` files an item.
+ * Reusing `#` would make `#target` ambiguous once someone names a project
+ * Target. `@` also reads correctly out loud: milk at Trader Joe's.
+ *
+ * The token runs to the end of the line so a store name can contain spaces.
+ * Real ones usually do: "Trader Joe's", "Whole Foods", "the corner shop". A
+ * `\S+` token would split those into a store called "Trader" and a title
+ * ending in "Joe's". The rule is simply: the store goes last.
+ *
+ * The `@` must start the line or follow a space, so an email address in an
+ * item name is not treated as a store. A trailing `@` with nothing after it
+ * matches nothing, which is the correct reading of a half-typed token.
+ *
+ * This is not wired into `parseTaskInput`. That parser reads every task title
+ * in the app, where `@` usually means a person, so a global rule would file
+ * "@sam" as a shop. Only the list composers parse store tokens.
+ */
+const STORE_TOKEN = /(^|\s)@(\S.*)$/;
+
+export interface StoreToken {
+  /** The item name, with the token taken out. */
+  title: string;
+  /** The store named, or null when the text names none. */
+  store: string | null;
+}
+
+export function extractStoreToken(text: string): StoreToken {
+  const match = STORE_TOKEN.exec(text);
+  if (!match) return { title: text.trim(), store: null };
+  const store = match[2].trim();
+  const title = text.slice(0, match.index).trim();
+  return { title, store: store || null };
+}
+
+/**
+ * Returns the store token being typed right now, for autocomplete.
+ *
+ * This differs from `extractStoreToken`, which reports what the user meant.
+ * This reports what they are part-way through. A bare "@" returns an empty
+ * query, so every store matches and the full list opens on the keypress. The
+ * extractor reads the same input as naming no store, which is also correct.
+ */
+export function typingStoreToken(text: string): string | null {
+  const match = /(^|\s)@(.*)$/.exec(text);
+  return match ? match[2] : null;
+}
+
+/** Replace the token being typed with a chosen store, ready to commit. */
+export function applyStoreToken(text: string, store: string): string {
+  const match = /(^|\s)@(.*)$/.exec(text);
+  const head = match ? text.slice(0, match.index).trim() : text.trim();
+  return head ? `${head} @${store}` : `@${store}`;
+}
+
+/**
+ * Returns known stores matching the query, best match first.
+ *
+ * Prefix matches come first, since that is what the typist is steering toward.
+ * Substring matches still appear, so "joe" finds "Trader Joe's". Matching uses
+ * `normalizeStore`, the same key `sameStore` uses, so punctuation and spacing
+ * never decide whether a suggestion shows.
+ */
+export function storeSuggestions(
+  known: string[],
+  query: string,
+  limit = 5
+): string[] {
+  const q = normalizeStore(query);
+  if (!q) return known.slice(0, limit);
+  const prefix: string[] = [];
+  const contains: string[] = [];
+  for (const name of known) {
+    const key = normalizeStore(name);
+    if (key.startsWith(q)) prefix.push(name);
+    else if (key.includes(q)) contains.push(name);
+  }
+  return [...prefix, ...contains].slice(0, limit);
+}
+
+
 // ── Standing in a shop ─────────────────────────────────
 
 export interface ShopOrder<T> {
