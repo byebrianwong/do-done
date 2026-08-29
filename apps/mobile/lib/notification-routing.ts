@@ -17,6 +17,7 @@ export interface NotificationPayload {
   kind?: unknown;
   taskId?: unknown;
   digest?: unknown;
+  dateISO?: unknown;
 }
 
 /**
@@ -43,6 +44,11 @@ export function routeForNotification(
     // that draws days. The daily one is a list of today, so it opens Today.
     return data.digest === 'weekly' ? '/upcoming' : '/today';
   }
+
+  // The day-start roundup names several tasks at once, so there is no single
+  // task to open — Today is the list it was describing. A *task* reminder
+  // names one, and is caught by the taskId branch above.
+  if (data.kind === 'day-start') return '/today';
 
   return null;
 }

@@ -31,6 +31,9 @@ vi.mock("./supabase", () => ({
 // Native seams `invalidateTasks` fans out to; irrelevant here, absent in node.
 vi.mock("./widgets", () => ({ refreshTaskWidgets: vi.fn() }));
 vi.mock("./location-queries", () => ({ scheduleGeofenceSync: vi.fn() }));
+// invalidateTasks() re-arms the per-task reminders, which reaches native
+// notification APIs. Stubbed for the same reason the geofence sync above is.
+vi.mock("./task-reminders", () => ({ scheduleTaskReminderSync: vi.fn() }));
 
 const { taskKeys, moveTask, reorderTasks } = await import("./task-queries");
 

@@ -307,6 +307,9 @@ export type UpdateStatusSyncInput = z.infer<typeof UpdateStatusSyncInput>;
 /** A digest time is a 24-hour wall clock in the *user's* timezone. */
 export const CLOCK_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+/** A day. Longer than this and a "before" reminder lands on the previous day. */
+export const MAX_REMINDER_LEAD_MINUTES = 1440;
+
 export const NotificationSettingsSchema = z.object({
   /** A digest each morning of what is on today. */
   notify_daily_digest: z.boolean().catch(false),
@@ -319,6 +322,33 @@ export const NotificationSettingsSchema = z.object({
     .string()
     .regex(CLOCK_TIME_PATTERN)
     .catch("08:00"),
+
+  // ── Per-task reminders ───────────────────────────────
+  //
+  // The digests above describe a *day*. These describe a *task*: on the day it
+  // is scheduled, at the time it is scheduled for. See task-reminders.ts for
+  // which tasks qualify and what each notification says.
+
+  /** Announce each scheduled task at its own time. */
+  notify_task_reminders: z.boolean().catch(false),
+  /**
+   * Minutes before a task's own time to fire its reminder. 0 = at the time.
+   * Bounded at a day: a lead longer than that would land on the day before,
+   * where the roundup has already named the task.
+   */
+  notify_task_reminder_lead_minutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_REMINDER_LEAD_MINUTES)
+    .catch(0),
+  /**
+   * One grouped notification naming the tasks scheduled for today that carry
+   * no time of day. Defaults on, but only ever fires while
+   * `notify_task_reminders` is true — which is off by default.
+   */
+  notify_day_start_roundup: z.boolean().catch(true),
+  notify_day_start_time: z.string().regex(CLOCK_TIME_PATTERN).catch("09:00"),
 });
 export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
 

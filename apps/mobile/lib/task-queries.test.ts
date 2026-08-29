@@ -34,6 +34,9 @@ const refreshTaskWidgets = vi.fn();
 const scheduleGeofenceSync = vi.fn();
 vi.mock("./widgets", () => ({ refreshTaskWidgets }));
 vi.mock("./location-queries", () => ({ scheduleGeofenceSync }));
+// invalidateTasks() re-arms the per-task reminders, which reaches native
+// notification APIs. Stubbed for the same reason the geofence sync above is.
+vi.mock("./task-reminders", () => ({ scheduleTaskReminderSync: vi.fn() }));
 
 const { taskKeys, toggleComplete, deleteTask, restoreTasks } = await import(
   "./task-queries"

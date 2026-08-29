@@ -28,16 +28,24 @@ import {
   requestNotificationPermission,
 } from '@/lib/notifications';
 import { rearmDigests, sendTestDigest } from '@/lib/digests';
+import {
+  rearmTaskReminders,
+  sendTestTaskReminder,
+} from '@/lib/task-reminders';
 
 /**
- * Digest settings.
+ * Notification settings.
  *
- * Two switches and their schedules. The screen also owns the OS permission
- * prompt, because turning a digest on is the only moment in the app where
- * asking for notification access explains itself — the same rule the location
- * reminder sheet follows (see CLAUDE.md → Location reminders): never on launch,
- * never on sign-in, always at the point the user asked for the thing that needs
- * it.
+ * Three switches and their schedules: per-task reminders, and the daily and
+ * weekly digests. The screen also owns the OS permission prompt, because
+ * turning one of these on is the only moment in the app where asking for
+ * notification access explains itself — the same rule the location reminder
+ * sheet follows (see CLAUDE.md → Location reminders): never on launch, never on
+ * sign-in, always at the point the user asked for the thing that needs it.
+ *
+ * Task reminders come first because they are the most immediate thing here: a
+ * digest describes a day, a reminder is the task itself arriving at the time
+ * you set for it.
  */
 
 // Times are offered as a list rather than a wheel. A digest is a habit anchored
@@ -127,6 +135,60 @@ function WeekdayRow({
   );
 }
 
+// Offered as a list for the same reason the times are: a lead is a habit
+// ("give me ten minutes"), not a measurement, and a stepper for a value with
+// six sensible answers is a worse control than six buttons.
+const LEAD_OPTIONS = [0, 5, 10, 15, 30, 60];
+
+/**
+ * A chip's label, which is not `describeLead`'s sentence.
+ *
+ * That one words the *body* of a notification ("9:00 AM — in 10 min"), where
+ * "in" is doing real work. On a row of chips under "How far ahead" the word is
+ * already said by the heading, and repeating it six times reads as prose that
+ * wandered into a control.
+ */
+function leadLabel(minutes: number): string {
+  if (minutes === 0) return 'At the time';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = minutes / 60;
+  return `${hours} hr${hours === 1 ? '' : 's'}`;
+}
+
+function LeadRow({
+  value,
+  disabled,
+  onSelect,
+}: {
+  value: number;
+  disabled: boolean;
+  onSelect: (v: number) => void;
+}) {
+  return (
+    <View style={styles.chipRow}>
+      {LEAD_OPTIONS.map((m) => {
+        const active = m === value;
+        return (
+          <Pressable
+            key={m}
+            disabled={disabled}
+            onPress={() => onSelect(m)}
+            style={[
+              styles.chip,
+              active && styles.chipActive,
+              disabled && styles.chipDisabled,
+            ]}
+          >
+            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+              {leadLabel(m)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function NotificationsScreen() {
   const [settings, setSettings] = useState<
     NotificationSettings | 'error' | null
@@ -177,7 +239,9 @@ export default function NotificationsScreen() {
       const api = await getUserPrefsApi();
       const { error } = await api.updateNotificationSettings(patch);
       if (error) throw error;
-      await rearmDigests();
+      // Both, always: the two schedules share the OS's pending-notification
+      // budget, so a change to either is a reason to re-cost the other.
+      await Promise.all([rearmDigests(), rearmTaskReminders()]);
     } catch {
       setSettings(previous);
       Alert.alert('Could not save', 'Check your connection and try again.');
@@ -193,7 +257,10 @@ export default function NotificationsScreen() {
    * notification feature look broken rather than declined.
    */
   async function toggle(
-    field: 'notify_daily_digest' | 'notify_weekly_digest',
+    field:
+      | 'notify_daily_digest'
+      | 'notify_weekly_digest'
+      | 'notify_task_reminders',
     on: boolean
   ) {
     if (on) {
@@ -225,6 +292,23 @@ export default function NotificationsScreen() {
       return;
     }
     const ok = await sendTestDigest();
+    if (!ok) {
+      Alert.alert('Could not send', 'The notification could not be posted.');
+    }
+  }
+
+  /** The same, for the task-reminder channel — which is a separate one. */
+  async function testReminder() {
+    const granted = await requestNotificationPermission();
+    setPermitted(granted);
+    if (!granted) {
+      Alert.alert(
+        'Notifications are off',
+        'Turn them on in system settings to see a test reminder.'
+      );
+      return;
+    }
+    const ok = await sendTestTaskReminder();
     if (!ok) {
       Alert.alert('Could not send', 'The notification could not be posted.');
     }
@@ -270,10 +354,16 @@ export default function NotificationsScreen() {
   const weekly = parseClockTime(s.notify_weekly_digest_time)
     ? s.notify_weekly_digest_time
     : DEFAULT_NOTIFICATION_SETTINGS.notify_weekly_digest_time;
+  const dayStart = parseClockTime(s.notify_day_start_time)
+    ? s.notify_day_start_time
+    : DEFAULT_NOTIFICATION_SETTINGS.notify_day_start_time;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {permitted === false && (s.notify_daily_digest || s.notify_weekly_digest) && (
+      {permitted === false &&
+        (s.notify_daily_digest ||
+          s.notify_weekly_digest ||
+          s.notify_task_reminders) && (
         <Pressable
           style={styles.warning}
           onPress={() => void Linking.openSettings()}
@@ -284,6 +374,97 @@ export default function NotificationsScreen() {
             nothing will arrive. Tap to fix.
           </Text>
         </Pressable>
+      )}
+
+      <Text style={styles.sectionHeader}>Task reminders</Text>
+      <View style={styles.section}>
+        <View style={styles.row}>
+          <Ionicons
+            name="alarm-outline"
+            size={20}
+            color="#6b7280"
+            style={styles.rowIcon}
+          />
+          <Text style={styles.rowLabel}>Remind me about scheduled tasks</Text>
+          <Switch
+            value={s.notify_task_reminders}
+            disabled={saving}
+            onValueChange={(v) => void toggle('notify_task_reminders', v)}
+            trackColor={{ true: '#6366f1' }}
+          />
+        </View>
+        <Text style={styles.hint}>
+          A task with a time gets its own reminder when that time comes round.
+        </Text>
+
+        {s.notify_task_reminders && (
+          <>
+            <Text style={styles.subHeader}>How far ahead</Text>
+            <LeadRow
+              value={s.notify_task_reminder_lead_minutes}
+              disabled={saving}
+              onSelect={(v) =>
+                void save({ notify_task_reminder_lead_minutes: v })
+              }
+            />
+
+            <View style={[styles.row, styles.rowDivided]}>
+              <Ionicons
+                name="list-outline"
+                size={20}
+                color="#6b7280"
+                style={styles.rowIcon}
+              />
+              <Text style={styles.rowLabel}>Round up the rest each morning</Text>
+              <Switch
+                value={s.notify_day_start_roundup}
+                disabled={saving}
+                onValueChange={(v) =>
+                  void save({ notify_day_start_roundup: v })
+                }
+                trackColor={{ true: '#6366f1' }}
+              />
+            </View>
+            {/* Most tasks carry a day and no time, so without this the switch
+                above would cover almost nothing. One notification names them
+                all — ten separate ones is how a channel gets muted.
+
+                The overlap with the daily digest is called out because both
+                can land in the same morning, and a user who turned each on
+                separately would otherwise meet the second one as a surprise. */}
+            <Text style={styles.hint}>
+              Tasks scheduled for a day with no particular time, named together
+              in one notification. Separate from the daily digest below, which
+              covers the whole day including anything overdue.
+            </Text>
+            {s.notify_day_start_roundup && (
+              <TimeRow
+                value={dayStart}
+                disabled={saving}
+                onSelect={(v) => void save({ notify_day_start_time: v })}
+              />
+            )}
+          </>
+        )}
+      </View>
+
+      {s.notify_task_reminders && (
+        <>
+          <Pressable
+            style={({ pressed }) => [
+              styles.testButton,
+              styles.testTight,
+              pressed && styles.testPressed,
+            ]}
+            onPress={() => void testReminder()}
+          >
+            <Text style={styles.testText}>Send a test reminder</Text>
+          </Pressable>
+          <Text style={styles.hintCentered}>
+            Task reminders have their own notification channel, so you can
+            silence digests without silencing these.
+          </Text>
+        </>
       )}
 
       <Text style={styles.sectionHeader}>Daily digest</Text>
@@ -421,6 +602,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   rowIcon: { marginRight: 12 },
+  rowDivided: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+    marginTop: 12,
+  },
+  subHeader: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
   rowLabel: { flex: 1, fontSize: 16, color: '#111827' },
   hint: {
     fontSize: 13,
@@ -477,6 +670,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#e5e7eb',
   },
+  testTight: { marginTop: 12 },
   testPressed: { backgroundColor: '#f9fafb' },
   testText: { fontSize: 16, color: '#6366f1', fontWeight: '600' },
   notice: {

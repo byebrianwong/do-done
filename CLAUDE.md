@@ -2567,13 +2567,17 @@ edge function. Two kinds, on two Android channels:
 | --- | --- | --- |
 | Location reminder | `location-reminders` (HIGH) | `lib/geofence-task.ts`, from the OS geofence event |
 | Daily / weekly digest | `digests` (DEFAULT) | `lib/digests.ts`, armed ahead of time |
+| Task reminder / day-start roundup | `task-reminders` (HIGH) | `lib/task-reminders.ts`, armed ahead of time |
 
-**Two channels, not one.** Android lets a user silence a channel without
-silencing the app, and "a reminder because I walked into a shop" and "a summary
-of my morning" are genuinely different subscriptions. One shared channel would
-make muting the digest also mute the thing you are standing in front of. The
-digest channel is DEFAULT rather than HIGH on the same logic: a heads-up banner
-every single morning is what gets a channel muted.
+**Three channels, not one.** Android lets a user silence a channel without
+silencing the app, and "a reminder because I walked into a shop", "a summary of
+my morning" and "the task I set for 3pm is at 3pm" are genuinely different
+subscriptions. One shared channel would make muting the digest also mute the
+thing you are standing in front of. The digest channel is DEFAULT rather than
+HIGH on the same logic: a heads-up banner every single morning is what gets a
+channel muted. The task channel is HIGH, like the location one — a reminder
+whose whole value is landing at 2:55 for a 3pm task is worth interrupting for,
+and arriving silently an hour later is the same as not arriving at all.
 
 `lib/notifications.ts` is the one seam onto `expo-notifications`. Every entry
 point lazy-requires the module through it, because it was removed from Expo Go
@@ -2692,6 +2696,82 @@ a rebuild.
 > delivery, channels, and the permission prompt need a real build. **Web has no
 > notifications at all** — that needs a service worker and VAPID keys, and is a
 > separate change.
+
+### Per-task reminders
+
+The digests describe a *day*. These describe a *task*: on the day it is
+scheduled, at the time it is scheduled for. Off by default, like everything
+else here.
+
+| Shape | When it fires |
+| --- | --- |
+| A task with a **time** | At `scheduled_time`, less `notify_task_reminder_lead_minutes` |
+| Tasks with **only a day** | Named together in one day-start roundup at `notify_day_start_time` |
+
+**The roundup is one notification, not N.** Most DoDone tasks carry a
+`scheduled_date` and no `scheduled_time`, so one reminder each would mean ten
+at 09:00 on an ordinary Tuesday. A channel that behaves like that gets muted
+within a week — and muting it also silences the timed reminders the feature
+exists for. `buildDayStartRoundup` in `@do-done/shared` names the first three
+and counts the rest.
+
+The three files mirror the digests' three exactly, so the two read side by
+side: `packages/shared/src/task-reminders.ts` (eligibility and copy),
+`apps/mobile/lib/task-reminder-plan.ts` (which instants, and how many fit),
+`apps/mobile/lib/task-reminders.ts` (arming, identifiers, lifecycle).
+
+- **The OS budget is capped explicitly.** iOS keeps at most **64** pending
+  local notifications per app and silently drops the rest — no error, the 65th
+  just never arrives. Every scheduler here shares that one budget, so task
+  reminders take `MAX_TASK_REMINDERS` (48) of it, soonest first, and log what
+  they dropped. Same failure mode as the 20-region geofence cap, same
+  treatment: trim by a rule we chose rather than letting the OS discard an
+  arbitrary tail.
+- **It re-arms on writes as well as on foreground**, which is the one place it
+  diverges from the digests. A digest describes an aggregate, so being a task
+  stale for a few hours is harmless. A reminder is armed against one specific
+  task at one specific instant, and the moment it most needs to exist is the
+  moment that task is created: type "call the bank at 3pm" at 2:40 and pocket
+  the phone, and foreground-only re-arming would never arm it. So
+  `invalidateTasks()` calls `scheduleTaskReminderSync()` — debounced 5s, the
+  same shape as the widget refresh and the geofence sync beside it.
+- **A re-arm that arrives mid-run is queued, not dropped.** The write that
+  triggered it is exactly the one missing from the plan being armed.
+- **Overdue work is never announced.** Its day already came and its reminder
+  already went; announcing it again would mean every slipped task pinging
+  forever. Overdue belongs to the digest, which is a separate switch. This is
+  also why the arming path does one query where the digest does two.
+- **A list item is never announced.** A notification is the loudest surface in
+  the app, so it is the last place a tin of tomatoes should turn up. Enforced
+  in `isRemindable`, so neither the timed path nor the roundup can forget it.
+- **A task is announced once.** `reminderAnchor` picks `scheduled_*` if there
+  is one and falls through to `deadline_*` otherwise — the same precedence
+  `bucketDate` uses in the weekly digest. Falling through rather than ignoring
+  the deadline means a hard external cutoff with no plan still gets said out
+  loud, which is the date whose arrival you least want to learn about
+  afterwards.
+- **A lead can push a reminder into the previous day**, and `applyLead` returns
+  the day as part of its answer so it can. The horizon bounds the task's day
+  rather than the shifted instant, so a task at 00:30 on the first day still
+  gets its heads-up the night before.
+- **Times resolve through `user_preferences.timezone`**, never the device
+  clock, and `MIN_LEAD_MS` applies for the reason it does for digests: the
+  re-arm cancels and recreates, and an instant that passes in between is
+  delivered *immediately* — a 9am reminder arriving at 2pm because the app was
+  opened.
+- **`parseTaskClock` is deliberately more tolerant than `parseClockTime`.**
+  `tasks.scheduled_time` is a free `text` column the Google Calendar pull also
+  writes into, so a value can arrive as `"09:30:00"`. A reminder silently not
+  arming over a trailing `:00` is a bug nobody would reproduce.
+
+**This is pure JS and ships over OTA** — no new native module, no config plugin.
+**Web still has no notifications**, unchanged: that needs a service worker and
+VAPID keys.
+
+> **Unverified on a device**, like the digests and geofencing beside it. CI
+> covers the arithmetic, the eligibility rules, the cap and the copy
+> (`task-reminders.test.ts` in both packages, `task-reminder-plan.test.ts`);
+> delivery, the channel and its importance need a real build.
 
 ## Password-manager autofill
 
