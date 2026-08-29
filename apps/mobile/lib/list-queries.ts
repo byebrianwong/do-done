@@ -3,12 +3,18 @@ import type {
   Aisle,
   AisleMemory,
   CreateTaskInput,
+  PantryEntry,
   Project,
   Task,
 } from '@do-done/shared';
 import { splitProjects } from '@do-done/shared';
 
-import { getAisleTermsApi, getProjectsApi, getTasksApi } from './supabase';
+import {
+  getAisleTermsApi,
+  getPantryApi,
+  getProjectsApi,
+  getTasksApi,
+} from './supabase';
 import { queryClient } from './query-client';
 import { invalidateTasks, listKeys, projectKeys } from './task-queries';
 
@@ -201,5 +207,66 @@ export async function rememberAisle(
     queryClient.invalidateQueries({ queryKey: aisleKeys.all });
   } catch {
     // Deliberately swallowed — see above.
+  }
+}
+
+// ─── The pantry ─────────────────────────────────────────────
+//
+// Its own key root beside `aisleKeys`, and deliberately not under `taskKeys`.
+// The optimistic sweeps in `task-queries.ts` rewrite everything they match, and
+// this cache holds `PantryEntry[]` rather than `Task[]`. Same reasoning as
+// `tagKeys`, and the same trap `patchTaskLists` guards against.
+
+export const pantryKeys = {
+  all: ['pantry'] as const,
+  forList: (listId: string) => ['pantry', listId] as const,
+};
+
+/**
+ * Loads what has been bought on this list before.
+ *
+ * A failure resolves to an empty array rather than throwing. Without a pantry
+ * the screen is a plain shopping list, which is what it was before this existed
+ * and is still useful. Failing to render because a drawer did not load would be
+ * much worse with the phone in your hand in a shop.
+ */
+export function usePantry(listId: string) {
+  return useQuery({
+    queryKey: pantryKeys.forList(listId),
+    queryFn: async (): Promise<PantryEntry[]> => {
+      const api = await getPantryApi();
+      const { data } = await api.load(listId);
+      return data;
+    },
+    enabled: !!listId,
+    // Only a tick moves it, and that path invalidates explicitly.
+    staleTime: 60_000,
+  });
+}
+
+export function invalidatePantry(listId: string) {
+  queryClient.invalidateQueries({ queryKey: pantryKeys.forList(listId) });
+}
+
+/**
+ * Deletes a pantry entry. The only destructive operation on the pantry.
+ *
+ * Putting a list away is safe now, so it stays one tap. The friction sits here
+ * instead, on the action that cannot be undone.
+ */
+export async function forgetPantryEntry(
+  listId: string,
+  term: string
+): Promise<void> {
+  queryClient.setQueryData<PantryEntry[]>(pantryKeys.forList(listId), (prev) =>
+    (prev ?? []).filter((e) => e.term !== term)
+  );
+  const api = await getPantryApi();
+  const { error } = await api.forget(listId, term);
+  if (error) {
+    // Refetch rather than leaving the row gone from the screen but present in
+    // the database, which would make it reappear later with no explanation.
+    invalidatePantry(listId);
+    throw error;
   }
 }

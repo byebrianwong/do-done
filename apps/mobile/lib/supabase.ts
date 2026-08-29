@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   AisleTermsApi,
   AttachmentsApi,
+  PantryApi,
   TasksApi,
   ProjectsApi,
   UserPrefsApi,
@@ -97,6 +98,18 @@ export async function getAisleTermsApi(): Promise<AisleTermsApi> {
     aisleTermsApiUserId = userId;
   }
   return aisleTermsApi;
+}
+
+let pantryApi: PantryApi | undefined;
+let pantryApiUserId: string | undefined;
+
+export async function getPantryApi(): Promise<PantryApi> {
+  const userId = await getUserId();
+  if (!pantryApi || pantryApiUserId !== userId) {
+    pantryApi = new PantryApi(supabase, userId);
+    pantryApiUserId = userId;
+  }
+  return pantryApi;
 }
 
 let locationsApi: LocationsApi | undefined;

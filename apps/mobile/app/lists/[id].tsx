@@ -13,7 +13,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import type { Aisle, AisleMemory, Task } from '@do-done/shared';
+import type {
+  Aisle,
+  AisleMemory,
+  PantryBand,
+  PantryEntry,
+  Task,
+} from '@do-done/shared';
 import {
   aisleOptions,
   gotItems,
@@ -32,17 +38,23 @@ import {
   extractStoreToken,
   withAisle,
   withStoreHint,
+  lastBoughtLabel,
+  pantryBands,
+  searchPantry,
 } from '@do-done/shared';
 
 import {
   addListItem,
   clearGotItems,
+  forgetPantryEntry,
   invalidateLists,
+  invalidatePantry,
   rememberAisle,
   restoreItems,
   useAisleMemory,
   useList,
   useListItems,
+  usePantry,
 } from '@/lib/list-queries';
 import { toggleComplete, updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
@@ -79,6 +91,10 @@ export default function ListDetailScreen() {
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
+  // Everything ever bought on this list. Empty until it loads, which is the
+  // correct fallback: the screen is then a plain shopping list, which is what
+  // it was before this existed.
+  const { data: pantry = [] } = usePantry(listId);
 
   const router = useRouter();
   const [draft, setDraft] = useState('');
@@ -105,6 +121,26 @@ export default function ListDetailScreen() {
     () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
     [stores, storeQuery]
   );
+  // The composer's memory. Only runs while no `@` token is open: the two
+  // suggestion sets answer different questions and one strip cannot mean both.
+  const pantryMatches = useMemo(
+    () =>
+      storeQuery !== null ? [] : searchPantry(pantry, draft, { onList: items }),
+    [pantry, draft, items, storeQuery]
+  );
+  /*
+    Anything already on the list is left out of the drawer. Offering to put back
+    what is on screen is noise, and excluding it makes an accidental tick
+    self-correcting: un-ticking puts the row back, which hides its entry again.
+  */
+  const bands = useMemo(
+    () => pantryBands(pantry, { onList: items }),
+    [pantry, items]
+  );
+  const pantryCount = useMemo(
+    () => bands.reduce((n, b) => n + b.entries.length, 0),
+    [bands]
+  );
 
   const submit = useCallback(async () => {
     // `@` names a store, the way `#` names a project. See `extractStoreToken`
@@ -130,12 +166,48 @@ export default function ListDetailScreen() {
     }
   }, [draft, listId, toast]);
 
+  /**
+   * Adds an item back to the list from the pantry.
+   *
+   * It arrives with the store it was last bought at. That is the difference
+   * between taking a suggestion and typing the word again.
+   */
+  const putBack = useCallback(
+    async (entry: PantryEntry) => {
+      setDraft('');
+      try {
+        await addListItem(listId, {
+          title: entry.title,
+          ...(entry.store ? { tags: [storeTag(entry.store)] } : {}),
+        });
+        setAdded((n) => n + 1);
+        hapticLight();
+      } catch {
+        toast.show({ message: "Couldn't add that — try again" });
+      }
+    },
+    [listId, toast]
+  );
+
+  /** Deletes a pantry entry. The only destructive action on this screen. */
+  const forget = useCallback(
+    async (entry: PantryEntry) => {
+      try {
+        await forgetPantryEntry(listId, entry.term);
+        toast.show({ message: `Won't suggest ${entry.title} again` });
+      } catch {
+        toast.show({ message: "Couldn't forget that" });
+      }
+    },
+    [listId, toast]
+  );
+
   const onClear = useCallback(async () => {
     try {
       const ids = await clearGotItems(listId);
       if (ids.length === 0) return;
       toast.show({
-        message: `Cleared ${ids.length} item${ids.length === 1 ? '' : 's'}`,
+        message: `Put away ${ids.length} item${ids.length === 1 ? '' : 's'}`,
         undo: async () => {
           await restoreItems(listId, ids);
         },
@@ -225,8 +297,14 @@ export default function ListDetailScreen() {
           headerRight: () => (
             <View style={styles.headerRight}>
               {got.length > 0 && (
+                /*
+                  "Put away", not "Clear bought". The write is the same — items
+                  are still soft-deleted — but nothing important is lost,
+                  because each was recorded in the pantry when it was ticked.
+                  That is why it stays one unconfirmed tap.
+                */
                 <Pressable onPress={onClear} hitSlop={10}>
-                  <Text style={styles.clear}>Clear bought</Text>
+                  <Text style={styles.clear}>Put away</Text>
                 </Pressable>
               )}
               {/* The list's name, icon and colour were only settable at the
@@ -271,6 +349,40 @@ export default function ListDetailScreen() {
         field and above the keyboard, where the thumb already is. It pushes
         nothing else around, since the row only exists while a token is open.
       */}
+      {/*
+        The composer's memory: a few keystrokes to put back something bought
+        repeatedly, with its store attached. Tapping adds it directly rather
+        than completing the field, since a confirm step would undo the speed.
+      */}
+      {storeMatches.length === 0 && pantryMatches.length > 0 && (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="always"
+          showsHorizontalScrollIndicator={false}
+          style={styles.storeStrip}
+          contentContainerStyle={styles.storeStripInner}
+        >
+          {pantryMatches.map((entry) => (
+            <Pressable
+              key={entry.term}
+              onPress={() => {
+                void putBack(entry);
+                inputRef.current?.focus();
+              }}
+              style={({ pressed }) => [
+                styles.pantryChip,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.pantryChipText}>{entry.title}</Text>
+              <Text style={styles.pantryChipAge}>
+                {lastBoughtLabel(entry.last_bought_at)}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       {storeMatches.length > 0 && (
         <ScrollView
           horizontal
@@ -320,6 +432,11 @@ export default function ListDetailScreen() {
             item={item}
             onOpen={() => setEditing(item)}
             onLongPress={() => setPicking(item)}
+            // Ticking writes to the pantry, so the drawer has to reload. The
+            // write is fire-and-forget inside `TasksApi.update`, so this is a
+            // refetch rather than an optimistic patch: the client does not know
+            // what the gap arithmetic decided.
+            onToggled={() => invalidatePantry(listId)}
           />
         )}
         refreshControl={
@@ -346,6 +463,30 @@ export default function ListDetailScreen() {
         }
         contentContainerStyle={styles.listContent}
         onScrollBeginDrag={() => Keyboard.dismiss()}
+        /*
+          The pantry sits under the list as its footer. It is where the list
+          came from, so scrolling past what is left to buy to reach it is the
+          right order. A separate tab would turn putting one item back into a
+          navigation.
+        */
+        ListFooterComponent={
+          pantryCount > 0 ? (
+            <View style={styles.pantry}>
+              <Text style={styles.pantryHeader}>
+                Bought before · {pantryCount}
+              </Text>
+              {bands.map((band, i) => (
+                <PantryBandView
+                  key={band.key}
+                  band={band}
+                  defaultOpen={i === 0}
+                  onAdd={putBack}
+                  onForget={forget}
+                />
+              ))}
+            </View>
+          ) : null
+        }
       />
 
       <ItemSheet
@@ -375,6 +516,81 @@ export default function ListDetailScreen() {
         // The deleted list is this screen, so there is nothing left to show.
         onDeleted={() => router.back()}
       />
+    </View>
+  );
+}
+
+/**
+ * Renders one band of the pantry drawer.
+ *
+ * Only the first is open by default. After a year "Earlier" holds hundreds of
+ * rows, and a list screen should not open two screens below its own list. The
+ * composer's search is the way into that band.
+ *
+ * The name is the tap target, unlike an item row. A pantry entry has one
+ * possible action, so nothing else competes for the words.
+ */
+function PantryBandView({
+  band,
+  defaultOpen,
+  onAdd,
+  onForget,
+}: {
+  band: PantryBand;
+  defaultOpen: boolean;
+  onAdd: (entry: PantryEntry) => void;
+  onForget: (entry: PantryEntry) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={styles.bandHeader}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Ionicons
+          name={open ? 'chevron-down' : 'chevron-forward'}
+          size={13}
+          color="#9ca3af"
+        />
+        <Text style={styles.bandLabel}>
+          {band.label} · {band.entries.length}
+        </Text>
+      </Pressable>
+      {open &&
+        band.entries.map((entry) => (
+          <Pressable
+            key={entry.term}
+            onPress={() => onAdd(entry)}
+            /*
+              Deleting is the only irreversible action on this screen, so it is
+              behind a long press rather than a visible control. Same reasoning
+              as the aisle picker.
+            */
+            onLongPress={() => {
+              hapticMedium();
+              onForget(entry);
+            }}
+            delayLongPress={450}
+            style={({ pressed }) => [
+              styles.pantryRow,
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Put ${entry.title} back on the list`}
+          >
+            <Ionicons name="add" size={16} color="#9ca3af" />
+            <Text style={styles.pantryTitle} numberOfLines={1}>
+              {entry.title}
+            </Text>
+            <Text style={styles.pantryAge}>
+              {entry.store ? `${entry.store} · ` : ''}
+              {lastBoughtLabel(entry.last_bought_at)}
+            </Text>
+          </Pressable>
+        ))}
     </View>
   );
 }
@@ -523,10 +739,12 @@ function ItemRow({
   item,
   onOpen,
   onLongPress,
+  onToggled,
 }: {
   item: Task;
   onOpen: () => void;
   onLongPress: () => void;
+  onToggled: () => void;
 }) {
   const done = item.status === 'done' || item.status === 'cancelled';
   // The store and the day as one muted line, the same shape `rowSubline` gives
@@ -547,7 +765,7 @@ function ItemRow({
       <Pressable
         onPress={() => {
           hapticLight();
-          void toggleComplete(item.id, !done);
+          void toggleComplete(item.id, !done).then(onToggled, onToggled);
         }}
         hitSlop={{ top: 13, bottom: 13, left: 14, right: 10 }}
         accessibilityRole="checkbox"
@@ -617,6 +835,59 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   storeChipText: { fontSize: 13, fontWeight: '600', color: '#4338ca' },
+  pantryChip: {
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  pantryChipText: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  pantryChipAge: { fontSize: 11, color: '#9ca3af' },
+  pantry: {
+    marginTop: 18,
+    marginHorizontal: 12,
+    padding: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+  },
+  pantryHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6366f1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  bandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 4,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  bandLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  pantryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 9,
+  },
+  pantryTitle: { flex: 1, fontSize: 14, color: '#374151' },
+  pantryAge: { fontSize: 11, color: '#9ca3af' },
   subline: {
     fontSize: 12,
     color: '#6b7280',
