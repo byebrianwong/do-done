@@ -4,6 +4,7 @@ import {
   recurrenceShortLabel,
   rowEstimate,
   rowGutter,
+  rowSchedule,
   rowSubline,
   shortDayLabel,
 } from "./task-row.js";
@@ -237,5 +238,63 @@ describe("recurrenceShortLabel", () => {
 
   it("calls anything hand-written Custom", () => {
     expect(recurrenceShortLabel("FREQ=YEARLY;INTERVAL=2")).toBe("Custom");
+  });
+});
+
+describe("rowSchedule + hideSchedule", () => {
+  // The whole point of splitting it out: what the line drops is exactly what
+  // the column prints, so a caller that does both loses nothing and repeats
+  // nothing. Asserted against the same task rather than two hand-written
+  // strings, so the two can't drift apart in a future edit.
+  it("prints exactly the part hideSchedule removes", () => {
+    const t = task({
+      scheduled_date: "2026-08-14",
+      scheduled_time: "09:30",
+      deadline_date: "2026-08-20",
+      project_id: "p",
+    });
+    const full = rowSubline(t, { projectName: "Work", now: NOW });
+    const without = rowSubline(t, {
+      projectName: "Work",
+      hideSchedule: true,
+      now: NOW,
+    });
+    const column = rowSchedule(t, { now: NOW });
+
+    expect(full[0]).toBe(column);
+    expect(without).toEqual(full.slice(1));
+  });
+
+  it("keeps the deadline in the line — it is a different day", () => {
+    const t = task({ scheduled_date: "2026-08-14", deadline_date: "2026-08-20" });
+    expect(rowSubline(t, { hideSchedule: true, now: NOW })).toContain(
+      "Deadline Aug 20"
+    );
+  });
+
+  it("hands the column an overdue task's age, not its date", () => {
+    const t = task({ scheduled_date: "2026-08-09" });
+    expect(rowSchedule(t, { now: NOW })).toBe("3 days ago");
+  });
+
+  it("hands the column what a finished task says instead", () => {
+    const t = task({
+      status: "done",
+      completed_at: new Date(2026, 7, 12, 8, 0).toISOString(),
+    });
+    expect(rowSchedule(t, { now: NOW })).toBe("Done today");
+    // ...and the line then leads with the next fact rather than repeating it.
+    expect(rowSubline(t, { hideSchedule: true, now: NOW })).not.toContain(
+      "Done today"
+    );
+  });
+
+  it("still drops the day when the surface already named it", () => {
+    const t = task({ scheduled_date: "2026-08-12", scheduled_time: "15:00" });
+    expect(rowSchedule(t, { hideScheduledDay: true, now: NOW })).toBe("3:00 PM");
+  });
+
+  it("returns an empty string for a task with no schedule at all", () => {
+    expect(rowSchedule(task(), { now: NOW })).toBe("");
   });
 });

@@ -15,6 +15,10 @@ import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
+import {
+  SectionCount,
+  sectionHeaderStyles,
+} from '@/components/SectionHeader';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
 import CalendarEventRow from '@/components/CalendarEventRow';
 import SectionedDraggableList, {
@@ -219,7 +223,7 @@ export default function UpcomingScreen() {
       return (
         <View>
           <Pressable
-            style={styles.sectionHeader}
+            style={sectionHeaderStyles.container}
             onPress={() => setConfig(toggleCollapsed(config, section.key))}
           >
             <Ionicons
@@ -229,15 +233,14 @@ export default function UpcomingScreen() {
             />
             <Text
               style={[
-                styles.sectionHeaderText,
+                sectionHeaderStyles.text,
                 section.key === 'overdue' && styles.overdueText,
               ]}
+              numberOfLines={1}
             >
               {section.title}
-              {showCount ? (
-                <Text style={styles.sectionCount}> ({count})</Text>
-              ) : null}
             </Text>
+            {showCount ? <SectionCount value={count} /> : null}
           </Pressable>
           {!collapsed &&
             dayEvents.map((e) => <CalendarEventRow key={e.id} event={e} />)}
@@ -369,19 +372,5 @@ const styles = StyleSheet.create({
   },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 96, flexGrow: 1 },
-  sectionHeader: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  sectionHeaderText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: '#6b7280',
-  },
   overdueText: { color: OVERDUE_COLOR },
-  sectionCount: { color: '#9ca3af', fontWeight: '500' },
 });

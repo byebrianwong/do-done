@@ -13,6 +13,7 @@ import { TaskRowBehaviorProvider } from "@/lib/task-row-behavior";
 import { useTasksHeldForEditing } from "@/lib/task-editing-hold";
 import { DisplayMenu } from "./display-menu";
 import { DraggableTaskGroups } from "./draggable-task-groups-client";
+import { StickyPageBar } from "./sticky-page-bar";
 
 export interface CuratedDisplayViewProps {
   viewKey: string;
@@ -81,19 +82,19 @@ export function CuratedDisplayView({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-1 flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          {title}
-        </h1>
-        <DisplayMenu
-          config={config}
-          onChange={setConfig}
-          onReset={reset}
-          isDefault={isDefault}
-          projects={projects}
-          availableTags={availableTags}
-        />
-      </div>
+      <StickyPageBar
+        title={title}
+        actions={
+          <DisplayMenu
+            config={config}
+            onChange={setConfig}
+            onReset={reset}
+            isDefault={isDefault}
+            projects={projects}
+            availableTags={availableTags}
+          />
+        }
+      >
 
       {beforeContent}
 
@@ -102,6 +103,7 @@ export function CuratedDisplayView({
       <TaskRowBehaviorProvider
         keepsCompleted={config.showCompleted}
         density={config.density}
+        rowStyle={config.rowStyle}
       >
         {curatedWhen(config) ? (
           renderCurated(filtered, config, setConfig)
@@ -114,6 +116,7 @@ export function CuratedDisplayView({
           />
         )}
       </TaskRowBehaviorProvider>
+      </StickyPageBar>
     </div>
   );
 }

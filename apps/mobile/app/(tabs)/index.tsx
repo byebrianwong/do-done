@@ -18,6 +18,10 @@ import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import CalendarEventRow from '@/components/CalendarEventRow';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
+import {
+  SectionCount,
+  sectionHeaderStyles,
+} from '@/components/SectionHeader';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -192,7 +196,7 @@ export default function TodayScreen() {
       const count = countByKey.get(section.key) ?? section.data.length;
       return (
         <Pressable
-          style={styles.sectionHeader}
+          style={sectionHeaderStyles.container}
           onPress={() => setConfig(toggleCollapsed(config, section.key))}
         >
           <Ionicons
@@ -202,11 +206,12 @@ export default function TodayScreen() {
           />
           {isFocus ? <Ionicons name="flash" size={13} color="#6366f1" /> : null}
           <Text
-            style={[styles.sectionHeaderText, isFocus && styles.focusHeaderText]}
+            style={[sectionHeaderStyles.text, isFocus && styles.focusHeaderText]}
+            numberOfLines={1}
           >
-            {section.title}{' '}
-            <Text style={styles.sectionCount}>({count})</Text>
+            {section.title}
           </Text>
+          <SectionCount value={count} />
         </Pressable>
       );
     },
@@ -399,22 +404,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  sectionHeaderText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: '#6b7280',
-  },
+  // Focus keeps the accent: it is the one section that is a claim about the
+  // day rather than a bucket, and the ⚡ beside it is already indigo.
   focusHeaderText: { color: '#6366f1' },
-  sectionCount: { color: '#9ca3af', fontWeight: '500' },
 });

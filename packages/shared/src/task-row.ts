@@ -141,6 +141,28 @@ export interface RowSublineContext {
    * different day.
    */
   hideScheduledDay?: boolean;
+  /**
+   * Leave the schedule out of the line, because the caller is drawing it in a
+   * column of its own.
+   *
+   * Distinct from `hideScheduledDay`, which drops the day and keeps the time.
+   * This drops the whole part, including the "Done today" a finished task says
+   * in its place. It omits exactly what {@link rowSchedule} returns, so a caller
+   * that sets this and prints `rowSchedule` loses nothing.
+   *
+   * Web's quiet row uses it: a right-aligned date column lines up down the list
+   * where a date buried mid-sentence does not, and a wide row has space for one.
+   * Mobile does not, because a phone row has no room for a column.
+   */
+  hideSchedule?: boolean;
+  /**
+   * Leave the status out, because the list already said it: a status-grouped
+   * list puts the same word in the header above every row it applies to.
+   *
+   * The status-shaped twin of `projectName: null`. The surface knows what it
+   * has already told the reader; the row does not.
+   */
+  hideStatus?: boolean;
   now?: Date;
 }
 
@@ -149,6 +171,32 @@ export interface RowSublineContext {
  * so read as part of the sentence "Done …" rather than as a date.
  */
 const RELATIVE_COMPLETED = new Set(["Today", "Yesterday"]);
+
+/**
+ * The "when" part of the subline on its own: the schedule, or what a finished
+ * task says in its place.
+ *
+ * Split out of {@link rowSubline} so a surface with room for a column can print
+ * it separately, and colour it, which a joined string cannot. `rowSubline`
+ * calls this for its first part, so there is one implementation of the wording.
+ */
+export function rowSchedule(task: Task, ctx: RowSublineContext = {}): string {
+  const now = ctx.now ?? new Date();
+  if (task.status === "done") {
+    const when = task.completed_at
+      ? formatCompletedDate(task.completed_at, now)
+      : "";
+    // "Done today" reads better than "Done Today", but only the relative words
+    // are a sentence fragment. Lowercasing everything turned a real date into
+    // "Done fri, aug 7", which reads as a typo sitting directly above a
+    // correctly-cased one.
+    return when
+      ? `Done ${RELATIVE_COMPLETED.has(when) ? when.toLowerCase() : when}`
+      : "Done";
+  }
+  if (task.status === "cancelled") return "Cancelled";
+  return schedulePart(task, now, ctx.hideScheduledDay ?? false);
+}
 
 /**
  * Every secondary fact about a task, as the parts of one muted line, in the
@@ -169,24 +217,21 @@ export function rowSubline(
   const now = ctx.now ?? new Date();
   const parts: string[] = [];
 
-  if (task.status === "done") {
-    const when = task.completed_at
-      ? formatCompletedDate(task.completed_at, now)
-      : "";
-    // "Done today" reads better than "Done Today", but only the relative words
-    // are a sentence fragment. Lowercasing everything turned a real date into
-    // "Done fri, aug 7", which reads as a typo sitting directly above a
-    // correctly-cased one.
-    parts.push(when ? `Done ${RELATIVE_COMPLETED.has(when) ? when.toLowerCase() : when}` : "Done");
-  } else if (task.status === "cancelled") {
-    parts.push("Cancelled");
-  } else {
-    const when = schedulePart(task, now, ctx.hideScheduledDay ?? false);
+  // One implementation of "when", shared with `rowSchedule`, so a caller that
+  // draws the schedule in its own column cannot word it differently.
+  if (!ctx.hideSchedule) {
+    const when = rowSchedule(task, ctx);
     if (when) parts.push(when);
-    if (task.deadline_date) {
-      const label = shortDayLabel(task.deadline_date, now);
-      if (label) parts.push(`Deadline ${label}`);
-    }
+  }
+  // The deadline is a different field and a different day, so it stays in the
+  // line even when the schedule has been lifted out into a column.
+  if (
+    task.status !== "done" &&
+    task.status !== "cancelled" &&
+    task.deadline_date
+  ) {
+    const label = shortDayLabel(task.deadline_date, now);
+    if (label) parts.push(`Deadline ${label}`);
   }
 
   if (task.recurrence_rule) {
@@ -197,6 +242,7 @@ export function rowSubline(
   // Status is worth saying only when the user moved it somewhere deliberate.
   // "Not started" is the default and "Inbox" is already the screen you are on.
   if (
+    !ctx.hideStatus &&
     task.status !== "not_started" &&
     task.status !== "inbox" &&
     task.status !== "done" &&

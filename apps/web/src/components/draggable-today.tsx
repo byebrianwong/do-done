@@ -29,6 +29,12 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { OverdueSection } from "./overdue-section";
 import { TaskItem } from "./task-item";
+import {
+  STICKY_SECTION_HEADER,
+  SectionCaret,
+  SectionCount,
+  sectionHeaderClass,
+} from "./section-header";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 
@@ -351,26 +357,6 @@ function DroppableList({
   );
 }
 
-/** Right-pointing chevron that rotates down when the section is expanded. */
-function Chevron({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden
-    >
-      <path
-        d="M4.5 2.5 8 6l-3.5 3.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /** Section heading; a button (collapse toggle) when onToggle is provided. */
 function SectionHeading({
   label,
@@ -379,24 +365,36 @@ function SectionHeading({
   onToggle,
   colorClass,
   icon,
+  sticky = false,
 }: {
   label: string;
   count: number;
   collapsed: boolean;
   onToggle?: () => void;
-  colorClass: string;
+  /** Overrides the shared heading colour. Only Focus does — it is an indigo
+   *  card and the heading is part of that identity. */
+  colorClass?: string;
   icon?: React.ReactNode;
+  /**
+   * Pin the heading while its own rows are on screen.
+   *
+   * Off for Focus, which is capped at {@link FOCUS_MAX} rows: a header can only
+   * pin while there is still section left to scroll past, so on three rows it
+   * would never engage — and its card has a tinted background a pinned band
+   * would have to match exactly or show as a seam.
+   */
+  sticky?: boolean;
 }) {
   const compact = useIsCompact();
-  const base = `flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${
-    compact ? "mb-1" : "mb-3"
-  } ${colorClass}`;
+  const base = `${sectionHeaderClass(compact, colorClass)} ${
+    compact ? "mb-1" : "mb-2"
+  } ${sticky ? `${STICKY_SECTION_HEADER} -mx-1 px-1` : ""}`;
   const inner = (
     <>
-      <Chevron collapsed={collapsed} />
+      <SectionCaret collapsed={collapsed} />
       {icon}
-      {label}
-      <span className="font-normal opacity-60">({count})</span>
+      <span className="truncate">{label}</span>
+      <SectionCount value={count} />
     </>
   );
   return onToggle ? (
@@ -404,12 +402,15 @@ function SectionHeading({
       type="button"
       onClick={onToggle}
       aria-expanded={!collapsed}
-      className={`${base} transition-opacity hover:opacity-70`}
+      className={`${base} text-left transition-opacity hover:opacity-70`}
+     
     >
       {inner}
     </button>
   ) : (
-    <h2 className={base}>{inner}</h2>
+    <h2 className={base}>
+      {inner}
+    </h2>
   );
 }
 
@@ -494,7 +495,7 @@ function OtherSection({
         count={tasks.length}
         collapsed={collapsed}
         onToggle={onToggleCollapse}
-        colorClass="text-neutral-400"
+        sticky
       />
       {!collapsed ? (
         <DroppableList
@@ -520,7 +521,7 @@ function SortableRow({ task, projects }: { task: Task; projects?: Project[] }) {
   return (
     <div
       ref={setNodeRef}
-      style={style}
+     
       suppressHydrationWarning
       {...attributes}
       {...listeners}
