@@ -139,7 +139,7 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
 
         {/* Capped because the icon grid expands in flow below; a tall dialog
             scrolls its body rather than running off the screen. */}
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto p-5">
+        <div className="max-h-[70vh] space-y-4 dd-scroll overflow-y-auto p-5">
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-500">
               Name

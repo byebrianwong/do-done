@@ -1666,7 +1666,7 @@ function ScheduleCalendar({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="mt-3 max-h-[280px] overflow-y-auto overscroll-contain rounded-lg border border-neutral-100 bg-neutral-50/60 px-2 pb-2 dark:border-neutral-900 dark:bg-neutral-900/40 [scrollbar-color:rgb(212_212_212)_transparent] [scrollbar-width:thin] dark:[scrollbar-color:rgb(64_64_64)_transparent]"
+          className="mt-3 max-h-[280px] dd-scroll overflow-y-auto overscroll-contain rounded-lg border border-neutral-100 bg-neutral-50/60 px-2 pb-2 dark:border-neutral-900 dark:bg-neutral-900/40"
         >
           {months.map((m) => (
             <MonthGrid
@@ -2318,7 +2318,7 @@ export function ScheduledTimeField({
           </div>
           <div
             ref={listRef}
-            className="max-h-[196px] overflow-y-auto overscroll-contain rounded-md [scrollbar-color:rgb(212_212_212)_transparent] [scrollbar-width:thin] dark:[scrollbar-color:rgb(64_64_64)_transparent]"
+            className="max-h-[196px] dd-scroll overflow-y-auto overscroll-contain rounded-md"
           >
             {TIME_SLOTS.map((slot) => {
               const selected = value === slot;
@@ -3087,7 +3087,7 @@ function TaskEditModalBody({
 
         {/* Scrollable region — keeps the modal within the viewport on short
             screens (phones) instead of overflowing off the bottom. */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 dd-scroll overflow-y-auto">
         {/* Input — the completion circle sits to the left of the title, the
             same arrangement as a task row in the list. The wrapper pins it to
             the title's line so it doesn't drift when tags wrap the input to a

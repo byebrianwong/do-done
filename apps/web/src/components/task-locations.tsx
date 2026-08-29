@@ -705,7 +705,7 @@ function AddPlacePanel({
         </button>
       </div>
 
-      <div className="mt-1.5 max-h-64 overflow-y-auto">
+      <div className="mt-1.5 max-h-64 dd-scroll overflow-y-auto">
         {savedMatches.length > 0 ? (
           <GroupLabel>Saved places</GroupLabel>
         ) : null}

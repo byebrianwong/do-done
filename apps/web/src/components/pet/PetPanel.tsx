@@ -563,7 +563,7 @@ function RecentLog({ events }: { events: PetEvent[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-2 overflow-y-auto">
+    <div className="flex flex-col gap-2 dd-scroll overflow-y-auto">
       <h3
         className="m-0 text-[13px] font-extrabold"
         style={{ color: "#4a3f1f", fontFamily: ROUNDED_SANS }}

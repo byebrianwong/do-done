@@ -281,7 +281,7 @@ export function ProjectIconPicker({
             </div>
           </div>
 
-          <div className="max-h-52 overflow-y-auto p-2">
+          <div className="max-h-52 dd-scroll overflow-y-auto p-2">
             {empty ? (
               <p className="px-1 py-6 text-center text-xs text-neutral-400">
                 {tab === "emoji" ? (

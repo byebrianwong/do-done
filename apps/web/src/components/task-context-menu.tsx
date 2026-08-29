@@ -491,7 +491,7 @@ export function TaskContextMenu({
         onClick={() => setSection((s) => (s === "move" ? null : "move"))}
       />
       {section === "move" ? (
-        <div className="max-h-44 space-y-0.5 overflow-y-auto px-1.5 pb-1">
+        <div className="max-h-44 space-y-0.5 dd-scroll overflow-y-auto px-1.5 pb-1">
           <button
             type="button"
             role="menuitem"

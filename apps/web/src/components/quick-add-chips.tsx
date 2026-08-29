@@ -144,7 +144,7 @@ function MonthScroller({
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120)
             setMonthsAhead((n) => n + 3);
         }}
-        className="max-h-[260px] overflow-y-auto px-2"
+        className="max-h-[260px] dd-scroll overflow-y-auto px-2"
       >
         {months.map((m) => (
           <MonthGrid

@@ -86,7 +86,7 @@ export function ProjectPickerPopover({
     <div
       role="listbox"
       aria-label="Project options"
-      className={`absolute top-full z-30 mt-2 max-h-[280px] w-[220px] overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
+      className={`absolute top-full z-30 mt-2 max-h-[280px] w-[220px] dd-scroll overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-[0_12px_24px_rgba(17,24,39,0.10),0_2px_6px_rgba(17,24,39,0.05)] dark:border-neutral-800 dark:bg-neutral-950 ${
         align === "right" ? "right-0" : "left-0"
       }`}
     >
