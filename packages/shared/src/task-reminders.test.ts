@@ -3,6 +3,7 @@ import type { NotificationSettings, Task } from "./schemas.js";
 import { NotificationSettingsSchema } from "./schemas.js";
 import {
   applyLead,
+  describeNotificationSchedule,
   buildDayStartRoundup,
   buildTaskReminder,
   describeLead,
@@ -284,5 +285,33 @@ describe("buildDayStartRoundup", () => {
         day
       )
     ).toBeNull();
+  });
+});
+
+describe("describeNotificationSchedule", () => {
+  it("is Off when nothing is switched on", () => {
+    expect(describeNotificationSchedule(settings())).toBe("Off");
+  });
+
+  it("names task reminders on their own", () => {
+    // The Settings row is labelled "Digests and reminders"; before this it
+    // read "Off" to someone who had just turned reminders on.
+    expect(
+      describeNotificationSchedule(settings({ notify_task_reminders: true }))
+    ).toBe("Task reminders");
+  });
+
+  it("joins reminders and a digest", () => {
+    expect(
+      describeNotificationSchedule(
+        settings({ notify_task_reminders: true, notify_daily_digest: true })
+      )
+    ).toBe("Task reminders · Daily at 8:00 AM");
+  });
+
+  it("still describes digests alone", () => {
+    expect(
+      describeNotificationSchedule(settings({ notify_daily_digest: true }))
+    ).toBe("Daily at 8:00 AM");
   });
 });

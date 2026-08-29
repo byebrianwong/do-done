@@ -14,7 +14,7 @@ import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
 import {
-  describeDigestSchedule,
+  describeNotificationSchedule,
   parseNotificationSettings,
 } from '@do-done/shared';
 import { getUserPrefsApi, supabase } from '@/lib/supabase';
@@ -80,7 +80,7 @@ export default function SettingsScreen() {
         else {
           setShowEvents(data?.show_calendar_events ?? true);
           setDigestSummary(
-            describeDigestSchedule(parseNotificationSettings(data))
+            describeNotificationSchedule(parseNotificationSettings(data))
           );
         }
       } catch {

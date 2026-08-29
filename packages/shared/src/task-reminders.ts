@@ -20,7 +20,7 @@
 // so the copy cannot read one way on the phone and another on the laptop.
 
 import type { NotificationSettings, Task } from "./schemas.js";
-import { shiftISO } from "./notifications.js";
+import { describeDigestSchedule, shiftISO } from "./notifications.js";
 
 /** How many task titles a roundup names before it collapses into "+N more". */
 export const ROUNDUP_BODY_TASKS = 3;
@@ -266,4 +266,29 @@ export function buildDayStartRoundup(
 /** True when any per-task notification could be armed at all. */
 export function isTaskReminderEnabled(settings: NotificationSettings): boolean {
   return settings.notify_task_reminders;
+}
+
+/**
+ * One-line summary of *everything* this app might send, for the Settings row
+ * that leads to the notifications screen.
+ *
+ * Distinct from `describeDigestSchedule`, which describes the digests alone and
+ * is still what the digest section itself uses. The row is labelled "Digests
+ * and reminders", so a summary that knew only about digests read "Off" to
+ * someone who had just switched task reminders on — a settings row contradicting
+ * the screen it opens.
+ *
+ * Lives here rather than beside `describeDigestSchedule` because this module
+ * already imports that one; the reverse would be a cycle.
+ */
+export function describeNotificationSchedule(
+  settings: NotificationSettings
+): string {
+  const digests = describeDigestSchedule(settings);
+  const bits: string[] = [];
+  if (settings.notify_task_reminders) bits.push("Task reminders");
+  // "Off" is this function's own answer for "nothing at all", not a piece to
+  // join — otherwise reminders-on would read "Task reminders · Off".
+  if (digests !== "Off") bits.push(digests);
+  return bits.length > 0 ? bits.join(" · ") : "Off";
 }
