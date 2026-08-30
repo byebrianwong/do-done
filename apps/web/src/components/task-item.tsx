@@ -66,6 +66,7 @@ import { useCompletionStreak } from "@/lib/completion-streak";
 import { CompletionSpark } from "./completion-spark";
 import { LinkifiedText } from "./linkified-text";
 import { ProjectIcon } from "./project-icon";
+import { QuickScheduleIcon } from "./phosphor-icon";
 import { ScheduleButton } from "./schedule-button";
 import {
   TaskEditModalV2,
@@ -520,6 +521,7 @@ function InlineScheduleEditor({
   // Friendly quick-pick labels, each resolving to a concrete calendar date.
   const quick = QUICK_SCHEDULE.map((q) => ({
     label: q.label,
+    icon: q.icon,
     date: resolveQuickSchedule(q.key),
   }));
 
@@ -566,6 +568,7 @@ function InlineScheduleEditor({
                       : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   }`}
                 >
+                  <QuickScheduleIcon icon={q.icon} size={14} />
                   <span>{q.label}</span>
                   <span
                     className={`text-[10px] font-normal ${

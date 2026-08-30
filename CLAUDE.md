@@ -2701,7 +2701,7 @@ chip label, a menu row — call `projectIconText`, which yields the character or
   fill** — because "Bold" beside "Fill" reads as two points on one scale.
 - **Fill is the default.** The glyph in the ring is 11–12px and Phosphor draws on a 256px
   grid, so a line weight lands under a device pixel while a solid shape survives.
-- **`phosphor-data.generated.ts` is generated, ~697 KB, and shared by all three renderers.**
+- **`phosphor-data.generated.ts` is generated, ~699 KB, and shared by all three renderers.**
   Web builds `<svg>` elements, mobile builds `react-native-svg` ones, and the widget takes
   **markup** from `phosphorSvgMarkup`, because the launcher's host draws none of React
   Native — the same reason the Quick Add tile ships as a string. Regenerate with
@@ -2729,6 +2729,49 @@ keeps refusing elsewhere.
 `references projects(id) on delete set null`, so they are unfiled and stay in the task
 universe; the confirm says so. That is also why the delete is behind a confirm at all —
 a task has an undo toast and `restore()` behind it, and this has neither.
+
+### The quick-schedule options have icons; the calendar does not
+
+Today / Tomorrow / This week / This weekend / Next week each carry a glyph, on the
+`QUICK_SCHEDULE` entries in `packages/shared/src/utils.ts`. They used to be five
+identical calendars, which meant the label did all the work.
+
+**The set mixes two families on purpose.** Five calendar variants would be one
+consistent family and unreadable at 16px — `calendar-blank` and `calendar-dots`
+differ by about three pixels there. So the two options with a strong metaphor take
+it (`sun-horizon` for tomorrow, `couch` for the weekend), and the two that only mean
+"further out" take `caret-right` and `caret-double-right`, where one chevron against
+two carries the ordinal difference the same way the row gutter's priority bar does.
+
+- **`QUICK_SCHEDULE_ICON_WEIGHT` is `bold`, not the `fill` a project icon defaults
+  to.** Two reasons, and the second decides it: these sit at 16–17px on a flat menu
+  row rather than at 12px inside a ring, so a line survives; and Phosphor draws
+  `caret-right` as a solid triangle in `fill`, which reads as "play" rather than
+  "further out". `quick-schedule.test.ts` asserts the weight is not `fill`, because
+  nothing else would notice.
+- **The two chevrons are in `EXTRA` in `tools/phosphor/catalogue.mjs`**, a second
+  list `emit.mjs` unions into `PHOSPHOR_PATHS` while leaving `PHOSPHOR_CATALOGUE`
+  alone. The picker offers 409 icons and the file holds 411: a chevron has to be
+  drawable without being something a project can be called.
+- **Mobile draws these as Phosphor rather than Ionicons**, which is otherwise the
+  icon language for its chrome. Ionicons has no sunrise and no couch, so matching web
+  would have meant one control with a different glyph set per platform.
+  `MenuItem.phosphor` is the opt-in and `MenuItem.icon` stays required, so a row
+  still has an Ionicon to fall back to.
+- **The icon is drawn where the options are stacked, not where they are pills.** The
+  quick-add date popover, the row's reschedule grid and both mobile pickers list the
+  five one under another. The context menu and the two web bulk bars lay them out as
+  wrapped pills, where every label is visible at once — there the glyph adds nothing
+  and costs 16px a pill, which pushed that cluster from two rows to three inside a
+  256px menu. The overdue section keeps its bare buttons for that reason and one
+  more: its three are a hand-picked subset, not this list.
+
+**Nothing date-shaped elsewhere gets these glyphs**, and that is the rule rather than
+work left undone. A calendar cell, an Upcoming day column and a "Tomorrow" section
+header already say which day they are, by position and by the date printed in them —
+a couch on every Saturday would be decoration that never varies, and a mark that
+appears everywhere carries no information. These five exist to tell five *options*
+apart at the moment of choosing, which is the only place the question is live.
 
 ## Testing
 

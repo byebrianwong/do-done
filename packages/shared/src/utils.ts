@@ -1,3 +1,4 @@
+import type { PhosphorWeight } from "./phosphor.js";
 import type { CalendarEvent, Task } from "./schemas.js";
 
 /**
@@ -201,13 +202,56 @@ export type QuickScheduleKey =
   | "this_weekend"
   | "next_week";
 
-/** Ordered quick-schedule options with their display labels. */
-export const QUICK_SCHEDULE: { key: QuickScheduleKey; label: string }[] = [
-  { key: "today", label: "Today" },
-  { key: "tomorrow", label: "Tomorrow" },
-  { key: "this_week", label: "This week" },
-  { key: "this_weekend", label: "This weekend" },
-  { key: "next_week", label: "Next week" },
+/**
+ * The weight the schedule menus draw their icons in.
+ *
+ * Outline, not the `fill` a project icon defaults to. Two reasons, and the
+ * second one decides it: these sit at 16-17px on a flat menu row rather than at
+ * 12px inside a ring, so a line survives; and `caret-right` is a chevron in
+ * every weight *except* `fill`, where Phosphor draws it as a solid triangle
+ * that reads as "expand" or "play" instead of "further out".
+ */
+export const QUICK_SCHEDULE_ICON_WEIGHT: PhosphorWeight = "bold";
+
+/**
+ * Ordered quick-schedule options with their display labels and icons.
+ *
+ * **The icon belongs to the option, not to the menu**, so a surface that draws
+ * one draws the same glyph web and mobile alike. They were five identical
+ * calendars before, which asked the user to read the label anyway.
+ *
+ * **It is drawn where the options are stacked, and not where they are a row of
+ * pills.** The quick-add date popover, the row's reschedule grid and both
+ * mobile pickers list the five one under another, which is the reading an icon
+ * helps with. The context menu and the two web bulk bars lay them out as
+ * wrapped pills instead: every label is already visible at once, so the glyph
+ * adds nothing — and it is 16px wider per pill, which pushed that cluster from
+ * two rows to three inside a 256px menu. The overdue section is left alone for
+ * the same reason and one more: its three buttons are a hand-picked subset, not
+ * this list.
+ *
+ * The set deliberately mixes two families. Five calendar variants would be one
+ * consistent family and unreadable at this size: `calendar-blank` and
+ * `calendar-dots` differ by three pixels here. So the two options with a strong
+ * metaphor take it (a sunrise for tomorrow, a couch for the weekend), and the
+ * two that only mean "further out" take one chevron and two — length carrying
+ * an ordinal difference, the same reasoning as the row gutter's priority bar.
+ *
+ * `caret-right` and `caret-double-right` are in `EXTRA` in
+ * `tools/phosphor/catalogue.mjs`, not in the picker's grid: they are drawn here
+ * but a chevron is not something a project can be called.
+ */
+export const QUICK_SCHEDULE: {
+  key: QuickScheduleKey;
+  label: string;
+  /** A Phosphor name in `PHOSPHOR_PATHS`. `quick-schedule.test.ts` checks it. */
+  icon: string;
+}[] = [
+  { key: "today", label: "Today", icon: "calendar-dots" },
+  { key: "tomorrow", label: "Tomorrow", icon: "sun-horizon" },
+  { key: "this_week", label: "This week", icon: "caret-right" },
+  { key: "this_weekend", label: "This weekend", icon: "couch" },
+  { key: "next_week", label: "Next week", icon: "caret-double-right" },
 ];
 
 /**

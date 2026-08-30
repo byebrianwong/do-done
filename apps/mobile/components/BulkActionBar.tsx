@@ -32,6 +32,7 @@ import {
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
+import { QuickScheduleIcon } from './PhosphorIcon';
 
 type Sheet = 'schedule' | 'priority' | 'move' | null;
 
@@ -40,6 +41,10 @@ interface Option {
   label: string;
   color?: string;
   destructive?: boolean;
+  /** A Phosphor name, drawn where a coloured dot would otherwise sit. The
+   *  schedule rows carry one; the priority rows keep their dot, which is the
+   *  rank's own colour. */
+  icon?: string;
 }
 
 const PRIORITY_ORDER: TaskPriority[] = ['p1', 'p2', 'p3', 'p4'];
@@ -73,7 +78,9 @@ function OptionSheet({
                 onPress={() => onPick(o.key)}
                 style={styles.optionRow}
               >
-                {o.color ? (
+                {o.icon ? (
+                  <QuickScheduleIcon icon={o.icon} />
+                ) : o.color ? (
                   <View style={[styles.optionDot, { backgroundColor: o.color }]} />
                 ) : null}
                 <Text
@@ -211,7 +218,7 @@ export function BulkActionBar() {
   };
 
   const scheduleOptions: Option[] = [
-    ...QUICK_SCHEDULE.map((q) => ({ key: q.key, label: q.label })),
+    ...QUICK_SCHEDULE.map((q) => ({ key: q.key, label: q.label, icon: q.icon })),
     { key: 'remove', label: 'Remove dates', destructive: true },
   ];
   const priorityOptions: Option[] = PRIORITY_ORDER.map((p) => ({
