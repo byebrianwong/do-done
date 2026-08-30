@@ -47,10 +47,15 @@ vi.mock("next/link", () => ({
   useLinkStatus: () => ({ pending: false }),
 }));
 
-function renderShell(props?: { pipHidden?: boolean }) {
+function renderShell(props?: {
+  pipHidden?: boolean;
+  projects?: typeof SAMPLE_PROJECTS;
+  projectsUnavailable?: boolean;
+}) {
   return render(
     <AppShell
-      projects={SAMPLE_PROJECTS}
+      projects={props?.projects ?? SAMPLE_PROJECTS}
+      projectsUnavailable={props?.projectsUnavailable}
       userEmail="beamer408@gmail.com"
       pipHidden={props?.pipHidden}
     >
@@ -193,5 +198,42 @@ describe("AppShell — responsive navigation", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, handler);
+  });
+
+  // An empty sidebar is a claim about the account. During the Supabase outage
+  // it was a false one, which is the same bug `lib/read-result.ts` fixes on the
+  // pages — except the layout cannot throw, since no boundary of ours wraps it.
+  describe("when the projects read failed", () => {
+    it("says so instead of showing an empty project list", () => {
+      renderShell({ projects: [], projectsUnavailable: true });
+
+      expect(screen.getByText(/Couldn’t load projects/i)).toBeInTheDocument();
+    });
+
+    it("keeps the rest of the shell usable", () => {
+      // The whole reason this is an inline notice rather than a thrown error:
+      // the shell, its nav and the page's own error card must survive.
+      renderShell({ projects: [], projectsUnavailable: true });
+
+      expect(screen.getByText("Page content")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /today/i })).toBeInTheDocument();
+    });
+
+    it("says nothing when the read simply found no projects", () => {
+      // Zero projects is a real answer and gets the ordinary empty list.
+      renderShell({ projects: [] });
+
+      expect(
+        screen.queryByText(/Couldn’t load projects/i)
+      ).not.toBeInTheDocument();
+    });
+
+    it("says nothing on an ordinary render", () => {
+      renderShell();
+
+      expect(
+        screen.queryByText(/Couldn’t load projects/i)
+      ).not.toBeInTheDocument();
+    });
   });
 });

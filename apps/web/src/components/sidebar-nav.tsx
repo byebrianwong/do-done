@@ -215,9 +215,18 @@ const PLACES_ITEM = {
 
 export function SidebarNav({
   projects = [],
+  projectsUnavailable = false,
   hasPlaces = false,
 }: {
   projects?: Project[];
+  /**
+   * Whether `projects` is empty because the read failed rather than because
+   * there are none. An empty sidebar is a claim about the user's account, and
+   * during an outage it was a false one — the same bug `lib/read-result.ts`
+   * fixes on the pages. The layout cannot throw (no boundary wraps it), so it
+   * hands the failure here and this section admits it in place.
+   */
+  projectsUnavailable?: boolean;
   /** Whether the user has any place at all — saved or attached to a task. */
   hasPlaces?: boolean;
 }) {
@@ -296,9 +305,23 @@ export function SidebarNav({
           Projects
         </Link>
       </div>
-      <SortableProjectList projects={workProjects} />
+      {projectsUnavailable ? (
+        // neutral-500, not the neutral-400 the headings above use: those are
+        // uppercase labels you skim, this is a sentence the user has to read,
+        // and 400 on the light sidebar lands around 2.6:1.
+        <p className="px-3 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+          Couldn&rsquo;t load projects
+        </p>
+      ) : (
+        <SortableProjectList projects={workProjects} />
+      )}
 
       {/*
+        Lists come out of the same read as projects, so when that read fails
+        this section simply renders nothing. That is deliberate: the notice
+        above already says the read failed, and repeating it under a second
+        heading would be two error messages for one cause.
+
         The Lists section renders only once there is a list. An empty heading
         would be a permanent advertisement for a feature on every screen of an
         app whose whole argument here is that shopping must not take up room
