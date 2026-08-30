@@ -1605,12 +1605,67 @@ turns a mild preference into a missed item. With no shop known — the ordinary
 case — nothing is elsewhere and the list is simply itself, which is how the
 feature degrades to a plain list when location is declined or absent.
 
+**`orderForShop` still has no caller.** It sorts a list for the shop you are
+standing in, which needs an answer to "which shop is that". Only Places and
+geofencing can give one, and neither is wired to a list yet. The function and its
+tests are written; the surface that would use them is not. Everything else about
+store hints — typing one, showing one, changing one — works without it.
+
 Hints ride in `tags` under an `at:` prefix (`STORE_TAG_PREFIX`) rather than a
 column: tags already round-trip through every capture surface and MCP, and a
 column would be nullable on every task in the app to describe a field only items
 can have. `sameStore` matches on a normalised key and lets either side contain
 the other, because the hint is typed by a person ("trader joes") and the shop
 name comes from OpenStreetMap ("Trader Joe's #142").
+
+#### Typing a store: `@` names one
+
+`@` names a store the way `#` names a project. Typing `milk @Trader Joe's` in a
+list composer creates an item called "milk" carrying the tag `at:Trader Joe's`.
+
+`#` could not be reused. It means project first, tag otherwise, and a shopping
+list is a project, so `#target` becomes ambiguous the day someone names a project
+Target. `@` was unused, and it reads correctly out loud: milk at Trader Joe's.
+
+**The token runs to the end of the line.** A store name can contain spaces, and
+real ones usually do. A `\S+` token would handle `@target`, but it would read
+`@Whole Foods` as a store called "Whole" and leave "Foods" in the item name. The
+rule is that the store goes last.
+
+The `@` must start the line or follow a space, so an email address inside an item
+name is left alone. A trailing `@` with nothing after it matches nothing, which is
+the correct reading of a half-typed token.
+
+**Only the list composers parse it.** `parseTaskInput` reads every task title in
+the app, where `@` usually means a person, so a global rule would file "@sam" as a
+shop. `extractStoreToken` is called by the two list composers and nowhere else.
+
+Three places to set a store:
+
+| Where | Control |
+| --- | --- |
+| The composer | Type `@`. Stores already on the list are suggested; Tab accepts the first. |
+| The row, on hover (web) | A text input backed by a `<datalist>` |
+| The long-press sheet (mobile) | `ItemSheet`, which used to be the aisle picker. Store sits above aisle. |
+
+Tab is the same binding `SuggestedFacets` uses for the history's guesses, so the
+two cannot come to mean different things.
+
+**The row control is a text input, not a `<select>`.** The answer it collects is
+"one of these, or a new one", and a select can only express the first half. Using
+one would make the composer the only place a store could ever be created, which is
+wrong for the row you are looking at when you realise the bread is better
+somewhere else. A `<datalist>` gives the suggestions and keyboard support without
+a custom popover.
+
+Suggestions come from `storesOnList`, which counts bought items as well as open
+ones. The cart is where the previous shop's stores are, so dropping them when an
+item is ticked would empty the suggestions when they are most useful.
+
+**Setting a store is one write. Correcting an aisle is two.** A store has no
+lesson to record, because it describes one purchase rather than the words. Buying
+batteries at Target once does not mean batteries always come from Target. "Bananas
+are produce" is a fact about the language, so that one is stored.
 
 ### Aisles: guessed from a built-in lexicon
 
@@ -1710,10 +1765,10 @@ mis-ticks.
 ### The surfaces
 
 Both apps go through `@do-done/shared/lists` — `openItems`, `gotItems`,
-`summarizeList`, `listSubline`, `splitProjects` — so a count cannot mean one thing
-on the laptop and another on the phone. An empty list says **"Nothing on it"**,
-not "0 items": empty is a shopping list's resting state, not a number worth
-printing.
+`summarizeList`, `listSubline`, `itemSubline`, `splitProjects` — so a count cannot
+mean one thing on the laptop and another on the phone. An empty list says
+**"Nothing on it"**, not "0 items": empty is a shopping list's resting state, not
+a number worth printing.
 
 | | Where |
 | --- | --- |
@@ -1732,9 +1787,11 @@ is a burst, not one item, which is the one place a list composer must diverge fr
 the task composer. On mobile that is `blurOnSubmit={false}` plus
 `submitBehavior="submit"`.
 
-**Clear bought soft-deletes**, which is what makes a list standing rather than
+**Put away soft-deletes**, which is what makes a list standing rather than
 disposable: the list survives, its history does not pile up in it, and the ids it
-returns are an undo token `TasksApi.restore` takes directly.
+returns are an undo token `TasksApi.restore` takes directly. It was called "Clear
+bought" until the pantry landed — see *Putting a list away no longer destroys
+anything*.
 
 **Web's sidebar section appears only once a list exists.** A permanent heading
 for an unused feature is exactly the clutter this design argues against.
@@ -1761,6 +1818,39 @@ thing instead, and the only sign was a row moving into the cart.
 `list-view.test.tsx` is the regression on web; there is no renderer on mobile, so
 that half is verified on the simulator.
 
+#### The row shows the store and the scheduled day
+
+`itemSubline` in `@do-done/shared` builds the muted line under an item's name. It
+returns the store, then the scheduled day, then the deadline. The caller joins the
+parts with a middot.
+
+**An unset field adds nothing to the line.** No placeholder, no empty chip, no
+reserved space. Most items have a name and nothing else, so most rows are a single
+word. This is the rule `rowSubline` follows for tasks.
+
+**An overdue item prints its age rather than its date** — "3 days ago", not
+"Aug 26". The age says this is something you keep forgetting, which a date does
+not.
+
+`itemSubline` does not call `rowSubline`, because a task row and an item row need
+different facts. An item has no project worth naming, since it is the list you are
+looking at. It has no status worth naming, since the tick says it. It has no
+recurrence. It does have a store, which a task row has nowhere to show. The only
+part they share is the date.
+
+Two layout rules:
+
+- **The title wraps.** Web used to set it to one line with an ellipsis, inside a
+  grid that split into two columns from `sm`, so names clipped at roughly half the
+  page width. The grid splits at `lg` now, and the title wraps to as many lines as
+  it needs.
+- **Both rows align to the top.** A ring centred against a two-line title looks
+  detached from the word it ticks off. On mobile this meant moving `flex: 1` off
+  the title and onto the column that wraps the title and its subline. Flex-basis
+  resolves against the container's main axis, so a `flex: 1` left on a `Text`
+  inside a column sets a vertical basis of 0 and collapses the title to height 0.
+  This is the same mistake already documented on the task row's title.
+
 **A list's own name, icon and colour are editable from the list.** Web's
 `ProjectActions` — the same Edit button a project page has, since the form behind
 it already knows how to say "Edit list" — sits in the header of `/lists/<id>`.
@@ -1784,6 +1874,132 @@ re-introducing. A list's items live under `listKeys`, not `taskKeys`:
 
 `listKeys` is therefore *defined* in `task-queries.ts` beside `tagKeys` and
 re-exported from `list-queries.ts`, because the reverse import would be a cycle.
+
+### The pantry: what you bought before
+
+A shopping list never finishes. It empties and refills, and most of what goes on
+it has been on it before. `list_pantry` records that history, so putting an item
+back is one click instead of typing the word again.
+
+**The history could not be derived from past items.** `TASK_TRASH_RETENTION_MS` is
+one hour, and `purgeDeleted()` runs on every launch and every return to the
+foreground. Putting a list away soft-deletes its bought items, and the purge
+destroys them within the hour. Anything computed by sweeping past items would have
+forgotten the week by that afternoon.
+
+Keeping those rows instead is the obvious alternative and does not work. Buying
+milk weekly for a year is 52 rows for one word, each carrying its own tags,
+attachments and sort order. The drawer would have to group them back into one line
+anyway, and "deleted" would stop meaning deleted.
+
+```
+list_pantry (user_id, list_id, term)
+  title            as last written
+  last_bought_at
+  buy_count
+  gaps             days between the last ten buys, oldest first
+  store            where it was last bought
+```
+
+`term` is `learnableTerm(title)`, the same key `list_term_aisles` uses, so "6 eggs"
+and "eggs" are one entry. The composite primary key handles concurrency the same
+way that table does: two devices ticking milk settle on last-writer-wins rather
+than creating a duplicate row.
+
+**The pantry is per list. `list_term_aisles` is per user.** They are kept separate
+on purpose. "Bananas are produce" is a fact about the language and holds on every
+list someone keeps. "Milk comes from Trader Joe's" is a fact about one kind of
+shopping. Folding one into the other would scope the aisle memory down to a single
+list, so the pantry stores no aisle at all and `itemAisle` still answers that
+question.
+
+**A buy is recorded in `TasksApi.update`**, the one door web, mobile and MCP all
+write through. `clearGot` was the other candidate and would miss two cases: an item
+ticked but never cleared, and an item deleted by hand after being bought.
+
+The write is fire-and-forget, and its errors are swallowed, for the same reason as
+the pet code beside it. The task row is already correct. A lost pantry entry costs
+one extra correction later; a failed tick costs the user the thing they came to
+buy.
+
+**`record_pantry_buy` does the upsert, the count and the gap in one statement.**
+Reading the row, computing the gap in the client and writing it back would take two
+round trips on one of the most repeated actions in the app, and would lose a buy
+when two devices tick the same item at once. Same-day repeats are ignored, so tick,
+untick and tick again cannot inflate the count or store a zero-day gap.
+
+> **The migration is on main but has not been applied to the database.**
+> `supabase db push --linked` still needs running from the main checkout. Until it
+> is, the pantry and the due strip do nothing: `PantryApi.load()` returns an empty
+> array on failure, so the drawer does not render, and the record error is
+> swallowed. The row and `@store` need no schema change and work regardless.
+
+#### Putting a list away no longer destroys anything
+
+"Clear bought" is now **Put away**. The write is unchanged — the bought items are
+still soft-deleted, and `TasksApi.restore` still takes the returned ids as an undo
+token. What changed is that each of those items was recorded in the pantry when it
+was ticked, so nothing worth keeping is lost.
+
+**So clearing stays one unconfirmed tap.** Making it harder would cost time on
+every shopping trip to prevent a loss that no longer happens. The extra step moved
+to deleting a pantry entry instead, which is the one action on these screens that
+cannot be undone: an ✕ on hover on web, a long press on mobile, one item at a
+time.
+
+#### The drawer, and what it leaves out
+
+The drawer sits below the list and holds three bands: last 2 weeks, last 2 months,
+earlier. `pantryBands` builds them, newest first within each, and drops any band
+that is empty.
+
+**Only the first band is open.** After a year "Earlier" holds hundreds of rows, and
+a list screen should not open two screens below its own list. You reach that band
+through the composer instead: `searchPantry` matches a few typed letters against
+every entry, including those in collapsed bands, and adds the item with its store
+attached.
+
+**Entries already on the list are excluded**, from both the drawer and the
+suggestions. This stops the drawer duplicating the list. It also makes an
+accidental tick self-correcting: un-ticking puts the row back on the list, which
+hides its pantry entry again.
+
+**The sandbox seeds a history across all three bands.** An empty drawer shows
+nothing useful, and a visitor to `/demo` has no shopping history of their own.
+
+#### Cadence: measuring the rhythm rather than guessing it
+
+The two-week and two-month bands approximate an item's buying rhythm rather than
+measuring it, so they mis-sort some items. Rice bought three weeks ago lands next
+to a genuine one-off. Milk bought fifteen days ago drops a band.
+
+Once an item has been bought three times, its own gaps answer the question
+directly. The list opens on **Probably due**: entries past their own measured
+interval, each a pill that adds the item. The bands stay below for anything with
+fewer than three buys, which is every entry on the first shop after this ships and
+a shrinking share afterwards.
+
+**Entries are ranked by how far past its rhythm each item is, not by age.** Two
+weeks late on milk matters more than two weeks late on rice, and only the ratio
+captures that.
+
+Four rules, each of which stops the feature becoming annoying:
+
+- **Three buys before it claims anything** (`CADENCE_MIN_BUYS`). Two buys is one
+  gap, and one gap proves nothing. Salt bought in January and again in March would
+  otherwise announce a two-month rhythm.
+- **A median, not a mean.** This is why `gaps` is an array rather than a running
+  average. One holiday drags a mean far enough that a weekly item never reads as
+  due again.
+- **Due expires** (`CADENCE_STALE_FACTOR`, three times the interval). Past that an
+  item has been abandoned rather than left late. Without the ceiling every item
+  eventually becomes due and stays due, and something given up on years ago ranks
+  first.
+- **The label hedges.** `cadenceLabel` says "about weekly", not "every 7 days". The
+  estimate comes from a handful of shopping trips, and the wording should say so.
+
+The strip is capped at six pills (`CADENCE_MAX_SUGGESTIONS`), and due entries are
+removed from the bands below, so nothing is offered twice on one screen.
 
 ### Known traps
 
