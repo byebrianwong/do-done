@@ -26,10 +26,12 @@ vi.mock("next/navigation", () => ({
 
 const complete = vi.fn();
 const reopen = vi.fn();
+const create = vi.fn();
 vi.mock("@/lib/supabase/tasks-client", () => ({
   getClientTasksApi: async () => ({
     complete,
     reopen,
+    create,
     getById: async () => ({ data: null, error: null }),
   }),
 }));
@@ -71,6 +73,11 @@ beforeEach(() => {
   complete.mockResolvedValue({ data: null, error: null });
   reopen.mockReset();
   reopen.mockResolvedValue({ data: null, error: null });
+  create.mockReset();
+  create.mockResolvedValue({
+    data: makeTask({ id: "item-2", title: "Olive oil", project_id: "list-1" }),
+    error: null,
+  });
   window.history.replaceState(null, "", "/lists/list-1");
 });
 
@@ -93,5 +100,43 @@ describe("a shopping-list row", () => {
     expect(complete).toHaveBeenCalledWith("item-1");
     // And ticking must not open anything over the list being walked.
     expect(paramId()).toBeNull();
+  });
+});
+
+/**
+ * The composer's leading plus used to be a bare `+` glyph that did nothing,
+ * while every other plus in the app is a button. It is one control now, and
+ * what it does depends on which end of the field it is parked at.
+ *
+ * Both halves are asserted because either can rot on its own: the idle half is
+ * the only reason a plus is defensible here at all, and the live half is the
+ * only commit control this composer has.
+ */
+describe("the composer's action glyph", () => {
+  it("focuses the field when it is a plus", async () => {
+    mount();
+    const field = screen.getByPlaceholderText("Add an item to buy");
+    // The field autofocuses, so the glyph starts at the trailing edge. Step
+    // away first to reach the state a returning user sees.
+    field.blur();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add an item" }));
+
+    expect(field).toHaveFocus();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("commits the item when it is a return key", async () => {
+    mount();
+    await userEvent.type(
+      screen.getByPlaceholderText("Add an item to buy"),
+      "Olive oil"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Add this item" }));
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Olive oil", project_id: "list-1" })
+    );
   });
 });

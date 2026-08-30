@@ -13,6 +13,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  ComposerActionGlyph,
+  GLYPH_CLEARANCE,
+  GLYPH_PAD,
+} from '../../../components/ComposerActionGlyph';
+import {
   Stack,
   useFocusEffect,
   useLocalSearchParams,
@@ -125,6 +130,12 @@ export default function ListDetailScreen() {
   const router = useRouter();
   const [draft, setDraft] = useState('');
   const [added, setAdded] = useState(0);
+  // What moves the action glyph to the trailing edge. Text counts as well
+  // as focus: a half-typed item the keyboard has been dismissed over still
+  // has something to commit.
+  const [composerFocused, setComposerFocused] = useState(false);
+  // The glyph travels the field's width, so the field has to report it.
+  const [composerWidth, setComposerWidth] = useState(0);
   const [picking, setPicking] = useState<Task | null>(null);
   /** The item whose editor is up. An item is a task, so it is the same sheet. */
   const [editing, setEditing] = useState<Task | null>(null);
@@ -388,23 +399,44 @@ export default function ListDetailScreen() {
       />
       <UpdatingBar visible={loadState.showUpdating} />
 
-      <View style={styles.composer}>
-        <Ionicons name="add" size={20} color="#6366f1" />
-        <TextInput
-          ref={inputRef}
-          value={draft}
-          onChangeText={setDraft}
-          onSubmitEditing={submit}
-          // The two props that make this a burst rather than one item: the
-          // keyboard stays up, and return commits instead of dismissing.
-          blurOnSubmit={false}
-          returnKeyType="done"
-          submitBehavior="submit"
-          placeholder="Add an item"
-          placeholderTextColor="#9ca3af"
-          style={styles.input}
+      <View
+        style={styles.composer}
+        onLayout={(e) => setComposerWidth(e.nativeEvent.layout.width)}
+      >
+        <ComposerActionGlyph
+          width={composerWidth}
+          active={composerFocused || draft.length > 0}
+          // The same test `submit` guards on, so the return key is live
+          // exactly when pressing it would write something.
+          armed={extractStoreToken(draft).title.length > 0}
+          onSubmit={() => void submit()}
+          onFocusField={() => inputRef.current?.focus()}
+          idleLabel="Add an item"
+          submitLabel="Add this item"
         />
-        {added > 0 && <Text style={styles.added}>{added} added</Text>}
+        {/* The field keeps clear of both gutters at all times, so the glyph
+            has somewhere to sit at either end and the "N added" receipt never
+            lands under it. The idle gutter on the right costs 20pt of a field
+            nothing else was using. */}
+        <View style={styles.composerField}>
+          <TextInput
+            ref={inputRef}
+            value={draft}
+            onChangeText={setDraft}
+            onSubmitEditing={submit}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
+            // The two props that make this a burst rather than one item: the
+            // keyboard stays up, and return commits instead of dismissing.
+            blurOnSubmit={false}
+            returnKeyType="done"
+            submitBehavior="submit"
+            placeholder="Add an item to buy"
+            placeholderTextColor="#9ca3af"
+            style={styles.input}
+          />
+          {added > 0 && <Text style={styles.added}>{added} added</Text>}
+        </View>
       </View>
 
       {/*
@@ -886,13 +918,20 @@ const styles = StyleSheet.create({
   composer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     backgroundColor: '#ffffff',
     marginHorizontal: 12,
     marginTop: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: GLYPH_PAD,
     paddingVertical: 10,
     borderRadius: 12,
+  },
+  // Clears the glyph's gutter at both ends, whichever one it is parked in.
+  composerField: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: GLYPH_CLEARANCE,
   },
   input: { flex: 1, fontSize: 15, color: '#111827', padding: 0 },
   added: { fontSize: 11, color: '#9ca3af', fontVariant: ['tabular-nums'] },

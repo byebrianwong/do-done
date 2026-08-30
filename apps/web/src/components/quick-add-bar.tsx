@@ -10,7 +10,7 @@ import { TaskEditModalV2 } from "./task-edit-modal-v2";
 function PlusIcon() {
   return (
     <svg
-      className="h-5 w-5 shrink-0 text-indigo-500"
+      className="h-5 w-5 shrink-0"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -102,7 +102,31 @@ export function QuickAddBar({
         }`}
       >
         <div className="flex items-center gap-2.5 px-4 py-3">
-          <PlusIcon />
+          {/*
+            A plus that focuses the field, not a decoration.
+
+            The list composer's plus slides to the trailing edge and becomes a
+            return key, because nothing else there commits. This bar cannot do
+            that: focusing it expands the form, and the expanded form grows its
+            own "Add task" button a few pixels below. A return key here would be
+            a second commit control beside the real one. So the plus keeps its
+            promise the other way — click it and you are typing, which is what
+            starting an add means.
+          */}
+          <button
+            type="button"
+            onClick={() => inputRef.current?.focus()}
+            // Hidden from the tab order and from screen readers, because it
+            // does nothing the field beside it does not already do: a keyboard
+            // reaches the input directly, and a second control announcing "Add
+            // a task" next to the input of the same name is noise. This is a
+            // pointer convenience, which is the one audience it has.
+            tabIndex={-1}
+            aria-hidden
+            className="shrink-0 rounded text-indigo-500 transition-colors hover:text-indigo-600 dark:hover:text-indigo-400"
+          >
+            <PlusIcon />
+          </button>
           <input
             ref={inputRef}
             type="text"

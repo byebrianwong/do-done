@@ -45,6 +45,7 @@ import { getClientTasksApi } from "@/lib/supabase/tasks-client";
 import { getClientAisleTermsApi } from "@/lib/supabase/aisle-terms-client";
 import { getClientPantryApi } from "@/lib/supabase/pantry-client";
 import { useOpenTask } from "@/lib/open-task";
+import { ComposerActionGlyph } from "@/components/composer-action-glyph";
 
 interface ListViewProps {
   list: Project;
@@ -86,6 +87,10 @@ export function ListView({
   const openTask = useOpenTask();
   const [items, setItems] = useState(initialItems);
   const [draft, setDraft] = useState("");
+  // Whether the composer is live, which is what moves the action glyph to
+  // the trailing edge. Text counts as well as focus: a half-typed item the
+  // user has clicked away from still has something to commit.
+  const [composerFocused, setComposerFocused] = useState(false);
   const [addedCount, setAddedCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -387,15 +392,30 @@ export function ListView({
         undo affordance here would be a third way to do the same thing.
       */}
       <div className="relative">
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-neutral-800">
-          <span aria-hidden className="text-indigo-500">
-            +
-          </span>
+        {/*
+          The field reserves a gutter on both sides at all times, so the glyph
+          has somewhere to sit at either end and the "N added" receipt never
+          lands under it. The idle gutter on the right costs 20px of a field
+          nothing else was using.
+        */}
+        <div className="relative flex items-center gap-2 rounded-lg border border-neutral-200 py-2 pl-9 pr-9 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-neutral-800">
+          <ComposerActionGlyph
+            active={composerFocused || draft.length > 0}
+            // The same test `addItem` guards on, so the return key is live
+            // exactly when pressing it would write something.
+            armed={!busy && extractStoreToken(draft).title.length > 0}
+            onSubmit={() => void addItem()}
+            onFocusField={() => inputRef.current?.focus()}
+            idleLabel="Add an item"
+            submitLabel="Add this item"
+          />
           <input
             ref={inputRef}
             type="text"
             value={draft}
             autoFocus
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               /*
@@ -422,7 +442,7 @@ export function ListView({
                 void addItem();
               }
             }}
-            placeholder="Add an item — press Enter to keep going"
+            placeholder="Add an item to buy"
             className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
           />
           {addedCount > 0 && (

@@ -14,21 +14,6 @@ import { useBackdropDismiss } from "@/lib/backdrop-dismiss";
 import { ParsedPreview, QuickAddChipRow, SuggestedFacets } from "./quick-add-chips";
 import { TaskEditModalV2 } from "./task-edit-modal-v2";
 
-function PlusIcon({ className = "h-5 w-5" }: { className?: string }) {
-  return (
-    <svg
-      className={`${className} shrink-0`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m7-7H5" />
-    </svg>
-  );
-}
-
 /**
  * The universal quick-add modal. Opened from the sidebar button, the command
  * palette, or the `q` shortcut. A single natural-language input plus the shared
@@ -160,10 +145,16 @@ export function QuickAddModal({
             className="w-full max-w-xl rounded-xl bg-white shadow-2xl dark:bg-neutral-900"
             onClick={(e) => e.stopPropagation()}
           >
+            {/*
+              No leading plus here, unlike the bar and the list composer.
+
+              This field autofocuses on open, so a plus that focuses it would
+              be a control that never does anything, and the footer already
+              carries both the commit button and the "↵ add" hint. A plus is a
+              button everywhere else in DoDone; the honest options were to make
+              it one or to drop it, and there is nothing left for it to do.
+            */}
             <div className="flex items-center gap-3 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
-              <span className="text-indigo-500">
-                <PlusIcon />
-              </span>
               <input
                 ref={inputRef}
                 type="text"
