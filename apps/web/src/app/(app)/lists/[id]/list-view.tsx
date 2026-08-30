@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -25,16 +26,19 @@ import {
   itemSubline,
   listSubline,
   openItems,
-  storeHint,
+  addStoreHint,
+  removeStoreHint,
+  storeHints,
+  storeLabel,
   storeSuggestions,
   storeTag,
   storesOnList,
+  storesTyped,
   summarizeList,
   typingStoreToken,
   applyStoreToken,
-  extractStoreToken,
+  extractStoreTokens,
   withAisle,
-  withStoreHint,
   lastBoughtLabel,
   pantryBands,
   searchPantry,
@@ -165,8 +169,13 @@ export function ListView({
   // empty string is a real answer: a bare `@` opens the full list.
   const storeQuery = typingStoreToken(draft);
   const storeMatches = useMemo(
-    () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
-    [stores, storeQuery]
+    () =>
+      storeQuery === null
+        ? []
+        : // Shops already named on this line are left out, so a second `@`
+          // offers the ones still to pick rather than repeating the first.
+          storeSuggestions(stores, storeQuery, { exclude: storesTyped(draft) }),
+    [stores, storeQuery, draft]
   );
   /*
     The composer's memory. A few keystrokes should be enough to put back
@@ -211,8 +220,8 @@ export function ListView({
   async function addItem() {
     // `@` names a store, the way `#` names a project. Parsed here rather than
     // in `parseTaskInput`, because elsewhere in the app `@` usually means a
-    // person. See `extractStoreToken`.
-    const { title, store } = extractStoreToken(draft);
+    // person. See `extractStoreTokens`.
+    const { title, stores: typed } = extractStoreTokens(draft);
     if (!title || busy) return;
     // Cleared *before* the write, not after: the field has to be ready for the
     // next word immediately, which is what the burst composer exists for.
@@ -222,14 +231,14 @@ export function ListView({
     const { data, error } = await api.create({
       title,
       project_id: list.id,
-      ...(store ? { tags: [storeTag(store)] } : {}),
+      ...(typed.length > 0 ? { tags: typed.map(storeTag) } : {}),
     });
     setBusy(false);
     inputRef.current?.focus();
     if (error || !data) {
-      // Restore what they typed, `@store` included. Restoring the parsed title
-      // would silently drop the store when the network fails.
-      setDraft(store ? `${title} @${store}` : title);
+      // Restore what they typed, every `@store` included. Restoring the parsed
+      // title alone would silently drop the shops when the network fails.
+      setDraft([title, ...typed.map((s) => `@${s}`)].join(" ").trim());
       return;
     }
     // Append only if the row isn't already here. The optimistic add and the
@@ -247,8 +256,9 @@ export function ListView({
   /**
    * Adds an item back to the list from the pantry.
    *
-   * It arrives with the store it was last bought at. That is the difference
-   * between taking a suggestion and typing the word again.
+   * It arrives with the shops it was last bought at — all of them, since an
+   * item sold in two places was named that way for a reason. That is the
+   * difference between taking a suggestion and typing the word again.
    */
   async function addFromPantry(entry: PantryEntry) {
     if (busy) return;
@@ -258,7 +268,7 @@ export function ListView({
     const { data } = await api.create({
       title: entry.title,
       project_id: list.id,
-      ...(entry.store ? { tags: [storeTag(entry.store)] } : {}),
+      ...(entry.stores.length > 0 ? { tags: entry.stores.map(storeTag) } : {}),
     });
     setBusy(false);
     inputRef.current?.focus();
@@ -334,15 +344,22 @@ export function ListView({
   }
 
   /**
-   * Sets or clears an item's store.
+   * Adds a shop to an item, or takes it off again.
    *
    * One write, unlike an aisle correction, which is two. There is no lesson to
    * record: a store describes this purchase, not the words. Buying batteries at
    * Target once does not mean batteries always come from Target, whereas
    * "bananas are produce" is a fact about the language and worth remembering.
    */
-  async function setStore(item: Task, store: string | null) {
-    const tags = withStoreHint(item.tags, store);
+  async function addStore(item: Task, store: string) {
+    await writeStores(item, addStoreHint(item.tags, store));
+  }
+
+  async function removeStore(item: Task, store: string) {
+    await writeStores(item, removeStoreHint(item.tags, store));
+  }
+
+  async function writeStores(item: Task, tags: string[]) {
     setItems((prev) =>
       prev.map((t) => (t.id === item.id ? { ...t, tags } : t))
     );
@@ -403,7 +420,7 @@ export function ListView({
             active={composerFocused || draft.length > 0}
             // The same test `addItem` guards on, so the return key is live
             // exactly when pressing it would write something.
-            armed={!busy && extractStoreToken(draft).title.length > 0}
+            armed={!busy && extractStoreTokens(draft).title.length > 0}
             onSubmit={() => void addItem()}
             onFocusField={() => inputRef.current?.focus()}
             idleLabel="Add an item"
@@ -476,7 +493,9 @@ export function ListView({
                   </span>
                   <span className="truncate">{entry.title}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-neutral-400">
-                    {entry.store && <span>{entry.store}</span>}
+                    {entry.stores.length > 0 && (
+                      <span>{storeLabel(entry.stores)}</span>
+                    )}
                     <span>{lastBoughtLabel(entry.last_bought_at)}</span>
                     {i === 0 && (
                       <kbd className="rounded border border-neutral-200 px-1 text-[10px] dark:border-neutral-700">
@@ -588,7 +607,8 @@ export function ListView({
                   onToggle={toggle}
                   onOpen={openTask?.open}
                   onAisle={setAisle}
-                  onStore={setStore}
+                  onAddStore={addStore}
+                  onRemoveStore={removeStore}
                   stores={stores}
                   memory={memory}
                 />
@@ -701,7 +721,7 @@ function PantryBandView({
               </span>
               <span className="ml-auto shrink-0 text-xs text-neutral-400">
                 {[
-                  entry.store,
+                  storeLabel(entry.stores),
                   cadenceLabel(entry),
                   lastBoughtLabel(entry.last_bought_at),
                 ]
@@ -734,7 +754,8 @@ function ItemRow({
   onToggle,
   onOpen,
   onAisle,
-  onStore,
+  onAddStore,
+  onRemoveStore,
   stores = [],
   memory,
 }: {
@@ -748,7 +769,9 @@ function ItemRow({
   /** Absent in the cart, where an aisle no longer decides anything. */
   onAisle?: (t: Task, aisle: Aisle | null) => void;
   /** Absent in the cart, for the same reason. */
-  onStore?: (t: Task, store: string | null) => void;
+  onAddStore?: (t: Task, store: string) => void;
+  /** Absent in the cart, for the same reason. */
+  onRemoveStore?: (t: Task, store: string) => void;
   /** Stores already on this list, offered as completions. */
   stores?: string[];
   /** So the select shows the aisle the row is actually filed under. */
@@ -756,7 +779,7 @@ function ItemRow({
 }) {
   const done = item.status === "done" || item.status === "cancelled";
   const aisle = itemAisle(item, memory);
-  const store = storeHint(item);
+  const stored = storeHints(item);
   /*
     No `truncate`. An item name is short, so two lines is a sensible ceiling,
     and now that the title has the whole row (see the overlay below) almost
@@ -768,9 +791,15 @@ function ItemRow({
       ? "text-neutral-400 line-through dark:text-neutral-600"
       : "text-neutral-900 dark:text-neutral-100"
   }`;
-  // The store and the day as one muted line, the same shape `rowSubline` gives
-  // a task row. Empty for most items, in which case nothing renders.
-  const subline = itemSubline(item).join(" · ");
+  /*
+    The day and the deadline as one muted line, the same shape `rowSubline`
+    gives a task row. Empty for most items, in which case nothing renders.
+
+    The shops are pulled out of it and rendered as buttons, because a shop is
+    the one thing on this line you can take off from the row. `hideStore` is
+    what `itemSubline` has for exactly this.
+  */
+  const subline = itemSubline(item, { hideStore: true }).join(" · ");
   return (
     /*
       `items-start`, not `items-center`. A row can now be two lines of title
@@ -828,8 +857,73 @@ function ItemRow({
         ) : (
           <span className={titleClass}>{item.title}</span>
         )}
-        {subline && (
-          <span className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+        {(stored.length > 0 || subline) && (
+          /*
+            The shops sit where they always were, in the muted line under the
+            title — but each is a button that takes it off.
+
+            Here rather than in the hover overlay below, for two reasons. The
+            overlay is invisible at rest, so shops put there would be shown
+            nowhere until the pointer arrived. And it is one fixed-width strip
+            over the end of the title: chips sized by their contents would
+            widen it under the pointer, and two stacked ones would grow the row
+            and push the rows below it down.
+
+            So the overlay holds the field that *adds* a shop, and the line
+            that already names them is where they come off. The row's height
+            never changes, and the shops are stated once.
+
+            The ✕ is absent at rest rather than transparent. Reserving its width
+            leaves a gap in every store line — "Costco  or Aldi" — which is a
+            small permanent wrongness on the state people are looking at almost
+            all the time. Letting it appear on hover nudges the rest of the line
+            right instead, once, before the pointer has aimed at anything.
+
+            The line is laid out as text, not as flex, so the separators keep
+            their spaces: a flex container trims the leading and trailing space
+            of every child, and "Costco , Aldi" is what that produces. It also
+            lets a long shop name wrap mid-line like the words it sits among.
+          */
+          <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            {stored.map((name, i) => (
+              <Fragment key={name}>
+                {/*
+                  The same grammar as `storeLabel`, which is what mobile's row
+                  and the pantry drawer print. The phrase has to read the same
+                  wherever it appears, even though only this one is editable.
+                */}
+                {i > 0 && (
+                  <span aria-hidden>
+                    {i === stored.length - 1 ? " or " : ", "}
+                  </span>
+                )}
+                {onRemoveStore ? (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveStore(item, name)}
+                    /*
+                      Named rather than left to its content, so a screen reader
+                      says what the ✕ does instead of reading the glyph. The
+                      shop's own name stays in the label, so a voice command
+                      spoken off the visible text still reaches it.
+                    */
+                    aria-label={`Remove ${name}`}
+                    className="rounded hover:text-red-600 dark:hover:text-red-400"
+                  >
+                    {name}
+                    <span
+                      aria-hidden
+                      className="hidden pl-0.5 text-neutral-400 group-focus-within/item:inline group-hover/item:inline"
+                    >
+                      ✕
+                    </span>
+                  </button>
+                ) : (
+                  <span>{name}</span>
+                )}
+              </Fragment>
+            ))}
+            {stored.length > 0 && subline && <span aria-hidden> · </span>}
             {subline}
           </span>
         )}
@@ -856,7 +950,7 @@ function ItemRow({
         Invisible controls over the title would take clicks meant for it, and
         opening the item is what the row's words are for.
       */}
-      {(onStore || onAisle) && (
+      {(onAddStore || onAisle) && (
         <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/item:pointer-events-auto group-hover/item:opacity-100">
           {/* A fade rather than a hard edge, so a title long enough to reach
               the controls is not cut off mid-word against a wall of white.
@@ -869,7 +963,7 @@ function ItemRow({
           />
           <span className="flex h-full items-center gap-1 bg-white dark:bg-neutral-950">
             {/*
-              The store, as a text input backed by a <datalist>.
+              Adding a shop: a text input backed by a <datalist>.
 
               Not a <select>, because the answer is "one of these or a new one"
               and a select cannot express the second half. That would make the
@@ -881,26 +975,32 @@ function ItemRow({
               Committed on blur and on Enter rather than per keystroke, since a
               store is free text and writing every keystroke would send "T",
               "Tr", "Tra" to the API on the way to "Target".
+
+              It adds rather than holds, and clears itself afterwards, so a
+              second shop can follow the first. An item can name several, and a
+              single-valued field has nothing to show for two. Taking one off
+              happens on the shop's own name in the subline instead — which is
+              also the only place the shops appear at rest, since this overlay
+              is invisible until the row is hovered.
             */}
-            {onStore && (
+            {onAddStore && (
               <label className="shrink-0">
-                <span className="sr-only">Store for {item.title}</span>
+                <span className="sr-only">Add a shop for {item.title}</span>
                 <input
                   type="text"
                   list={`stores-${item.id}`}
-                  defaultValue={store ?? ""}
-                  placeholder="Store"
+                  placeholder={stored.length > 0 ? "+ shop" : "Store"}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") {
-                      e.currentTarget.value = store ?? "";
+                      e.currentTarget.value = "";
                       e.currentTarget.blur();
                     }
                   }}
                   onBlur={(e) => {
                     const next = e.target.value.trim();
-                    if (next === (store ?? "")) return;
-                    onStore(item, next || null);
+                    e.target.value = "";
+                    if (next) onAddStore(item, next);
                   }}
                   className="w-24 cursor-pointer rounded border-0 bg-transparent px-1 py-1 text-[11px] text-neutral-400 placeholder:text-neutral-400 dark:text-neutral-500"
                 />

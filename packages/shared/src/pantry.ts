@@ -22,7 +22,12 @@ export interface PantryEntry {
   buy_count: number;
   /** Days between the last few buys, oldest first. Capped at ten entries. */
   gaps: number[];
-  store: string | null;
+  /**
+   * Where it was last bought — every shop named on the item at the time, so
+   * putting it back restores all of them rather than leaving the user to
+   * re-add the second one at the shelf.
+   */
+  stores: string[];
 }
 
 // ── The bands ──────────────────────────────────────────
@@ -148,7 +153,7 @@ export function lastBoughtLabel(iso: string, now: Date = new Date()): string {
  * Returns pantry entries matching the query, best match first.
  *
  * This is what lets the composer remember: a few keystrokes should be enough to
- * put back something bought repeatedly, with its store already attached.
+ * put back something bought repeatedly, with its shops already attached.
  *
  * Ranked by where the match falls, then by how often the item is bought, so a
  * weekly staple beats something bought once eight months ago. Entries already

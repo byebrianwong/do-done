@@ -678,14 +678,14 @@ export class TasksApi {
       const listId = updated.project_id;
       void (async () => {
         try {
-          const [{ PantryApi }, { storeHint }] = await Promise.all([
+          const [{ PantryApi }, { storeHints }] = await Promise.all([
             import("./pantry.js"),
             import("@do-done/shared"),
           ]);
           await new PantryApi(supabase, userId).record(
             listId,
             updated.title,
-            storeHint(updated)
+            storeHints(updated)
           );
         } catch {
           // swallow — the pantry must never break a tick

@@ -421,15 +421,16 @@ const TASK_SEED: TaskSeed[] = [
   // them appear in Today, Inbox, Upcoming or All. That absence is the feature,
   // and it is visible in the sandbox because these rows exist.
   //
-  // Two deliberate exceptions, both there to exercise `itemSubline`: a store
-  // hint, which the row is the only place in the app to show; and one dated
-  // item, which also shows that a list item with a scheduled date still does
-  // not reach Today. The old "no dates at all" rule left that untested.
+  // Two deliberate exceptions, both there to exercise `itemSubline`: store
+  // hints, which the row is the only place in the app to show — one item names
+  // two shops, since an item can — and one dated item, which also shows that a
+  // list item with a scheduled date still does not reach Today. The old "no
+  // dates at all" rule left that untested.
   { title: "Whole milk", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Bananas", project: P.groceries },
   { title: "Greek yoghurt", project: P.groceries, tags: ["at:Trader Joe's"] },
   { title: "Sourdough", project: P.groceries },
-  { title: "Paper towels", project: P.groceries, tags: ["at:Target"] },
+  { title: "Paper towels", project: P.groceries, tags: ["at:Target", "at:Costco"] },
   { title: "Parmesan", project: P.groceries },
   {
     title: "Ice for the cool box",
@@ -460,21 +461,23 @@ const PANTRY_SEED: Array<{
   title: string;
   daysAgo: number;
   buys: number;
-  store?: string;
+  stores?: string[];
   /** Days between recent buys, which is what cadence is measured from. */
   gaps?: number[];
 }> = [
   // Last 2 weeks — the weekly shop.
-  { list: P.groceries, title: "Greek yoghurt", daysAgo: 6, buys: 14, store: "Trader Joe's", gaps: [7, 6, 8, 7, 6] },
+  { list: P.groceries, title: "Greek yoghurt", daysAgo: 6, buys: 14, stores: ["Trader Joe's"], gaps: [7, 6, 8, 7, 6] },
   { list: P.groceries, title: "Spinach", daysAgo: 6, buys: 9, gaps: [7, 8, 6, 7] },
-  { list: P.groceries, title: "Chicken thighs", daysAgo: 9, buys: 11, store: "Trader Joe's", gaps: [8, 7, 6, 9] },
-  { list: P.groceries, title: "Coffee beans", daysAgo: 11, buys: 8, gaps: [14, 12, 15, 13] },
+  { list: P.groceries, title: "Chicken thighs", daysAgo: 9, buys: 11, stores: ["Trader Joe's"], gaps: [8, 7, 6, 9] },
+  // Bought at either, which is what an item with two shops looks like coming
+  // back out of the drawer: it returns to the list carrying both.
+  { list: P.groceries, title: "Coffee beans", daysAgo: 11, buys: 8, stores: ["Trader Joe's", "Target"], gaps: [14, 12, 15, 13] },
   { list: P.groceries, title: "Tomatoes", daysAgo: 13, buys: 6, gaps: [10, 9, 12] },
   // Last 2 months — the fortnightly and monthly things.
   { list: P.groceries, title: "Olive oil", daysAgo: 24, buys: 4, gaps: [90, 84, 96] },
   { list: P.groceries, title: "Rice", daysAgo: 31, buys: 5, gaps: [88, 92, 85] },
-  { list: P.groceries, title: "Dish soap", daysAgo: 38, buys: 6, store: "Target", gaps: [44, 40, 46] },
-  { list: P.groceries, title: "Bin bags", daysAgo: 45, buys: 5, store: "Target", gaps: [60, 55, 58] },
+  { list: P.groceries, title: "Dish soap", daysAgo: 38, buys: 6, stores: ["Target"], gaps: [44, 40, 46] },
+  { list: P.groceries, title: "Bin bags", daysAgo: 45, buys: 5, stores: ["Target"], gaps: [60, 55, 58] },
   { list: P.groceries, title: "Frozen berries", daysAgo: 55, buys: 3, gaps: [50, 60] },
   // Earlier — the twice-a-year things, and the one-off nobody will buy again.
   { list: P.groceries, title: "Baking soda", daysAgo: 96, buys: 3, gaps: [150, 170] },
@@ -494,7 +497,7 @@ export function demoPantryFor(listId: string): PantryEntry[] {
     last_bought_at: new Date(now - e.daysAgo * 86_400_000).toISOString(),
     buy_count: e.buys,
     gaps: e.gaps ?? [],
-    store: e.store ?? null,
+    stores: e.stores ?? [],
   }));
 }
 

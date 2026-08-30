@@ -1652,6 +1652,13 @@ turns a mild preference into a missed item. With no shop known — the ordinary
 case — nothing is elsewhere and the list is simply itself, which is how the
 feature degrades to a plain list when location is declined or absent.
 
+**An item may name several shops, and one match is enough to keep it here.**
+Plenty of things are sold in more than one place. The original rule was one hint
+per item, on the grounds that "here or here or here" is not much of a hint; the
+failure that produced was worse than vagueness, and it was the exact failure this
+section exists to prevent. Milk hinted at Trader Joe's sank into Better elsewhere
+while you stood in Target, which also sells milk.
+
 **`orderForShop` still has no caller.** It sorts a list for the shop you are
 standing in, which needs an answer to "which shop is that". Only Places and
 geofencing can give one, and neither is wired to a list yet. The function and its
@@ -1661,11 +1668,21 @@ store hints — typing one, showing one, changing one — works without it.
 Hints ride in `tags` under an `at:` prefix (`STORE_TAG_PREFIX`) rather than a
 column: tags already round-trip through every capture surface and MCP, and a
 column would be nullable on every task in the app to describe a field only items
-can have. `sameStore` matches on a normalised key and lets either side contain
-the other, because the hint is typed by a person ("trader joes") and the shop
-name comes from OpenStreetMap ("Trader Joe's #142").
+can have. A repeating field is also the one shape a scalar column could not have
+taken without a join table. `sameStore` matches on a normalised key and lets
+either side contain the other, because the hint is typed by a person ("trader
+joes") and the shop name comes from OpenStreetMap ("Trader Joe's #142"); the same
+key deduplicates, so "Trader Joe's" typed in the composer and "trader joes" typed
+at the shelf are one shop rather than two.
 
-#### Typing a store: `@` names one
+`storeHints` reads them, and three setters write them: `addStoreHint`,
+`removeStoreHint` and `toggleStoreHint`, over `withStoreHints`. Three rather than
+one call with a flag, because the controls really are separate — web's row has an
+"add a shop" field and one ✕ per shop, and mobile's sheet has a list of shops that
+tick on and off. `storeLabel` is the phrase they are named by: "Target",
+"Target or Costco", "Target, Costco or Aldi".
+
+#### Typing a store: `@` names one, and `@ @` names two
 
 `@` names a store the way `#` names a project. Typing `milk @Trader Joe's` in a
 list composer creates an item called "milk" carrying the tag `at:Trader Joe's`.
@@ -1674,26 +1691,33 @@ list composer creates an item called "milk" carrying the tag `at:Trader Joe's`.
 list is a project, so `#target` becomes ambiguous the day someone names a project
 Target. `@` was unused, and it reads correctly out loud: milk at Trader Joe's.
 
-**The token runs to the end of the line.** A store name can contain spaces, and
-real ones usually do. A `\S+` token would handle `@target`, but it would read
+**The run of tokens reaches the end of the line, and ` @` separates them.**
+`milk @Target @Trader Joe's` is one item at two shops. A store name can contain
+spaces and real ones usually do, so a `\S+` token would handle `@target` but read
 `@Whole Foods` as a store called "Whole" and leave "Foods" in the item name. The
-rule is that the store goes last.
+rule is that the shops go last.
 
-The `@` must start the line or follow a space, so an email address inside an item
-name is left alone. A trailing `@` with nothing after it matches nothing, which is
-the correct reading of a half-typed token.
+The first `@` must start the line or follow a space, so an email address inside an
+item name is left alone. A trailing `@` with nothing after it matches nothing,
+which is the correct reading of a half-typed token.
+
+**`typingStoreToken` reports only the last token**, because that is the one the
+autocomplete is answering: with `milk @Target @tra` the open question is "tra".
+`storesTyped` reports the ones already settled, which is what the suggestion list
+leaves out — so a second `@` offers the shops you have not picked yet rather than
+repeating the first.
 
 **Only the list composers parse it.** `parseTaskInput` reads every task title in
 the app, where `@` usually means a person, so a global rule would file "@sam" as a
-shop. `extractStoreToken` is called by the two list composers and nowhere else.
+shop. `extractStoreTokens` is called by the two list composers and nowhere else.
 
 Three places to set a store:
 
 | Where | Control |
 | --- | --- |
 | The composer | Type `@`. Stores already on the list are suggested; Tab accepts the first. |
-| The row, on hover (web) | A text input backed by a `<datalist>` |
-| The long-press sheet (mobile) | `ItemSheet`, which used to be the aisle picker. Store sits above aisle. |
+| The row (web) | A `<datalist>`-backed field adds one, on hover. Each shop's own name in the subline removes it. |
+| The long-press sheet (mobile) | `ItemSheet`, which used to be the aisle picker. Every shop ticks on and off; the sheet stays open. |
 
 Tab is the same binding `SuggestedFacets` uses for the history's guesses, so the
 two cannot come to mean different things.
@@ -1705,9 +1729,36 @@ wrong for the row you are looking at when you realise the bread is better
 somewhere else. A `<datalist>` gives the suggestions and keyboard support without
 a custom popover.
 
+**Adding and removing happen in different places on web, and that is a layout
+result rather than a preference.** The field adds and then clears itself: it
+cannot hold two values, and it is a fixed width the row's title has to share its
+line with. Removing therefore happens on the shop's own name in the subline,
+where the shops are already printed. Two earlier arrangements are worth not
+retrying — a chip cluster sized by its contents in the row's right-hand slot left
+a title 23px on a 368px row, one character per line; giving that slot a fixed
+width fixed the crush and moved the cost to hover, where two stacked chips grew
+the row and pushed the rows below it down under the pointer.
+
+The ✕ is **absent** at rest rather than transparent. Reserving its width leaves a
+gap in every store line — "Costco  or Aldi" — which is a small permanent wrongness
+on the state people look at almost all the time, where letting it appear on hover
+nudges the rest of one line right, once, before the pointer has aimed at anything.
+That line is laid out as text rather than flex, so the separators keep their
+spaces: a flex container trims the leading and trailing space of every child, and
+"Costco , Aldi" is what that produces.
+
+**Mobile's sheet stays open across a store tap**, unlike an aisle pick, which
+closes it: the answer is not finished after one tap. That is also why the screen
+holds the long-pressed item by *id* rather than by value — a `Task` snapshot would
+keep the tags it was opened with, and the ticks would stop moving after the first
+tap. Shops named on the item but not used elsewhere on the list are listed too, or
+they would carry a tick nothing on screen showed.
+
 Suggestions come from `storesOnList`, which counts bought items as well as open
-ones. The cart is where the previous shop's stores are, so dropping them when an
-item is ticked would empty the suggestions when they are most useful.
+ones, and counts an item at two shops once for each. The cart is where the previous
+shop's stores are, so dropping them when an item is ticked would empty the
+suggestions when they are most useful, and a shop only ever used as a second choice
+would never reach them at all.
 
 **Setting a store is one write. Correcting an aisle is two.** A store has no
 lesson to record, because it describes one purchase rather than the words. Buying
@@ -1932,8 +1983,12 @@ undo toast the rest of the app gives.
 #### The row shows the store and the scheduled day
 
 `itemSubline` in `@do-done/shared` builds the muted line under an item's name. It
-returns the store, then the scheduled day, then the deadline. The caller joins the
+returns the shops, then the scheduled day, then the deadline. The caller joins the
 parts with a middot.
+
+**The shops are one part, not one each.** `storeLabel` names them as a phrase —
+"Target or Costco" — because the caller's middot separates *kinds* of fact, and
+"Target · Costco · Sat" reads as three of the same kind when two of them are one.
 
 **An unset field adds nothing to the line.** No placeholder, no empty chip, no
 reserved space. Most items have a name and nothing else, so most rows are a single
@@ -2009,7 +2064,7 @@ list_pantry (user_id, list_id, term)
   last_bought_at
   buy_count
   gaps             days between the last ten buys, oldest first
-  store            where it was last bought
+  stores           every shop it was last bought at
 ```
 
 `term` is `learnableTerm(title)`, the same key `list_term_aisles` uses, so "6 eggs"
@@ -2024,6 +2079,13 @@ shopping. Folding one into the other would scope the aisle memory down to a sing
 list, so the pantry stores no aisle at all and `itemAisle` still answers that
 question.
 
+**Every shop is remembered, not the last one.** An item put back from the drawer
+arrives carrying all of them, because an item named at two shops was named that way
+for a reason and re-adding the second at the shelf every week is the work the drawer
+exists to remove. An item bought without naming a shop leaves the remembered ones
+alone rather than clearing them: an unnamed buy says nothing about where, and the
+remembered shop is still the best guess there is.
+
 **A buy is recorded in `TasksApi.update`**, the one door web, mobile and MCP all
 write through. `clearGot` was the other candidate and would miss two cases: an item
 ticked but never cleared, and an item deleted by hand after being bought.
@@ -2032,6 +2094,16 @@ The write is fire-and-forget, and its errors are swallowed, for the same reason 
 the pet code beside it. The task row is already correct. A lost pantry entry costs
 one extra correction later; a failed tick costs the user the thing they came to
 buy.
+
+`list_pantry.stores` replaced a single `store` column in
+`20260830000001_pantry_stores.sql`. That migration leaves the old column in place
+and keeps a single-store overload of `record_pantry_buy` beside the new `text[]`
+one, so a client on the previous bundle keeps recording rather than failing: it
+writes the new column, and PostgREST picks the overload by the argument names in
+the request body. `PantryApi` reads `stores` and falls back to `store`. None of
+that covers a client running *ahead* of the migration — a select naming a column
+the table does not have fails outright, and `load` reports that as an empty
+pantry — so apply the migration before shipping the bundle.
 
 **`record_pantry_buy` does the upsert, the count and the gap in one statement.**
 Reading the row, computing the gap in the client and writing it back would take two
