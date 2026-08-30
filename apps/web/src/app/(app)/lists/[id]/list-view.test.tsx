@@ -27,12 +27,20 @@ vi.mock("next/navigation", () => ({
 const complete = vi.fn();
 const reopen = vi.fn();
 const create = vi.fn();
+const update = vi.fn();
 vi.mock("@/lib/supabase/tasks-client", () => ({
   getClientTasksApi: async () => ({
     complete,
     reopen,
     create,
+    update,
     getById: async () => ({ data: null, error: null }),
+  }),
+}));
+
+vi.mock("@/lib/supabase/pantry-client", () => ({
+  getClientPantryApi: async () => ({
+    load: async () => ({ data: [], error: null }),
   }),
 }));
 
@@ -78,6 +86,8 @@ beforeEach(() => {
     data: makeTask({ id: "item-2", title: "Olive oil", project_id: "list-1" }),
     error: null,
   });
+  update.mockReset();
+  update.mockResolvedValue({ data: null, error: null });
   window.history.replaceState(null, "", "/lists/list-1");
 });
 
@@ -138,5 +148,82 @@ describe("the composer's action glyph", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Olive oil", project_id: "list-1" })
     );
+  });
+});
+
+/**
+ * An item can be sold in more than one place, so the row's control adds shops
+ * rather than replacing one.
+ *
+ * The failure this guards against is silent: a control that overwrites looks
+ * identical while you type the second shop, and the loss only shows up as an
+ * item filed at one place when you named two.
+ */
+describe("the shops on an item", () => {
+  /**
+   * The row's "add a shop" field, invisible until the row is hovered. A
+   * combobox rather than a textbox: it is backed by a <datalist>.
+   */
+  function storeField(title: string) {
+    return screen.getByRole("combobox", { name: `Add a shop for ${title}` });
+  }
+
+  /** The `tags` array the last `update` call would have written. */
+  function writtenTags(): string[] {
+    return update.mock.calls.at(-1)?.[1].tags ?? [];
+  }
+
+  it("adds a second shop beside the first", async () => {
+    render(
+      <OpenTaskProvider>
+        <ListView
+          list={LIST}
+          initialItems={[{ ...ITEM, tags: ["at:Target"] }]}
+        />
+      </OpenTaskProvider>
+    );
+
+    await userEvent.type(storeField("Bananas"), "Trader Joe's{Enter}");
+
+    expect(writtenTags()).toEqual(["at:Target", "at:Trader Joe's"]);
+  });
+
+  it("clears the field after adding, so the next shop can follow", async () => {
+    mount();
+    await userEvent.type(storeField("Bananas"), "Target{Enter}");
+    expect(storeField("Bananas")).toHaveValue("");
+  });
+
+  it("takes one shop off and leaves the other", async () => {
+    render(
+      <OpenTaskProvider>
+        <ListView
+          list={LIST}
+          initialItems={[{ ...ITEM, tags: ["at:Target", "at:Costco"] }]}
+        />
+      </OpenTaskProvider>
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove Target" }));
+
+    expect(writtenTags()).toEqual(["at:Costco"]);
+  });
+
+  it("names both shops under the item, each one removable", async () => {
+    render(
+      <OpenTaskProvider>
+        <ListView
+          list={LIST}
+          initialItems={[{ ...ITEM, tags: ["at:Target", "at:Costco"] }]}
+        />
+      </OpenTaskProvider>
+    );
+
+    // The shops are stated once, in the line under the title, and that line is
+    // also where they come off. The row's hover overlay holds the field that
+    // adds one; it is invisible at rest, so shops shown only there would be
+    // shown nowhere.
+    expect(screen.getByRole("button", { name: "Remove Target" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Costco" })).toBeInTheDocument();
   });
 });

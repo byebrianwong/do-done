@@ -3,8 +3,9 @@ import type { Project, Task } from "./schemas.js";
 import { isListProject, projectKind } from "./schemas.js";
 import {
   STORE_TAG_PREFIX,
+  addStoreHint,
   applyStoreToken,
-  extractStoreToken,
+  extractStoreTokens,
   gotItems,
   isGot,
   itemSubline,
@@ -14,13 +15,17 @@ import {
   orderForShop,
   sameStore,
   splitProjects,
-  storeHint,
+  removeStoreHint,
+  storeHints,
+  storeLabel,
   storeSuggestions,
   storeTag,
   storesOnList,
+  storesTyped,
+  toggleStoreHint,
   typingStoreToken,
   summarizeList,
-  withStoreHint,
+  withStoreHints,
 } from "./lists.js";
 
 function item(
@@ -69,45 +74,95 @@ describe("openItems / gotItems", () => {
   });
 });
 
-describe("storeHint", () => {
-  it("reads a prefixed tag and ignores ordinary ones", () => {
-    expect(storeHint({ tags: ["urgent", `${STORE_TAG_PREFIX}Costco`] })).toBe("Costco");
-    expect(storeHint({ tags: ["urgent", "costco"] })).toBeNull();
-    expect(storeHint({ tags: [] })).toBeNull();
+describe("storeHints", () => {
+  it("reads the prefixed tags and ignores everything else", () => {
+    expect(storeHints({ tags: ["urgent", `${STORE_TAG_PREFIX}Costco`] })).toEqual([
+      "Costco",
+    ]);
+    expect(storeHints({ tags: ["urgent", "costco"] })).toEqual([]);
+    expect(storeHints({ tags: [] })).toEqual([]);
   });
 
-  it("takes the first of several rather than joining them", () => {
-    // A hint that says "here or here" has stopped being a hint; the second is
-    // ignored rather than silently changing what the row means.
+  it("keeps every shop named, in the order they were tagged", () => {
+    // An item can be sold in more than one place, and naming both is what
+    // keeps it in front of you whichever shop you end up in.
     expect(
-      storeHint({ tags: [`${STORE_TAG_PREFIX}Costco`, `${STORE_TAG_PREFIX}Safeway`] })
-    ).toBe("Costco");
+      storeHints({
+        tags: [`${STORE_TAG_PREFIX}Costco`, `${STORE_TAG_PREFIX}Safeway`],
+      })
+    ).toEqual(["Costco", "Safeway"]);
+  });
+
+  it("counts two spellings of one shop once", () => {
+    // Typed in the composer and again at the shelf. The first spelling wins,
+    // because that is the one already on screen.
+    expect(
+      storeHints({
+        tags: [`${STORE_TAG_PREFIX}Trader Joe's`, `${STORE_TAG_PREFIX}trader joes`],
+      })
+    ).toEqual(["Trader Joe's"]);
   });
 
   it("ignores a bare prefix with no store after it", () => {
-    expect(storeHint({ tags: [STORE_TAG_PREFIX] })).toBeNull();
-    expect(storeHint({ tags: [`${STORE_TAG_PREFIX}   `] })).toBeNull();
+    expect(storeHints({ tags: [STORE_TAG_PREFIX] })).toEqual([]);
+    expect(storeHints({ tags: [`${STORE_TAG_PREFIX}   `] })).toEqual([]);
   });
 });
 
-describe("withStoreHint", () => {
-  it("keeps every other tag", () => {
-    expect(withStoreHint(["urgent", "bulk"], "Costco")).toEqual([
+describe("withStoreHints / addStoreHint / removeStoreHint / toggleStoreHint", () => {
+  it("keeps the item's other tags", () => {
+    expect(withStoreHints(["urgent", "bulk"], ["Costco"])).toEqual([
       "urgent",
       "bulk",
       storeTag("Costco"),
     ]);
   });
 
-  it("replaces rather than appends", () => {
-    const once = withStoreHint([], "Costco");
-    expect(withStoreHint(once, "Safeway")).toEqual([storeTag("Safeway")]);
+  it("replaces the whole set rather than adding to it", () => {
+    const once = withStoreHints([], ["Costco"]);
+    expect(withStoreHints(once, ["Safeway"])).toEqual([storeTag("Safeway")]);
   });
 
-  it("clears on null or blank without touching the rest", () => {
-    const tagged = withStoreHint(["urgent"], "Costco");
-    expect(withStoreHint(tagged, null)).toEqual(["urgent"]);
-    expect(withStoreHint(tagged, "   ")).toEqual(["urgent"]);
+  it("clears the hints when given none", () => {
+    const tagged = withStoreHints(["urgent"], ["Costco"]);
+    expect(withStoreHints(tagged, [])).toEqual(["urgent"]);
+    expect(withStoreHints(tagged, ["   "])).toEqual(["urgent"]);
+  });
+
+  it("adds a second shop beside the first", () => {
+    const one = addStoreHint([], "Target");
+    expect(storeHints({ tags: addStoreHint(one, "Costco") })).toEqual([
+      "Target",
+      "Costco",
+    ]);
+  });
+
+  it("does not add a shop the item already has, however it is spelled", () => {
+    const tags = addStoreHint([], "Trader Joe's");
+    expect(addStoreHint(tags, "trader joes")).toEqual(tags);
+  });
+
+  it("removes one shop and leaves the rest", () => {
+    const tags = addStoreHint(addStoreHint(["urgent"], "Target"), "Costco");
+    expect(removeStoreHint(tags, "target")).toEqual(["urgent", storeTag("Costco")]);
+  });
+
+  it("toggles a shop off and on again", () => {
+    const on = toggleStoreHint([], "Target");
+    expect(storeHints({ tags: on })).toEqual(["Target"]);
+    const off = toggleStoreHint(on, "Target");
+    expect(storeHints({ tags: off })).toEqual([]);
+  });
+});
+
+describe("storeLabel", () => {
+  it("names one shop plainly and joins the rest with 'or'", () => {
+    expect(storeLabel([])).toBe("");
+    expect(storeLabel(["Target"])).toBe("Target");
+    expect(storeLabel(["Target", "Costco"])).toBe("Target or Costco");
+    expect(storeLabel(["Target", "Costco", "Aldi"])).toBe(
+      "Target, Costco or Aldi"
+    );
   });
 });
 
@@ -150,6 +205,18 @@ describe("orderForShop", () => {
     expect(here.map((i) => i.title)).toEqual(["Milk", "Parmesan"]);
   });
 
+  it("keeps an item in front of you at any shop it names", () => {
+    // The reason an item may name several. Under one hint per item, milk
+    // hinted at Trader Joe's sank into "Better elsewhere" while you stood in
+    // Target, which also sells milk.
+    const both = [
+      item("Milk", { tags: [storeTag("Target"), storeTag("Trader Joe's")] }),
+    ];
+    expect(orderForShop(both, "Target").here).toHaveLength(1);
+    expect(orderForShop(both, "Trader Joe's").here).toHaveLength(1);
+    expect(orderForShop(both, "Costco").elsewhere).toHaveLength(1);
+  });
+
   it("sinks other shops' items but never drops them", () => {
     const { here, elsewhere, got } = orderForShop(list, "Whole Foods");
     expect(elsewhere.map((i) => i.title)).toEqual(["Sourdough", "Olive oil"]);
@@ -188,6 +255,16 @@ describe("storesOnList", () => {
     ];
     expect(storesOnList(items)).toEqual(["Costco", "Aldi", "Safeway"]);
   });
+
+  it("counts an item at two shops once for each", () => {
+    // Otherwise a shop only ever used as a second choice never reaches the
+    // suggestions, and the composer cannot offer what the list already uses.
+    const items = [
+      item("a", { tags: [storeTag("Costco"), storeTag("Aldi")] }),
+      item("b", { tags: [storeTag("Aldi")] }),
+    ];
+    expect(storesOnList(items)).toEqual(["Aldi", "Costco"]);
+  });
 });
 
 describe("summarizeList / listSubline", () => {
@@ -225,67 +302,98 @@ describe("summarizeList / listSubline", () => {
   });
 });
 
-describe("extractStoreToken", () => {
+describe("extractStoreTokens", () => {
   it("reads a store off the end of the line", () => {
-    expect(extractStoreToken("milk @Trader Joe's")).toEqual({
+    expect(extractStoreTokens("milk @Trader Joe's")).toEqual({
       title: "milk",
-      store: "Trader Joe's",
+      stores: ["Trader Joe's"],
     });
   });
 
   it("keeps multi-word stores whole", () => {
-    // Why the token runs to end-of-line. A `\S+` token would give a store
+    // Why the run reaches end-of-line. A `\S+` token would give a store
     // called "Whole" and an item called "milk Foods".
-    expect(extractStoreToken("oat milk @Whole Foods").store).toBe(
-      "Whole Foods"
-    );
+    expect(extractStoreTokens("oat milk @Whole Foods").stores).toEqual([
+      "Whole Foods",
+    ]);
+  });
+
+  it("reads several shops off one line", () => {
+    // ` @` is what separates them, so each may still contain spaces.
+    expect(extractStoreTokens("milk @Target @Trader Joe's")).toEqual({
+      title: "milk",
+      stores: ["Target", "Trader Joe's"],
+    });
   });
 
   it("leaves an item with no token alone", () => {
-    expect(extractStoreToken("  bananas  ")).toEqual({
+    expect(extractStoreTokens("  bananas  ")).toEqual({
       title: "bananas",
-      store: null,
+      stores: [],
     });
   });
 
   it("does not read an email address as a store", () => {
     // The @ has to open the line or follow a space.
-    expect(extractStoreToken("ask matt@example.com about the cake")).toEqual({
+    expect(extractStoreTokens("ask matt@example.com about the cake")).toEqual({
       title: "ask matt@example.com about the cake",
-      store: null,
+      stores: [],
     });
   });
 
   it("ignores a half-typed token", () => {
     // Mid-keystroke, before any store has been named.
-    expect(extractStoreToken("milk @").store).toBeNull();
+    expect(extractStoreTokens("milk @").stores).toEqual([]);
+    expect(extractStoreTokens("milk @Target @").stores).toEqual(["Target"]);
   });
 
   it("survives a token with no item name", () => {
     // The composer rejects an empty title; the parser just reports one.
-    expect(extractStoreToken("@Target")).toEqual({ title: "", store: "Target" });
+    expect(extractStoreTokens("@Target")).toEqual({
+      title: "",
+      stores: ["Target"],
+    });
   });
 });
 
-describe("typingStoreToken / applyStoreToken", () => {
+describe("typingStoreToken / storesTyped / applyStoreToken", () => {
   it("reports an empty query for a bare @, where the extractor reports none", () => {
     // The two answer different questions: what is being typed now, versus what
     // the user meant. A bare @ should open the full list.
     expect(typingStoreToken("milk @")).toBe("");
-    expect(extractStoreToken("milk @").store).toBeNull();
+    expect(extractStoreTokens("milk @").stores).toEqual([]);
   });
 
   it("reports the partial store being typed", () => {
     expect(typingStoreToken("milk @tra")).toBe("tra");
   });
 
+  it("reports only the last token, not the whole run", () => {
+    // With two shops open the question is "tra", not "Target @tra".
+    expect(typingStoreToken("milk @Target @tra")).toBe("tra");
+  });
+
   it("reports nothing when no token is open", () => {
     expect(typingStoreToken("milk")).toBeNull();
+  });
+
+  it("names the shops already chosen, not the one being typed", () => {
+    // What the suggestion list leaves out, so a second @ offers the rest.
+    expect(storesTyped("milk @Target @tra")).toEqual(["Target"]);
+    expect(storesTyped("milk @Target @")).toEqual(["Target"]);
+    expect(storesTyped("milk @Target")).toEqual([]);
+    expect(storesTyped("milk")).toEqual([]);
   });
 
   it("completes the open token", () => {
     expect(applyStoreToken("milk @tra", "Trader Joe's")).toBe(
       "milk @Trader Joe's"
+    );
+  });
+
+  it("completes the second token without disturbing the first", () => {
+    expect(applyStoreToken("milk @Target @tra", "Trader Joe's")).toBe(
+      "milk @Target @Trader Joe's"
     );
   });
 
@@ -323,6 +431,13 @@ describe("storeSuggestions", () => {
 
   it("returns nothing for a store nobody uses", () => {
     expect(storeSuggestions(known, "aldi")).toEqual([]);
+  });
+
+  it("leaves out shops already named on the line", () => {
+    // Offering a shop the item already has would only duplicate it.
+    expect(
+      storeSuggestions(known, "", { exclude: ["trader joes", "Target"] })
+    ).toEqual(["Whole Foods", "Trader's Hardware"]);
   });
 });
 
@@ -366,6 +481,19 @@ describe("itemSubline", () => {
   it("names the store", () => {
     const withStore = fullItem({ tags: [storeTag("Trader Joe's")] });
     expect(itemSubline(withStore, { now: NOW })).toEqual(["Trader Joe's"]);
+  });
+
+  it("names two shops as one part, not two", () => {
+    // The caller joins parts with a middot and the day is one of them, so
+    // "Target · Costco · Fri" would read as three facts of the same kind.
+    const both = fullItem({
+      tags: [storeTag("Target"), storeTag("Costco")],
+      scheduled_date: "2026-08-14",
+    });
+    expect(itemSubline(both, { now: NOW })).toEqual([
+      "Target or Costco",
+      "Fri, Aug 14",
+    ]);
   });
 
   it("names the scheduled day — including today, which used to vanish", () => {

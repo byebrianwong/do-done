@@ -29,7 +29,7 @@ export class PantryApi {
   async load(listId: string): Promise<{ data: PantryEntry[]; error: Error | null }> {
     let query = this.supabase
       .from("list_pantry")
-      .select("term, title, last_bought_at, buy_count, gaps, store")
+      .select("term, title, last_bought_at, buy_count, gaps, store, stores")
       .eq("list_id", listId)
       .order("last_bought_at", { ascending: false });
     if (this.userId) query = query.eq("user_id", this.userId);
@@ -40,7 +40,7 @@ export class PantryApi {
   }
 
   /**
-   * Records that an item was bought.
+   * Records that an item was bought, and where.
    *
    * One atomic RPC. Reading the entry, computing the gap here, and writing it
    * back would take two round trips on the most repeated action in the app, and
@@ -52,7 +52,7 @@ export class PantryApi {
   async record(
     listId: string,
     title: string,
-    store: string | null = null
+    stores: string[] = []
   ): Promise<{ term: string | null; error: Error | null }> {
     const term = learnableTerm(title);
     if (!term || !this.userId) return { term: null, error: null };
@@ -61,7 +61,7 @@ export class PantryApi {
       p_list_id: listId,
       p_term: term,
       p_title: title.trim().slice(0, 500),
-      p_store: store,
+      p_stores: stores,
     });
     return { term, error: (error as Error) ?? null };
   }
@@ -90,7 +90,15 @@ export class PantryApi {
  *
  * `gaps` defaults to an empty array and `buy_count` to 1 so that a client
  * running ahead of its migration, or reading a row written by an older one,
- * degrades to "bought once, rhythm unknown" instead of crashing.
+ * degrades to "bought once, rhythm unknown" instead of crashing. `stores`
+ * falls back to the superseded `store` column, which the migration leaves in
+ * place: a row written by a client still on the previous bundle goes through
+ * the single-store overload, and reading it must not lose the shop.
+ *
+ * This cannot cover a client running *ahead* of the migration. A select naming
+ * a column the table does not have fails outright, and `load` reports that as
+ * an empty pantry — the drawer disappears and the list still works. Apply the
+ * migration before shipping the bundle.
  */
 function normalizeEntry(row: Record<string, unknown>): PantryEntry {
   return {
@@ -99,6 +107,15 @@ function normalizeEntry(row: Record<string, unknown>): PantryEntry {
     last_bought_at: String(row.last_bought_at ?? new Date().toISOString()),
     buy_count: typeof row.buy_count === "number" ? row.buy_count : 1,
     gaps: Array.isArray(row.gaps) ? (row.gaps as number[]) : [],
-    store: typeof row.store === "string" && row.store ? row.store : null,
+    stores: readStores(row),
   };
+}
+
+function readStores(row: Record<string, unknown>): string[] {
+  if (Array.isArray(row.stores)) {
+    return row.stores.filter(
+      (s): s is string => typeof s === "string" && s.trim() !== ""
+    );
+  }
+  return typeof row.store === "string" && row.store ? [row.store] : [];
 }

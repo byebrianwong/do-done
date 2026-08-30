@@ -39,16 +39,20 @@ import {
   itemAisle,
   listSubline,
   openItems,
-  storeHint,
+  sameStore,
+  storeHints,
+  storeLabel,
   storeSuggestions,
   storeTag,
   storesOnList,
+  storesTyped,
   summarizeList,
   typingStoreToken,
   applyStoreToken,
-  extractStoreToken,
+  extractStoreTokens,
   withAisle,
-  withStoreHint,
+  toggleStoreHint,
+  withStoreHints,
   lastBoughtLabel,
   pantryBands,
   searchPantry,
@@ -136,7 +140,19 @@ export default function ListDetailScreen() {
   const [composerFocused, setComposerFocused] = useState(false);
   // The glyph travels the field's width, so the field has to report it.
   const [composerWidth, setComposerWidth] = useState(0);
-  const [picking, setPicking] = useState<Task | null>(null);
+  /*
+    The long-pressed item, held by id rather than by value.
+
+    The store rows in that sheet toggle, so it stays open across a write and
+    has to redraw with the item's new tags. A `Task` snapshot would keep the
+    tags it was opened with, and the ticks would stop moving after the first
+    tap.
+  */
+  const [pickingId, setPickingId] = useState<string | null>(null);
+  const picking = useMemo(
+    () => items.find((t) => t.id === pickingId) ?? null,
+    [items, pickingId]
+  );
   /** The item whose editor is up. An item is a task, so it is the same sheet. */
   const [editing, setEditing] = useState<Task | null>(null);
   /** The list's own name / icon / colour form. */
@@ -155,8 +171,13 @@ export default function ListDetailScreen() {
   // empty string is a real answer: a bare `@` opens the full list.
   const storeQuery = typingStoreToken(draft);
   const storeMatches = useMemo(
-    () => (storeQuery === null ? [] : storeSuggestions(stores, storeQuery)),
-    [stores, storeQuery]
+    () =>
+      storeQuery === null
+        ? []
+        : // Shops already named on this line are left out, so a second `@`
+          // offers the ones still to pick rather than repeating the first.
+          storeSuggestions(stores, storeQuery, { exclude: storesTyped(draft) }),
+    [stores, storeQuery, draft]
   );
   // The composer's memory. Only runs while no `@` token is open: the two
   // suggestion sets answer different questions and one strip cannot mean both.
@@ -194,9 +215,9 @@ export default function ListDetailScreen() {
   );
 
   const submit = useCallback(async () => {
-    // `@` names a store, the way `#` names a project. See `extractStoreToken`
+    // `@` names a store, the way `#` names a project. See `extractStoreTokens`
     // for why only the list composers parse it, not `parseTaskInput`.
-    const { title, store } = extractStoreToken(draft);
+    const { title, stores: typed } = extractStoreTokens(draft);
     if (!title) return;
     // Cleared before the write, never after: the field has to be ready for the
     // next word on the same frame, which is what a burst composer is for. `blurOnSubmit={false}` keeps the keyboard up with it.
@@ -204,14 +225,14 @@ export default function ListDetailScreen() {
     try {
       await addListItem(listId, {
         title,
-        ...(store ? { tags: [storeTag(store)] } : {}),
+        ...(typed.length > 0 ? { tags: typed.map(storeTag) } : {}),
       });
       setAdded((n) => n + 1);
       hapticLight();
     } catch {
-      // Restore what they typed, `@store` included. Restoring the parsed title
-      // would silently drop the store when the network fails.
-      setDraft(store ? `${title} @${store}` : title);
+      // Restore what they typed, every `@store` included. Restoring the parsed
+      // title alone would silently drop the shops when the network fails.
+      setDraft([title, ...typed.map((name) => `@${name}`)].join(' ').trim());
       toast.show({ message: "Couldn't add that — try again" });
     }
   }, [draft, listId, toast]);
@@ -219,8 +240,9 @@ export default function ListDetailScreen() {
   /**
    * Adds an item back to the list from the pantry.
    *
-   * It arrives with the store it was last bought at. That is the difference
-   * between taking a suggestion and typing the word again.
+   * It arrives with the shops it was last bought at — all of them, since an
+   * item sold in two places was named that way for a reason. That is the
+   * difference between taking a suggestion and typing the word again.
    */
   const putBack = useCallback(
     async (entry: PantryEntry) => {
@@ -228,7 +250,9 @@ export default function ListDetailScreen() {
       try {
         await addListItem(listId, {
           title: entry.title,
-          ...(entry.store ? { tags: [storeTag(entry.store)] } : {}),
+          ...(entry.stores.length > 0
+            ? { tags: entry.stores.map(storeTag) }
+            : {}),
         });
         setAdded((n) => n + 1);
         hapticLight();
@@ -313,7 +337,7 @@ export default function ListDetailScreen() {
    */
   const writeAisle = useCallback(
     async (item: Task, aisle: Aisle | null) => {
-      setPicking(null);
+      setPickingId(null);
       try {
         await updateTask(item.id, { tags: withAisle(item.tags, aisle) });
         // The tag fixes this row; the lesson fixes the same words next week,
@@ -329,24 +353,39 @@ export default function ListDetailScreen() {
   );
 
   /**
-   * Sets or clears an item's store.
+   * Adds a shop to an item, or takes it off again.
    *
    * One write, unlike an aisle correction, which is two. There is no lesson to
    * record: a store describes this purchase, not the words. Buying batteries at
    * Target once does not mean batteries always come from Target, whereas
    * "bananas are produce" is a fact about the language and worth remembering.
+   *
+   * The sheet stays open, unlike an aisle pick, which closes it. An item can
+   * name several shops, so the answer is not finished after one tap — closing
+   * on the first would mean a long press per shop.
    */
-  const writeStore = useCallback(
-    async (item: Task, store: string | null) => {
-      setPicking(null);
+  const writeStores = useCallback(
+    async (item: Task, tags: string[]) => {
       try {
-        await updateTask(item.id, { tags: withStoreHint(item.tags, store) });
+        await updateTask(item.id, { tags });
         invalidateLists(listId);
       } catch {
         toast.show({ message: "Couldn't change the store" });
       }
     },
     [listId, toast]
+  );
+
+  const toggleStore = useCallback(
+    (item: Task, store: string) =>
+      writeStores(item, toggleStoreHint(item.tags, store)),
+    [writeStores]
+  );
+
+  /** Clears every shop on an item — the "Anywhere" answer. */
+  const clearStores = useCallback(
+    (item: Task) => writeStores(item, withStoreHints(item.tags, [])),
+    [writeStores]
   );
 
   return (
@@ -408,7 +447,7 @@ export default function ListDetailScreen() {
           active={composerFocused || draft.length > 0}
           // The same test `submit` guards on, so the return key is live
           // exactly when pressing it would write something.
-          armed={extractStoreToken(draft).title.length > 0}
+          armed={extractStoreTokens(draft).title.length > 0}
           onSubmit={() => void submit()}
           onFocusField={() => inputRef.current?.focus()}
           idleLabel="Add an item"
@@ -591,7 +630,7 @@ export default function ListDetailScreen() {
             item={item}
             aisle={itemAisles.get(item.id) ?? null}
             onOpen={() => setEditing(item)}
-            onCorrect={() => setPicking(item)}
+            onCorrect={() => setPickingId(item.id)}
             // Ticking writes to the pantry, so the drawer has to reload. The
             // write is fire-and-forget inside `TasksApi.update`, so this is a
             // refetch rather than an optimistic patch: the client does not know
@@ -669,8 +708,9 @@ export default function ListDetailScreen() {
         memory={memory}
         stores={stores}
         onAisle={writeAisle}
-        onStore={writeStore}
-        onClose={() => setPicking(null)}
+        onToggleStore={toggleStore}
+        onClearStores={clearStores}
+        onClose={() => setPickingId(null)}
       />
 
       {/* The same editor every other row in the app opens — notes, a photo of
@@ -762,7 +802,7 @@ function PantryBandView({
             </Text>
             <Text style={styles.pantryAge}>
               {[
-                entry.store,
+                storeLabel(entry.stores),
                 cadenceLabel(entry),
                 lastBoughtLabel(entry.last_bought_at),
               ]
@@ -797,7 +837,8 @@ function ItemSheet({
   memory,
   stores,
   onAisle,
-  onStore,
+  onToggleStore,
+  onClearStores,
   onClose,
 }: {
   item: Task | null;
@@ -806,13 +847,26 @@ function ItemSheet({
   /** Stores already on this list, listed above the free-text field. */
   stores: string[];
   onAisle: (item: Task, aisle: Aisle | null) => void;
-  onStore: (item: Task, store: string | null) => void;
+  onToggleStore: (item: Task, store: string) => void;
+  onClearStores: (item: Task) => void;
   onClose: () => void;
 }) {
   const [newStore, setNewStore] = useState('');
   if (!item) return null;
   const current = itemAisle(item, memory);
-  const store = storeHint(item);
+  const chosen = storeHints(item);
+  /*
+    Shops named on this item but not used anywhere else on the list — typed at
+    the shelf, or arrived with the item from another list. Without this they
+    would carry a tick nothing on screen showed, since `stores` only knows what
+    the list uses.
+  */
+  const shown = [
+    ...stores,
+    ...chosen.filter(
+      (name) => !stores.some((known) => sameStore(known, name))
+    ),
+  ];
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={styles.backdrop}>
@@ -821,35 +875,43 @@ function ItemSheet({
             {item.title}
           </Text>
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
+            {/* Every shop ticks on and off independently, and the sheet stays
+                open, because an item can be sold in more than one place. The
+                aisle rows below are still one-of, and still close: a thing is
+                in one aisle. */}
             <Text style={styles.sheetSection}>Where you get it</Text>
-            {stores.map((name) => (
+            {shown.map((name) => (
               <Pressable
                 key={name}
-                onPress={() => onStore(item, name)}
+                onPress={() => onToggleStore(item, name)}
                 style={({ pressed }) => [
                   styles.option,
                   pressed && styles.pressed,
                 ]}
               >
                 <Text style={styles.optionText}>{name}</Text>
-                {store !== null && store === name && (
+                {chosen.some((s) => sameStore(s, name)) && (
                   <Ionicons name="checkmark" size={17} color="#6366f1" />
                 )}
               </Pressable>
             ))}
+            {/* Clears them all, rather than being a shop of its own. It is the
+                only way back to "no opinion" once two are ticked, short of
+                un-ticking each. */}
             <Pressable
-              onPress={() => onStore(item, null)}
+              onPress={() => onClearStores(item)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
             >
               <Text style={[styles.optionText, styles.optionMuted]}>
                 Anywhere
               </Text>
-              {store === null && (
+              {chosen.length === 0 && (
                 <Ionicons name="checkmark" size={17} color="#6366f1" />
               )}
             </Pressable>
             {/* A store the list has not seen before. The composer's `@` covers
-                this when adding; this covers realising it at the shelf. */}
+                this when adding; this covers realising it at the shelf. The
+                field clears on submit, so a second shop can follow the first. */}
             <View style={styles.newStoreRow}>
               <TextInput
                 value={newStore}
@@ -860,7 +922,9 @@ function ItemSheet({
                 returnKeyType="done"
                 onSubmitEditing={() => {
                   const name = newStore.trim();
-                  if (name) onStore(item, name);
+                  if (!name) return;
+                  setNewStore('');
+                  onToggleStore(item, name);
                 }}
               />
             </View>

@@ -29,7 +29,7 @@ function entry(
     last_bought_at: at.toISOString(),
     buy_count: 1,
     gaps: [],
-    store: null,
+    stores: [],
     ...over,
   };
 }
@@ -112,7 +112,10 @@ describe("lastBoughtLabel", () => {
 describe("searchPantry", () => {
   const pantry = [
     entry("Green beans", 40, { buy_count: 2 }),
-    entry("Greek yogurt", 6, { buy_count: 9, store: "Trader Joe's" }),
+    entry("Greek yogurt", 6, {
+      buy_count: 9,
+      stores: ["Trader Joe's", "Target"],
+    }),
     entry("Green curry paste", 210, { buy_count: 1 }),
     entry("Frozen peas", 20, { buy_count: 3 }),
   ];
@@ -147,8 +150,13 @@ describe("searchPantry", () => {
     expect(hits.map((e) => e.title)).not.toContain("Greek yogurt");
   });
 
-  it("carries the store back with the suggestion", () => {
-    expect(searchPantry(pantry, "greek")[0].store).toBe("Trader Joe's");
+  it("carries every shop back with the suggestion", () => {
+    // All of them, not the first: an item sold in two places was named that
+    // way for a reason, and putting it back should not drop the second.
+    expect(searchPantry(pantry, "greek")[0].stores).toEqual([
+      "Trader Joe's",
+      "Target",
+    ]);
   });
 
   it("treats a regex-ish query as text", () => {

@@ -26,7 +26,7 @@ import {
   learnableTerm,
   splitProjects,
   daysSince,
-  storeHint,
+  storeHints,
 } from "@do-done/shared";
 import type { Aisle, AisleMemory } from "@do-done/shared";
 import type {
@@ -361,7 +361,7 @@ class DemoTasksApiImpl {
       void demoPantry.record(
         updated.project_id,
         updated.title,
-        storeHint(updated)
+        storeHints(updated)
       );
     }
     return ok(updated);
@@ -983,7 +983,7 @@ class DemoPantryApiImpl {
     };
   }
 
-  async record(listId: string, title: string, store: string | null = null) {
+  async record(listId: string, title: string, stores: string[] = []) {
     const term = learnableTerm(title);
     if (!term) return { term: null, error: null };
     const list = this.forList(listId);
@@ -996,7 +996,7 @@ class DemoPantryApiImpl {
         last_bought_at: now,
         buy_count: 1,
         gaps: [],
-        store,
+        stores,
       });
       return { term, error: null };
     }
@@ -1006,7 +1006,9 @@ class DemoPantryApiImpl {
     list.set(term, {
       ...prev,
       title,
-      store: store ?? prev.store,
+      // An item bought without naming a shop leaves the remembered ones alone,
+      // matching `record_pantry_buy`: an unnamed buy says nothing about where.
+      stores: stores.length > 0 ? stores : prev.stores,
       ...(gap === 0
         ? {}
         : {
