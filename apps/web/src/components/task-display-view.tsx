@@ -6,6 +6,7 @@ import { useDisplayConfig } from "@/lib/use-display-config";
 import { useTasksHeldForEditing } from "@/lib/task-editing-hold";
 import { DisplayMenu } from "./display-menu";
 import { DraggableTaskGroups } from "./draggable-task-groups-client";
+import { StickyPageBar } from "./sticky-page-bar";
 
 export interface TaskDisplayViewProps {
   /** Stable key for persistence + per-view defaults (e.g. "all", "inbox"). */
@@ -50,17 +51,14 @@ export function TaskDisplayView({
   }, [visibleTasks]);
 
   return (
-    <div>
-      <div
-        className={`flex items-start gap-3 ${
-          title ? "mb-1 justify-between" : "mb-3 justify-end"
-        }`}
-      >
-        {title ? (
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-            {title}
-          </h1>
-        ) : null}
+    <StickyPageBar
+      title={title}
+      subtitle={
+        subtitle ? (
+          <p className="mb-6 text-sm text-neutral-500">{subtitle}</p>
+        ) : null
+      }
+      actions={
         <DisplayMenu
           config={config}
           onChange={setConfig}
@@ -69,11 +67,8 @@ export function TaskDisplayView({
           projects={projects}
           availableTags={availableTags}
         />
-      </div>
-      {subtitle ? (
-        <p className="mb-6 text-sm text-neutral-500">{subtitle}</p>
-      ) : null}
-
+      }
+    >
       {visibleTasks.length === 0 ? (
         <div className="py-16 text-center">
           <p className="text-sm text-neutral-400">{emptyText}</p>
@@ -87,6 +82,6 @@ export function TaskDisplayView({
           quickAdd={quickAdd}
         />
       )}
-    </div>
+    </StickyPageBar>
   );
 }

@@ -184,7 +184,7 @@ export class AttachmentsApi {
    *
    * Called before a task row is deleted. The `task_attachments` FK cascades on
    * its own, but a cascade only reaches the metadata — the bytes in the bucket
-   * have no foreign key to follow, and would be left paying rent forever with
+   * have no foreign key to follow, and would be left in the bucket forever with
    * nothing in the UI pointing at them.
    */
   async removeForTasks(taskIds: string[]): Promise<{ error: Error | null }> {

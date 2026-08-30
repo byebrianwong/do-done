@@ -33,8 +33,8 @@ export function routeForNotification(
 ): string | null {
   if (!data) return null;
 
-  // A location reminder names its task, which is the whole point — the
-  // notification body is a task title, and tapping it should open that task.
+  // A location reminder names its task: the notification body is a task title,
+  // and tapping it should open that task.
   if (typeof data.taskId === 'string' && data.taskId.length > 0) {
     return `/task/${data.taskId}`;
   }

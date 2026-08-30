@@ -34,6 +34,12 @@ import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { TaskItem } from "./task-item";
+import {
+  STICKY_SECTION_HEADER,
+  SectionCaret,
+  SectionCount,
+  sectionHeaderClass,
+} from "./section-header";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
 import { InlineTaskComposer } from "./inline-task-composer";
@@ -58,25 +64,6 @@ export interface DraggableUpcomingProps {
 }
 
 /** Right-pointing chevron that rotates down when the day is expanded. */
-function Chevron({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden
-    >
-      <path
-        d="M4.5 2.5 8 6l-3.5 3.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function SortableRow({
   task,
   projects,
@@ -100,7 +87,7 @@ function SortableRow({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+     
       suppressHydrationWarning
       {...attributes}
       {...listeners}
@@ -229,16 +216,12 @@ function DateGroup({
   const headingRow = `border-b border-neutral-100 dark:border-neutral-800 ${
     compact ? "mb-1 pb-1" : "mb-2 pb-2"
   }`;
-  const headingText =
-    "flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400";
-  const headingWidth = showReschedule ? "min-w-0 flex-1" : `${headingRow} w-full`;
+  const headingText = `${sectionHeaderClass(compact)} min-w-0 flex-1 py-0`;
   const headingInner = (
     <>
-      <Chevron collapsed={collapsed} />
-      {label}
-      {taskIds.length > 0 ? (
-        <span className="font-normal opacity-60">({taskIds.length})</span>
-      ) : null}
+      <SectionCaret collapsed={collapsed} />
+      <span className="truncate">{label}</span>
+      {taskIds.length > 0 ? <SectionCount value={taskIds.length} /> : null}
     </>
   );
   const heading = onToggleCollapse ? (
@@ -246,26 +229,32 @@ function DateGroup({
       type="button"
       onClick={onToggleCollapse}
       aria-expanded={!collapsed}
-      className={`${headingText} ${headingWidth} transition-opacity hover:opacity-70`}
+      className={`${headingText} text-left transition-opacity hover:opacity-70`}
     >
       {headingInner}
     </button>
   ) : (
-    <h2 className={`${headingText} ${headingWidth}`}>{headingInner}</h2>
+    <h2 className={headingText}>{headingInner}</h2>
   );
   return (
     <section className="group">
-      {showReschedule ? (
-        <div className={`${headingRow} flex items-center gap-2`}>
-          {heading}
+      {/* One wrapper whether or not the day carries the reschedule buttons: it
+          owns the rule underneath, the pinning, and the opaque band that the
+          rows scroll under. Branching the sticky element on a button's presence
+          is how a day ends up pinned on some columns and not others. */}
+      <div
+        className={`${headingRow} ${STICKY_SECTION_HEADER} -mx-1 flex items-center gap-2 px-1 ${
+          compact ? "pt-1" : "pt-1.5"
+        }`}
+      >
+        {heading}
+        {showReschedule ? (
           <RescheduleAllButtons
             busy={rescheduleBusy}
             onReschedule={onRescheduleAll!}
           />
-        </div>
-      ) : (
-        heading
-      )}
+        ) : null}
+      </div>
       {/* Collapsed days aren't drop targets in v1 — expand to drop in. */}
       {!collapsed ? (
         <>

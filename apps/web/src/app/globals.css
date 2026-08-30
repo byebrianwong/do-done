@@ -3,6 +3,55 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * How far down the viewport a pinned list header has to start.
+   *
+   * Three tokens rather than a repeated `top-12`, because the offsets stack and
+   * a magic number in one of them drifts silently: a group header pins beneath
+   * the page bar, which pins beneath the mobile app bar. Only the last of the
+   * three is read by the headers themselves.
+   *
+   * --dd-appbar-h  the app shell's own top bar. Mobile only — the bar is
+   *                `md:hidden`, so it is zeroed at that breakpoint below.
+   * --dd-pagebar-h the list's own sticky title bar, where a view has one.
+   * --dd-stick-top what a sticky *group* header sets `top` to. Defaults to
+   *                clearing the app bar alone, so a surface with no page bar
+   *                (the project page, which draws its own heading) still pins
+   *                its group headers correctly. StickyPageBar raises it for the
+   *                subtree it wraps.
+   */
+  --dd-appbar-h: 3.5rem;
+  --dd-pagebar-h: 3rem;
+  --dd-stick-top: var(--dd-appbar-h);
+}
+
+@media (min-width: 768px) {
+  :root {
+    /* The app shell's top bar is `md:hidden`; the sidebar takes over. */
+    --dd-appbar-h: 0rem;
+  }
+}
+
+/*
+ * The three tokens above are read through these classes rather than through an
+ * inline style on each element, so the offsets are stated once here instead of
+ * being repeated at every call site that pins something.
+ */
+
+/** The list's own sticky title bar, cleared past the app shell's top bar. */
+.dd-pagebar {
+  top: var(--dd-appbar-h);
+}
+
+/** A pinned section header, cleared past whatever is pinned above it. */
+.dd-section-sticky {
+  top: var(--dd-stick-top);
+}
+
+/** Raises the offset for a subtree that has a page bar pinned above it. */
+.dd-stick-scope {
+  --dd-stick-top: calc(var(--dd-appbar-h) + var(--dd-pagebar-h));
 }
 
 @theme inline {
@@ -196,7 +245,7 @@ body {
 }
 
 /*
- * The wave is ambient, never load-bearing: the static runway tint underneath
+ * The wave is ambient, never required: the static runway tint underneath
  * already shows the span, so reduced motion simply drops the moving band.
  */
 @media (prefers-reduced-motion: reduce) {

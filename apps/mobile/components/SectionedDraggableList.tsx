@@ -176,6 +176,33 @@ export default function SectionedDraggableList({
     else onMove(moved.key, oldKey, newKey, destIds);
   }
 
+  /**
+   * Which rows pin to the top as you scroll past them.
+   *
+   * This is a flat `DraggableFlatList` — headers and tasks in one array, which
+   * is what lets a task be dragged from one section into another — so
+   * `SectionList`'s `stickySectionHeadersEnabled` is not available and the
+   * indices have to be computed.
+   *
+   * **`ListHeaderComponent` occupies index 0 when present**, and
+   * VirtualizedList matches these numbers against `dataIndex + stickyOffset`
+   * without adding the offset itself. Forget it and every section pins the row
+   * after its header — its first task instead of its name, which looks
+   * deliberate enough that nobody would report it.
+   *
+   * Computed from `rows` rather than `sections` because `rows` is what is being
+   * rendered: mid-drag it is the local copy, and a header's index moves as a
+   * task crosses a section boundary.
+   */
+  const stickyHeaderIndices = useMemo(() => {
+    const offset = ListHeaderComponent ? 1 : 0;
+    const indices: number[] = [];
+    rows.forEach((row, i) => {
+      if (row.kind === 'header') indices.push(i + offset);
+    });
+    return indices;
+  }, [rows, ListHeaderComponent]);
+
   // The authoritative section data is the `sections` prop, not the local `rows`
   // copy the drag mutates: `rows` tracks which section a row is *in* mid-gesture,
   // while this is asking what is *in* the section.
@@ -189,6 +216,7 @@ export default function SectionedDraggableList({
     <DraggableFlatList
       data={rows}
       keyExtractor={(r) => r.key}
+      stickyHeaderIndices={stickyHeaderIndices}
       onDragEnd={handleDragEnd}
       renderItem={({ item, drag, isActive }: RenderItemParams<Row>) =>
         item.kind === 'header'

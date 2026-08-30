@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   DENSITY_OPTIONS,
   GROUP_OPTIONS,
+  ROW_STYLE_OPTIONS,
   OVERDUE_COLOR,
   PRIORITY_CONFIG,
   SORT_OPTIONS,
   activeFilterCount,
   withDensity,
+  withRowStyle,
   hasFlagFilter,
   isManualSort,
   selectedFilterValues,
@@ -159,7 +161,7 @@ export function DisplayMenu({
               ) : null}
             </div>
             {!isManualSort(config) ? (
-              <p className="mt-1.5 text-[11px] text-neutral-400">
+              <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                 Drag a task to switch to manual order.
               </p>
             ) : null}
@@ -178,6 +180,29 @@ export function DisplayMenu({
                 </Pill>
               ))}
             </div>
+          </Section>
+
+          {/* Beside Density because they are the same kind of setting: neither
+              changes which tasks are in the list, only how much of the screen
+              each one takes and how much of itself it states. */}
+          <Section label="Row">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {ROW_STYLE_OPTIONS.map((r) => (
+                <Pill
+                  key={r.key}
+                  active={config.rowStyle === r.key}
+                  title={r.hint}
+                  onClick={() => onChange(withRowStyle(config, r.key))}
+                >
+                  {r.label}
+                </Pill>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {config.rowStyle === "quiet"
+                ? "Details on one line. Colour is the project ring and the urgency mark."
+                : "Each detail its own chip, and each chip an editor."}
+            </p>
           </Section>
 
           <Section
@@ -277,7 +302,7 @@ export function DisplayMenu({
 /**
  * One labelled block of pills.
  *
- * The `role="group"` is load-bearing, not decoration. Pill labels are not
+ * The `role="group"` is functional, not decoration. Pill labels are not
  * unique across the menu — "Status" is both a Group by and a Sort by option,
  * and "Priority" is all three of a group, a sort and a filter — so a query for
  * a button by name alone is ambiguous, and grows *more* ambiguous every time a

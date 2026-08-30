@@ -116,7 +116,10 @@ export default function OverdueSection({
           style={styles.headerLeft}
         >
           <Text style={styles.headerCaret}>{collapsed ? '▶' : '▼'}</Text>
-          <Text style={styles.headerTitle}>Overdue ({visible.length})</Text>
+          <Text style={styles.headerTitle}>Overdue</Text>
+          <View style={styles.headerCount}>
+            <Text style={styles.headerCountText}>{visible.length}</Text>
+          </View>
         </Pressable>
         {busy && <ActivityIndicator color={OVERDUE_COLOR} size="small" />}
       </View>
@@ -269,13 +272,27 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // The count pill every other section header uses, in this one's red.
+  headerCount: {
+    borderRadius: 999,
+    backgroundColor: '#fee2e2',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  headerCountText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#b91c1c',
+    fontVariant: ['tabular-nums'],
+  },
   headerCaret: { color: '#b91c1c', fontSize: 10 },
+  // Sentence case at the list's heading size, matching every other section
+  // header. Red stays: this section's whole identity is that it is late.
   headerTitle: {
     color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
   bulkRow: {
     flexDirection: 'row',

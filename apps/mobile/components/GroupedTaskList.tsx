@@ -4,6 +4,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import TaskItem from '@/components/TaskItem';
+import {
+  SectionCount,
+  sectionHeaderStyles,
+} from '@/components/SectionHeader';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -51,7 +55,7 @@ interface Props {
    * True everywhere a section is a slice of one axis of one list. False on a
    * tag view, which cuts across projects and statuses — its "Open" section is
    * not a section of *work*, so a count taken from it would fire the spark on
-   * a guess. Passing nothing is how a surface says it can't tell (see
+   * a guess. Passing nothing is how a surface says it cannot tell (see
    * `sparkReason`), which is exactly what `false` produces here.
    */
   sectionCounts?: boolean;
@@ -60,7 +64,7 @@ interface Props {
    *
    * `applyDisplay` emits every non-terminal status column even when empty, on
    * purpose: they are drop targets, so a task can be dragged into a status
-   * nothing currently has. That pays for itself on All, where most columns are
+   * nothing currently has. That is worth it on All, where most columns are
    * populated — and costs on a project or tag page, where a handful of tasks
    * sit under two or three empty headers ("INBOX (0)", "LATER (0)") that push
    * the actual work down the screen. Those two screens listed only non-empty
@@ -223,7 +227,7 @@ export default function GroupedTaskList({
     const toggle = onConfigChangeRef.current;
     return (
       <Pressable
-        style={styles.sectionHeader}
+        style={sectionHeaderStyles.container}
         disabled={!toggle}
         onPress={() => toggle?.(toggleCollapsed(configRef.current, section.key))}
       >
@@ -232,11 +236,11 @@ export default function GroupedTaskList({
           size={14}
           color="#9ca3af"
         />
-        <View style={[styles.statusDot, { backgroundColor: color }]} />
-        <Text style={styles.sectionHeaderText}>
-          {section.title}{' '}
-          <Text style={styles.sectionCount}>({count})</Text>
+        <View style={[sectionHeaderStyles.dot, { backgroundColor: color }]} />
+        <Text style={sectionHeaderStyles.text} numberOfLines={1}>
+          {section.title}
         </Text>
+        <SectionCount value={count} />
       </Pressable>
     );
   }, []);
@@ -244,6 +248,10 @@ export default function GroupedTaskList({
   // With "show completed" on, a ticked-off task stays in this list, so its row
   // must not play the collapse-and-vanish completion exit.
   const keepsCompleted = config.showCompleted;
+  // A status-grouped list puts the status in the header above every row it
+  // applies to, so the row saying it again is pure repetition — the same
+  // reasoning web's `hideStatusBadge` has always followed.
+  const groupedByStatus = config.group === 'status';
   const renderTask = useCallback(
     (
       task: Task,
@@ -258,6 +266,7 @@ export default function GroupedTaskList({
           onDragStart={drag}
           keepsCompleted={keepsCompleted}
           hideProject={hideProject}
+          hideStatus={groupedByStatus}
           // Under a "Today" or "Tomorrow" header the row's own day is pure
           // repetition; under "This week" or "Later" it is the only thing
           // saying which day, so it stays.
@@ -267,7 +276,14 @@ export default function GroupedTaskList({
         />
       </View>
     ),
-    [onTaskPress, keepsCompleted, hideProject, sectionCounts, openInProject]
+    [
+      onTaskPress,
+      keepsCompleted,
+      hideProject,
+      groupedByStatus,
+      sectionCounts,
+      openInProject,
+    ]
   );
 
   return (
@@ -287,22 +303,4 @@ export default function GroupedTaskList({
 const styles = StyleSheet.create({
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   noneHeader: { height: 8 },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  sectionHeaderText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: '#6b7280',
-  },
-  sectionCount: { color: '#9ca3af', fontWeight: '500' },
 });

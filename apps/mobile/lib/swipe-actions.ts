@@ -2,7 +2,7 @@
  * Which panel a `ReanimatedSwipeable` just opened.
  *
  * **`ReanimatedSwipeable` reports the direction of the gesture, not the side
- * whose panel opened** — the opposite of the classic `Swipeable` it replaces,
+ * whose panel opened** — the opposite of the older `Swipeable` it replaces,
  * and the opposite of what the prop name reads as. From the library's own
  * `dispatchImmediateEvents` (v2.31):
  *

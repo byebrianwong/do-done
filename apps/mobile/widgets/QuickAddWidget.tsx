@@ -21,7 +21,7 @@ const FALLBACK_SIDE_DP = 56;
  * badge, like Todoist's add-task button. Drawn as a single inline SVG so it
  * stays crisp at whatever size the launcher gives the cell.
  *
- * The squircle is painted TWICE, and that is deliberate: the SVG draws it, and
+ * The squircle is painted TWICE, on purpose: the SVG draws it, and
  * the `FlexWidget` behind it fills the same square with flat indigo. `SvgWidget`
  * hands the string to AndroidSVG and swallows a parse failure with nothing but a
  * `printStackTrace`, so a tile that leans on it alone has a silent path to fully

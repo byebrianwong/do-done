@@ -120,7 +120,7 @@ function Header({ signedIn }: { signedIn: boolean }) {
 /* ── Hero ───────────────────────────────────────────────────────────── */
 
 function Hero({ signedIn }: { signedIn: boolean }) {
-  // `isolate` on the section is load-bearing: it makes the hero its own
+  // `isolate` on the section is required: it makes the hero its own
   // stacking context, so the aurora's `-z-10` stays behind the hero's *content*
   // instead of escaping to the root and painting behind the page's own white
   // background, where it is invisible.

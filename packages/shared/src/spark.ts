@@ -1,23 +1,22 @@
 import type { Task } from "./schemas.js";
 
 /**
- * The celebratory burst a task row fires when it is ticked off — and, more
- * importantly, the rule for when it doesn't.
+ * The spark burst a task row fires when it is ticked off, and the rule for when
+ * it doesn't.
  *
- * Celebrating *every* completion is how a delight becomes a tax: by the
- * fortieth task of the week the burst is something the user is waiting out
- * rather than enjoying, and the next thing they ask for is a switch to turn it
- * off — which is the clearest possible signal that an animation is in the way.
- * So the burst is reserved for completions that were actually worth something.
+ * Only some completions burst. If every one did, it would fire around forty
+ * times a week, users would start waiting it out, and the next thing they ask
+ * for is a switch to turn it off. So the burst is reserved for completions worth
+ * marking.
  *
- * "Worth something" is deliberately not one thing. A task can earn it by
+ * "Worth marking" is deliberately more than one thing. A task can qualify by
  * mattering (priority), by costing (effort), by finishing something (the last
- * open task in a section, or in a project), or by keeping a habit alive (a
- * streak day). Those are different kinds of achievement and a user will
- * recognise whichever one applies to them.
+ * open task in a section or a project), or by keeping a streak alive. Those are
+ * different kinds of achievement, and a user will recognise whichever one
+ * applies to them.
  *
- * Both apps read this module, the way they read the completion timings, so the
- * gate can't come to a different answer on the phone than on the desktop.
+ * Both apps read this module, the same way they read the completion timings, so
+ * the gate cannot answer differently on the phone than on the desktop.
  */
 
 /** Why a completion earned its burst. Ordered most-significant first. */
@@ -31,9 +30,9 @@ export type SparkReason =
 /**
  * What the row's surroundings know at the moment of the tap.
  *
- * Every field is optional and a missing one simply can't trigger: a surface
- * that has no sections (the inbox, search) passes no section count and gets
- * the other rules unchanged, rather than having to fake a value.
+ * Every field is optional, and a missing one cannot trigger. A surface with no
+ * sections (the inbox, search) passes no section count and gets the other rules
+ * unchanged, rather than having to invent a value.
  */
 export interface SparkContext {
   /**
@@ -44,9 +43,9 @@ export interface SparkContext {
   /** The same for the row's project. One means this completion finishes it. */
   openInProject?: number | null;
   /**
-   * True when this completion is the one keeping a run of days alive — the
-   * first of today, on a day whose predecessor also had one. Not "any
-   * completion on a day in a streak", which would fire on nearly all of them.
+   * True when this completion keeps a run of days alive — the first of today, on
+   * a day whose predecessor also had one. Not "any completion on a day in a
+   * streak", which would fire on nearly all of them.
    */
   streakDay?: boolean;
 }
@@ -54,39 +53,37 @@ export interface SparkContext {
 /**
  * Priorities that earn a burst on their own.
  *
- * `p2`'s label is literally "High", so "high and above" is p1 + p2. p3 is
- * Medium and p4 is "nobody set one" — neither is an achievement.
+ * `p2`'s label is "High", so "high and above" is p1 + p2. p3 is Medium and p4 is
+ * "nobody set one"; neither is an achievement.
  */
 export const SPARK_PRIORITIES: ReadonlySet<string> = new Set(["p1", "p2"]);
 
-/** A task estimated at this long or more has earned it by costing something. */
+/** A task estimated at this long or more qualifies on effort alone. */
 export const SPARK_EFFORT_MINUTES = 120;
 
 /**
- * Why this completion should burst, or null for the quiet majority.
+ * Why this completion should burst, or null for most completions.
  *
  * Returns the *reason* rather than a boolean so the caller can say which rule
- * fired — worth having in tests, where "it sparked" is a much weaker assertion
+ * fired. That matters in tests, where "it sparked" is a much weaker assertion
  * than "it sparked because the project finished".
  */
 export function sparkReason(
   task: Pick<Task, "priority" | "duration_minutes" | "is_list_item">,
   ctx: SparkContext = {}
 ): SparkReason | null {
-  // A shopping-list item never bursts, and the gate is here rather than at the
-  // two row components so neither can forget it.
+  // A shopping-list item never bursts. The gate is here rather than in the two
+  // row components so neither can forget it.
   //
-  // Every rule below would misfire on a list. `openInProject === 1` is the
-  // last item of *every* grocery run, forever — the single most repeated
-  // action in the app would become the most celebrated one, which is how a
-  // delight turns into something you wait out. Ticking an item still gets the
-  // ring fill and the strike-through; it is the acknowledgement that matters
-  // there, not the confetti.
+  // Every rule below would misfire on a list. `openInProject === 1` is the last
+  // item of every grocery run, forever, so the most repeated action in the app
+  // would become the most celebrated one. Ticking an item still gets the ring
+  // fill and the strike-through; the acknowledgement is what matters there.
   if (task.is_list_item === true) return null;
 
-  // Finishing something outranks the properties of the task that finished it:
-  // if the last task in a project happens to be a two-hour P1, the moment is
-  // the project ending, not the task's size.
+  // Finishing something outranks the properties of the task that finished it.
+  // If the last task in a project happens to be a two-hour P1, the moment is the
+  // project ending, not the task's size.
   if (ctx.openInProject === 1) return "project-finished";
   if (ctx.openInSection === 1) return "last-in-section";
   if (ctx.streakDay) return "streak";
@@ -95,7 +92,7 @@ export function sparkReason(
   return null;
 }
 
-/** Convenience for call sites that only need to know whether to fire. */
+/** For call sites that only need to know whether to fire. */
 export function shouldSpark(
   task: Pick<Task, "priority" | "duration_minutes" | "is_list_item">,
   ctx: SparkContext = {}
@@ -106,13 +103,12 @@ export function shouldSpark(
 // ─── The burst itself ───────────────────────────────────────────────────────
 
 /**
- * Total flight time of the burst, stagger included — the last particle is gone
- * at exactly this mark, on both surfaces.
+ * Total flight time of the burst, stagger included. The last particle is gone at
+ * exactly this mark, on both surfaces.
  *
- * It has to be **shorter than the hold**. The row clips itself (`overflow:
- * hidden`) the moment it starts collapsing, so a burst still in the air at that
- * point gets sliced off at the row's edge as it shrinks. Finishing inside the
- * hold is what lets it read as thrown clear rather than cut off.
+ * It must be **shorter than the hold**. The row clips itself
+ * (`overflow: hidden`) the moment it starts collapsing, so a particle still in
+ * the air at that point is cut off at the row's edge as it shrinks.
  */
 export const SPARK_MS = 400;
 
@@ -126,7 +122,7 @@ export interface SparkParticle {
   /** Vertical travel; positive is down, so gravity has already been applied. */
   ty: number;
   /**
-   * Staggered so the burst scatters rather than stamping all at once.
+   * Staggered so the burst scatters rather than appearing all at once.
    *
    * Time *within* {@link SPARK_MS}, not on top of it: a particle that starts
    * late flies for correspondingly less time, so every one of them lands on the
@@ -141,12 +137,12 @@ export interface SparkParticle {
  * The fan, computed once and shared by both surfaces so a burst has the same
  * shape on a phone as on a desktop.
  *
- * Deliberately deterministic — no `Math.random`. It makes the geometry
- * testable, it keeps web and mobile identical, and at 400ms nobody is going to
- * notice that two bursts a minute apart threw the same ten sparks.
+ * Deliberately deterministic — no `Math.random`. That makes the geometry
+ * testable and keeps web and mobile identical, and at 400ms nobody will notice
+ * that two bursts a minute apart threw the same ten sparks.
  *
- * The fan points upward (out of the row, not into the one below it) and every
- * particle is pulled back down by the same constant, so the arcs read as
+ * The fan points upward, out of the row rather than into the one below it, and
+ * every particle is pulled back down by the same constant, so the arcs look
  * thrown rather than merely radiating.
  */
 export function sparkParticles(count: number = SPARK_COUNT): SparkParticle[] {

@@ -193,7 +193,7 @@ describe('the day-start roundup', () => {
       settings({ notify_day_start_time: '09:00' }),
       { now: SAT_06Z, timeZone: NY }
     );
-    // Two days, not three tasks. One notification per day is the whole point.
+    // Two days, not three tasks: one notification per day is the rule.
     expect(plan.occurrences).toHaveLength(2);
     expect(plan.occurrences.every((o) => o.kind === 'day-start')).toBe(true);
     expect(plan.occurrences[0].at.toISOString()).toBe('2026-08-15T13:00:00.000Z');

@@ -77,6 +77,7 @@ describe("parseDisplayConfig", () => {
       showCompleted: false,
       showSubtasks: true,
       density: "comfortable",
+      rowStyle: "quiet",
       collapsed: [],
     };
     expect(parseDisplayConfig(cfg).group).toBe("priority");
@@ -91,6 +92,24 @@ describe("parseDisplayConfig", () => {
   it("uses the supplied fallback", () => {
     const fb = defaultDisplayFor("all");
     expect(parseDisplayConfig(undefined, fb)).toEqual(fb);
+  });
+
+  // Every config saved before the field existed has to come back with a value
+  // rather than failing the parse — an unknown-shaped config falls back to the
+  // default *whole* config, which would silently reset the user's grouping.
+  it("backfills rowStyle on a config saved before it existed", () => {
+    const cfg = parseDisplayConfig({
+      group: "project",
+      density: "compact",
+      showSubtasks: false,
+    });
+    expect(cfg.rowStyle).toBe("quiet");
+    expect(cfg.group).toBe("project");
+    expect(cfg.density).toBe("compact");
+  });
+
+  it("keeps a row style the user chose", () => {
+    expect(parseDisplayConfig({ rowStyle: "detailed" }).rowStyle).toBe("detailed");
   });
 
   // Configs persisted before the scheduled/deadline rename carry the old field

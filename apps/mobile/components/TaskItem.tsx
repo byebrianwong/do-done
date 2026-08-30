@@ -119,6 +119,12 @@ interface TaskItemProps {
    */
   hideProject?: boolean;
   /**
+   * Drop the status from the subline: the section header above already says it.
+   * Set by a status-grouped list, the same way `hideProject` is set by a
+   * project screen.
+   */
+  hideStatus?: boolean;
+  /**
    * The same for the scheduled day: set it where the surface has already named
    * the day this row is on — a section header reading "Tomorrow", or the Today
    * screen. Everywhere else a row prints its own day, "Today" included, since
@@ -161,6 +167,7 @@ function TaskItem({
   focused,
   keepsCompleted = false,
   hideProject = false,
+  hideStatus = false,
   hideScheduledDay = false,
   openInSection = null,
   openInProject = null,
@@ -315,7 +322,7 @@ function TaskItem({
     }
 
     // In a list that keeps completed tasks there is nothing to leave: the row
-    // stays put wearing its completed styling, and the cache can drop it (from
+    // stays put, with its completed styling, and the cache can drop it (from
     // whatever list it *is* leaving) immediately.
     const leaving = !keepsCompleted && !prefersReducedMotion();
     if (leaving) exit.start();
@@ -485,6 +492,7 @@ function TaskItem({
   const gutter = completed ? null : rowGutter(task);
   const subline = rowSubline(task, {
     projectName: hideProject ? null : project?.name ?? null,
+    hideStatus,
     hideScheduledDay,
   }).join(' · ');
   const estimate = completed ? '' : rowEstimate(task);
@@ -842,7 +850,11 @@ const styles = StyleSheet.create({
   // No `textDecorationLine` — the rule is drawn by `StruckText` so it can be
   // animated, which the platform's own decoration cannot be.
   titleDone: { color: TITLE_DONE_COLOR },
-  subline: { fontSize: 12, lineHeight: 16, color: '#9ca3af' },
+  // neutral-500, not the neutral-400 it was. This line is the only place the
+  // project, the estimate and the schedule are stated on a phone row, and 400
+  // on white is about 2.5:1 — fine for decoration, not for the information the
+  // row is carrying. Same lift as web's quiet row.
+  subline: { fontSize: 12, lineHeight: 16, color: '#6b7280' },
   estimate: {
     fontSize: 12,
     lineHeight: 20,

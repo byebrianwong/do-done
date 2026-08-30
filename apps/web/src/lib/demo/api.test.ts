@@ -161,8 +161,8 @@ describe("demo store writes", () => {
     expect(listed.find((t) => t.id === parent.id)).toBeUndefined();
     expect(listed.filter((t) => t.parent_task_id === parent.id)).toHaveLength(0);
 
-    // ...but still *there*, which is the whole point: undo restores the same
-    // tasks rather than recreating likenesses of them.
+    // ...but still *there*, which is the rule under test: undo restores the same
+    // tasks rather than recreating copies of them.
     const stored = getDemoState().tasks;
     expect(stored.find((t) => t.id === parent.id)?.deleted_at).toEqual(
       expect.any(String)

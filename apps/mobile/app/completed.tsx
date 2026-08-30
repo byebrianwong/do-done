@@ -10,6 +10,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import TaskItem from '@/components/TaskItem';
+import {
+  SectionCount,
+  sectionHeaderStyles,
+} from '@/components/SectionHeader';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
@@ -149,10 +153,11 @@ export default function CompletedScreen() {
           keyExtractor={(t) => t.id}
           renderItem={({ item }) => <TaskItem task={item} keepsCompleted />}
           renderSectionHeader={({ section: { title, data } }) => (
-            <View style={styles.header}>
-              <Text style={styles.headerText}>
-                {title} <Text style={styles.headerCount}>({data.length})</Text>
+            <View style={sectionHeaderStyles.container}>
+              <Text style={sectionHeaderStyles.text} numberOfLines={1}>
+                {title}
               </Text>
+              <SectionCount value={data.length} />
             </View>
           )}
           ListEmptyComponent={empty}
@@ -185,20 +190,6 @@ export default function CompletedScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
-  header: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  headerText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: '#6b7280',
-  },
-  headerCount: { color: '#9ca3af', fontWeight: '500' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { padding: 4 },
   activeDot: {

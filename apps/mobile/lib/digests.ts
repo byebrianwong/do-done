@@ -25,7 +25,7 @@ import { planDigests, planQueryRange, type DigestOccurrence } from './digest-pla
  * each one says and hands it to the OS. See that file for why the plan is
  * re-armed rather than left to a repeating trigger.
  *
- * ### The identifiers are the whole cancellation story
+ * ### The identifiers are the whole cancellation mechanism
  *
  * Re-arming means taking back the occurrences already scheduled, and the only
  * handle for that is the identifier `scheduleNotificationAsync` returns. They
@@ -232,7 +232,7 @@ export async function sendTestDigest(): Promise<boolean> {
   const tasks = (await loadTasks(today, today)) ?? [];
   const content = buildDailyDigest(tasks, today) ?? {
     // The one place an empty digest is worth sending: the user asked for it,
-    // and "nothing today" is the honest answer to a button labelled "send one
+    // and "nothing today" is the correct answer to a button labelled "send one
     // now". Silence here would read as the feature being broken, which is the
     // question the button exists to answer.
     title: 'Today · nothing scheduled',

@@ -198,11 +198,11 @@ export interface ShopOrder<T> {
 /**
  * Order a list for the shop you are standing in.
  *
- * `store` is null when we don't know where you are, which is the ordinary
- * case — then nothing is "elsewhere" and the list is simply itself. That is
- * the whole reason the hint sorts rather than filters: the feature has to
- * degrade to "a plain list" the moment location is unavailable, declined, or
- * simply not set up, and it does so here rather than at three call sites.
+ * `store` is null when we do not know where you are, which is the ordinary case.
+ * Then nothing is "elsewhere" and the list is simply itself. That is why the
+ * hint sorts rather than filters: the feature has to degrade to a plain list the
+ * moment location is unavailable, declined, or not set up, and it does so here
+ * rather than at three call sites.
  */
 export function orderForShop<T extends Pick<Task, "status" | "tags">>(
   items: T[],
@@ -348,9 +348,8 @@ export function summarizeList(
 /**
  * The line under a list's name — "8 items", "8 items · 3 in the cart".
  *
- * An empty list says "Nothing on it" rather than "0 items": empty is a
- * shopping list's normal resting state, not a number worth printing, and the
- * count reads as an achievement when it is really just Tuesday.
+ * An empty list says "Nothing on it" rather than "0 items". Empty is a shopping
+ * list's normal resting state, not a number worth printing.
  */
 export function listSubline(summary: ListSummary): string {
   const parts: string[] = [];

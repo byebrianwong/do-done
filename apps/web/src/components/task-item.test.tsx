@@ -8,7 +8,10 @@ import {
   TASK_DELETE_HOLD_MS,
   TASK_DELETE_SLIDE_PX,
 } from "@do-done/shared";
-import { SectionOpenProvider } from "@/lib/task-row-behavior";
+import {
+  SectionOpenProvider,
+  TaskRowBehaviorProvider,
+} from "@/lib/task-row-behavior";
 import { CompletionStreakProvider } from "@/lib/completion-streak";
 import { addDaysLocalISO } from "@do-done/shared";
 import {
@@ -50,7 +53,13 @@ vi.mock("./task-edit-modal-v2", async (importOriginal) => ({
 
 describe("TaskItem — touch affordances", () => {
   it("keeps the row action buttons visible on touch (mobile) and hover-revealed on desktop", () => {
-    render(<TaskItem task={makeTask({ title: "Write report" })} projects={SAMPLE_PROJECTS} />);
+    // The pencil only exists on the detailed row — the quiet one drops it, so
+    // this asserts the reveal rule where there is something to reveal.
+    render(
+      <TaskRowBehaviorProvider keepsCompleted={false} rowStyle="detailed">
+        <TaskItem task={makeTask({ title: "Write report" })} projects={SAMPLE_PROJECTS} />
+      </TaskRowBehaviorProvider>
+    );
 
     const editButton = screen.getByLabelText("Edit task");
     const actions = editButton.parentElement as HTMLElement;
@@ -60,6 +69,22 @@ describe("TaskItem — touch affordances", () => {
     // …but quietly hidden until hover on pointer (md+) devices.
     expect(actions.className).toContain("md:opacity-0");
     expect(actions.className).toContain("md:group-hover/row:opacity-100");
+  });
+
+  // The quiet row opens its editor from the row body and the context menu, so
+  // the pencil is a third door nobody needs — and the strip it sat in was 48px
+  // of every row. What must NOT change is the strip still reserving a fixed
+  // width: the date is placed against it, so a strip that varies moves the
+  // column the dates line up in.
+  it("drops the edit pencil on a quiet row but keeps the strip a fixed width", () => {
+    const { container } = render(
+      <TaskRowBehaviorProvider keepsCompleted={false} rowStyle="quiet">
+        <TaskItem task={makeTask({ title: "Write report" })} projects={SAMPLE_PROJECTS} />
+      </TaskRowBehaviorProvider>
+    );
+
+    expect(screen.queryByLabelText("Edit task")).not.toBeInTheDocument();
+    expect(container.querySelector(".w-6")).toBeTruthy();
   });
 
   it("still exposes the complete toggle (core functionality) on mobile", () => {
@@ -147,22 +172,39 @@ describe("TaskItem — subtask reference", () => {
 
 describe("TaskItem — status badge redundancy", () => {
   // Status-grouped lists (All tasks, Project) render a group header that already
-  // states the status for every row, so the per-row pill is pure redundancy —
-  // `hideStatusBadge` suppresses it there while leaving other views untouched.
-  it("shows the status pill by default for a non-default status", () => {
-    render(<TaskItem task={makeTask({ title: "Ship it", status: "next" })} />);
-    expect(screen.getByText("Next")).toBeInTheDocument();
-  });
+  // states the status for every row, so saying it again on the row is pure
+  // redundancy — `hideStatusBadge` suppresses it there while leaving other
+  // views untouched.
+  //
+  // It has to hold in BOTH row styles. The quiet row says the status in its
+  // subline rather than in a pill, and when that shipped it ignored the flag:
+  // every row of a status-grouped list repeated the header's own word.
+  it.each([["detailed"], ["quiet"]] as const)(
+    "shows the status by default for a non-default status (%s row)",
+    (rowStyle) => {
+      render(
+        <TaskRowBehaviorProvider keepsCompleted={false} rowStyle={rowStyle}>
+          <TaskItem task={makeTask({ title: "Ship it", status: "next" })} />
+        </TaskRowBehaviorProvider>
+      );
+      expect(screen.getByText(/Next/)).toBeInTheDocument();
+    }
+  );
 
-  it("hides the status pill when hideStatusBadge is set", () => {
-    render(
-      <TaskItem
-        task={makeTask({ title: "Ship it", status: "next" })}
-        hideStatusBadge
-      />
-    );
-    expect(screen.queryByText("Next")).not.toBeInTheDocument();
-  });
+  it.each([["detailed"], ["quiet"]] as const)(
+    "hides the status when hideStatusBadge is set (%s row)",
+    (rowStyle) => {
+      render(
+        <TaskRowBehaviorProvider keepsCompleted={false} rowStyle={rowStyle}>
+          <TaskItem
+            task={makeTask({ title: "Ship it", status: "next" })}
+            hideStatusBadge
+          />
+        </TaskRowBehaviorProvider>
+      );
+      expect(screen.queryByText(/Next/)).not.toBeInTheDocument();
+    }
+  );
 });
 
 describe("TaskItem — the strike-through is drawn, not switched on", () => {

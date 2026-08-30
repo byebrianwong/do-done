@@ -463,7 +463,7 @@ function TaskCover({
   const gradient = `linear-gradient(118deg, ${base}, ${shiftHue(base, 14, 0.16)})`;
 
   return (
-    // Two layers, and the split is load-bearing: **the artwork clips, the
+    // Two layers, and the split matters: **the artwork clips, the
     // controls don't**. The watermark bleeds off the corner and the texture
     // runs to the edges, both of which need `overflow-hidden` — but every
     // control down here (project, priority, estimate) opens a popover
@@ -669,7 +669,7 @@ function PriorityStripe({
  * control. Hiding it below High meant a Medium or Low task had no visible
  * priority anywhere in the editor and no target to change one with except a
  * 7px stripe, so the rank read as absent rather than as low. The exception
- * rule still holds where it costs nothing to be quiet — the stripe above stays
+ * rule still holds where there is no cost to being quiet — the stripe above stays
  * a hairline below High, and the task row's gutter still draws nothing at all
  * for P4.
  */
@@ -1959,7 +1959,7 @@ function NotesField({
         <textarea
           value={text}
           autoFocus={editing}
-          // The cap is the whole point: without it the browser happily accepts
+          // The cap is why this is here: without it the browser happily accepts
           // notes the `tasks_description_check` constraint rejects, and the
           // rejected description then rides along in every later autosave patch
           // — so the task stops saving *at all*, not just its notes. `maxLength`
@@ -2820,8 +2820,8 @@ function TaskEditModalBody({
   const handleDelete = useCallback(async () => {
     setDeleting(true);
     // Close before the write, not after it. The row this task has in the list
-    // behind the modal is about to start leaving, and the whole point of that
-    // animation is being seen — held until the delete resolved, the modal would
+    // behind the modal is about to start leaving, and that animation only helps
+    // if it is seen — held until the delete resolved, the modal would
     // still be covering the list for the first half of it.
     //
     // `closeNow`, not `handleClose`: the row is gone, so there is no unsaved

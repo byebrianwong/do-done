@@ -14,8 +14,8 @@ import {
 } from "./constants.js";
 
 /**
- * Deletion is the completion gesture's opposite number, and the whole reason it
- * exists is that a row leaving silently told the user nothing. Every assertion
+ * Deletion is the opposite of the completion gesture, and it exists because a
+ * row leaving silently told the user nothing. Every assertion
  * here is about it staying *distinguishable* from a completion and staying
  * inside the window the toast promises — neither of which any type-checker or
  * either implementation (Tailwind plus inline styles on web, Reanimated on
@@ -48,8 +48,9 @@ describe("task deletion motion", () => {
   });
 
   it("holds for less time than a completion", () => {
-    // The completion hold is a beat to enjoy. This one is only long enough to
-    // see which row is going — the app must not savour a deletion.
+    // The completion hold marks a state the task passed through. This one is
+    // only long enough to
+    // see which row is going.
     expect(TASK_DELETE_HOLD_MS).toBeLessThan(TASK_COMPLETE_HOLD_MS);
     expect(TASK_DELETE_EXIT_MS).toBeLessThan(TASK_COMPLETE_EXIT_MS);
   });

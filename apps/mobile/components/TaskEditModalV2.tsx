@@ -970,7 +970,7 @@ function ScheduleCalendarImpl({
   const activeWave = mode === "month" ? monthWave : weekWave;
   const waveDuration = activeWave?.durationMs ?? 0;
   useEffect(() => {
-    // The wave is ambient, never load-bearing: the static runway tint already
+    // The wave is ambient, never required: the static runway tint already
     // shows the span, so reduced motion simply drops the moving band.
     if (!waveDuration || reduceMotion) {
       waveProgress.setValue(0);
@@ -1458,7 +1458,7 @@ function NotesField({
         <TextInput
           value={text}
           autoFocus={editing}
-          // The cap is the whole point: without it the input happily accepts
+          // The cap is why this is here: without it the input happily accepts
           // notes the `tasks_description_check` constraint rejects, and the
           // rejected description then rides along in every later autosave patch
           // — so the task stops saving *at all*, not just its notes.
@@ -1857,7 +1857,7 @@ export default function TaskEditModalV2({
    * All of it lives on the UI thread because the pan has to consult it
    * mid-gesture. The rule is the one every good sheet uses — the body owns the
    * drag until it has nothing left to scroll, and only then does the sheet take
-   * over — but *how* the sheet stands down is the load-bearing part; see
+   * over — but *how* the sheet stands down is the part that matters; see
    * `dismissPan` below.
    */
   const scrollOffset = useSharedValue(0);
@@ -2069,7 +2069,7 @@ export default function TaskEditModalV2({
    * `animationType="none"` — so the room went dark in a single frame while the
    * sheet was still off the bottom of the screen, and snapped back to bright
    * only after the sheet had finished leaving. Sharing one value means it now
-   * rises with the sheet and, more to the point, follows a *drag*: pull the
+   * rises with the sheet and, more usefully, follows a *drag*: pull the
    * sheet halfway down and the view behind it is already half returned.
    */
   const backdropStyle = useAnimatedStyle(() => ({

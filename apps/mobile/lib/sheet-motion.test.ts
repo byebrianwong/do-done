@@ -136,7 +136,7 @@ describe("backdropOpacity", () => {
     expect(backdropOpacity(H, H)).toBe(0);
   });
 
-  it("tracks a drag in between, which is the point of deriving it", () => {
+  it("tracks a drag in between, which is why it is derived", () => {
     expect(backdropOpacity(H / 2, H)).toBeCloseTo(BACKDROP_OPACITY / 2);
   });
 

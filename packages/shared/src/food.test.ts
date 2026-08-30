@@ -108,7 +108,7 @@ describe("categorizeItem", () => {
   });
 
   it("returns null for anything it doesn't recognise", () => {
-    // A first-class state, not a failure — the honest limit of a lexicon.
+    // A first-class state, not a failure — the real limit of a lexicon.
     expect(categorizeItem("Birthday card")).toBeNull();
     expect(categorizeItem("USB-C cable, 2m")).toBeNull();
     expect(categorizeItem("")).toBeNull();
@@ -303,7 +303,7 @@ describe("itemAisle with memory", () => {
   });
 
   it("does not leak a lesson to a different phrase sharing a word", () => {
-    // The whole reason the key is the full text.
+    // Why the key is the full text.
     expect(itemAisle(item("Whole milk"), memory)).toBe("dairy");
   });
 

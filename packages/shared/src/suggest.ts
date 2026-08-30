@@ -2,12 +2,12 @@
  * Guessing a task's project and estimate from the words in its title.
  *
  * **The training set is the user's own task list, and nothing else.** There is
- * no keyword table here and there must never be one: a hard-coded map from
- * "gym" to "Health" is a guess about a *project list we can see*, and it is
- * wrong for everyone whose projects are named differently — which is everyone.
- * What the history says instead is checkable ("the last four tasks with the
- * word `standup` went to Work"), which is also what makes a suggestion
- * explainable to the person reading it.
+ * no keyword table here and there must never be one: a hard-coded map from "gym"
+ * to "Health" assumes project names we cannot know, and it is wrong for everyone
+ * whose projects are named differently — which is everyone. What the history
+ * says is checkable ("the last four tasks with the word `standup` went to
+ * Work"), which is also what makes a suggestion explainable to the person
+ * reading it.
  *
  * Two calls rather than one, because they run at different rates: the index is
  * built once per session from a sweep of the rows, and {@link suggestFacets}
@@ -15,14 +15,14 @@
  *
  * ## Why only project and estimate
  *
- * `tasks.priority` is `not null default 'p4'`, so the history cannot tell
- * "chose Low" from "never triaged" — the same collapse that makes P4 draw
- * nothing in the row gutter. A frequency model over that column would suggest
- * `p4` for nearly everything, which is a suggestion in form only. `scheduled_date`
- * is worse: a date is about *when you are*, not about what the words say, and
- * the parser already reads "friday" out of the title far more reliably than a
- * frequency count ever could. Both are deliberately absent, and adding either
- * needs a reason beyond "the column exists".
+ * `tasks.priority` is `not null default 'p4'`, so the history cannot tell "chose
+ * Low" from "never triaged" — the same collapse that makes P4 draw nothing in
+ * the row gutter. A frequency model over that column would suggest `p4` for
+ * nearly everything, which is not a useful suggestion. `scheduled_date` is
+ * worse: a date is about *when you are*, not about what the words say, and the
+ * parser already reads "friday" out of the title far more reliably than a
+ * frequency count could. Both are deliberately absent, and adding either needs a
+ * reason beyond "the column exists".
  */
 
 /** The columns a suggestion is built from. A whole `Task` satisfies it. */
@@ -70,9 +70,9 @@ export interface SuggestionIndex {
  * Words that carry no information about which project a task belongs to.
  *
  * Deliberately only function words. The verbs that start a task title — buy,
- * call, email, fix, book — look like noise and are the opposite: they are the
- * single most discriminating signal in a task list, because the kind of verb a
- * task takes is most of what decides which project it is.
+ * call, email, fix, book — look like noise but are the single most discriminating
+ * signal in a task list, because the kind of verb a task takes is most of what
+ * decides which project it is.
  */
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "from", "that", "this", "then", "than",
@@ -89,9 +89,9 @@ const MIN_TOKEN_LENGTH = 3;
 /**
  * How many historical titles must carry a token before it may vote.
  *
- * At 1 a token seen exactly once scores a perfect 1.0 for whichever project
- * that single task happened to be in — maximum confidence from a single
- * coincidence, which is the classic way a frequency model embarrasses itself.
+ * At 1 a token seen exactly once scores a perfect 1.0 for whichever project that
+ * single task happened to be in — maximum confidence from a single coincidence,
+ * which is a well-known failure mode for frequency models.
  */
 const MIN_TOKEN_SUPPORT = 2;
 
@@ -108,9 +108,9 @@ const MIN_SUPPORT = 1;
 /**
  * Minimum share of the evidence the winner must hold.
  *
- * A title whose words point two ways is exactly the case where a suggestion is
- * most expensive: it is the moment the user would have thought about it, and a
- * confident-looking wrong chip is what stops them. Ties resolve to silence.
+ * A title whose words point two ways is where a wrong suggestion costs most: it
+ * is the moment the user would have stopped to think, and a confident-looking
+ * wrong chip stops them doing so. Ties resolve to no suggestion at all.
  */
 const MIN_CONFIDENCE = 0.6;
 
@@ -181,11 +181,11 @@ export function emptySuggestionIndex(): SuggestionIndex {
 
 /**
  * Score one facet: every qualifying token splits one vote across the values it
- * has been seen with, so a word that always means the same thing carries a
- * whole vote and a word that means four things carries a quarter each.
+ * has been seen with, so a word that always means the same thing carries a whole
+ * vote and a word that means four things carries a quarter each.
  *
- * That normalisation is the point. Without it the winner is whichever value has
- * the most tasks overall, which is a suggestion that ignores the title.
+ * That normalisation is what makes the score depend on the title. Without it the
+ * winner is whichever value has the most tasks overall.
  */
 function scoreFacet<V>(
   tokens: readonly string[],

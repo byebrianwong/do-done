@@ -53,8 +53,8 @@ import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
  * database underneath them would mean reimplementing PostgREST — filter
  * grammar and all — to get back to the same array operations these do
  * directly. Callers get them through the same `getClientTasksApi()` seam and
- * can't tell the difference, which is the whole point: not one component knows
- * whether it's in the demo.
+ * cannot tell the difference, which is the goal: no component knows whether it
+ * is in the demo.
  *
  * Every method returns the `{ data, error }` shape the real ones do, so the
  * error branches on the calling side stay live code rather than becoming
@@ -429,7 +429,7 @@ class DemoTasksApiImpl {
    * The sandbox never purges.
    *
    * Its store is a per-tab array that dies with the tab, so there is nothing to
-   * reclaim and no bucket paying rent — but the method has to exist, because
+   * reclaim and no bucket to clean up — but the method has to exist, because
    * `api.test.ts` sweeps both prototypes and the sweeps that call this run on
    * the demo routes too.
    */
@@ -732,8 +732,8 @@ class DemoAttachmentsApiImpl {
  * Locations, unlike attachments, are fully live in the sandbox.
  *
  * The reason is what each one needs from outside. An attachment is bytes in a
- * Storage bucket the demo has no session for, so the honest stand-in is an
- * empty set. A location is four numbers and a name — the sandbox can hold them
+ * Storage bucket the demo has no session for, so the only accurate stand-in is
+ * an empty set. A location is four numbers and a name — the sandbox can hold them
  * as easily as it holds a task — and place search talks to a keyless public
  * geocoder that doesn't know or care who is asking. So attaching a reminder to
  * "Sainsbury's" in the demo does the whole thing, and the only half that can't
