@@ -92,6 +92,7 @@ export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const listId = String(id);
   const { data: list } = useList(listId);
+  const title = list?.name ?? 'List';
   const itemsQuery = useListItems(listId);
   const { data: items = [], refetch } = itemsQuery;
   const loadState = useListLoadState(itemsQuery);
@@ -318,14 +319,23 @@ export default function ListDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          title: list?.name ?? 'List',
-          headerLeft: list
-            ? () => (
+          title,
+          // The ring goes in the title, never in `headerLeft`: overriding that
+          // slot replaces the back button, and the only ways out left are the
+          // edge swipe and the tab, neither of which the screen says anything
+          // about. Same shape as the project screen.
+          headerTitle: () => (
+            <View style={styles.headerTitle}>
+              {list ? (
                 <View style={[styles.ring, { backgroundColor: list.color }]}>
                   <ProjectIcon icon={list.icon} size={12} color="#ffffff" />
                 </View>
-              )
-            : undefined,
+              ) : null}
+              <Text style={styles.headerText} numberOfLines={1}>
+                {title}
+              </Text>
+            </View>
+          ),
           headerRight: () => (
             <View style={styles.headerRight}>
               {got.length > 0 && (
@@ -887,13 +897,14 @@ function ItemRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
+  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerText: { fontSize: 17, fontWeight: '700', color: '#111827' },
   ring: {
     width: 24,
     height: 24,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
   },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   clear: { fontSize: 13, fontWeight: '600', color: '#6366f1' },
