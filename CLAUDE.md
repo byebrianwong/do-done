@@ -1928,11 +1928,10 @@ round trips on one of the most repeated actions in the app, and would lose a buy
 when two devices tick the same item at once. Same-day repeats are ignored, so tick,
 untick and tick again cannot inflate the count or store a zero-day gap.
 
-> **The migration is on main but has not been applied to the database.**
-> `supabase db push --linked` still needs running from the main checkout. Until it
-> is, the pantry and the due strip do nothing: `PantryApi.load()` returns an empty
-> array on failure, so the drawer does not render, and the record error is
-> swallowed. The row and `@store` need no schema change and work regardless.
+**A missing or unreadable `list_pantry` degrades to a plain shopping list.**
+`PantryApi.load()` returns an empty array rather than throwing, so the drawer and
+the due strip simply do not render, and the record error is swallowed inside
+`TasksApi.update`. The row and `@store` need no schema change and work either way.
 
 #### Putting a list away no longer destroys anything
 
