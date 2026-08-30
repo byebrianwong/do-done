@@ -1067,6 +1067,18 @@ Three pieces, all under `apps/mobile`:
   24h and must stay in step** — otherwise a restored list for a tab the user has not
   opened is garbage-collected before it is ever observed, and the next write-out
   persists the cache without it.
+- **A persisted query's data must survive `JSON.stringify`.** The snapshot is
+  written as JSON, which has no representation for a Map or a Set — both come
+  back as `{}`. That is not stale data, it is data of the wrong *type*, and
+  every screen here copes with the first and none with the second.
+  `useListCounts` caches a Map: restored from a snapshot it arrived as a plain
+  object, the first row of the Lists screen called `.get` on it, and the whole
+  app went to the error boundary — on every cold start, for anyone with a list.
+  `survivesJsonRoundTrip` keeps such a query out of the snapshot entirely, so it
+  refetches on launch and draws a skeleton, which is what the screens are built
+  for. `useAisleMemory` caches a Map too. **Caching a Map is still allowed; it
+  just will not be persisted.** `CACHE_KEY` is `v2` because the old snapshots
+  already hold the broken shape and cannot be repaired by a reader.
 - **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for every
   list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a restored
   empty list is a real answer and gets the empty state, while a cache that has never

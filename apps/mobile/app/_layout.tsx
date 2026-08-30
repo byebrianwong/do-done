@@ -22,7 +22,7 @@ import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
-import { persistOptions } from '@/lib/query-persist';
+import { dropLegacySnapshots, persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { startDigestScheduling } from '@/lib/digests';
 import { startTaskReminderScheduling } from '@/lib/task-reminders';
@@ -71,6 +71,12 @@ export default function RootLayout() {
   // once, here, so it has landed before the tab bar draws its icons.
   useEffect(() => {
     hydrateViewModes();
+  }, []);
+
+  // One-time cleanup of pre-v2 cache snapshots, which could hold a Map
+  // serialized to `{}`. See `survivesJsonRoundTrip`.
+  useEffect(() => {
+    dropLegacySnapshots();
   }, []);
 
   useEffect(() => {
