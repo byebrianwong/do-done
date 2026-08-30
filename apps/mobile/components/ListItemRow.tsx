@@ -370,17 +370,25 @@ export function ListItemRow({
             Flex-basis resolves against the container's main axis, so `flex: 1`
             here would set a vertical basis of 0 and collapse the title to
             height 0. Same trap as the task row's title.
+
+            The title gets a row of its own for the same reason. `StruckText`'s
+            own root is `flex: 1`, which means "fill the width" only while its
+            parent lays out horizontally; directly inside this column it meant
+            `flexBasis: 0` vertically instead, and any item with a subline —
+            a store, a scheduled day — rendered its date and no title at all.
           */}
           <View style={styles.body}>
             {/* Drawn rather than switched on — React Native cannot animate
                 `textDecorationLine`. See `StruckText`. */}
-            <StruckText
-              text={item.title}
-              struck={completed}
-              strikeColor={TITLE_DONE_COLOR}
-              style={[styles.title, completed && styles.titleDone]}
-              numberOfLines={2}
-            />
+            <View style={styles.titleRow}>
+              <StruckText
+                text={item.title}
+                struck={completed}
+                strikeColor={TITLE_DONE_COLOR}
+                style={[styles.title, completed && styles.titleDone]}
+                numberOfLines={2}
+              />
+            </View>
             {subline !== '' ? (
               <Text style={styles.subline} numberOfLines={1}>
                 {subline}
@@ -452,6 +460,9 @@ const styles = StyleSheet.create({
   check: { color: '#fff', fontSize: 13, fontWeight: '700' },
   // Fills the row's width, so the title inside it does not have to. See above.
   body: { flex: 1, gap: 2 },
+  // Lays out horizontally so `StruckText`'s `flex: 1` root means width. See
+  // the note beside the markup.
+  titleRow: { flexDirection: 'row' },
   title: { fontSize: 15, color: '#111827' },
   titleDone: { color: TITLE_DONE_COLOR },
   subline: { fontSize: 12, color: '#6b7280' },
