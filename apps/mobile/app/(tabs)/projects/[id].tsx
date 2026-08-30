@@ -7,7 +7,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -31,11 +36,13 @@ import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import { ProjectFormSheet } from '@/components/ProjectFormSheet';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const projectId = id ?? '';
 
+  const router = useRouter();
   const { data: project } = useProject(projectId);
   const tasksQuery = useProjectTasks(projectId);
   const { data: tasks = [], refetch } = tasksQuery;
@@ -53,6 +60,7 @@ export default function ProjectDetailScreen() {
 
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
+  const [editingProject, setEditingProject] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('project');
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
@@ -105,7 +113,24 @@ export default function ProjectDetailScreen() {
                 <Ionicons name="options-outline" size={22} color="#6366f1" />
                 {!isDefault ? <View style={styles.activeDot} /> : null}
               </Pressable>
-              <ListActionsMenu />
+              {/* A project's name, colour and icon were only settable at the
+                  moment it was created, and there was no way to delete one
+                  from the phone at all. This is the way back to all three.
+
+                  It sits in the ⋯ rather than getting its own pencil, which is
+                  what the list screen uses: that screen has no menu to put it
+                  in, and this header already spends two slots. A rare action
+                  belongs behind the menu that exists for rare actions. */}
+              <ListActionsMenu
+                actions={[
+                  {
+                    key: 'edit',
+                    label: 'Edit project',
+                    icon: 'create-outline',
+                    onPress: () => setEditingProject(true),
+                  },
+                ]}
+              />
             </View>
           ),
         }}
@@ -161,6 +186,16 @@ export default function ProjectDetailScreen() {
         visible={editing !== null}
         onClose={() => setEditing(null)}
         onSaved={invalidateTasks}
+      />
+      <ProjectFormSheet
+        visible={editingProject}
+        project={project ?? undefined}
+        onClose={() => setEditingProject(false)}
+        // The deleted project is this screen, so there is nothing left to show.
+        // The Projects tab's memory still points at it; `resumeDecision` checks
+        // the stored id against the projects that exist and falls back to the
+        // index, so it does not need clearing here.
+        onDeleted={() => router.back()}
       />
     </View>
   );

@@ -1169,6 +1169,12 @@ task.
   The menu opens as a bottom sheet, like every other menu in the app — an anchored
   popover would have to know the height of two different kinds of header, and the
   sheet lands under the thumb.
+- **A menu row that opens another modal has to wait for this one to go.** On iOS a
+  `Modal` presented while another is still dismissing never appears — no error, the
+  row simply does nothing. Every action here navigated, so nothing hit it until
+  "Edit project" tried to open a sheet and did nothing at all. `ListActionsMenu`
+  holds the action and runs it from the modal's `onDismiss`, which is iOS-only, so
+  Android still runs it inline rather than waiting for a callback that never fires.
 
 The cost is discoverability: nothing on the row now says it can be dragged. That is
 already true of the projects list, and the alternative was a permanent visual cost on
@@ -2483,8 +2489,19 @@ The picker **expands in flow on both platforms and never floats.** Web's dialog 
 panel is clipped the moment it passes the footer. On mobile an Android `Modal` would open a
 second window and drop the IME. The form grows and its body scrolls instead.
 
-Mobile has no project *edit* screen — only create (`ProjectFormSheet`) and the detail view
-— so the full palette and both icon tabs are reachable there.
+`ProjectFormSheet` is the whole of it on mobile — create, edit and delete, for a project
+and for a list alike — so the full palette and both icon tabs are reachable there.
+
+**Where it is opened from differs by screen, and the reason is the header.** A list's
+detail bar has no ⋯ menu, so editing is a pencil beside "Put away". A project's already
+spends two slots on Display and ⋯, so **Edit project** is a row in that menu instead: a
+third icon for an action taken once or twice in a project's life is the trade this app
+keeps refusing elsewhere.
+
+**Deleting a project does not delete its tasks.** `tasks.project_id` is
+`references projects(id) on delete set null`, so they are unfiled and stay in the task
+universe; the confirm says so. That is also why the delete is behind a confirm at all —
+a task has an undo toast and `restore()` behind it, and this has neither.
 
 ## Testing
 
