@@ -1762,6 +1762,37 @@ focus. On mobile it is a long-press, because the row's two tap targets are alrea
 spoken for (see *The item row* below) and a third visible control would cost
 mis-ticks.
 
+#### The aisle is what the ring carries
+
+`AISLE_COLOR` and `AISLE_ICON` in `packages/shared/src/food.ts` give each aisle a
+hue and a Phosphor icon, and `aisleRing` hands a row both. On mobile the item
+row's leading circle draws them, so a shopping list reads as a route before a
+word of it is read.
+
+- **Because the project cannot.** On a task the ring carries the project, which
+  is the thing that differs down a list. Every item on one shopping list has the
+  *same* project, so drawing it would paint the screen one colour and say
+  nothing. The aisle is the variable that actually differs, and it is nominal —
+  produce is not more than dairy — which is what hue is for. Same reasoning as
+  `rowGutter`'s, in *The task row*.
+- **Twelve hues cannot all be told apart at 21px, and do not have to be.** The
+  icon is the primary reading and the list is already grouped under aisle
+  headers. The colour is what makes the grouping visible while scrolling, and
+  what makes a mis-filed item stand out among its neighbours.
+- **The icons are the same `ph:` tokens `projects.icon` holds**, so
+  `parseProjectIcon` draws them and no surface needs a second code path. Fill
+  weight for the reason the project picker defaults to it: at this size a line
+  weight lands under a device pixel. `food.test.ts` asserts every aisle's token
+  parses — a name that is not in the curated catalogue draws an empty ring, on a
+  device, with no error anywhere.
+- **A completed item's ring fills with its aisle colour**, so the cart stays as
+  colour-coded as the list above it.
+- **Unrecognised gets `NO_AISLE_COLOR` and no icon** — chosen rather than
+  missing, the same way a task with no project gets a deliberate neutral.
+- **The aisle is computed per item, not taken from the section.**
+  `groupByAisle` collapses to one unlabelled group on a short list, so reading the
+  group would leave a three-item list with grey rings.
+
 ### The surfaces
 
 Both apps go through `@do-done/shared/lists` — `openItems`, `gotItems`,
@@ -1817,6 +1848,39 @@ The whole row used to tick. A click meant for "what did I write here" bought the
 thing instead, and the only sign was a row moving into the cart.
 `list-view.test.tsx` is the regression on web; there is no renderer on mobile, so
 that half is verified on the simulator.
+
+**On mobile the tick is the same gesture a task's is** (`components/ListItemRow.tsx`).
+It was not: the row had no animation, no haptic, no undo, and it only reached the
+cart when the refetch landed. It now shares `useRowExit`, `StruckText` and the
+timings in `@do-done/shared` with `TaskItem`, so the ring flinches and fills, a
+halo rings out, the title is struck through, and the row holds at full height
+before collapsing. Swipe right to tick off, swipe left to delete — both with the
+undo toast the rest of the app gives.
+
+- **Not `TaskItem` itself**, for the reason the screen is not `GroupedTaskList`:
+  that row spends its width on an urgency gutter, a project ring, a focus star and
+  a subtask breadcrumb, none of which an item has. What is shared is the
+  behaviour, not the layout.
+- **The swipe-left panel is one tile.** A task offers Today and Tomorrow beside
+  Delete; a thing to buy has no day worth moving.
+- **No burst and no streak**, as before. `sparkReason` already returns null for an
+  item — the last thing in the basket is the last thing in *every* basket — and
+  buying milk must not hold a run of working days alive.
+- **A tick moves the row; it does not remove it.** So `toggleComplete` patches the
+  item's status into `listKeys.items()` in place rather than filtering it out, the
+  one root in the app with that shape. Without it the row collapsed out of its
+  aisle and the item reappeared in the cart a round trip later, which reads as it
+  vanishing and coming back. `lib/list-item-complete.test.ts` asserts the frames in
+  between, since the settled state was always right.
+- **The `keyExtractor` carries which side of the list the row is on**, not just the
+  id. A row shrinks its own height on the way out, and the patch above then moves
+  it between the aisles and the cart. Keyed by id alone, React reconciles those as
+  the same element whenever the row lands at the same index in the flattened list,
+  so the instance survives with its exit state still collapsed and is drawn at zero
+  height in its new section. With one item on the list that is *every* time: a
+  "Got it · 1" header over nothing at all. This is the `keepsCompleted` trap on the
+  task row, reached from the other direction, and it is invisible to CI — there is
+  no renderer here, so it was caught on the simulator and can only be caught there.
 
 #### The row shows the store and the scheduled day
 
@@ -2451,6 +2515,13 @@ its name, which looks deliberate enough that nobody would report it.
 The Completed screen was already a `SectionList` with
 `stickySectionHeadersEnabled`, so it needed no change.
 
+A shopping list is a `SectionList` too, and was missed: it kept its own copy of
+the old 11px uppercase grey header long after the four screens above moved. It
+uses `SectionHeader` now, with the aisle's own colour on the dot — so the header
+and the rings under it say the same thing — and its rows went full-bleed to match
+every other list. They had been floating white cards, which a sticky header sits
+badly over and which leaves a swipe panel opening outside the row it belongs to.
+
 ### The label itself
 
 `text-xs font-semibold uppercase tracking-wider` dated the app more than
@@ -2635,6 +2706,29 @@ appeared.
 - Spacing: 4px grid
 - Aesthetic: Things 3 cleanliness, Linear speed
 - Tokens in `packages/ui/src/theme.ts`
+
+### The app is light-only, and says so in one place
+
+Every screen in `apps/mobile` paints itself from a hardcoded light palette.
+Nothing reads the colour scheme — but the *navigation* theme did, so after sunset
+the header on the handful of screens that use a native one (a list, a project,
+Settings, Completed) turned black above a light body, while every screen that
+draws its own title bar stayed light. Which headers went dark tracked which
+screens have a native header, not anything about the screens themselves, so it
+read as a bug in particular lists.
+
+`APP_THEME` in `app/_layout.tsx` is `DefaultTheme` unconditionally, and
+`userInterfaceStyle` in `app.config.ts` is `"light"` for the native half — the
+keyboard, native alerts, the status bar default. Following the system when only
+the chrome can follow it is worse than not following it at all.
+
+**The two halves ship differently.** The theme is JS and goes out over OTA; the
+config is native and only takes effect on a fresh `eas build`. This is a mobile
+decision only: web carries `dark:` variants throughout and its own
+`prefers-color-scheme` blocks in `globals.css`.
+
+A real dark mode is a separate change, and a large one: it means a token layer
+for every StyleSheet in the app.
 
 ### A project's colour and its icon
 
