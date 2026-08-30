@@ -17,7 +17,7 @@ If you are an agent, read this file, then the two companion docs below, before e
 | Doc | What it gives you |
 |---|---|
 | [`README.md`](README.md) (this file) | The map: architecture, where features live, how a change flows through the layers, the rules you must not break. |
-| [`CLAUDE.md`](CLAUDE.md) | Canonical project instructions — code style, naming, commands, design system, native-build setup. **These override defaults; follow them exactly.** |
+| [`CLAUDE.md`](CLAUDE.md) | Canonical project instructions — code style, **writing style**, naming, commands, design system, native-build setup. **These override defaults; follow them exactly.** |
 | [`AGENTS.md`](AGENTS.md) | Agent path ownership + coordination rules for parallel work (backend / web / mobile lanes). |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | Living execution state — what's shipped, production URLs/IDs, gotchas, open work. The source of truth for *current* status. |
 
@@ -60,6 +60,7 @@ DoDone is a **layered monorepo**. A feature almost never lives in one place — 
 3. **Design comes from `@do-done/ui`.** No hardcoded colors or spacing; pull tokens from `theme.ts` (accent is indigo-500 `#6366f1`, 4px spacing grid, Inter).
 4. **Strict TypeScript, no `any`.** ES modules — local imports use the `.js` extension even from `.ts` files.
 5. **Stay in your lane** when coordinating (see `AGENTS.md`): backend = `packages/*` + `apps/mcp` + `supabase`; web = `apps/web` + `packages/ui`; mobile = `apps/mobile`.
+6. **Write plainly** — comments, commit messages, PR bodies, docs. Lead with the point, one idea per sentence, no metaphor standing in for an explanation, and keep the caveats. Do not copy a more elaborate style from the code you are editing. Rules and before/after examples: `CLAUDE.md` → *Writing style*.
 
 ---
 
