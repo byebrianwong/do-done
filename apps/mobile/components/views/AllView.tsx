@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TasksTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
@@ -24,7 +25,7 @@ import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
-export default function AllTasksScreen() {
+export function AllView() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tasksQuery = useAllTasks();
@@ -53,7 +54,7 @@ export default function AllTasksScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.topTitle}>All</Text>
+        <TasksTitle />
         <View style={styles.topActions}>
           <Pressable onPress={() => setShowDisplay(true)} hitSlop={8} style={styles.iconBtn}>
             <Ionicons name="options-outline" size={22} color="#6366f1" />

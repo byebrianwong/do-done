@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import DraggableFlatList, {
   ScaleDecorator,
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Project } from '@do-done/shared';
 import { splitProjects } from '@do-done/shared';
@@ -21,6 +21,13 @@ import {
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
+import {
+  hasResumeTried,
+  loadResume,
+  markResumeTried,
+  resumeDecision,
+  saveResume,
+} from '@/lib/tab-resume';
 
 type ProjectRow = Project & { task_count: number; open_count: number };
 
@@ -41,14 +48,63 @@ export default function ProjectsScreen() {
   const [ordered, setOrdered] = useState<ProjectRow[]>(projects);
   const [showCreate, setShowCreate] = useState(false);
 
-  // Shopping lists live at /lists and are dropped from this tab entirely. Left
-  // in, every one of them would read "0 open": their items are excluded from
-  // the counts by the same rule that keeps them out of Today.
+  // Shopping lists have their own tab and are dropped from this one entirely.
+  // Left in, every one of them would read "0 open": their items are excluded
+  // from the counts by the same rule that keeps them out of Today.
   const workProjects = useMemo(
     () => splitProjects(projects).projects,
     [projects]
   );
-  const listCount = projects.length - workProjects.length;
+
+  const [remembered, setRemembered] = useState<string | null | undefined>(
+    undefined
+  );
+  // Only the focused index may decide. A row tapped by hand blurs this screen
+  // while the ids may still be arriving, and an ungated decision would then
+  // push a second detail on top of the one the user just opened.
+  const [focused, setFocused] = useState(false);
+
+  // Re-read on every focus: the detail screen writes the memory, so a value
+  // read at mount is stale the moment we come back.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setFocused(true);
+      loadResume('projects')
+        .then((id) => {
+          if (!cancelled) setRemembered(id);
+        })
+        .catch(() => {
+          if (!cancelled) setRemembered(null);
+        });
+      return () => {
+        cancelled = true;
+        setFocused(false);
+      };
+    }, [])
+  );
+
+  // The tab opens on the project you were last in — see `lib/tab-resume.ts`.
+  useEffect(() => {
+    if (!focused || remembered === undefined) return;
+    const decision = resumeDecision({
+      remembered,
+      known: projectsQuery.data ? workProjects.map((p) => p.id) : null,
+      alreadyTried: hasResumeTried('projects'),
+    });
+    if (decision.action === 'wait') return;
+    markResumeTried('projects');
+    if (decision.action === 'open') {
+      router.push(`/projects/${decision.id}` as never);
+      // Unknown again until the next focus re-reads it: a refetch landing
+      // while the detail is up would otherwise re-decide, see `alreadyTried`,
+      // and wipe the memory that detail has just written.
+      setRemembered(undefined);
+    } else if (decision.action === 'forget') {
+      setRemembered(null);
+      saveResume('projects', null);
+    }
+  }, [focused, remembered, workProjects, projectsQuery.data, router]);
 
   const sig = workProjects.map((p) => `${p.id}:${p.sort_order}`).join(',');
   useEffect(() => {
@@ -71,7 +127,12 @@ export default function ProjectsScreen() {
   }: RenderItemParams<ProjectRow>) => (
     <ScaleDecorator>
       <Pressable
-        onPress={() => router.push(`/projects/${item.id}` as never)}
+        onPress={() => {
+          // Opening one by hand spends the restore's turn — see the same
+          // guard on the Lists tab.
+          markResumeTried('projects');
+          router.push(`/projects/${item.id}` as never);
+        }}
         onLongPress={drag}
         delayLongPress={180}
         disabled={isActive}
@@ -107,19 +168,6 @@ export default function ProjectsScreen() {
           {/* The other way the user's work is grouped. Settings also lists
               Tags, but nobody looks for a browse surface in Settings — this
               is the tab where "show me everything filed under X" lives. */}
-          {/* Shown only once a list exists — a permanent button for a feature
-              nobody has used is the sort of ambient advertisement this whole
-              design is arguing against. */}
-          {listCount > 0 && (
-            <Pressable
-              onPress={() => router.push('/lists' as never)}
-              hitSlop={10}
-              style={styles.addBtn}
-              accessibilityLabel="Lists"
-            >
-              <Ionicons name="cart-outline" size={19} color="#6366f1" />
-            </Pressable>
-          )}
           <Pressable
             onPress={() => router.push('/tags' as never)}
             hitSlop={10}

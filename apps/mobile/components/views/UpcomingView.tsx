@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
+import { AgendaTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
@@ -142,7 +143,7 @@ function openCount(tasks: Task[]): number {
     .length;
 }
 
-export default function UpcomingScreen() {
+export function UpcomingView() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tasksQuery = useAllTasks();
@@ -284,7 +285,7 @@ export default function UpcomingScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.topTitle}>Upcoming</Text>
+        <AgendaTitle />
         <View style={styles.topActions}>
           <Pressable onPress={() => setShowDisplay(true)} hitSlop={8} style={styles.iconBtn}>
             <Ionicons name="options-outline" size={22} color="#6366f1" />

@@ -212,16 +212,6 @@ export default function SettingsScreen() {
           label="Saved places"
           onPress={() => router.push('/locations' as never)}
         />
-        {/* Unconditional, unlike the cart button on the Projects tab, which
-            appears only once a list exists. Without a door that doesn't
-            require having been here before, there is no way to make a first
-            list — the button needed one to show, and it was the only way to
-            make one. */}
-        <SettingsRow
-          icon="cart-outline"
-          label="Shopping lists"
-          onPress={() => router.push('/lists' as never)}
-        />
         <SettingsRow
           icon="sync-outline"
           label="Status and schedule"

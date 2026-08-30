@@ -178,3 +178,54 @@ describe('persistOptions', () => {
     expect(should(query(['tasks', 'list', 'today'], 'error'))).toBe(false);
   });
 });
+
+describe('survivesJsonRoundTrip', () => {
+  it('rejects a Map, which JSON.stringify turns into {}', async () => {
+    // `useListCounts` caches one. Restored from a snapshot it arrived as a
+    // plain object, and the first row of the Lists screen threw calling `.get`
+    // on it — taking the whole app to the error boundary on every cold start.
+    const { survivesJsonRoundTrip } = await loadPersist();
+    expect(survivesJsonRoundTrip(new Map([['a', 1]]))).toBe(false);
+  });
+
+  it('rejects a Set for the same reason', async () => {
+    const { survivesJsonRoundTrip } = await loadPersist();
+    expect(survivesJsonRoundTrip(new Set([1, 2]))).toBe(false);
+  });
+
+  it('rejects a Map nested inside the data', async () => {
+    const { survivesJsonRoundTrip } = await loadPersist();
+    expect(survivesJsonRoundTrip({ counts: new Map() })).toBe(false);
+    expect(survivesJsonRoundTrip([{ counts: new Map() }])).toBe(false);
+  });
+
+  it('accepts the shapes the app actually caches', async () => {
+    const { survivesJsonRoundTrip } = await loadPersist();
+    expect(survivesJsonRoundTrip([])).toBe(true);
+    expect(
+      survivesJsonRoundTrip([{ id: 'a', tags: ['x'], done: false }])
+    ).toBe(true);
+    expect(survivesJsonRoundTrip({ a: { open: 1, got: 0 } })).toBe(true);
+    expect(survivesJsonRoundTrip(null)).toBe(true);
+    expect(survivesJsonRoundTrip(undefined)).toBe(true);
+  });
+
+  it('keeps a Map-holding query out of the snapshot', async () => {
+    const { persistOptions } = await loadPersist();
+    const should = persistOptions.dehydrateOptions.shouldDehydrateQuery;
+    const query = {
+      queryKey: ['lists', 'counts'],
+      state: { status: 'success', data: new Map([['id', { open: 1, got: 0 }]]) },
+    };
+    expect(should(query as never)).toBe(false);
+  });
+
+  it('stops walking at the depth cap rather than scanning a whole task list', async () => {
+    // Deeper than anything cached here; the cap is a cost guard, and erring
+    // toward persisting is the conservative direction.
+    const { survivesJsonRoundTrip } = await loadPersist();
+    let deep: unknown = new Map();
+    for (let i = 0; i < 8; i++) deep = { next: deep };
+    expect(survivesJsonRoundTrip(deep)).toBe(true);
+  });
+});

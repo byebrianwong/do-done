@@ -35,7 +35,14 @@ import { queryClient } from './query-client';
 /** How long a persisted snapshot may be shown before it's dropped instead. */
 export const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-const CACHE_KEY = 'dodone.query-cache.v1';
+// v2: a v1 snapshot can hold a query whose data was a Map, written out by
+// JSON.stringify as `{}`. Restoring one is worse than having none — see
+// `survivesJsonRoundTrip` — and the shape is not something a reader can
+// detect after the fact, so the old snapshots are abandoned rather than
+// filtered.
+const CACHE_KEY = 'dodone.query-cache.v2';
+/** Snapshots from before the JSON-safety rule. Deleted once, on launch. */
+const LEGACY_CACHE_KEYS = ['dodone.query-cache.v1'];
 /** The user id the snapshot under CACHE_KEY belongs to. */
 const OWNER_KEY = 'dodone.query-cache.owner';
 
@@ -101,12 +108,68 @@ function isSearchQuery(queryKey: readonly unknown[]): boolean {
   return queryKey[0] === 'tasks' && queryKey[1] === 'search';
 }
 
+/**
+ * Whether a query's data survives a round trip through JSON.
+ *
+ * The persister writes the cache with `JSON.stringify`, which has no
+ * representation for a Map or a Set: both come back as `{}`. That is not a
+ * stale value, it is a *wrong-shaped* one, and the difference matters. Every
+ * screen here is built to cope with data that is old or missing; none of them
+ * cope with data that has quietly changed type.
+ *
+ * `useListCounts` caches a Map. Restored from a snapshot it arrived as `{}`,
+ * so the first row of the Lists screen called `.get` on it, threw
+ * `undefined is not a function`, and took the whole app to the error boundary
+ * — on every cold start, for anyone with at least one list. `useAisleMemory`
+ * caches one too.
+ *
+ * A query holding one is therefore not persisted at all. It refetches on
+ * launch, which is the case every list screen already handles
+ * (`list-load-state.ts` draws a skeleton), and is a far better answer than
+ * restoring something that cannot work.
+ *
+ * Conservative by design: it excludes only when it positively finds a Map or a
+ * Set. The depth cap is because the cached shapes are shallow — rows and
+ * records — and an uncapped walk over a large task list on every persist would
+ * cost more than the rule is worth.
+ */
+export function survivesJsonRoundTrip(value: unknown, depth = 0): boolean {
+  if (value instanceof Map || value instanceof Set) return false;
+  if (depth >= 4) return true;
+  if (Array.isArray(value)) {
+    return value.every((v) => survivesJsonRoundTrip(v, depth + 1));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).every((v) =>
+      survivesJsonRoundTrip(v, depth + 1)
+    );
+  }
+  return true;
+}
+
+/**
+ * Delete snapshots written under an older key.
+ *
+ * Bumping `CACHE_KEY` stops the bad ones being *read*; without this they would
+ * sit in AsyncStorage forever, and a task-list snapshot is not small.
+ */
+export async function dropLegacySnapshots(): Promise<void> {
+  if (!isClient) return;
+  try {
+    await AsyncStorage.multiRemove(LEGACY_CACHE_KEYS);
+  } catch {
+    // Best-effort housekeeping; nothing on screen depends on it.
+  }
+}
+
 export const persistOptions = {
   persister: queryPersister,
   maxAge: CACHE_MAX_AGE_MS,
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Query) =>
-      query.state.status === 'success' && !isSearchQuery(query.queryKey),
+      query.state.status === 'success' &&
+      !isSearchQuery(query.queryKey) &&
+      survivesJsonRoundTrip(query.state.data),
   },
 };
 

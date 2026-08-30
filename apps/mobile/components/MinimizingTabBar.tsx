@@ -29,7 +29,8 @@
  */
 
 import React, { useEffect } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -172,6 +173,31 @@ export default function MinimizingTabBar({
                   color,
                   size: TAB_ICON_SIZE,
                 })}
+                {/* The default bar draws this for free; a hand-written one has
+                    to, and a badge that silently never appears is worse than
+                    no badge. Inside the scaling wrapper so it shrinks with the
+                    icon rather than floating free of it as the bar minimizes.
+                    Numbers and strings only — the render-function form of
+                    `tabBarBadge` is not used anywhere here. */}
+                {options.tabBarBadge !== undefined &&
+                options.tabBarBadge !== null &&
+                options.tabBarBadge !== '' ? (
+                  <View
+                    style={[
+                      styles.badge,
+                      options.tabBarBadgeStyle as StyleProp<ViewStyle>,
+                    ]}
+                    pointerEvents="none"
+                  >
+                    <Text
+                      style={styles.badgeText}
+                      numberOfLines={1}
+                      allowFontScaling={false}
+                    >
+                      {String(options.tabBarBadge)}
+                    </Text>
+                  </View>
+                ) : null}
               </Animated.View>
               <Animated.Text
                 style={[styles.label, { color }, labelStyle]}
@@ -191,6 +217,24 @@ export default function MinimizingTabBar({
 }
 
 const styles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: -4,
+    left: TAB_ICON_SIZE - 8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: '#6366f1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 13,
+  },
   bar: {
     // Out of `BottomTabView`'s flex column — see the note at the top.
     position: 'absolute',

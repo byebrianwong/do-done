@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -26,6 +26,7 @@ import {
   useProjectTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { saveResume } from '@/lib/tab-resume';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
@@ -42,6 +43,13 @@ export default function ProjectDetailScreen() {
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+
+  // What the Projects tab opens on next time — see `lib/tab-resume.ts`.
+  useFocusEffect(
+    useCallback(() => {
+      saveResume('projects', projectId);
+    }, [projectId])
+  );
 
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);

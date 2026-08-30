@@ -12,7 +12,12 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import type {
   Aisle,
   AisleMemory,
@@ -60,6 +65,8 @@ import {
 } from '@/lib/list-queries';
 import { toggleComplete, updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
+import { saveResume } from '@/lib/tab-resume';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   ListError,
@@ -90,6 +97,8 @@ export default function ListDetailScreen() {
   const loadState = useListLoadState(itemsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
+  // The items list drives the minimizing tab bar and reserves its height.
+  const tabBar = useTabBarScrollSync();
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
@@ -97,6 +106,14 @@ export default function ListDetailScreen() {
   // correct fallback: the screen is then a plain shopping list, which is what
   // it was before this existed.
   const { data: pantry = [] } = usePantry(listId);
+
+  // What the Lists tab opens on next time. Written while you are looking at
+  // the list rather than when you leave it, so a kill from here still counts.
+  useFocusEffect(
+    useCallback(() => {
+      saveResume('lists', listId);
+    }, [listId])
+  );
 
   const router = useRouter();
   const [draft, setDraft] = useState('');
@@ -508,8 +525,23 @@ export default function ListDetailScreen() {
             </View>
           )
         }
-        contentContainerStyle={styles.listContent}
-        onScrollBeginDrag={() => Keyboard.dismiss()}
+        // The bar floats over the screen, so the last item — and the pantry
+        // under it — has to scroll clear of it. See `useTabBarScrollSync`.
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: 40 + tabBar.contentInset },
+        ]}
+        onScroll={(e) =>
+          tabBar.onScrollOffsetChange?.(e.nativeEvent.contentOffset.y)
+        }
+        onContentSizeChange={tabBar.onContentSizeChange}
+        onLayout={tabBar.onListLayout}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => {
+          Keyboard.dismiss();
+          tabBar.setDragging(true);
+        }}
+        onScrollEndDrag={() => tabBar.setDragging(false)}
         /*
           The pantry sits under the list as its footer. It is where the list
           came from, so scrolling past what is left to buy to reach it is the

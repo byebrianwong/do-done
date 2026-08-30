@@ -22,7 +22,7 @@ import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
-import { persistOptions } from '@/lib/query-persist';
+import { dropLegacySnapshots, persistOptions } from '@/lib/query-persist';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { startDigestScheduling } from '@/lib/digests';
 import { startTaskReminderScheduling } from '@/lib/task-reminders';
@@ -34,6 +34,7 @@ import {
 import { routeForNotification } from '@/lib/notification-routing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
+import { hydrateViewModes } from '@/lib/view-mode';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
@@ -65,6 +66,18 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  // Which half of the Agenda and Tasks tabs the app was last left on. Read
+  // once, here, so it has landed before the tab bar draws its icons.
+  useEffect(() => {
+    hydrateViewModes();
+  }, []);
+
+  // One-time cleanup of pre-v2 cache snapshots, which could hold a Map
+  // serialized to `{}`. See `survivesJsonRoundTrip`.
+  useEffect(() => {
+    dropLegacySnapshots();
+  }, []);
 
   useEffect(() => {
     if (loaded) {
@@ -270,8 +283,8 @@ function RootLayoutNav() {
         />
         <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         <Stack.Screen name="search" options={{ headerShown: false }} />
-        <Stack.Screen name="projects/[id]" options={{ headerShown: true }} />
         <Stack.Screen name="today" options={{ headerShown: false }} />
+        <Stack.Screen name="upcoming" options={{ headerShown: false }} />
         <Stack.Screen
           name="quick-add"
           options={{
