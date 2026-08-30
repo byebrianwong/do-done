@@ -22,7 +22,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "dodone",
-  userInterfaceStyle: "automatic",
+  // Light, not "automatic", for the same reason the navigation theme is pinned
+  // in app/_layout.tsx: no screen here has a dark palette. This is the native
+  // half — the keyboard, native alerts and the status bar default — and unlike
+  // the JS half it only takes effect on a fresh build.
+  userInterfaceStyle: "light",
   newArchEnabled: true,
   runtimeVersion: {
     policy: "appVersion",

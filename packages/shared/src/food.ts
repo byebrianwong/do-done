@@ -460,3 +460,77 @@ export function aisleOptions(): Array<{ value: Aisle; label: string }> {
     .sort((a, b) => AISLE_RANK[a] - AISLE_RANK[b])
     .map((value) => ({ value, label: AISLE_LABEL[value] }));
 }
+
+// ── How an aisle looks ─────────────────────────────────
+
+/**
+ * The colour and the icon an aisle is drawn with.
+ *
+ * A shopping item is a task, so its row has the same leading ring every other
+ * row in the app has. On a task that ring carries the *project* — but every
+ * item on one list belongs to the same project, so drawing it would paint the
+ * whole screen one colour and say nothing. The aisle is the variable that
+ * actually differs down a shopping list, and it is nominal (produce is not more
+ * than dairy), which is what hue is for. Same channel, same reasoning as
+ * `rowGutter`'s: see *The task row* in CLAUDE.md.
+ *
+ * Twelve hues cannot all be told apart at 21px and they do not have to be. The
+ * icon is the primary reading and the list is already grouped under aisle
+ * headers; the colour is what makes the grouping visible while scrolling, and
+ * what makes a mis-filed item stand out in a run of its neighbours.
+ *
+ * Icons are Phosphor tokens, the same strings `projects.icon` holds, so
+ * `parseProjectIcon` draws them and no surface needs a second code path. Fill
+ * weight for the reason the project picker defaults to it: at this size a line
+ * weight lands under a device pixel and a solid shape survives.
+ */
+export const AISLE_COLOR: Record<Aisle, string> = {
+  produce: "#16a34a",
+  bakery: "#b45309",
+  meat: "#dc2626",
+  dairy: "#2563eb",
+  frozen: "#0891b2",
+  pantry: "#ca8a04",
+  snacks: "#ea580c",
+  drinks: "#0d9488",
+  household: "#7c3aed",
+  personal: "#db2777",
+  baby: "#0ea5e9",
+  pets: "#65a30d",
+};
+
+export const AISLE_ICON: Record<Aisle, string> = {
+  produce: "ph:carrot:fill",
+  bakery: "ph:bread:fill",
+  // "Meat & fish". A fish reads as neither dairy nor produce at 11px, which a
+  // cow does not — it is the shape that stays unambiguous once the detail goes.
+  meat: "ph:fish:fill",
+  dairy: "ph:cheese:fill",
+  frozen: "ph:snowflake:fill",
+  pantry: "ph:jar:fill",
+  snacks: "ph:cookie:fill",
+  drinks: "ph:beer-bottle:fill",
+  household: "ph:broom:fill",
+  personal: "ph:hand-soap:fill",
+  baby: "ph:baby-carriage:fill",
+  pets: "ph:paw-print:fill",
+};
+
+/**
+ * The ring for an item whose aisle nothing recognised.
+ *
+ * Chosen rather than missing, the same way a task with no project gets a
+ * deliberate neutral. Unrecognised is a first-class state here — see the
+ * trailing "Other" group — so it gets a colour that looks decided, and no icon
+ * rather than a guessed one.
+ */
+export const NO_AISLE_COLOR = "#94a3b8";
+
+/** What to draw in a shopping item's ring. `icon` is null for "Other". */
+export function aisleRing(aisle: Aisle | null): {
+  color: string;
+  icon: string | null;
+} {
+  if (!aisle) return { color: NO_AISLE_COLOR, icon: null };
+  return { color: AISLE_COLOR[aisle], icon: AISLE_ICON[aisle] };
+}

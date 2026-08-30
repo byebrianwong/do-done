@@ -1,9 +1,5 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,7 +12,6 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 
 import DevBanner from '@/components/DevBanner';
 import { LoginScreen } from '@/components/LoginScreen';
-import { useColorScheme } from '@/components/useColorScheme';
 import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { TaskSelectionProvider } from '@/lib/task-selection';
@@ -54,6 +49,23 @@ export {
 export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
+
+/**
+ * The app is light, so its navigation chrome is too.
+ *
+ * Every screen in `apps/mobile` paints itself from a hardcoded light palette —
+ * `#f3f4f6` behind the list, `#ffffff` cards, `#111827` text. Nothing reads the
+ * colour scheme. But the navigation theme did, so after sunset the *header* on
+ * the handful of screens that use a native one — a list, a project, Settings,
+ * Completed — turned black above a light body, while every screen that draws
+ * its own title bar stayed light. That is why only some headers went dark: it
+ * tracked which screens have a native header, not which screens they were.
+ *
+ * `DefaultTheme` unconditionally until the screens themselves have a dark
+ * palette to switch to. Following the system when only the chrome can follow it
+ * is worse than not following it at all.
+ */
+const APP_THEME = DefaultTheme;
 
 SplashScreen.preventAutoHideAsync();
 
@@ -112,7 +124,6 @@ export default function RootLayout() {
 }
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
   const { session, loading } = useAuth();
   const router = useRouter();
   // Point `lib/`'s automatic-change notices at the live toast. Kept in a ref
@@ -258,7 +269,7 @@ function RootLayoutNav() {
   // After every hook above, so the hook order is the same either way.
   if (!loading && !session) {
     return (
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={APP_THEME}>
         <LoginScreen />
         <DevBanner />
       </ThemeProvider>
@@ -266,7 +277,7 @@ function RootLayoutNav() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={APP_THEME}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />

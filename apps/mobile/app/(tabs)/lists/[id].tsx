@@ -26,11 +26,12 @@ import type {
   Task,
 } from '@do-done/shared';
 import {
+  AISLE_COLOR,
   aisleOptions,
   gotItems,
   groupByAisle,
+  isGot,
   itemAisle,
-  itemSubline,
   listSubline,
   openItems,
   storeHint,
@@ -63,7 +64,7 @@ import {
   useListItems,
   usePantry,
 } from '@/lib/list-queries';
-import { toggleComplete, updateTask } from '@/lib/task-queries';
+import { updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import { saveResume } from '@/lib/tab-resume';
@@ -74,6 +75,11 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import ListItemRow from '@/components/ListItemRow';
+import {
+  SectionCount,
+  sectionHeaderStyles,
+} from '@/components/SectionHeader';
 import { ProjectFormSheet } from '@/components/ProjectFormSheet';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { useUndoToast } from '@/components/UndoToast';
@@ -257,6 +263,10 @@ export default function ListDetailScreen() {
     // list it always was rather than a broken grouped one.
     const aisles = groupByAisle(open, { memory }).map((g) => ({
       title: g.label,
+      // The dot beside the header takes the same colour the rows' rings do, so
+      // a group and its items read as one thing. Null on the "Other" group and
+      // on the collapsed one, neither of which names an aisle.
+      color: g.aisle ? AISLE_COLOR[g.aisle] : null,
       data: g.items,
     }));
     return [
@@ -265,10 +275,23 @@ export default function ListDetailScreen() {
       // while walking is one glance from being found. Never grouped: it is a
       // record of what happened, not a route through anything.
       ...(got.length > 0
-        ? [{ title: `Got it · ${got.length}`, data: got }]
+        ? [{ title: 'Got it', color: null, data: got }]
         : []),
     ].filter((s) => s.data.length > 0);
   }, [open, got, memory]);
+
+  /**
+   * Each item's aisle, by id.
+   *
+   * Computed per item rather than taken from the section it landed in, because
+   * `groupByAisle` collapses to one unlabelled group on a short list — and a
+   * three-item list should still draw a carrot on the carrots. Once here, so a
+   * screen of rows costs one pass over the lexicon rather than one per row.
+   */
+  const itemAisles = useMemo(
+    () => new Map(items.map((i) => [i.id, itemAisle(i, memory)])),
+    [items, memory]
+  );
 
   /**
    * Move an item to a different aisle.
@@ -457,7 +480,22 @@ export default function ListDetailScreen() {
 
       <SectionList
         sections={sections}
-        keyExtractor={(item) => item.id}
+        /*
+          The key carries which side of the list the row is on, not just its id.
+
+          A row plays a collapse on its way out — `ListItemRow` shrinks its own
+          height so the rows below travel up — and then the cache patch moves it
+          between the aisles and "Got it". Keyed by id alone, React reconciles
+          those as the *same* element whenever the row lands at the same index in
+          the flattened list, so the instance survives with its exit state still
+          collapsed and the row is drawn at zero height in its new section. With
+          one item on the list that is every time: a "Got it · 1" header over
+          nothing at all.
+
+          Changing the key on the move forces a remount, which is also what the
+          row is: a fresh row, at full height, in a different place.
+        */
+        keyExtractor={(item) => `${item.id}:${isGot(item) ? 'got' : 'open'}`}
         keyboardShouldPersistTaps="handled"
         // A tap on a row while typing must reach the row, not be swallowed
         // dismissing the keyboard.
@@ -496,16 +534,32 @@ export default function ListDetailScreen() {
             </View>
           ) : null
         }
+        // An aisle header has to stay on screen while its aisle does, or a
+        // long list stops saying which shelf you are reading. Same rule as
+        // every other list in the app — see *Sticky list headers*.
+        stickySectionHeadersEnabled
         renderSectionHeader={({ section }) =>
           section.title ? (
-            <Text style={styles.sectionHeader}>{section.title}</Text>
+            <View style={sectionHeaderStyles.container}>
+              {section.color ? (
+                <View
+                  style={[
+                    sectionHeaderStyles.dot,
+                    { backgroundColor: section.color },
+                  ]}
+                />
+              ) : null}
+              <Text style={sectionHeaderStyles.text}>{section.title}</Text>
+              <SectionCount value={section.data.length} />
+            </View>
           ) : null
         }
         renderItem={({ item }) => (
-          <ItemRow
+          <ListItemRow
             item={item}
+            aisle={itemAisles.get(item.id) ?? null}
             onOpen={() => setEditing(item)}
-            onLongPress={() => setPicking(item)}
+            onCorrect={() => setPicking(item)}
             // Ticking writes to the pantry, so the drawer has to reload. The
             // write is fire-and-forget inside `TasksApi.update`, so this is a
             // refetch rather than an optimistic patch: the client does not know
@@ -816,85 +870,6 @@ function ItemSheet({
   );
 }
 
-/**
- * One thing to buy.
- *
- * Three gestures, and the split between the first two is what matters: **the
- * circle ticks, the words open.** They used to be one target, so a tap meant
- * for "what did I write here" bought the thing instead — a mistake the user
- * has to notice and undo, on the surface they tap fastest.
- *
- * The circle is 21px and the thumb is not, so its `hitSlop` takes the target
- * back out to the full height of the row and past its left edge. That keeps
- * what a walking tap needs — a target it can hit without looking — while the
- * rest of the row means something else.
- */
-function ItemRow({
-  item,
-  onOpen,
-  onLongPress,
-  onToggled,
-}: {
-  item: Task;
-  onOpen: () => void;
-  onLongPress: () => void;
-  onToggled: () => void;
-}) {
-  const done = item.status === 'done' || item.status === 'cancelled';
-  // The store and the day as one muted line, the same shape `rowSubline` gives
-  // every other row in the app. Empty for most items, so nothing renders.
-  const subline = itemSubline(item).join(' · ');
-  return (
-    <Pressable
-      onPress={onOpen}
-      onLongPress={() => {
-        hapticMedium();
-        onLongPress();
-      }}
-      delayLongPress={300}
-      style={({ pressed }) => [styles.itemRow, pressed && styles.pressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`Open ${item.title}`}
-    >
-      <Pressable
-        onPress={() => {
-          hapticLight();
-          void toggleComplete(item.id, !done).then(onToggled, onToggled);
-        }}
-        hitSlop={{ top: 13, bottom: 13, left: 14, right: 10 }}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: done }}
-        accessibilityLabel={`Mark ${item.title} as ${
-          done ? 'not bought' : 'bought'
-        }`}
-      >
-        <View style={[styles.box, done && styles.boxDone]}>
-          {done && <Ionicons name="checkmark" size={13} color="#ffffff" />}
-        </View>
-      </Pressable>
-      {/*
-        The title and subline are a column, so the column takes the row's spare
-        width and the Text inside it must not.
-
-        `styles.itemText` therefore has no `flex: 1`, and must not get one back.
-        Flex-basis resolves against the container's main axis, so `flex: 1` here
-        would set a vertical basis of 0 and collapse the title to height 0. This
-        is the same trap documented on the task row's title.
-      */}
-      <View style={styles.itemBody}>
-        <Text style={[styles.itemText, done && styles.itemTextDone]}>
-          {item.title}
-        </Text>
-        {subline !== '' && (
-          <Text style={styles.itemSubline} numberOfLines={1}>
-            {subline}
-          </Text>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1016,51 +991,15 @@ const styles = StyleSheet.create({
   subline: {
     fontSize: 12,
     color: '#6b7280',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 2,
   },
-  listContent: { paddingTop: 4, paddingBottom: 40 },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9ca3af',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 6,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    // Not 'center'. A row can be two lines of title plus a subline, and a ring
-    // centred against that looks detached from the word it ticks off.
-    alignItems: 'flex-start',
-    gap: 12,
-    backgroundColor: '#ffffff',
-    marginHorizontal: 12,
-    marginBottom: 6,
-    paddingHorizontal: 14,
-    // Roomier than a task row on purpose: this one gets tapped while walking.
-    paddingVertical: 13,
-    borderRadius: 10,
-  },
+  // No top padding: the first thing in the list is either a section header,
+  // which brings its own, or a full-bleed row that should meet the summary
+  // line above it.
+  listContent: { paddingBottom: 40 },
   pressed: { opacity: 0.65 },
-  box: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#d1d5db',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  boxDone: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
-  // Fills the row's width, so the title inside it does not have to. See above.
-  itemBody: { flex: 1, gap: 2 },
-  itemText: { fontSize: 15, color: '#111827' },
-  itemTextDone: { color: '#9ca3af', textDecorationLine: 'line-through' },
-  itemSubline: { fontSize: 12, color: '#6b7280' },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(17,24,39,0.45)',

@@ -588,6 +588,30 @@ async function runToggleComplete(
         taskKeys.completed()
       );
     }
+    // A shopping list keeps its items either way: ticking one moves it into
+    // the "Got it" section rather than out of the list. So this root is
+    // patched in place rather than filtered — without it the row's only way
+    // to reach the cart was the refetch, which arrives a round trip after the
+    // animation has finished and reads as the item vanishing and coming back.
+    patchTaskLists(
+      (old) =>
+        old.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                // The same guard `TasksApi.reopen` applies, so the row the
+                // user sees is the row the write is about to produce.
+                status: complete
+                  ? 'done'
+                  : options.restoreStatus && options.restoreStatus !== 'done'
+                    ? options.restoreStatus
+                    : 'not_started',
+                completed_at: complete ? new Date().toISOString() : null,
+              }
+            : t
+        ),
+      listKeys.items()
+    );
   };
 
   // Without a hold this is the usual optimistic patch: the row goes on the same

@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   AISLES,
+  AISLE_COLOR,
   AISLE_GROUP_MIN_ITEMS,
   AISLE_LABEL,
+  NO_AISLE_COLOR,
   aisleOptions,
+  aisleRing,
   aisleOverride,
   aisleTag,
   categorizeItem,
@@ -15,6 +18,7 @@ import {
   withAisle,
   type Aisle,
 } from "./food.js";
+import { parseProjectIcon } from "./phosphor.js";
 
 const item = (title: string, tags: string[] = []) => ({ title, tags });
 
@@ -334,5 +338,28 @@ describe("groupByAisle with memory", () => {
       "Bananas",
       "Kimchi",
     ]);
+  });
+});
+
+describe("aisleRing", () => {
+  it("gives every aisle a colour and a drawable icon", () => {
+    for (const aisle of AISLES) {
+      const ring = aisleRing(aisle);
+      expect(ring.color).toMatch(/^#[0-9a-f]{6}$/);
+      // The whole failure mode this guards: a token naming an icon that is not
+      // in the curated catalogue parses as `none` and the ring simply draws
+      // empty, on a device, with no error anywhere.
+      expect(parseProjectIcon(ring.icon).kind).toBe("phosphor");
+    }
+  });
+
+  it("gives an unrecognised item a colour and no icon", () => {
+    const ring = aisleRing(null);
+    expect(ring.color).toBe(NO_AISLE_COLOR);
+    expect(ring.icon).toBeNull();
+  });
+
+  it("uses a different colour for every aisle", () => {
+    expect(new Set(Object.values(AISLE_COLOR)).size).toBe(AISLES.length);
   });
 });
