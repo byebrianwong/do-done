@@ -325,6 +325,15 @@ export function UpcomingView() {
           onConfigChange={setConfig}
           onTaskPress={handlePress}
           refreshControl={refreshControl}
+          // The curated branch above is a run of day columns, so it says
+          // "nothing" by showing empty days. Any other grouping has no such
+          // shape to fall back on and would render blank.
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Nothing coming up</Text>
+              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+            </View>
+          }
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -373,5 +382,13 @@ const styles = StyleSheet.create({
   },
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 96, flexGrow: 1 },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
+  emptyHint: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
   overdueText: { color: OVERDUE_COLOR },
 });

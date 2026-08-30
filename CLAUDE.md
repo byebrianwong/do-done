@@ -1088,6 +1088,18 @@ Three pieces, all under `apps/mobile`:
   that delays itself ~350ms (`useRefreshOnFocus` refires every query on every tab
   switch, so a bar bound straight to `isFetching` strobes), and `ListError`, without
   which an offline first launch pulses a skeleton forever.
+- **`lib/section-rows.ts`** answers the last question in that chain: is this list
+  empty? That is a question about tasks, not about rows. Every section flattens to a
+  header row, and `applyDisplay` emits sections that hold nothing: the "none"
+  grouping always emits one, and a status grouping emits a column per status so
+  there is somewhere to drag a task to. So `data` is never empty on a list with no
+  tasks, `DraggableFlatList`'s own `data.length === 0` test never fires, and
+  `ListEmptyComponent` never renders. An empty Inbox therefore drew nothing at all —
+  no rows, and no "Inbox is empty" either, since its one row was the "none" group's
+  8px spacer header. `SectionedDraggableList` decides it with `hasTaskRows` and hands
+  the list no rows when the caller gave it a `ListEmptyComponent` to show instead. A
+  caller that passes none keeps its headers, which is why All, Today's grouped branch
+  and Upcoming's grouped branch now pass one.
 
 **That bar is the only signal a background refresh gets.** `RefreshControl`'s
 spinner belongs to the *gesture*, so every list drives it from `usePullToRefresh`

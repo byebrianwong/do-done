@@ -18,6 +18,9 @@
  * that can drift. `useTabBarScrollSync` answers with nothing on a screen that
  * has no tab bar under it (a pushed project, a tag, Completed), so the same
  * list is inert there without knowing where it is mounted.
+ *
+ * Whether the list is empty is decided on its tasks, not on that row count.
+ * See `hasTaskRows` in `lib/section-rows.ts` for why the two differ.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -32,34 +35,20 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 import type { Task } from '@do-done/shared';
 
+import {
+  collectSectionTaskIds,
+  flatten,
+  hasTaskRows,
+  stickyHeaderIndices,
+  type DraggableSection,
+  type Row,
+} from '@/lib/section-rows';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 
-export type DraggableSection = { key: string; title: string; data: Task[] };
+export type { DraggableSection };
 
-type Row =
-  | { kind: 'header'; key: string; section: DraggableSection }
-  | { kind: 'task'; key: string; task: Task; sectionKey: string };
-
-function flatten(sections: DraggableSection[]): Row[] {
-  const rows: Row[] = [];
-  for (const s of sections) {
-    rows.push({ kind: 'header', key: `h:${s.key}`, section: s });
-    for (const t of s.data) {
-      rows.push({ kind: 'task', key: t.id, task: t, sectionKey: s.key });
-    }
-  }
-  return rows;
-}
-
-function collectSectionTaskIds(rows: Row[], key: string): string[] {
-  const ids: string[] = [];
-  let cur: string | null = null;
-  for (const r of rows) {
-    if (r.kind === 'header') cur = r.section.key;
-    else if (cur === key) ids.push(r.key);
-  }
-  return ids;
-}
+/** Stable identity, so swapping to it can't churn the list on every render. */
+const NO_ROWS: Row[] = [];
 
 interface Props {
   sections: DraggableSection[];
@@ -90,7 +79,14 @@ interface Props {
   ListHeaderComponent?: React.ComponentProps<
     typeof DraggableFlatList
   >["ListHeaderComponent"];
-  /** Shown when there are no rows at all — skeleton, error, or "nothing here". */
+  /**
+   * Shown when the list holds no tasks — skeleton, error, or "nothing here".
+   *
+   * Passing one also drops the section headers in that state, since they would
+   * otherwise be a row of empty drop targets above the message with nothing to
+   * drop into them. A caller that passes nothing keeps its headers, which is
+   * still better than going blank.
+   */
   ListEmptyComponent?: React.ComponentProps<
     typeof DraggableFlatList
   >["ListEmptyComponent"];
@@ -176,32 +172,18 @@ export default function SectionedDraggableList({
     else onMove(moved.key, oldKey, newKey, destIds);
   }
 
-  /**
-   * Which rows pin to the top as you scroll past them.
-   *
-   * This is a flat `DraggableFlatList` — headers and tasks in one array, which
-   * is what lets a task be dragged from one section into another — so
-   * `SectionList`'s `stickySectionHeadersEnabled` is not available and the
-   * indices have to be computed.
-   *
-   * **`ListHeaderComponent` occupies index 0 when present**, and
-   * VirtualizedList matches these numbers against `dataIndex + stickyOffset`
-   * without adding the offset itself. Forget it and every section pins the row
-   * after its header — its first task instead of its name, which looks
-   * deliberate enough that nobody would report it.
-   *
-   * Computed from `rows` rather than `sections` because `rows` is what is being
-   * rendered: mid-drag it is the local copy, and a header's index moves as a
-   * task crosses a section boundary.
-   */
-  const stickyHeaderIndices = useMemo(() => {
-    const offset = ListHeaderComponent ? 1 : 0;
-    const indices: number[] = [];
-    rows.forEach((row, i) => {
-      if (row.kind === 'header') indices.push(i + offset);
-    });
-    return indices;
-  }, [rows, ListHeaderComponent]);
+  // A list with sections but no tasks in them is empty, and has to say so.
+  // Every section flattens to a header row and `applyDisplay` emits sections
+  // that hold nothing, so `rows` is not empty here and DraggableFlatList's own
+  // `data.length === 0` test never fires (see lib/section-rows.ts). Handing it
+  // no rows at all is what lets `ListEmptyComponent` render.
+  const showEmpty = ListEmptyComponent != null && !hasTaskRows(rows);
+  const visibleRows = showEmpty ? NO_ROWS : rows;
+
+  const stickyIndices = useMemo(
+    () => stickyHeaderIndices(visibleRows, ListHeaderComponent != null),
+    [visibleRows, ListHeaderComponent]
+  );
 
   // The authoritative section data is the `sections` prop, not the local `rows`
   // copy the drag mutates: `rows` tracks which section a row is *in* mid-gesture,
@@ -214,9 +196,9 @@ export default function SectionedDraggableList({
 
   return (
     <DraggableFlatList
-      data={rows}
+      data={visibleRows}
       keyExtractor={(r) => r.key}
-      stickyHeaderIndices={stickyHeaderIndices}
+      stickyHeaderIndices={stickyIndices}
       onDragEnd={handleDragEnd}
       renderItem={({ item, drag, isActive }: RenderItemParams<Row>) =>
         item.kind === 'header'
