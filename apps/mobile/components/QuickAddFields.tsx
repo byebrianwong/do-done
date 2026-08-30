@@ -68,6 +68,7 @@ import {
   PRIORITY_COLORS,
   shortDateLabel,
 } from './TaskEditModalV2';
+import { QuickScheduleIcon } from './PhosphorIcon';
 
 /** Which chip's popover is open, if any. */
 export type QuickAddMenu = 'scheduled' | 'priority' | 'project' | 'estimate' | null;
@@ -80,6 +81,18 @@ interface MenuItem {
   /** Muted right-hand annotation, e.g. the concrete date behind "Tomorrow". */
   hint?: string;
   icon: keyof typeof Ionicons.glyphMap;
+  /**
+   * A Phosphor name drawn instead of `icon`, for the schedule rows.
+   *
+   * Ionicons is the icon language for mobile chrome and stays so for priority,
+   * estimate and project. The five schedule options are the exception because
+   * web draws them too, from the same `QUICK_SCHEDULE` entries — and Ionicons
+   * has neither a sunrise nor a couch, so keeping them here would have meant
+   * one control with a different glyph set per platform. `icon` is still
+   * required so a row always has something to fall back to on an install whose
+   * native build predates `react-native-svg`.
+   */
+  phosphor?: string;
   color?: string;
   selected?: boolean;
 }
@@ -481,7 +494,11 @@ function Popover({
               pressed && styles.menuRowPressed,
             ]}
           >
-            <Ionicons name={item.icon} size={17} color={item.color ?? '#6b7280'} />
+            {item.phosphor ? (
+              <QuickScheduleIcon icon={item.phosphor} color={item.color ?? '#6b7280'} />
+            ) : (
+              <Ionicons name={item.icon} size={17} color={item.color ?? '#6b7280'} />
+            )}
             <Text style={styles.menuLabel} numberOfLines={1}>
               {item.label}
             </Text>
@@ -821,7 +838,11 @@ export function QuickAddPickers({
       label: q.label,
       hint: formatScheduleHint(q.date),
       icon: 'calendar-outline' as const,
-      color: '#6366f1',
+      phosphor: q.icon,
+      // Muted, not the indigo these five used to share. Indigo means *selected*
+      // everywhere else in the app, and five identical indigo calendars said
+      // nothing about which row was which anyway — the glyph does that now.
+      color: '#6b7280',
       selected: scheduledDate === q.date,
     })),
     {

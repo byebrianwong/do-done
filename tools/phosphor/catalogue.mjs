@@ -486,3 +486,15 @@ export const GROUPS = [
     ],
   },
 ];
+
+// Icons the app draws but the picker does not offer.
+//
+// `GROUPS` is the project icon picker's menu, so everything in it has to read
+// as something a project could be called. A chevron does not. These are drawn
+// by fixed UI instead — the quick-schedule menu names each of its five options
+// with one — so their paths have to be emitted while their names stay out of
+// the grid.
+//
+// Keep this short. Every name here is ~1.7KB of path data in the mobile bundle
+// and cannot be code-split, which is the same budget that caps `GROUPS` at 409.
+export const EXTRA = ["caret-right", "caret-double-right"];

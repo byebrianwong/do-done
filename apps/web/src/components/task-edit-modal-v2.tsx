@@ -45,6 +45,7 @@ import { LinkifiedText } from "./linkified-text";
 import { AttachmentsSection } from "./task-attachments";
 import { LocationSection } from "./task-locations";
 import { ProjectIcon } from "@/components/project-icon";
+import { QuickScheduleIcon } from "@/components/phosphor-icon";
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -814,6 +815,10 @@ export interface PickerOption {
   /** Optional muted secondary label, right-aligned (e.g. the resolved date
    *  "Sun Jul 5" next to a friendly shorthand like "Next week"). */
   hint?: string;
+  /** A Phosphor name, drawn in place of the accent dot. The schedule options
+   *  pass one; priority and estimate do not, because their dot carries the
+   *  rank's own colour and an icon would throw that away. */
+  icon?: string;
 }
 
 export function PickerPopover({
@@ -864,13 +869,22 @@ export function PickerPopover({
             opt.selected ? "bg-indigo-50/60 dark:bg-indigo-950/40" : ""
           }`}
         >
-          <span
-            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${opt.accentClass}`}
-            aria-hidden
-          />
-          <span className="w-[26px] text-[11px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-            {opt.code}
-          </span>
+          {opt.icon ? (
+            <QuickScheduleIcon
+              icon={opt.icon}
+              className="shrink-0 text-neutral-500 dark:text-neutral-400"
+            />
+          ) : (
+            <span
+              className={`inline-flex h-2 w-2 shrink-0 rounded-full ${opt.accentClass}`}
+              aria-hidden
+            />
+          )}
+          {opt.code ? (
+            <span className="w-[26px] text-[11px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+              {opt.code}
+            </span>
+          ) : null}
           <span className="text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
             {opt.label}
           </span>

@@ -258,6 +258,7 @@ export function ScheduleChip({
             ...options.map((o) => ({
               key: o.key,
               code: "",
+              icon: o.icon,
               label: o.label,
               hint: formatScheduleHint(o.date),
               selected: scheduledDate === o.date,
