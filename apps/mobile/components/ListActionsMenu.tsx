@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { hapticLight } from '@/lib/haptics';
@@ -43,6 +50,25 @@ export function ListActionsMenu({ actions = [], color = '#6366f1' }: Props) {
   const [open, setOpen] = useState(false);
   const selection = useTaskSelection();
 
+  /**
+   * The row's action, held until this sheet has actually gone.
+   *
+   * On iOS a `Modal` presented while another is still dismissing never appears
+   * — no error, the row just does nothing. Every action here used to navigate,
+   * so nothing hit it; "Edit project" opens a sheet, and did nothing at all.
+   *
+   * `onDismiss` is iOS-only, which is also where the problem is, so Android
+   * keeps running the action inline rather than waiting for a callback that
+   * will never fire.
+   */
+  const pending = useRef<(() => void) | null>(null);
+
+  const runPending = useCallback(() => {
+    const run = pending.current;
+    pending.current = null;
+    run?.();
+  }, []);
+
   const rows: ListAction[] = [
     {
       key: 'select',
@@ -70,6 +96,9 @@ export function ListActionsMenu({ actions = [], color = '#6366f1' }: Props) {
         transparent
         animationType="fade"
         onRequestClose={() => setOpen(false)}
+        // Nothing is queued when the sheet is dismissed by its backdrop, so
+        // this is a no-op on the ordinary way out.
+        onDismiss={runPending}
       >
         <Pressable onPress={() => setOpen(false)} style={styles.backdrop}>
           <Pressable onPress={() => {}} style={styles.sheet}>
@@ -82,7 +111,8 @@ export function ListActionsMenu({ actions = [], color = '#6366f1' }: Props) {
                   // tapped.
                   setOpen(false);
                   hapticLight();
-                  a.onPress();
+                  if (Platform.OS === 'ios') pending.current = a.onPress;
+                  else a.onPress();
                 }}
                 style={({ pressed }) => [
                   styles.row,
