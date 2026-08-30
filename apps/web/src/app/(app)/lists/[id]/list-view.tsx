@@ -738,11 +738,10 @@ function ItemRow({
   const aisle = itemAisle(item, memory);
   const store = storeHint(item);
   /*
-    No `truncate`. An item name is short, so two lines is a sensible ceiling.
-    A one-line ellipsis was hiding the end of anything longer than a word or
-    two, inside a grid that had already halved the available width.
-    `break-words` handles the one case wrapping cannot: a single long string
-    with nowhere to break.
+    No `truncate`. An item name is short, so two lines is a sensible ceiling,
+    and now that the title has the whole row (see the overlay below) almost
+    nothing reaches the second one. `break-words` handles the one case wrapping
+    cannot: a single long string with nowhere to break.
   */
   const titleClass = `block w-full break-words text-left text-sm ${
     done
@@ -758,7 +757,7 @@ function ItemRow({
       plus a subline, and a ring centred against that looks detached from the
       word it ticks off.
     */
-    <li className="group/item flex items-start gap-3 border-b border-neutral-100 dark:border-neutral-800/70">
+    <li className="group/item relative flex items-start gap-3 border-b border-neutral-100 dark:border-neutral-800/70">
       {/*
         Ticking is the circle's job and only the circle's. The row's words are
         the door into the item, so the two cannot be one control: a click meant
@@ -817,83 +816,116 @@ function ItemRow({
       </span>
 
       {/*
-        A native <select>, not a custom popover. It is keyboard-operable and
-        screen-reader-labelled for free, and the whole control is "which of
-        twelve" — exactly what the element is for. It sits outside the tick
-        button because a form control nested in a button is invalid and would
-        swallow its own clicks.
+        The two editors, lifted out of the row's flow.
 
-        Invisible until the row is hovered or the control itself is focused, so
-        a list at rest is a list of words. `sr-only`-style opacity rather than
-        `hidden`, so tabbing still reaches it.
+        They used to sit beside the title as ordinary flex children. Both are
+        `shrink-0` and neither is visible until the row is hovered, so together
+        they reserved 208px of a 368px row — 57% of it — for controls a list at
+        rest never shows. What was left for the item's own name was 105px, and
+        anything longer than two short words wrapped onto a second line. The
+        title is the row; it now gets the whole width.
+
+        Absolute rather than collapsed-until-hover, because a control that took
+        its space back on hover would re-wrap the title under the pointer. The
+        cost is the reverse: a hovered row's controls sit over the end of a long
+        title. That is the better trade — an item name is one to three words, so
+        the overlap is rare, and it lasts only as long as the pointer does,
+        where the wrapping was permanent.
+
+        `pointer-events-none` until hover or focus is required, not tidiness.
+        Invisible controls over the title would take clicks meant for it, and
+        opening the item is what the row's words are for.
       */}
-      {/*
-        The store, as a text input backed by a <datalist>.
-
-        Not a <select>, because the answer is "one of these or a new one" and a
-        select cannot express the second half. That would make the composer the
-        only place a store could be created, which is wrong for the row you are
-        looking at when you realise the bread is better somewhere else. A
-        datalist gives suggestions and keyboard support with no popover to build.
-
-        Committed on blur and on Enter rather than per keystroke, since a store
-        is free text and writing every keystroke would send "T", "Tr", "Tra" to
-        the API on the way to "Target".
-      */}
-      {onStore && (
-        <label className="shrink-0 self-center">
-          <span className="sr-only">Store for {item.title}</span>
-          <input
-            type="text"
-            list={`stores-${item.id}`}
-            defaultValue={store ?? ""}
-            placeholder="Store"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") {
-                e.currentTarget.value = store ?? "";
-                e.currentTarget.blur();
-              }
-            }}
-            onBlur={(e) => {
-              const next = e.target.value.trim();
-              if (next === (store ?? "")) return;
-              onStore(item, next || null);
-            }}
-            className="w-24 cursor-pointer rounded border-0 bg-transparent px-1 py-1 text-[11px] text-neutral-400 opacity-0 transition-opacity placeholder:text-neutral-400 focus:opacity-100 group-hover/item:opacity-100 dark:text-neutral-500"
+      {(onStore || onAisle) && (
+        <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/item:pointer-events-auto group-hover/item:opacity-100">
+          {/* A fade rather than a hard edge, so a title long enough to reach
+              the controls is not cut off mid-word against a wall of white.
+              It stays `pointer-events-none` even while the rest of the group is
+              live: it is decoration, and a click landing on it would be a click
+              on the title that did nothing. */}
+          <span
+            aria-hidden
+            className="pointer-events-none h-full w-8 bg-gradient-to-r from-transparent to-white dark:to-neutral-950"
           />
-          <datalist id={`stores-${item.id}`}>
-            {stores.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        </label>
-      )}
-
-      {onAisle && (
-        <label className="shrink-0 self-center">
-          <span className="sr-only">Aisle for {item.title}</span>
-          <select
-            value={aisle ?? ""}
-            onChange={(e) =>
-              onAisle(item, e.target.value ? (e.target.value as Aisle) : null)
-            }
-            className="cursor-pointer rounded border-0 bg-transparent py-1 pl-1 pr-4 text-[11px] text-neutral-400 opacity-0 transition-opacity focus:opacity-100 group-hover/item:opacity-100 dark:text-neutral-500"
-          >
+          <span className="flex h-full items-center gap-1 bg-white dark:bg-neutral-950">
             {/*
-              "Automatic", not "Other": clearing a correction hands the word
-              back to the lexicon, which will usually have an opinion — so the
-              row does not land in the Other group, so a label saying it would
-              misdescribe what the control does.
+              The store, as a text input backed by a <datalist>.
+
+              Not a <select>, because the answer is "one of these or a new one"
+              and a select cannot express the second half. That would make the
+              composer the only place a store could be created, which is wrong
+              for the row you are looking at when you realise the bread is
+              better somewhere else. A datalist gives suggestions and keyboard
+              support with no popover to build.
+
+              Committed on blur and on Enter rather than per keystroke, since a
+              store is free text and writing every keystroke would send "T",
+              "Tr", "Tra" to the API on the way to "Target".
             */}
-            <option value="">Automatic</option>
-            {aisleOptions().map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            {onStore && (
+              <label className="shrink-0">
+                <span className="sr-only">Store for {item.title}</span>
+                <input
+                  type="text"
+                  list={`stores-${item.id}`}
+                  defaultValue={store ?? ""}
+                  placeholder="Store"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      e.currentTarget.value = store ?? "";
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next === (store ?? "")) return;
+                    onStore(item, next || null);
+                  }}
+                  className="w-24 cursor-pointer rounded border-0 bg-transparent px-1 py-1 text-[11px] text-neutral-400 placeholder:text-neutral-400 dark:text-neutral-500"
+                />
+                <datalist id={`stores-${item.id}`}>
+                  {stores.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </label>
+            )}
+
+            {/*
+              A native <select>, not a custom popover. It is keyboard-operable
+              and screen-reader-labelled for free, and the whole control is
+              "which of twelve" — exactly what the element is for. It sits
+              outside the tick button because a form control nested in a button
+              is invalid and would swallow its own clicks.
+            */}
+            {onAisle && (
+              <label className="shrink-0">
+                <span className="sr-only">Aisle for {item.title}</span>
+                <select
+                  value={aisle ?? ""}
+                  onChange={(e) =>
+                    onAisle(item, e.target.value ? (e.target.value as Aisle) : null)
+                  }
+                  className="cursor-pointer rounded border-0 bg-transparent py-1 pl-1 pr-4 text-[11px] text-neutral-400 dark:text-neutral-500"
+                >
+                  {/*
+                    "Automatic", not "Other": clearing a correction hands the
+                    word back to the lexicon, which will usually have an opinion
+                    — so the row does not land in the Other group, so a label
+                    saying it would misdescribe what the control does.
+                  */}
+                  <option value="">Automatic</option>
+                  {aisleOptions().map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </span>
+        </span>
       )}
     </li>
   );
