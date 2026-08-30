@@ -204,6 +204,53 @@ and the deep link: `dodone://quick-add`, a transparent modal over the list.
   into the same recorder (see *Voice notes → Ways in*), and the composer's own
   mic is one tap further on.
 
+### Every composer's plus does something
+
+A `+` is a button everywhere else in DoDone: the mobile add button, the Lists
+and Projects `+`, the sidebar's New task. So a `+` drawn beside a text field and
+wired to nothing is a promise the app does not keep, and three composers drew
+one that way.
+
+`ComposerActionGlyph` is the fix — one per platform, `components/composer-action-glyph.tsx`
+on web and `components/ComposerActionGlyph.tsx` on mobile. It is a single
+control with two ends:
+
+| Where it sits | What it is | What a click does |
+| --- | --- | --- |
+| Leading edge, field idle | a plus | focuses the field |
+| Trailing edge, field live | a return key | commits, once there is something to commit |
+
+- **The field is live when it is focused *or* already holds text.** A half-typed
+  item the keyboard has been dismissed over still has something to commit, so
+  the glyph stays where the commit control belongs.
+- **Grey until armed.** A return key that is always lit moves the broken promise
+  to the other end of the field rather than removing it. `armed` is the same
+  test the composer's own submit guard uses, so the key is live exactly when
+  pressing it would write something.
+- **The field reserves a gutter at both ends at all times.** The glyph parks in
+  whichever one is free, and the reserved one is what keeps the list composer's
+  "N added" receipt from ending where the return key begins. Animating the
+  padding instead would re-measure the field on every frame of the slide.
+- **Web animates `left`; mobile animates a transform.** The travel depends on
+  the field's width, and CSS resolves that on its own by interpolating
+  `0.75rem` against `calc(100% - 2rem)`. Reanimated cannot, so mobile measures
+  with `onLayout`. Either way it runs once per focus change, not per frame.
+- **Reduce motion lands on the end state** rather than switching the move off,
+  which is the opposite of the tab bar's minimize. Something did happen here:
+  the field took focus and the symbol changed meaning.
+
+**Two web composers deliberately get only half of this.** The quick-add bar and
+the quick-add modal already grow their own "Add task" button when they expand,
+so a return key in the field would be a second commit control beside the real
+one. The bar's plus keeps the other half — it focuses the field — and is out of
+the tab order, since a keyboard reaches the input directly and a second control
+announcing "Add a task" beside an input of the same name is noise. The modal's
+plus is gone: that field autofocuses, so a plus that focused it could never do
+anything, and the footer already says `↵ add`.
+
+Mobile's `QuickAddComposer` never had a leading plus. It has always had a
+trailing send button, which is the shape this change moves the rest toward.
+
 ## The bottom bar (mobile)
 
 Four tabs: **Agenda, Tasks, Lists, Projects**. It was five — Today, Inbox,

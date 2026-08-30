@@ -700,3 +700,26 @@ body {
     scrollbar-color: rgb(64 64 64) transparent;
   }
 }
+
+/* The composer's plus, sliding to the trailing edge to become a return key.
+
+   `left` is animated rather than `transform` because the two ends are
+   `0.75rem` and `calc(100% - 2rem)`: the travel depends on the field's width,
+   which a transform would have to be told in pixels from JS. Both ends resolve
+   to px at layout, so the browser interpolates between them on its own. This
+   runs once per focus change, not per frame, so the layout it costs is
+   affordable in a way a scroll-driven one would not be. */
+.dd-composer-glyph {
+  transition:
+    left 220ms cubic-bezier(0.2, 0, 0, 1),
+    color 160ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Land on the end state rather than travelling. Something did happen here —
+     the field took focus and the symbol changed meaning — so the glyph still
+     has to arrive at the trailing edge; it just does not sweep there. */
+  .dd-composer-glyph {
+    transition: none;
+  }
+}
