@@ -95,6 +95,15 @@ export function AllView() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
           }
+          // Without this the screen is a stack of "(0)" status headers: the
+          // grouping emits its columns as drop targets whether or not anything
+          // is in them, and there is nothing to drag into them here.
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>No tasks yet</Text>
+              <Text style={styles.emptyHint}>Tap + to add one.</Text>
+            </View>
+          }
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -141,4 +150,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
   },
   listContent: { paddingBottom: 96, flexGrow: 1 },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: { fontSize: 16, color: '#6b7280', fontWeight: '600' },
+  emptyHint: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
 });

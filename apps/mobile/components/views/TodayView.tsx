@@ -329,6 +329,15 @@ export function TodayView() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
           }
+          // The same answer the curated branch gives above. Regrouping or
+          // re-sorting the day does not change what there is to say about an
+          // empty one.
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Nothing scheduled today</Text>
+              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+            </View>
+          }
           contentContainerStyle={styles.listContent}
         />
       )}
