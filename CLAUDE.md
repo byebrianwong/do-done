@@ -1045,9 +1045,34 @@ hours, and it looked exactly like data loss.
 - **Calendar events are deliberately exempt.** `getDisplayEvents` is best-effort and
   returns `[]` — events are decoration on a page whose substance is the tasks, and a
   Google outage should not blank the list.
-- **The boundary does not cover `(app)/layout.tsx`.** Next's error file does not
-  wrap the layout in its own segment, so a failed read there still empties the
-  sidebar's project list quietly. That needs `global-error.js`.
+- **The boundary does not cover `(app)/layout.tsx`, and the layout must not
+  throw.** Next's error file wraps its segment's page and everything nested
+  below it, but *not* the layout in the same segment — errors bubble to the
+  nearest boundary *above*, and there is none above `(app)`. (`global-error.js`
+  is a different thing: it is for the root layout, and replaces `<html>`.)
+
+  Adding a boundary above would be the wrong fix anyway. A throw in the layout
+  takes the shell with it, so the user would lose the sidebar, the nav, *and*
+  the tidy error card the page was rendering inside it — worse than the bug.
+
+  So the layout reports instead of throwing. `projectsUnavailable` rides from
+  `(app)/layout.tsx` through `AppShell` to `SidebarNav`, and the Projects
+  section says "Couldn't load projects" in place. The shell keeps working; one
+  section admits it is blind.
+
+  - **The case this exists for is partial failure.** In a total outage the
+    page's error card already explains the empty sidebar beside it. When only
+    the layout's read fails you get a working task list next to an empty
+    Projects section, and without this there is no explanation anywhere.
+  - **Lists share that read and stay silent.** Two notices for one cause reads
+    as two faults.
+  - **The notice is `neutral-500`, not the `neutral-400` of the headings above
+    it.** Those are uppercase labels you skim; this is a sentence you have to
+    read, and 400 on the light sidebar is about 2.5:1. Measured: 4.54:1 light,
+    6.94:1 dark.
+  - **`hasPlaces` still swallows its error**, hiding the Places nav row when
+    the locations read fails. Lower stakes — Settings links to Places
+    unconditionally, so there is always a way in.
 
 ## Cold start (mobile)
 

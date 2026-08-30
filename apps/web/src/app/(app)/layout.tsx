@@ -32,6 +32,14 @@ export default async function AppLayout({
   const pipHidden = cookieStore.get(PIP_HIDDEN_COOKIE)?.value === "1";
 
   let projects: Project[] = [];
+  // Whether the sidebar's project list is empty because there is nothing to
+  // show, or because we could not find out. `lib/read-result.ts` makes a page
+  // throw on that distinction; this layout must NOT — a throw here is caught
+  // by no boundary of ours (Next's `error.tsx` does not wrap the layout in its
+  // own segment) and would take the whole shell down, including the error card
+  // the page is trying to render inside it. So the failure is carried down to
+  // the one section that can admit it in place.
+  let projectsUnavailable = false;
   // Whether to offer the Places view at all. `listAll` rather than `list`: a
   // place attached inline to a task is never "saved", and hiding the nav from
   // someone who has three reminders running would be the one case that
@@ -45,6 +53,7 @@ export default async function AppLayout({
       locationsApi.listAll(),
     ]);
     projects = projectResult.data;
+    projectsUnavailable = projectResult.error !== null;
     hasPlaces = locationResult.data.length > 0;
   }
 
@@ -68,6 +77,7 @@ export default async function AppLayout({
                 <TaskEditorProvider>
                   <AppShell
                     projects={projects}
+                    projectsUnavailable={projectsUnavailable}
                     userEmail={user?.email ?? null}
                     hasPlaces={hasPlaces}
                     pipHidden={pipHidden}

@@ -25,6 +25,7 @@ import {
  */
 export function AppShell({
   projects,
+  projectsUnavailable = false,
   userEmail,
   hasPlaces = false,
   pipHidden = false,
@@ -32,6 +33,11 @@ export function AppShell({
   children,
 }: {
   projects: Project[];
+  /**
+   * Whether `projects` is empty because the read failed rather than because
+   * there are none. The sidebar says so in place — see `SidebarNav`.
+   */
+  projectsUnavailable?: boolean;
   userEmail: string | null;
   /** Whether to offer the Places view — see `SidebarNav`. */
   hasPlaces?: boolean;
@@ -200,7 +206,11 @@ export function AppShell({
             if ((e.target as HTMLElement).closest("a")) setDrawerOpen(false);
           }}
         >
-          <SidebarNav projects={projects} hasPlaces={hasPlaces} />
+          <SidebarNav
+            projects={projects}
+            projectsUnavailable={projectsUnavailable}
+            hasPlaces={hasPlaces}
+          />
         </div>
 
         <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">

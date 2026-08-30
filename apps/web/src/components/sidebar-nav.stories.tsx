@@ -47,3 +47,12 @@ export const ProjectActive: Story = {
   args: { projects: SAMPLE_PROJECTS },
   parameters: { nextjs: { navigation: { pathname: "/projects/proj-2" } } },
 };
+
+/**
+ * The projects read failed, so the section says so rather than rendering an
+ * empty list. An empty sidebar is a claim about the account, and during the
+ * Supabase outage it was a false one.
+ */
+export const ProjectsUnavailable: Story = {
+  args: { projects: [], projectsUnavailable: true },
+};
