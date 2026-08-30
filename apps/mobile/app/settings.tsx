@@ -30,6 +30,19 @@ interface SettingsRowProps {
   onPress?: () => void;
 }
 
+/**
+ * A row's value goes *under* its label, never beside it.
+ *
+ * A value here is a sentence rather than a word — the notifications row says
+ * "Task reminders · Daily at 8:00 AM · Mondays at 8:00 AM" — and there is no
+ * width left for one beside a 16px label. Laid out as a trailing sibling it
+ * took its full intrinsic width, because React Native defaults `flexShrink` to
+ * 0, and squeezed the label to one character per line.
+ *
+ * Capping the value and truncating it was the other option. It reads worse: the
+ * summary exists so the state is legible without opening the screen, and a
+ * summary cut off after its first clause states less than no summary at all.
+ */
 function SettingsRow({ icon, label, value, onPress }: SettingsRowProps) {
   return (
     <Pressable
@@ -37,19 +50,30 @@ function SettingsRow({ icon, label, value, onPress }: SettingsRowProps) {
       onPress={onPress}
     >
       <Ionicons name={icon} size={20} color="#6b7280" style={styles.rowIcon} />
-      <Text style={styles.rowLabel}>{label}</Text>
-      {value ? <Text style={styles.rowValue}>{value}</Text> : null}
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {value ? <Text style={styles.rowValue}>{value}</Text> : null}
+      </View>
       <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
     </Pressable>
   );
 }
 
-/** A read-only info row (no tap target / chevron). */
+/**
+ * A read-only info row (no tap target / chevron).
+ *
+ * Its value stays beside the label, because these are short facts — a version,
+ * a channel, a date — and a key read against its value is what they are for.
+ * The 55% cap is what keeps them from collapsing the label the way the row
+ * above did.
+ */
 function InfoRow({ icon, label, value }: Omit<SettingsRowProps, 'onPress'>) {
   return (
     <View style={styles.row}>
       <Ionicons name={icon} size={20} color="#6b7280" style={styles.rowIcon} />
-      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+      </View>
       <Text style={styles.rowValueStrong} numberOfLines={1}>
         {value}
       </Text>
@@ -229,7 +253,7 @@ export default function SettingsScreen() {
         />
       </View>
 
-      <Text style={styles.sectionHeader}>Calendar Integration</Text>
+      <Text style={styles.sectionHeader}>Calendar integration</Text>
       <View style={styles.section}>
         <SettingsRow
           icon="calendar-outline"
@@ -249,7 +273,9 @@ export default function SettingsScreen() {
             color="#6b7280"
             style={styles.rowIcon}
           />
-          <Text style={styles.rowLabel}>Show calendar events</Text>
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>Show calendar events</Text>
+          </View>
           {showEvents === null ? (
             <ActivityIndicator size="small" color="#9ca3af" />
           ) : showEvents === 'error' ? (
@@ -341,12 +367,14 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: 40,
   },
+  // Sentence case in the title colour, matching `sectionHeaderStyles` on every
+  // list screen. Uppercase 13px grey was quieter than the 16px near-black rows
+  // it named, so the eye read the rows and skipped the thing grouping them.
   sectionHeader: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#6b7280',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: '#111827',
+    letterSpacing: -0.1,
     marginTop: 24,
     marginBottom: 8,
     marginHorizontal: 16,
@@ -371,20 +399,29 @@ const styles = StyleSheet.create({
   rowIcon: {
     marginRight: 12,
   },
-  rowLabel: {
+  // The label column. It is what fills the row, so `rowLabel` must not also
+  // set `flex: 1`: this is a column container, where that means a flex basis of
+  // 0 on the *vertical* axis and collapses the text to height 0.
+  rowText: {
     flex: 1,
+    gap: 2,
+    marginRight: 8,
+  },
+  rowLabel: {
     fontSize: 16,
     color: '#111827',
   },
+  // neutral-500, not the neutral-400 this was: at 2.5:1 on white that failed
+  // contrast while it was decoration beside the label, and it is now the only
+  // place the schedule is stated.
   rowValue: {
-    fontSize: 14,
-    color: '#9ca3af',
-    marginRight: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
   },
   rowValueStrong: {
     fontSize: 14,
     color: '#6b7280',
-    marginLeft: 8,
     maxWidth: '55%',
   },
   retryText: {
