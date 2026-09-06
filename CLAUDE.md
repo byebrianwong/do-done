@@ -1121,6 +1121,49 @@ hours, and it looked exactly like data loss.
     the locations read fails. Lower stakes — Settings links to Places
     unconditionally, so there is always a way in.
 
+## Calendar events on mobile
+
+Today and Upcoming show the user's Google Calendar events beside their tasks,
+the same events the web views show. Today draws them in a "Today's schedule"
+card above the list. Upcoming draws them under each day's section header.
+
+**The phone cannot read Google itself.** That needs the refresh token and the
+client secret, and neither leaves the server. So `lib/calendar-queries.ts` calls
+the web app's `/api/calendar/events` route with the Supabase access token as a
+Bearer header, and `apps/web/src/lib/calendar-events.ts` serves that route and
+the web pages from one function.
+
+- **The web app URL defaults to production.** `EXPO_PUBLIC_WEB_APP_URL` only
+  overrides it, for pointing a build at a laptop or a preview deploy. It used to
+  be required, and that was the whole failure: an `EXPO_PUBLIC_*` var has to
+  reach the bundler, so every EAS build and every OTA bundle inherited whatever
+  the EAS environment held, and where it held nothing the query was disabled and
+  the phone showed no events at all. The host is already a constant of this
+  project, pinned in `ios.associatedDomains` in the same `app.config.ts`.
+- **The device timezone rides along as `?tz=`.** The screens bucket events by
+  the device's local day, so the server has to resolve the window in that same
+  zone. The stored web preference can differ, through travel or through never
+  having been set.
+- **`useLocalDay` is what keeps the window on the current day.** A query key
+  built from `todayLocalISO()` at render freezes overnight, because the focus
+  refetch re-runs the old key without re-rendering. The screen would go on
+  asking for yesterday.
+- **A failed fetch says so. An empty answer does not.** A disconnected calendar,
+  "Show calendar events" switched off, and a Google outage all come back from
+  that route as a successful empty list, and the screens render tasks-only for
+  each, matching web. Only an HTTP failure reaches `isError`, and that is the
+  one case `CalendarEventsNotice` draws a line for. Both used to produce the
+  same `[]`, which is how a build that could not reach the web app read as a
+  clear week.
+- **That notice is one muted line under the title bar, not `ListError`.** The
+  tasks loaded, so the screen keeps working and only the calendar part reports a
+  problem. Same shape as the sidebar's "Couldn't load projects" on web. It has
+  no Retry button: pull-to-refresh already refetches it, and a button there
+  would sit above a list that is not the thing that failed.
+- **Events are read-only here.** A row opens Google Calendar, which is where
+  events are edited. Connecting the account is a web-only flow, and both the
+  Settings row and the Calendars screen say so.
+
 ## Cold start (mobile)
 
 **"Nothing scheduled today" is an answer, and the app must not give it before it

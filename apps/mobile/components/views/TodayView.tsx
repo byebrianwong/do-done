@@ -18,6 +18,7 @@ import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import CalendarEventRow from '@/components/CalendarEventRow';
+import CalendarEventsNotice from '@/components/CalendarEventsNotice';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   SectionCount,
@@ -111,7 +112,7 @@ export function TodayView() {
   // timezone so the server resolves the same day the user is looking at;
   // useLocalDay rolls the window over when the app foregrounds on a new day).
   const localDay = useLocalDay();
-  const { data: events = [] } = useCalendarEvents(
+  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, 1)
   );
@@ -286,6 +287,7 @@ export function TodayView() {
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
+      <CalendarEventsNotice visible={eventsFailed} />
 
       {loadState.showSkeleton ? (
         <ListSkeleton />

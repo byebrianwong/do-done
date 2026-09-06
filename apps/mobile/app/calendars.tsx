@@ -30,7 +30,6 @@ import { queryClient } from '@/lib/query-client';
 import {
   CalendarNotConnectedError,
   calendarKeys,
-  hasWebAppUrl,
   useCalendarList,
 } from '@/lib/calendar-queries';
 
@@ -97,13 +96,7 @@ export default function CalendarsScreen() {
     <>
       <Stack.Screen options={{ title: 'Calendars to show' }} />
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {!hasWebAppUrl ? (
-          <Message
-            icon="cloud-offline-outline"
-            title="Not available in this build"
-            body="This build has no web app URL configured, so it can't reach your Google calendars."
-          />
-        ) : notConnected ? (
+        {notConnected ? (
           <Message
             icon="calendar-outline"
             title="Calendar not connected"

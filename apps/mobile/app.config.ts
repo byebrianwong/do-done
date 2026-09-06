@@ -184,8 +184,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     git: gitInfo(),
     // Deployed DoDone web app — the mobile app calls its /api/calendar/events
-    // route to show Google Calendar events. EXPO_PUBLIC_WEB_APP_URL overrides
-    // at runtime; leaving both unset just hides calendar events on mobile.
+    // route to show Google Calendar events. This is an override: leaving it
+    // unset falls back to the production URL in lib/calendar-queries.ts, which
+    // is where the reasoning is. Set it to point a build at a local web app.
     webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? null,
   },
 });

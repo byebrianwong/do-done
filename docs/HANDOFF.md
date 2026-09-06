@@ -284,8 +284,10 @@ Env vars the app expects (from `.env.example` **[verified]**): `SUPABASE_URL`,
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CALENDAR_CRON_SECRET`, `APP_URL`,
 `DO_DONE_USER_ID`, `MCP_BEARER_TOKEN`, `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `APPLE_APP_ID`, `ANDROID_CERT_FINGERPRINTS`.
-Mobile additionally needs `EXPO_PUBLIC_WEB_APP_URL` — **unset means mobile
-silently hides calendar events entirely**, with no error.
+Mobile takes an optional `EXPO_PUBLIC_WEB_APP_URL`. It only overrides where the
+app reads calendar events from; unset falls back to the production URL, so
+events work in any build. It used to be required, and unset hid them with no
+error anywhere. See the mobile calendar note in CLAUDE.md.
 
 ### DNS **[unverified]**
 
@@ -397,6 +399,9 @@ If you find an older copy of this file, or notes quoting it, these were wrong:
   `today..today+days`, default 30.
 - **Trigger throws "cannot nest deeper than 3 levels"** → intentional subtask depth
   cap. The UI should hide "+ add subtask" at depth 2; if it doesn't, that's the bug.
-- **Mobile shows no calendar events at all** → `EXPO_PUBLIC_WEB_APP_URL` unset. It
-  fails silently by design.
+- **Mobile shows no calendar events at all** → check Today for "Couldn't load
+  calendar events". If it is there, the fetch is failing (expired session, the
+  web app unreachable). If it is not, the fetch succeeded and returned nothing:
+  Google Calendar is not connected (web-only flow), "Show calendar events" is
+  off in Settings, or every calendar is unticked under Calendars to show.
 - **Pet MCP tools missing in Claude Code** → stale `apps/mcp/dist/`. Gotcha 8.

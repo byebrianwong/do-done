@@ -4,9 +4,16 @@
  * Events can't be fetched from Supabase — reading Google needs the refresh
  * token + client secret, which never leave the server — so this calls the web
  * app's /api/calendar/events route with the Supabase access token as a Bearer
- * header. Best-effort everywhere: no configured URL, no session, HTTP errors,
- * or a disconnected calendar all resolve to [] and the screens simply render
- * tasks-only, matching the web behavior.
+ * header.
+ *
+ * A disconnected calendar, the "show events" preference off, and a Google
+ * outage all come back from that route as a successful empty list, so the
+ * screens render tasks-only for each — matching web. An HTTP failure throws
+ * instead, which is what lets Today and Upcoming say they could not load
+ * rather than showing an empty day: the two used to be the same [], so a build
+ * that could not reach the web app at all looked exactly like a clear week. A
+ * missing session stays an empty list — the screens are behind sign-in, so
+ * that gap is a token refresh in flight rather than something to report.
  */
 
 import { useEffect, useState } from 'react';
@@ -20,11 +27,31 @@ import {
 } from '@do-done/shared';
 import { supabase } from './supabase';
 
-// Where the DoDone web app is deployed. Env var wins; app.config.ts
-// `extra.webAppUrl` is the fallback so EAS builds can set it per profile.
-const WEB_APP_URL: string | undefined =
-  process.env.EXPO_PUBLIC_WEB_APP_URL ??
-  (Constants.expoConfig?.extra?.webAppUrl as string | undefined);
+/**
+ * Where the DoDone web app is deployed. Defaults to production rather than
+ * requiring configuration.
+ *
+ * It used to be env-var-only, and an unset var turned calendar events off with
+ * nothing said anywhere a user looks: Today and Upcoming rendered tasks-only,
+ * which is also what they render for someone whose day is genuinely clear. The
+ * var has to reach the bundler, so every EAS build and every OTA bundle
+ * inherited that unless it was wired into eas.json or the EAS environment, and
+ * the feature was off for anyone who had not done so.
+ *
+ * The deployment URL is already a constant of this project — app.config.ts
+ * pins the same host in `ios.associatedDomains` — so defaulting to it costs
+ * nothing and removes that failure. A fork or self-hosted deploy sets the var.
+ */
+const PRODUCTION_WEB_APP_URL = 'https://dodone.byebrianwong.com';
+
+// `||`, not `??`: an EAS variable that is declared but empty expands to "",
+// and falling through to the default is the useful reading of that. Env var
+// wins; app.config.ts `extra.webAppUrl` is next so EAS builds can set it per
+// profile.
+const WEB_APP_URL: string =
+  process.env.EXPO_PUBLIC_WEB_APP_URL ||
+  (Constants.expoConfig?.extra?.webAppUrl as string | undefined) ||
+  PRODUCTION_WEB_APP_URL;
 
 export const calendarKeys = {
   all: ['calendar'] as const,
@@ -32,9 +59,6 @@ export const calendarKeys = {
     [...calendarKeys.all, 'events', start, end] as const,
   list: () => [...calendarKeys.all, 'list'] as const,
 };
-
-/** True when this build knows where the web app lives — see WEB_APP_URL. */
-export const hasWebAppUrl = !!WEB_APP_URL;
 
 /** The device's IANA timezone, or null when Intl can't say (older Hermes). */
 function deviceTimeZone(): string | null {
@@ -49,7 +73,6 @@ async function fetchCalendarEvents(
   startDay: string,
   endDayExclusive: string
 ): Promise<CalendarEvent[]> {
-  if (!WEB_APP_URL) return [];
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) return [];
@@ -98,13 +121,12 @@ export function addDaysISO(dayISO: string, days: number): string {
 
 /**
  * Google Calendar events for [startDay, endDayExclusive), local YYYY-MM-DD.
- * Disabled entirely when no web app URL is configured (e.g. a fresh local
- * setup) so the feature is invisible rather than erroring.
+ * `isError` is what the screens show a notice for — see the module comment for
+ * which failures reach it and which resolve to an empty list instead.
  */
 export function useCalendarEvents(startDay: string, endDayExclusive: string) {
   return useQuery({
     queryKey: calendarKeys.events(startDay, endDayExclusive),
-    enabled: !!WEB_APP_URL,
     // Meetings don't move second-to-second; spare the round trip on tab hops.
     staleTime: 60_000,
     queryFn: () => fetchCalendarEvents(startDay, endDayExclusive),
@@ -132,7 +154,6 @@ export class CalendarNotConnectedError extends Error {
  * and the null-vs-empty meaning of `hidden`) can be tested without a renderer.
  */
 export async function fetchCalendarList(): Promise<CalendarListResponse> {
-  if (!WEB_APP_URL) throw new Error('no web app URL configured');
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('not signed in');
@@ -160,7 +181,6 @@ export async function fetchCalendarList(): Promise<CalendarListResponse> {
 export function useCalendarList() {
   return useQuery({
     queryKey: calendarKeys.list(),
-    enabled: !!WEB_APP_URL,
     // The list changes when the user adds a calendar in Google — rare, but a
     // stale list is exactly what sends someone to this screen. Keep it short.
     staleTime: 30_000,
