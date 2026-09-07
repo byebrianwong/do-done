@@ -33,6 +33,9 @@ vi.mock('./location-queries', () => ({ scheduleGeofenceSync: vi.fn() }));
 // Unmocked, this reaches `react-native` at its first line and the suite dies
 // parsing Flow — the same reason its three sibling tests mock it.
 vi.mock('./task-reminders', () => ({ scheduleTaskReminderSync: vi.fn() }));
+// `./wear` reaches for react-native at module scope (AppState, Platform), so
+// it is stood in for here like every other native seam in this suite.
+vi.mock('./wear', () => ({ scheduleWatchSync: vi.fn() }));
 
 const { listKeys, taskKeys, toggleComplete } = await import('./task-queries');
 

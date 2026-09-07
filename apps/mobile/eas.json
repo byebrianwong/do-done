@@ -29,6 +29,20 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "wear-preview": {
+      "extends": "preview",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":wear:assembleRelease"
+      }
+    },
+    "wear-production": {
+      "extends": "production",
+      "android": {
+        "buildType": "app-bundle",
+        "gradleCommand": ":wear:bundleRelease"
+      }
     }
   },
   "submit": {

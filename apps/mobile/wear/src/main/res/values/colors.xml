@@ -1,0 +1,10 @@
+<resources>
+  <!--
+    Black, not the app's off-white. A watch screen is OLED and mostly off; the
+    phone app being light-only (see CLAUDE.md, "The app is light-only") is a
+    decision about a screen you hold in a lit room for minutes at a time, and it
+    does not carry to a screen you glance at in the dark for two seconds.
+  -->
+  <color name="dodone_background">#FF000000</color>
+  <color name="dodone_accent">#FF818CF8</color>
+</resources>

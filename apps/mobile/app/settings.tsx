@@ -22,6 +22,7 @@ import { useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { calendarKeys } from '@/lib/calendar-queries';
 import { describeNoUpdate } from '@/lib/update-check';
+import { hasWatchApp } from '@/modules/dodone-wear';
 
 interface SettingsRowProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -92,6 +93,24 @@ export default function SettingsScreen() {
   // without opening it. Null while loading or unreadable — the row just drops
   // its value rather than claiming "Off" for a preference it couldn't read.
   const [digestSummary, setDigestSummary] = useState<string | null>(null);
+  /**
+   * Whether a paired watch is running DoDone. Null while we ask.
+   *
+   * This row exists because every way the watch can fail is silent: an empty
+   * list on a wrist looks exactly like a clear day, and there is nowhere on the
+   * watch to distinguish "not paired" from "nothing to do". The phone is the
+   * only surface that can tell the difference, so it says so.
+   */
+  const [watchPaired, setWatchPaired] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void hasWatchApp().then((paired) => {
+      if (!cancelled) setWatchPaired(paired);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -317,6 +336,23 @@ export default function SettingsScreen() {
           value={sourceLabel}
         />
         <InfoRow icon="time-outline" label="Last updated" value={updatedAt} />
+        {/*
+          Deliberately three states, not two. "Checking…" is not the same answer
+          as "Not connected", and showing the latter while the capability query
+          is still out would tell a user with a perfectly good watch to go and
+          reinstall it.
+        */}
+        <InfoRow
+          icon="watch-outline"
+          label="Watch"
+          value={
+            watchPaired === null
+              ? 'Checking…'
+              : watchPaired
+                ? 'Connected'
+                : 'Not connected'
+          }
+        />
       </View>
 
       <Pressable
