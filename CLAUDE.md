@@ -3499,6 +3499,39 @@ that cleared everything would eat it, and the symptom — a location reminder th
 you do not happen to open the app in the two minutes after arriving — is one nobody would reproduce
 deliberately. Both schedulers track their own identifiers and cancel only those.
 
+### The status bar icon is a silhouette, and needs an asset of its own
+
+**Android draws a notification's small icon from its alpha channel alone.** Every opaque pixel is
+painted white and the colour is thrown away. Nothing else about the artwork survives, so the source
+has to be one white glyph on transparency.
+
+With no icon of its own, `expo-notifications` falls back to the launcher icon.
+`assets/images/icon.png` has no alpha channel at all, and the adaptive icon is opaque edge to edge,
+so every DoDone notification drew a **plain white circle** in the status bar. It was still a
+notification and it still opened the right task. It just said nothing about which app had posted
+it, which on a bar already holding five other apps' icons is the whole job.
+
+`assets/images/notification-icon.png` is the fix, registered through the `expo-notifications` block
+in `app.config.ts` beside `color: "#6366f1"`, the accent Android tints the icon and the app-name
+line with in the shade. iOS needs neither: it draws the app icon.
+
+- **The asset is generated, not drawn.** `node tools/notification-icon/emit.mjs` rasterises the
+  solid half of the DoDone mark at 96x96, white on transparency, from the same path data
+  `widgets/dodone-mark.ts` holds. There is no image library in this repo, so the script carries its
+  own SVG arc sampler and PNG writer. It shades each pixel by its distance to the stroke's
+  centreline, which is what gives the round caps and round joins the mark is drawn with.
+- **The faded trailing glyph is dropped.** A silhouette has no opacity to draw it with, so both
+  copies would flatten to the same white and merge into one unreadable shape at 24dp.
+- **The glyph fills 82 of the 96 px**, which is 20.5dp inside the 24dp box the status bar gives it.
+  Filling the box outright leaves the mark's round caps touching the icons either side.
+- **`plugins/notification-icon.test.ts` asserts the rule against whatever file the config points
+  at.** Nothing in a build, a type-check or a screenshot reads the alpha channel of a drawable the
+  system UI flattens later, so a coloured or opaque replacement would reach a device unremarked.
+  That is the same reason `plugins/` is in that suite at all.
+- **This is the one part of the notification stack that does not ship over OTA.** It is a config
+  plugin, so it lands on a fresh `eas build` and not before. An installed build keeps drawing the
+  white circle through any number of updates.
+
 ### Register the geofence task at the bundle entry
 
 `TaskManager.defineTask` names a JS entry point the OS looks up **by name**, and it delivers a
@@ -3578,8 +3611,9 @@ The copy and the settings schema are in `packages/shared/src/notifications.ts`, 
 read one way on the phone and another on the laptop, and — more immediately — so the date arithmetic
 is testable in node, which is the only place `apps/mobile` can test anything.
 
-**This is all pure JS and ships over OTA.** `expo-notifications` was already in the native build, and
-no config plugin was added precisely so this would not need a rebuild.
+**The digest half is pure JS and ships over OTA.** `expo-notifications` was already in the native
+build. The one piece of this stack that does need a rebuild is the status bar icon those
+notifications draw with, which is a config plugin: see *The status bar icon* above.
 
 > **Unverified on a device**, like the geofencing it sits beside. What CI covers is the arithmetic and
 > the copy (`digest-plan.test.ts`, `notification-routing.test.ts`,
@@ -3643,8 +3677,9 @@ lifecycle).
   free `text` column the Google Calendar pull also writes into, so a value can arrive as `"09:30:00"`.
   A reminder silently not arming over a trailing `:00` is a bug nobody would reproduce.
 
-**This is pure JS and ships over OTA** — no new native module, no config plugin. **Web still has no
-notifications**, unchanged: that needs a service worker and VAPID keys.
+**This is pure JS and ships over OTA**: no new native module. (The status bar icon these draw with
+is not, and is the exception noted above.) **Web still has no notifications**, unchanged: that needs
+a service worker and VAPID keys.
 
 > **Unverified on a device**, like the digests and geofencing beside it. CI covers the arithmetic, the
 > eligibility rules, the cap and the copy (`task-reminders.test.ts` in both packages,

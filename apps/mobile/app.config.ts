@@ -104,6 +104,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      // Android draws a notification's small icon as a silhouette cut from its
+      // alpha channel: every opaque pixel becomes white and the colour is
+      // discarded. Without this block expo-notifications falls back to the
+      // launcher icon, which is opaque edge to edge, so the status bar drew a
+      // plain white circle with no way to tell which app had posted.
+      //
+      // The source asset is therefore one white glyph on transparency, and it
+      // is generated rather than drawn: `node tools/notification-icon/emit.mjs`
+      // rasterises the DoDone mark from the path data in widgets/dodone-mark.ts.
+      //
+      // `color` is the accent Android tints the icon and the app-name line
+      // with in the shade. It is only ever read on Android; iOS takes the app
+      // icon and needs nothing here.
+      "expo-notifications",
+      {
+        icon: "./assets/images/notification-icon.png",
+        color: "#6366f1",
+      },
+    ],
+    [
       "react-native-android-widget",
       {
         widgets: [
