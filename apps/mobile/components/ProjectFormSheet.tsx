@@ -13,12 +13,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   PROJECT_COLOR_OPTIONS,
   DEFAULT_PROJECT_COLORS,
@@ -26,6 +28,7 @@ import {
 } from '@do-done/shared';
 import { createProject, deleteProject, updateProject } from '@/lib/task-queries';
 import { invalidateLists } from '@/lib/list-queries';
+import { pinListShortcut } from '@/lib/list-shortcuts';
 import type { Project, ProjectKind } from '@do-done/shared';
 import { ProjectIconPicker } from '@/components/ProjectIconPicker';
 
@@ -156,6 +159,37 @@ export function ProjectFormSheet({
     );
   };
 
+  /**
+   * Put this list on the home screen as its own icon, labelled with its name.
+   *
+   * Here rather than in the list's title bar, which already spends its two
+   * slots on "Put away" and the pencil — a third icon for something done once
+   * in a list's life is the trade this app keeps refusing. This sheet is
+   * already where the once-per-list answers live, Delete among them.
+   *
+   * Lists only, and Android only. A project has no equivalent because nothing
+   * on the phone treats one as a place you return to daily, and iOS home
+   * screen icons cannot be created by an app at all.
+   */
+  const canPin =
+    Platform.OS === 'android' && !!project && effectiveKind === 'list';
+
+  const pin = async () => {
+    if (!project) return;
+    const result = await pinListShortcut(project);
+    // Only the failures speak. Android raises its own "Add to home screen"
+    // dialog and never reports what the user chose, so a success message here
+    // would be a guess — and the sheet stays open behind that dialog rather
+    // than closing, which would throw away a half-typed rename.
+    if (result !== 'requested') {
+      setError(
+        result === 'unsupported'
+          ? 'This launcher cannot add shortcuts'
+          : 'Could not add this list to the home screen'
+      );
+    }
+  };
+
   const disabled = !name.trim() || saving;
 
   return (
@@ -202,6 +236,25 @@ export function ProjectFormSheet({
           </View>
 
           <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
+
+          {canPin ? (
+            <Pressable
+              onPress={pin}
+              disabled={saving}
+              style={({ pressed }) => [
+                styles.pinRow,
+                pressed && styles.pinRowPressed,
+              ]}
+              accessibilityRole="button"
+              /* The saved name, not the draft: the shortcut is built from the
+                 row, and a rename typed above reaches the icon through
+                 `updateShortcuts` on the next save rather than through this. */
+              accessibilityLabel={`Add ${project?.name ?? 'this list'} to the home screen`}
+            >
+              <Ionicons name="phone-portrait-outline" size={17} color="#6366f1" />
+              <Text style={styles.pinText}>Add to Home screen</Text>
+            </Pressable>
+          ) : null}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -289,6 +342,19 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   swatchActive: { borderColor: '#111827' },
+  pinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  pinRowPressed: { backgroundColor: '#f9fafb' },
+  pinText: { fontSize: 14, fontWeight: '600', color: '#6366f1' },
   error: {
     marginTop: 12,
     fontSize: 13,

@@ -9,6 +9,20 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
+/**
+ * So a launcher shortcut opening `dodone://lists/<id>` lands on a list with the
+ * index underneath it, and therefore with a back button. Without this, deep
+ * linking builds the stack with only the matched screen in it, and the only way
+ * out of a pinned list icon is re-tapping the Lists tab — which works, but says
+ * nothing about itself.
+ *
+ * It changes nothing about ordinary navigation: the index is already where the
+ * tab mounts.
+ */
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
+
 export default function ListsLayout() {
   return (
     <Stack>

@@ -76,7 +76,8 @@ import {
 import { updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
-import { saveResume } from '@/lib/tab-resume';
+import { markResumeTried, saveResume } from '@/lib/tab-resume';
+import { scheduleListShortcutSync } from '@/lib/list-shortcuts';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   ListError,
@@ -125,9 +126,22 @@ export default function ListDetailScreen() {
 
   // What the Lists tab opens on next time. Written while you are looking at
   // the list rather than when you leave it, so a kill from here still counts.
+  //
+  // The launcher's list quick action follows the same memory, so that the app
+  // icon and the tab cannot offer two different answers to "which list is
+  // mine". Debounced and Android-only — see lib/list-shortcuts.ts.
   useFocusEffect(
     useCallback(() => {
       saveResume('lists', listId);
+      scheduleListShortcutSync();
+      // Being on a list spends the tab's restore, however you got here. The
+      // row's own `onPress` already did this; a launcher shortcut opening
+      // `dodone://lists/<id>` is the case that did not, and without it the
+      // index would still be holding an unused restore — so backing out of a
+      // deep-linked list, or re-tapping the Lists tab, would decide to open
+      // the very list you were leaving. That is the navigate-in-a-loop failure
+      // `lib/tab-resume.ts` exists to keep out.
+      markResumeTried('lists');
     }, [listId])
   );
 

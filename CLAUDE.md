@@ -3309,9 +3309,10 @@ home screen without launching the main app.
 ### Launcher quick actions (app shortcuts)
 
 Long-pressing the DoDone icon offers **Add task / Voice task / Search / Today / Upcoming**, each
-pinnable to the home screen. These are not widgets: the launcher draws them, so a pinned one
-takes exactly one cell and sits flush with the app icons around it. That is why they exist
-alongside the 1×1 quick-add widget rather than instead of it.
+pinnable to the home screen, plus one shopping list named for itself — see the sub-section below.
+These are not widgets: the launcher draws them, so a pinned one takes exactly one cell and sits
+flush with the app icons around it. That is why they exist alongside the 1×1 quick-add widget
+rather than instead of it.
 
 - `plugins/withAndroidShortcuts.js` writes `res/xml/shortcuts.xml`, the icon drawables, and the
   labels, then hangs a `meta-data` tag off MainActivity. They are static shortcuts, so they
@@ -3331,6 +3332,84 @@ alongside the 1×1 quick-add widget rather than instead of it.
   `dodone://` target has a route file. Every failure mode here is silent on the device, so the
   test is the only place they surface. It is why `vitest.config.ts` includes `plugins/**` as
   well as `lib/**`.
+
+#### A shopping list gets one too, and its label is the list's name
+
+Long-pressing the icon also offers a shopping list by name — **Groceries**, not "Open a list" —
+and any list can be pinned to the home screen as its own icon.
+
+**None of that can be a static shortcut.** A static shortcut's label is a string resource fixed
+at build time, and a list's title is the user's own text. So these are *dynamic* and *pinned*
+shortcuts, written at runtime through `ShortcutManagerCompat`, which has no JS API. That is the
+whole reason `modules/list-shortcuts` exists — a local Expo module, autolinked because it sits
+in `apps/mobile/modules`, which is expo-modules-autolinking's default `nativeModulesDir`.
+
+The two kinds do different jobs and are limited differently:
+
+| | How many | Where it appears |
+| --- | --- | --- |
+| Pinned | No limit | One home-screen icon per list, created on request |
+| Dynamic | One | The app icon's long-press menu |
+
+- **One dynamic entry, because the menu holds four.** Most launchers show four shortcuts there,
+  Launcher3 sorts manifest ones ahead of dynamic ones, and it then reserves up to two of the four
+  slots for dynamic shortcuts by evicting the *last* static ones (`PopupPopulator.MAX_SHORTCUTS`
+  is 4, `NUM_DYNAMIC` is 2). So the list entry costs the fourth static action its slot, and a
+  second list entry would cost the third as well for no gain. With the five declared actions that
+  means the visible menu becomes Add task / Voice task / Search / *the list*, and Today falls off.
+  Today is the right one to lose: tapping the app icon already lands on the Agenda tab, which
+  opens on Today. Upcoming was already the fifth of five and so already invisible there.
+- **The menu entry is the list you were last in**, read from the same `lib/tab-resume.ts` memory
+  the Lists tab opens on, so the app icon and the tab cannot give two different answers to "which
+  list is mine". With nothing remembered it falls back to the first list rather than leaving the
+  slot empty — someone who has never opened a list from the tab is exactly who benefits from
+  finding one in the menu, and the fallback corrects itself the moment they open any list.
+- **A shortcut's id is `list:<uuid>` and never changes**, which is what makes a pinned icon
+  survivable. `sync` therefore calls `updateShortcuts` as well as `setDynamicShortcuts`:
+  `setDynamicShortcuts` cannot reach a pinned copy, so without it a "Groceries" icon someone
+  renamed to "Big shop" would read the old name forever, with nothing in the app to show it.
+- **A deleted list's pinned icon is disabled, not removed.** The launcher owns a pinned shortcut
+  and the app cannot take it back, so the honest end state is an icon that says why it stopped
+  working. `disableShortcuts` carries that message.
+- **`prune` is what stops an outage wiping the home screen.** `ProjectsApi.list()` sets `data` to
+  `[]` when a read fails, so acting on an empty result would disable every pinned list icon over a
+  dropped connection — the same failure web's `lib/read-result.ts` exists to prevent one layer up.
+  The flag is false whenever the caller could not read the lists for certain (signed out, or a
+  failed request); it then clears the menu entry and touches nothing pinned.
+- **The icon is the list's colour with a white list glyph**, drawn with Canvas primitives — no
+  bundled drawable, no `R` class. The list's own icon is deliberately *not* drawn: deciding
+  whether a stored string is an emoji or a `ph:` token belongs to `parseProjectIcon`, and a second
+  implementation of that rule in Kotlin is how a shortcut comes to draw the literal text
+  `ph:cart:fill` on someone's home screen. The colour and the label already tell two icons apart.
+- **Pinning is a button first and a gesture second.** The button is **Add to Home screen** in a
+  list's edit sheet (`ProjectFormSheet`), where the other once-per-list answers already live —
+  not a third icon in the list's title bar, which already spends its two slots on "Put away" and
+  the pencil. The long press on a row in the Lists index is the shortcut for someone who already
+  knows, and it is `undefined` rather than a no-op off Android, because a `Pressable` carrying an
+  `onLongPress` swallows the press that would have fired `onPress`.
+- **Nothing claims the icon was added.** `requestPinShortcut` reports that the *request* was
+  issued; Android's own dialog does the asking and never says what the user chose. So only the two
+  failures speak.
+- **`lib/list-shortcut-plan.ts` holds every decision and is pure**, node-tested like the rest of
+  `lib/`. `modules/list-shortcuts/module.test.ts` covers the seam the compiler cannot: the Kotlin
+  class name against `expo-module.config.json`, `Name(...)` against the string JS asks for, the
+  `AsyncFunction` names against the JS methods, and the `@Field` names against what JS sends. All
+  of those agree only by string, and all of them fail silently on a device. That is why
+  `vitest.config.ts` now includes `modules/**` as well.
+
+**This needs a fresh `eas build`; it will not arrive over OTA.** It does *not* draw the line
+described under *Installs too old to accept OTA updates*, though: `index.ts` uses
+`requireOptionalNativeModule`, which resolves to null on an older build rather than throwing, so
+the bundle still launches there and the feature is simply absent. That is why `version` in
+`app.config.ts` is unchanged.
+
+> **Unverified on a device**, like the widgets and geofencing beside it. There is no Android SDK,
+> JDK, or emulator on this machine, so the Kotlin has never been compiled and nothing here has
+> drawn a pixel. What CI covers is the plan, the deep link and the JS↔Kotlin seam. Still to check
+> on a phone: that the module autolinks, that the list appears in the long-press menu and which
+> static action it displaces, that the icon renders rather than coming out blank, that a rename
+> reaches a pinned icon, and that a deleted list's pinned icon reports itself instead of doing
+> nothing.
 
 ### Location reminders (geofencing)
 

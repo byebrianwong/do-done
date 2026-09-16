@@ -28,6 +28,10 @@ import {
 } from '@/lib/notifications';
 import { routeForNotification } from '@/lib/notification-routing';
 import { refreshTaskWidgets, repaintQuickAddWidget } from '@/lib/widgets';
+import {
+  clearListShortcutMenuEntry,
+  syncListShortcuts,
+} from '@/lib/list-shortcuts';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
 import { hydrateViewModes } from '@/lib/view-mode';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
@@ -164,6 +168,22 @@ function RootLayoutNav() {
   useEffect(() => {
     void repaintQuickAddWidget();
   }, []);
+
+  // Bring the launcher's list quick action in line on launch and on every
+  // sign-in, so a list renamed or deleted on the laptop is not still being
+  // offered by the phone's app icon.
+  //
+  // Signing out only clears the long-press menu entry. A pinned list icon
+  // belongs to the launcher and outlives the account that made it; tapping one
+  // while signed out opens the app on the login screen, which is the right
+  // answer, and disabling it would leave a dead icon after the next sign-in.
+  useEffect(() => {
+    if (!session?.user) {
+      void clearListShortcutMenuEntry();
+      return;
+    }
+    void syncListShortcuts();
+  }, [session?.user?.id]);
 
   // Read the recent completion history once per signed-in session, so a row
   // can answer "does ticking this off keep my streak alive?" on the frame of
