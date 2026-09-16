@@ -34,10 +34,14 @@ export default defineConfig({
     // plain Node that emits XML, and every way it can be wrong (a dropped
     // shortcut, a dead deep link) fails silently on the device rather than at
     // build time.
+    // `modules/` is here for the same reason again: a local Expo module's JS
+    // and its Kotlin agree only by string, and every way they can disagree is
+    // silent until the module is called on a device.
     include: [
       "lib/**/*.test.ts",
       "widgets/**/*.test.ts",
       "plugins/**/*.test.ts",
+      "modules/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**"],
   },

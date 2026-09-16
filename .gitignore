@@ -7,6 +7,15 @@ android/
 ios/
 *.tsbuildinfo
 
+# `android/` and `ios/` above are for the prebuild output, which is generated.
+# They are bare patterns, so they match a directory of that name at any depth —
+# including a local Expo module's own native source, which is hand-written and
+# must be committed. Without these a module under modules/ would ship with no
+# native half at all, and nothing would report it: autolinking would simply find
+# nothing and every call into the module would resolve to null.
+!apps/mobile/modules/*/android/
+!apps/mobile/modules/*/ios/
+
 # Supabase CLI per-developer scratch — project ref + version pins
 supabase/.temp/
 
