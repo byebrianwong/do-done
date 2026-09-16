@@ -24,12 +24,16 @@
 
 import {
   addDaysLocalISO,
+  aisleRing,
   isOverdue,
+  itemAisle,
+  itemSubline,
   rowEstimate,
   rowGutter,
   rowSubline,
   sortByPriority,
   todayLocalISO,
+  type AisleMemory,
   type Project,
   type RowGutter,
   type Task,
@@ -50,6 +54,20 @@ export interface WidgetGroup {
    * have to say.
    */
   namesTheDay: boolean;
+  /**
+   * These are shopping-list items, not tasks. Two things follow, and both are
+   * the same rule the app's own list screen follows: the ring carries the
+   * **aisle** rather than the project (every item on one list shares a project,
+   * so drawing it would paint the widget one colour and say nothing), and the
+   * subline is `itemSubline` — the shops and the day — rather than `rowSubline`.
+   */
+  listItems?: boolean;
+  /**
+   * Leave the project out of every subline. For a widget whose *title* is the
+   * project: naming it again on each row spends the width that the row's own
+   * date and estimate need. The date-shaped twin is `namesTheDay`.
+   */
+  hideProject?: boolean;
 }
 
 // ── Grouping ───────────────────────────────────────────
@@ -208,6 +226,30 @@ export function contentBudget(widgetHeightDp: number): number {
   return Math.max(0, widgetHeightDp - HEADER_BAR_HEIGHT - CARD_PADDING_HEIGHT);
 }
 
+/**
+ * A picker row: a ring, a name, and nothing else. Shorter than a task row
+ * because it can never carry a subline.
+ */
+export const PICKER_ROW_HEIGHT = 26;
+
+/**
+ * How many lists and projects the picker can offer at this widget height.
+ *
+ * At least one, always. A picker that fits nothing draws an empty card with no
+ * way out of it, and a row half-clipped by the cell's edge is a better failure
+ * than a widget that can only be removed.
+ */
+export function pickerBudget(widgetHeightDp: number, candidates: number): number {
+  const room = Math.floor(contentBudget(widgetHeightDp) / PICKER_ROW_HEIGHT);
+  if (room >= candidates) return candidates;
+  // Something is being left out, so a line has to say so — and it costs the
+  // height of a row, exactly as "+N more" does on a task list.
+  const withNote = Math.floor(
+    (contentBudget(widgetHeightDp) - MORE_ROW_HEIGHT) / PICKER_ROW_HEIGHT
+  );
+  return Math.max(1, withNote);
+}
+
 // ── Rows ───────────────────────────────────────────────
 
 export interface WidgetHeaderRow {
@@ -223,6 +265,13 @@ export interface WidgetTaskRow {
   task: Task;
   /** Resolved here so the component never has to search the project list. */
   project: Project | null;
+  /**
+   * What the leading circle draws — resolved here because it is decided
+   * per row and per *kind* of row, and the component should not have to know
+   * which kind it is holding. `color` is the raw chosen colour; the theme
+   * lifts it for the dark card. `icon` is a `ph:` token or an emoji.
+   */
+  ring: { color: string | null; icon: string | null };
   gutter: RowGutter;
   /** Already joined; empty string means the row draws no second line at all. */
   subline: string;
@@ -239,6 +288,11 @@ export interface LayoutOptions {
   hideEstimate?: boolean;
   /** Drop every subline — see `COMPACT_BUDGET_DP`. Derived, never passed in. */
   hideSubline?: boolean;
+  /**
+   * Aisles the user has taught, for a shopping-list group. Absent is the
+   * correct fallback, not a failure: the lexicon still guesses.
+   */
+  aisleMemory?: AisleMemory;
   now?: Date;
 }
 
@@ -278,15 +332,36 @@ export function buildTaskRow(
   const project = task.project_id
     ? projects.find((p) => p.id === task.project_id) ?? null
     : null;
+
+  if (group.listItems) {
+    // A shopping item, so both coloured slots change hands. The ring carries
+    // the aisle — computed per item rather than taken from the section, because
+    // `groupByAisle` collapses to one unlabelled group on a short list and
+    // reading the group would then leave every row grey. The gutter is left
+    // alone: an item can still be late, and `rowGutter` says so the same way.
+    const ring = aisleRing(itemAisle(task, opts.aisleMemory));
+    return {
+      type: 'task',
+      task,
+      project,
+      ring: { color: ring.color, icon: ring.icon },
+      gutter: rowGutter(task, now),
+      subline: opts.hideSubline ? '' : itemSubline(task, { now }).join(' · '),
+      // An estimate on a thing to buy is not a thing anyone sets.
+      estimate: '',
+    };
+  }
+
   return {
     type: 'task',
     task,
     project,
+    ring: { color: project?.color ?? null, icon: project?.icon ?? null },
     gutter: rowGutter(task, now),
     subline: opts.hideSubline
       ? ''
       : rowSubline(task, {
-          projectName: project?.name ?? null,
+          projectName: group.hideProject ? null : project?.name ?? null,
           hideScheduledDay: group.namesTheDay,
           now,
         }).join(' · '),

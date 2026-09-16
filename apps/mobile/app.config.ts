@@ -184,6 +184,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             previewImage: "./assets/images/icon.png",
             updatePeriodMillis: 1800000,
           },
+          {
+            // Everything in one list or project, picked in the widget itself.
+            // The default footprint is a cell taller than Today's, because this
+            // is the only widget that has to ask a question before it can
+            // answer one — the picker needs room for four rows, not two.
+            name: "List",
+            label: "DoDone — List",
+            description: "Everything in one list or project",
+            minWidth: "180dp",
+            minHeight: "150dp",
+            targetCellWidth: 3,
+            targetCellHeight: 3,
+            resizeMode: "horizontal|vertical",
+            previewImage: "./assets/images/icon.png",
+            updatePeriodMillis: 1800000,
+          },
         ],
       },
     ],

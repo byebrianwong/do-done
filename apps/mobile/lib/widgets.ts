@@ -98,8 +98,8 @@ async function doRefresh(): Promise<void> {
       NextUp: NextUpWidget,
     };
 
-    await Promise.all(
-      TASK_WIDGET_NAMES.map((name) =>
+    await Promise.all([
+      ...TASK_WIDGET_NAMES.map((name) =>
         requestWidgetUpdate({
           widgetName: name,
           renderWidget: (info: WidgetInfo) =>
@@ -108,9 +108,53 @@ async function doRefresh(): Promise<void> {
             // No widgets of this name on the home screen — nothing to do.
           },
         })
-      )
-    );
+      ),
+      // Its own catch, not the outer one: a List widget failing must not
+      // abandon the four that were already on their way.
+      refreshListWidgets(requestWidgetUpdate).catch(() => {}),
+    ]);
   } catch {
     // Native module unavailable (Expo Go) or the update failed — ignore.
   }
+}
+
+/**
+ * Redraw the List widgets, each against whatever it is pinned to.
+ *
+ * Separate from the loop above because this widget's data is not the shared
+ * `WidgetTasks` sweep: a shopping list's items are exactly the rows
+ * `TasksApi.read()` filters out, and *which* list is a per-widget question the
+ * other four never have to ask. `renderWidget` may return a promise, so each
+ * widget resolves its own pin from `info.widgetId` rather than being handed a
+ * list it might not be showing.
+ *
+ * One loader across the sweep, so the project list and the aisle memory are
+ * read once however many of these are on the home screen.
+ */
+async function refreshListWidgets(
+  requestWidgetUpdate: typeof import('react-native-android-widget').requestWidgetUpdate
+): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { LIST_WIDGET_NAME, createListWidgetLoader } =
+    require('@/widgets/widget-list-data') as typeof import('@/widgets/widget-list-data');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ListWidget } =
+    require('@/widgets/ListWidget') as typeof import('@/widgets/ListWidget');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { themedPairOf } =
+    require('@/widgets/widget-render') as typeof import('@/widgets/widget-render');
+
+  const loader = createListWidgetLoader();
+  await requestWidgetUpdate({
+    widgetName: LIST_WIDGET_NAME,
+    renderWidget: async (info: WidgetInfo) =>
+      themedPairOf(ListWidget, {
+        data: await loader.load(info.widgetId),
+        width: info.width,
+        height: info.height,
+      }),
+    widgetNotFound: () => {
+      // No List widgets on the home screen — nothing to do.
+    },
+  });
 }

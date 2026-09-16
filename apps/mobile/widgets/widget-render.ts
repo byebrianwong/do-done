@@ -42,14 +42,34 @@ export interface TaskWidgetProps {
 
 export type TaskWidgetComponent = React.ComponentType<TaskWidgetProps>;
 
+/**
+ * Render a themed component twice — once per colour table — for the launcher to
+ * pick between.
+ *
+ * Generic over the props, because the List widget's data is not `WidgetTasks`:
+ * a shopping list's items are exactly the rows `TasksApi.read()` filters out,
+ * so it cannot be drawn from the sweep the other four share. What every widget
+ * *does* share is that the theme is an argument to one tree, and that is what
+ * this enforces.
+ */
+export function themedPairOf<P extends { theme: WidgetTheme }>(
+  Component: React.ComponentType<P>,
+  props: Omit<P, 'theme'>
+) {
+  return {
+    light: React.createElement(Component, { ...props, theme: LIGHT_THEME } as P),
+    dark: React.createElement(Component, { ...props, theme: DARK_THEME } as P),
+  };
+}
+
 export function themedPair(
   Component: TaskWidgetComponent,
   data: WidgetTasks,
   info: { width: number; height: number }
 ) {
-  const base = { data, width: info.width, height: info.height };
-  return {
-    light: React.createElement(Component, { ...base, theme: LIGHT_THEME }),
-    dark: React.createElement(Component, { ...base, theme: DARK_THEME }),
-  };
+  return themedPairOf(Component, {
+    data,
+    width: info.width,
+    height: info.height,
+  });
 }

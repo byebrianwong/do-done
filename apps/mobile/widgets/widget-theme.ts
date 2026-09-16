@@ -89,21 +89,34 @@ export const DARK_THEME: WidgetTheme = {
 const DARK_LIFT = 0.28;
 
 /**
- * A project's ring colour for a theme.
+ * A chosen colour as this theme draws it.
  *
  * The hue is **never** replaced. A user who picked green for Home has to find
  * green on both cards, so the dark table mixes the same colour toward white
- * rather than substituting a palette value. An unparseable colour falls back to
- * the neutral ring instead of drawing nothing.
+ * rather than substituting a palette value. An unparseable or absent colour
+ * falls back to the neutral ring instead of drawing nothing.
+ *
+ * Takes a bare colour rather than a project because a row's ring does not
+ * always carry one: on a shopping list it carries the *aisle*, whose colour
+ * comes from `aisleRing` in @do-done/shared. Both go through the same lift, so
+ * a dark home screen cannot treat the two kinds of ring differently.
  */
+export function themedColor(
+  color: string | null | undefined,
+  theme: WidgetTheme
+): string {
+  const rgb = color ? parseHex(color) : null;
+  if (!rgb) return theme.noProjectRing;
+  if (theme.scheme === 'light') return toHex(rgb);
+  return toHex(rgb.map((c) => c + (255 - c) * DARK_LIFT) as Rgb);
+}
+
+/** A project's ring colour for a theme. */
 export function ringColor(
   project: Pick<Project, 'color'> | null | undefined,
   theme: WidgetTheme
 ): string {
-  const rgb = project ? parseHex(project.color) : null;
-  if (!rgb) return theme.noProjectRing;
-  if (theme.scheme === 'light') return toHex(rgb);
-  return toHex(rgb.map((c) => c + (255 - c) * DARK_LIFT) as Rgb);
+  return themedColor(project?.color, theme);
 }
 
 type Rgb = [number, number, number];

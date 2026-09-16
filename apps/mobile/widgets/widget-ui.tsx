@@ -1,13 +1,17 @@
 import React from 'react';
 import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
 import type { Project, RowGutter, Task } from '@do-done/shared';
-import { plusSvg } from './dodone-mark';
+import { plusSvg, swapSvg } from './dodone-mark';
 import { WidgetProjectIcon } from './widget-project-icon';
-import { ringColor, type WidgetTheme } from './widget-theme';
+import { CLEAR_LIST_TARGET, COMPLETE_TASK, SET_LIST_TARGET } from './widget-actions';
+import { ringColor, themedColor, type WidgetTheme } from './widget-theme';
 import {
   contentBudget,
   layoutRows,
+  pickerBudget,
+  PICKER_ROW_HEIGHT,
   ESTIMATE_MIN_WIDTH_DP,
+  type LayoutOptions,
   type WidgetGroup,
   type WidgetTaskRow,
 } from './widget-layout';
@@ -52,16 +56,65 @@ function gutterColor(gutter: Exclude<RowGutter, null>, theme: WidgetTheme): stri
   return gutter === 'p2' ? theme.p2 : theme.p3;
 }
 
-/** Top bar: the view name and how much is left, plus a "+" for quick-add. */
+/** A round 26 dp button in the header bar. The only chrome a widget has. */
+function HeaderButton({
+  svg,
+  theme,
+  clickAction,
+  clickActionData,
+  accessibilityLabel,
+  marginLeft,
+}: {
+  svg: string;
+  theme: WidgetTheme;
+  clickAction: string;
+  clickActionData?: Record<string, unknown>;
+  accessibilityLabel: string;
+  marginLeft?: number;
+}) {
+  return (
+    <FlexWidget
+      clickAction={clickAction}
+      clickActionData={clickActionData}
+      accessibilityLabel={accessibilityLabel}
+      style={{
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        marginLeft,
+        backgroundColor: hex(theme.plusBackground),
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <SvgWidget svg={svg} style={{ width: 14, height: 14 }} />
+    </FlexWidget>
+  );
+}
+
+/**
+ * Top bar: the view name and how much is left, plus a "+" for quick-add.
+ *
+ * `swappable` adds a second button, and only the List widget passes it: it is
+ * the one widget whose subject was chosen rather than given, so it is the one
+ * that needs a way to choose again. Two arrows rather than a list glyph, for
+ * the reason `SwapTitle` gives in the app — a list icon beside a list's name
+ * reads as "open it", which is what tapping the name already does.
+ */
 function WidgetHeader({
   title,
   subtitle,
   tabUri,
+  swappable,
+  quickAdd = true,
   theme,
 }: {
   title: string;
   subtitle: string;
   tabUri: string;
+  swappable?: boolean;
+  /** Off for the picker, where there is no list to add anything to yet. */
+  quickAdd?: boolean;
   theme: WidgetTheme;
 }) {
   return (
@@ -74,40 +127,53 @@ function WidgetHeader({
         marginBottom: 4,
       }}
     >
-      <TextWidget
-        text={title}
-        clickAction="OPEN_URI"
-        clickActionData={{ uri: tabUri }}
-        style={{ color: hex(theme.title), fontSize: 15, fontWeight: '700' }}
-      />
-      {subtitle ? (
+      {/* The words take the leftover width and truncate at its edge, rather
+          than a spacer taking it and a long name pushing the buttons off the
+          card. "Today" never needed that; a list is named by its owner. */}
+      <FlexWidget style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
         <TextWidget
-          text={subtitle}
+          text={title}
+          maxLines={1}
+          truncate="END"
           clickAction="OPEN_URI"
           clickActionData={{ uri: tabUri }}
-          style={{
-            color: hex(theme.subline),
-            fontSize: 11,
-            fontWeight: '500',
-            marginLeft: 7,
-          }}
+          style={{ color: hex(theme.title), fontSize: 15, fontWeight: '700' }}
+        />
+        {subtitle ? (
+          <TextWidget
+            text={subtitle}
+            maxLines={1}
+            truncate="END"
+            clickAction="OPEN_URI"
+            clickActionData={{ uri: tabUri }}
+            style={{
+              color: hex(theme.subline),
+              fontSize: 11,
+              fontWeight: '500',
+              marginLeft: 7,
+            }}
+          />
+        ) : null}
+      </FlexWidget>
+      {swappable ? (
+        <HeaderButton
+          svg={swapSvg(theme.plusGlyph)}
+          theme={theme}
+          clickAction={CLEAR_LIST_TARGET}
+          accessibilityLabel="Show a different list"
+          marginLeft={6}
         />
       ) : null}
-      <FlexWidget style={{ flex: 1 }} />
-      <FlexWidget
-        clickAction="OPEN_URI"
-        clickActionData={{ uri: QUICK_ADD_URI }}
-        style={{
-          width: 26,
-          height: 26,
-          borderRadius: 13,
-          backgroundColor: hex(theme.plusBackground),
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <SvgWidget svg={plusSvg(theme.plusGlyph)} style={{ width: 14, height: 14 }} />
-      </FlexWidget>
+      {quickAdd ? (
+        <HeaderButton
+          svg={plusSvg(theme.plusGlyph)}
+          theme={theme}
+          clickAction="OPEN_URI"
+          clickActionData={{ uri: QUICK_ADD_URI }}
+          accessibilityLabel="Add a task"
+          marginLeft={6}
+        />
+      ) : null}
     </FlexWidget>
   );
 }
@@ -153,9 +219,11 @@ function GroupHeader({
  * you a screen, not a completed task you didn't mean to complete.
  */
 function TaskRow({ row, theme }: { row: WidgetTaskRow; theme: WidgetTheme }) {
-  const { task, project, gutter, subline, estimate } = row;
+  const { task, gutter, subline, estimate } = row;
   const done = task.status === 'done';
-  const ring = ringColor(project, theme);
+  // The ring is resolved in the layout, because what it carries depends on the
+  // kind of row: a project on a task, an aisle on a thing to buy.
+  const ring = themedColor(row.ring.color, theme);
   const mark = gutter ? GUTTER_MARK[gutter] : null;
 
   return (
@@ -193,7 +261,7 @@ function TaskRow({ row, theme }: { row: WidgetTaskRow; theme: WidgetTheme }) {
       </FlexWidget>
 
       <FlexWidget
-        clickAction="COMPLETE_TASK"
+        clickAction={COMPLETE_TASK}
         clickActionData={{ taskId: task.id }}
         style={{
           width: 26,
@@ -218,9 +286,9 @@ function TaskRow({ row, theme }: { row: WidgetTaskRow; theme: WidgetTheme }) {
             justifyContent: 'center',
           }}
         >
-          {project?.icon && !done ? (
+          {row.ring.icon && !done ? (
             <WidgetProjectIcon
-              icon={project.icon}
+              icon={row.ring.icon}
               size={9}
               color={hex(ring)}
             />
@@ -351,6 +419,9 @@ export function TaskListWidget({
   signedOut,
   projects,
   emptyText,
+  swappable,
+  keepSubtitleWhenEmpty,
+  aisleMemory,
   theme,
 }: {
   title: string;
@@ -362,6 +433,16 @@ export function TaskListWidget({
   signedOut: boolean;
   projects: Project[];
   emptyText: string;
+  /** Offer the swap button — the List widget only. */
+  swappable?: boolean;
+  /**
+   * Keep the subtitle on an empty body. Today says "0 left" to nobody, but a
+   * shopping list that is empty except for a full cart still has "3 in the
+   * cart" to report, and that is what tells you there is something to put away.
+   */
+  keepSubtitleWhenEmpty?: boolean;
+  /** Taught aisles, for a body of shopping-list rows. */
+  aisleMemory?: LayoutOptions['aisleMemory'];
   theme: WidgetTheme;
 }) {
   const children: React.ReactNode[] = [];
@@ -377,8 +458,9 @@ export function TaskListWidget({
       <WidgetHeader
         key="header"
         title={title}
-        subtitle={total > 0 ? subtitle : ''}
+        subtitle={total > 0 || keepSubtitleWhenEmpty ? subtitle : ''}
         tabUri={tabUri}
+        swappable={swappable}
         theme={theme}
       />
     );
@@ -388,6 +470,7 @@ export function TaskListWidget({
     } else {
       const { rows, hiddenCount } = layoutRows(groups, projects, contentBudget(height), {
         hideEstimate: width < ESTIMATE_MIN_WIDTH_DP,
+        aisleMemory,
       });
       rows.forEach((row, i) => {
         if (row.type === 'header') {
@@ -519,7 +602,7 @@ export function NextUpWidget({
         </FlexWidget>
 
         <FlexWidget
-          clickAction="COMPLETE_TASK"
+          clickAction={COMPLETE_TASK}
           clickActionData={{ taskId: task.id }}
           style={{
             width: 34,
@@ -588,5 +671,128 @@ export function NextUpWidget({
         </FlexWidget>
       </FlexWidget>
     </WidgetCard>
+  );
+}
+
+/**
+ * The question a List widget asks before it can answer one: which list?
+ *
+ * The four other widgets need no configuration, because "what is today" has one
+ * answer per user. This one does not, and `react-native-android-widget` has no
+ * configuration activity — so the widget asks in its own cell. A row is a tap,
+ * and the tap is the whole interaction.
+ *
+ * Lists come first because they are why this widget exists; projects follow.
+ * Each row draws its own ring, which is the same ring the app draws beside that
+ * name everywhere else, so the picker reads as a list of things you recognise
+ * rather than a list of words.
+ *
+ * **What does not fit says so.** A cell too short for every candidate spends a
+ * row on "+N more — resize" rather than silently offering a subset, because a
+ * picker that omits the list you keep looks like the list is gone.
+ */
+export function ListPickerWidget({
+  candidates,
+  height,
+  theme,
+}: {
+  candidates: Project[];
+  height: number;
+  theme: WidgetTheme;
+}) {
+  const children: React.ReactNode[] = [];
+  children.push(
+    <WidgetHeader
+      key="header"
+      title="Pick a list"
+      subtitle=""
+      tabUri="dodone://lists"
+      quickAdd={false}
+      theme={theme}
+    />
+  );
+
+  if (candidates.length === 0) {
+    children.push(
+      <TextWidget
+        key="none"
+        text="No lists or projects yet — tap to make one"
+        maxLines={2}
+        clickAction="OPEN_URI"
+        clickActionData={{ uri: 'dodone://lists' }}
+        style={{ color: hex(theme.accent), fontSize: 12, marginTop: 4 }}
+      />
+    );
+  } else {
+    const room = pickerBudget(height, candidates.length);
+    const shown = candidates.slice(0, room);
+    for (const project of shown) {
+      children.push(
+        <PickerRow key={project.id} project={project} theme={theme} />
+      );
+    }
+    const hidden = candidates.length - shown.length;
+    if (hidden > 0) {
+      children.push(
+        <TextWidget
+          key="more"
+          text={`+${hidden} more — make the widget taller`}
+          maxLines={1}
+          truncate="END"
+          style={{
+            color: hex(theme.subline),
+            fontSize: 10,
+            marginTop: 4,
+          }}
+        />
+      );
+    }
+  }
+
+  return <WidgetCard theme={theme}>{children}</WidgetCard>;
+}
+
+/** One candidate: its ring, its name, and the tap that pins the widget to it. */
+function PickerRow({
+  project,
+  theme,
+}: {
+  project: Project;
+  theme: WidgetTheme;
+}) {
+  const ring = ringColor(project, theme);
+  return (
+    <FlexWidget
+      clickAction={SET_LIST_TARGET}
+      clickActionData={{ projectId: project.id }}
+      accessibilityLabel={`Show ${project.name}`}
+      style={{
+        width: 'match_parent',
+        height: PICKER_ROW_HEIGHT,
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
+      <FlexWidget
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          borderWidth: 2,
+          borderColor: hex(ring),
+          marginRight: 8,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <WidgetProjectIcon icon={project.icon} size={9} color={hex(ring)} />
+      </FlexWidget>
+      <TextWidget
+        text={project.name}
+        maxLines={1}
+        truncate="END"
+        style={{ color: hex(theme.title), fontSize: 13 }}
+      />
+    </FlexWidget>
   );
 }
