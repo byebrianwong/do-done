@@ -3231,6 +3231,105 @@ padding-and-margin sums rather than a typographic ideal.
 **Adding the Next up widget changes `app.config.ts`, so it needs a fresh `eas build`.** The
 row redesign itself is pure JS and ships over an update.
 
+### The List widget is pinned to something you pick
+
+**Today, Upcoming and Next up answer a question with one answer per user.** "Everything in
+one list" is not a question until you say *which* list, so the **List** widget is the only
+one that stores anything: `widget:list-target:<widgetId>` in AsyncStorage, written by a tap
+on the widget's own picker.
+
+Per widget id, not per user, so two of these side by side show Groceries and Hardware. That
+is the whole reason the pick is not a `user_preferences` column: a widget id belongs to this
+launcher on this device, it means nothing to the laptop, and syncing it would have two phones
+fighting over one row. AsyncStorage is also the one store a cold headless widget update can
+already read — it is where the Supabase session comes from.
+
+**The widget asks in its own cell.** `react-native-android-widget` has no configuration
+activity, and adding one is native code plus a fresh build to ask a question the card can ask
+itself. An unpinned widget draws the picker: one tappable row per list and project, each with
+the ring the app draws beside that name everywhere else. A tap is the whole interaction.
+
+| State | What it draws |
+| --- | --- |
+| signed out | the prompt every widget shows |
+| unpinned | the picker |
+| pinned | the list, with two swap arrows in the header to re-open the picker |
+
+`targetDecision` in `widgets/widget-target.ts` is the rule, pure so the node suite covers it.
+Every way it can be wrong is silent on a home screen:
+
+- **A pin to a list that no longer exists falls back to the picker**, the same way the Lists
+  tab's resume memory falls back to its index. A list deleted on the laptop must not strand
+  the phone, and the widget is the one surface with no back button.
+- **It never expires**, for the reason `lib/tab-resume.ts` gives: a month later Groceries is
+  still the list you keep, and a time limit would only make the home screen unpredictable.
+- **One candidate and nothing pinned picks itself.** A picker with one row is a question with
+  one answer.
+- **`WIDGET_DELETED` forgets the pin.** The launcher reuses widget ids, so a pin left behind
+  is inherited by the next widget that happens to get that id — which opens on a list the
+  user never chose and reads as the widget being broken.
+- **The picker says what does not fit.** A cell too short for every candidate spends a row on
+  "+N more — make the widget taller" rather than silently offering a subset, because a picker
+  that omits the list you keep looks like the list is gone.
+
+#### One widget, two bodies
+
+A shopping list and a project are both `projects` rows and the app already draws them
+differently, so the widget does too rather than averaging them into a shape that is wrong for
+both. `widgets/widget-list-layout.ts` holds both, pure and node-tested.
+
+| Pinned to | Grouped by | Ring | Subline | Subtitle |
+| --- | --- | --- | --- | --- |
+| a list | aisle, in walking order | the aisle | `itemSubline` — the shops, then the day | `listSubline` |
+| a project | overdue, then "To do" | the project | `rowSubline` | "5 left" |
+
+- **The ring is resolved in the layout, not in the component**, because what it carries
+  depends on the kind of row. `WidgetTaskRow.ring` is a raw colour plus an icon token, and
+  `themedColor` applies the dark card's lift to either kind — so a home screen in dark mode
+  cannot treat an aisle ring and a project ring differently.
+- **The aisle is computed per item, never taken from the section.** `groupByAisle` collapses
+  to one unlabelled group on a short list, and reading the group would leave a three-item
+  list with grey rings. Same rule as the app's own list screen.
+- **The cart is not drawn.** Aisle headers over it would imply something was left to walk, and
+  on a launcher cell it would spend the whole height on things already bought. It is reported
+  in the subtitle instead — "8 items · 3 in the cart" — which is what says there is something
+  to put away. That is also the one case where the subtitle survives an empty body
+  (`keepSubtitleWhenEmpty`).
+- **Neither body names its own subject on every row.** `hideProject` is the project-shaped
+  twin of `namesTheDay`: the widget's title already says Work. Both groups keep their dates,
+  though, because seeing when things are is most of why a project gets pinned.
+- **A project widget shows overdue and "To do", not the project screen's status columns.**
+  `applyDisplay` emits a column per status even when empty on purpose — they are drop targets
+  — and a launcher cell has neither the height for five headings nor anything to drop onto.
+
+#### Its data cannot come from the sweep the others share
+
+A shopping list's items are exactly the rows `TasksApi.read()` filters out, so `loadWidgetTasks`
+cannot answer for this widget, and *which* list is a per-widget question the other four never
+ask. `widgets/widget-list-data.ts` is the separate path.
+
+- **`requestWidgetUpdate`'s `renderWidget` may return a promise**, which is what lets each
+  widget resolve its own pin from `info.widgetId` rather than being handed a list it might not
+  be showing.
+- **`createListWidgetLoader()` memoises one sweep.** The project list and the aisle memory are
+  read once however many of these are on the home screen, and two widgets pinned to the same
+  list cost one query. Deliberately per-sweep rather than module-level: a widget update is the
+  one moment the data is meant to be re-read.
+- **A completion propagates both ways.** Ticking a project's task off here removes it from
+  Today, and ticking one off Today removes it from a List widget pinned to that project, so
+  each handler sweeps the other family.
+- **`widgets/widget-actions.ts` names the click actions once.** `clickAction` is a bare string
+  on one side and a comparison on the other with the launcher in between and nothing
+  type-checking the pair, so a rename that reaches one side produces a tap that does nothing,
+  with no error.
+- **The handler inlines the widget's name** rather than importing it from `widget-list-data.ts`,
+  which pulls in Supabase — and that file's *static* graph is what a cold, appless launcher
+  update has to evaluate before anything can be drawn. `widget-list-handler.test.ts` pins the
+  two together.
+
+**Adding this widget changes `app.config.ts`, so it needs a fresh `eas build`.** It will not
+arrive over OTA.
+
 ### Quick-add widget (floats over the home screen)
 
 The 1×1 "Quick Add" widget mimics Todoist's: tapping it opens a quick-add sheet over the live
