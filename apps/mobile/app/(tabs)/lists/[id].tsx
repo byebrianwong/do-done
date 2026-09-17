@@ -11,6 +11,11 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import Animated, {
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   ComposerActionGlyph,
@@ -75,7 +80,11 @@ import {
 } from '@/lib/list-queries';
 import { updateTask } from '@/lib/task-queries';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
-import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
+import {
+  useTabBarMinimize,
+  useTabBarScrollSync,
+} from '@/lib/tab-bar-minimize';
+import { TAB_BAR_ROW_HEIGHT } from '@/lib/tab-bar-motion';
 import { markResumeTried, saveResume } from '@/lib/tab-resume';
 import { scheduleListShortcutSync } from '@/lib/list-shortcuts';
 import { useListLoadState } from '@/lib/list-load-state';
@@ -86,6 +95,7 @@ import {
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import ListItemRow from '@/components/ListItemRow';
+import QuickAddButton from '@/components/QuickAddButton';
 import {
   SectionCount,
   sectionHeaderStyles,
@@ -95,6 +105,9 @@ import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { useUndoToast } from '@/components/UndoToast';
 import { hapticLight, hapticMedium } from '@/lib/haptics';
 
+/** Space between the composer card and the keyboard or tab bar below it. */
+const COMPOSER_GAP = 8;
+
 /**
  * A shopping list.
  *
@@ -103,6 +116,20 @@ import { hapticLight, hapticMedium } from '@/lib/haptics';
  * list of things to buy, and the row it draws spends its width on a project
  * ring and an urgency gutter that a list has no use for. What is left is a
  * checkbox, a word, and a text field that must not lose focus.
+ *
+ * Items are added with the plus button in the bottom-right corner, the same
+ * `QuickAddButton` the task screens use. There used to be a text field pinned
+ * at the top of the list. It took up a row on a screen that is read far more
+ * often than it is added to.
+ *
+ * The button opens this screen's own composer, not `dodone://quick-add`. The
+ * task composer closes after each add and shows date, priority and estimate
+ * chips that do not apply to groceries. The list composer stays open for the
+ * next item, parses `@store`, and suggests items from the pantry. It now sits
+ * in a sheet above the keyboard instead of at the top of the screen.
+ *
+ * The sheet is not a `Modal`: on Android a Modal opens a new window and closes
+ * the keyboard.
  */
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -148,6 +175,8 @@ export default function ListDetailScreen() {
   const router = useRouter();
   const [draft, setDraft] = useState('');
   const [added, setAdded] = useState(0);
+  /** Whether the composer sheet is open. The plus button opens it. */
+  const [composerOpen, setComposerOpen] = useState(false);
   // What moves the action glyph to the trailing edge. Text counts as well
   // as focus: a half-typed item the keyboard has been dismissed over still
   // has something to commit.
@@ -173,6 +202,46 @@ export default function ListDetailScreen() {
   const [editingList, setEditingList] = useState(false);
   const toast = useUndoToast();
   const inputRef = useRef<TextInput>(null);
+  const insets = useSafeAreaInsets();
+  /*
+    With the keyboard down, the composer sits above the tab bar. The tab bar
+    floats over this screen, so a card at the bottom edge would be hidden
+    behind it. The plus button uses the same offset.
+  */
+  const restingClearance = useTabBarMinimize()
+    ? insets.bottom + TAB_BAR_ROW_HEIGHT
+    : insets.bottom;
+  const restingGap = restingClearance + COMPOSER_GAP;
+  // Follow the keyboard height every frame, as `QuickAddComposer` does. The
+  // keyboard height is measured from the screen's bottom edge, and the card
+  // already sits `restingClearance` above that edge, so lift it by the
+  // difference. `COMPOSER_GAP` is not subtracted, so the card keeps an 8pt gap
+  // above the keyboard as well as above the tab bar.
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: true,
+    isNavigationBarTranslucentAndroid: true,
+  });
+  const liftStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -Math.max(keyboard.height.value - restingClearance, 0) },
+    ],
+  }));
+
+  /** Opens the composer and resets the "N added" count. */
+  const openComposer = useCallback(() => {
+    setAdded(0);
+    setComposerOpen(true);
+  }, []);
+
+  /*
+    Closing clears any half-typed text. Otherwise the text would be kept
+    while the sheet is hidden, with nothing on screen showing it is there.
+  */
+  const closeComposer = useCallback(() => {
+    Keyboard.dismiss();
+    setDraft('');
+    setComposerOpen(false);
+  }, []);
 
   const open = useMemo(() => openItems(items), [items]);
   const got = useMemo(() => gotItems(items), [items]);
@@ -452,115 +521,6 @@ export default function ListDetailScreen() {
       />
       <UpdatingBar visible={loadState.showUpdating} />
 
-      <View
-        style={styles.composer}
-        onLayout={(e) => setComposerWidth(e.nativeEvent.layout.width)}
-      >
-        <ComposerActionGlyph
-          width={composerWidth}
-          active={composerFocused || draft.length > 0}
-          // The same test `submit` guards on, so the return key is live
-          // exactly when pressing it would write something.
-          armed={extractStoreTokens(draft).title.length > 0}
-          onSubmit={() => void submit()}
-          onFocusField={() => inputRef.current?.focus()}
-          idleLabel="Add an item"
-          submitLabel="Add this item"
-        />
-        {/* The field keeps clear of both gutters at all times, so the glyph
-            has somewhere to sit at either end and the "N added" receipt never
-            lands under it. The idle gutter on the right costs 20pt of a field
-            nothing else was using. */}
-        <View style={styles.composerField}>
-          <TextInput
-            ref={inputRef}
-            value={draft}
-            onChangeText={setDraft}
-            onSubmitEditing={submit}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={() => setComposerFocused(false)}
-            // The two props that make this a burst rather than one item: the
-            // keyboard stays up, and return commits instead of dismissing.
-            blurOnSubmit={false}
-            returnKeyType="done"
-            submitBehavior="submit"
-            placeholder="Add an item to buy"
-            placeholderTextColor="#9ca3af"
-            style={styles.input}
-          />
-          {added > 0 && <Text style={styles.added}>{added} added</Text>}
-        </View>
-      </View>
-
-      {/*
-        The stores already on this list, offered while an `@` token is open.
-
-        A horizontal strip rather than a dropdown, so it sits directly under the
-        field and above the keyboard, where the thumb already is. It pushes
-        nothing else around, since the row only exists while a token is open.
-      */}
-      {/*
-        The composer's memory: a few keystrokes to put back something bought
-        repeatedly, with its store attached. Tapping adds it directly rather
-        than completing the field, since a confirm step would undo the speed.
-      */}
-      {storeMatches.length === 0 && pantryMatches.length > 0 && (
-        <ScrollView
-          horizontal
-          keyboardShouldPersistTaps="always"
-          showsHorizontalScrollIndicator={false}
-          style={styles.storeStrip}
-          contentContainerStyle={styles.storeStripInner}
-        >
-          {pantryMatches.map((entry) => (
-            <Pressable
-              key={entry.term}
-              onPress={() => {
-                void putBack(entry);
-                inputRef.current?.focus();
-              }}
-              style={({ pressed }) => [
-                styles.pantryChip,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.pantryChipText}>{entry.title}</Text>
-              <Text style={styles.pantryChipAge}>
-                {lastBoughtLabel(entry.last_bought_at)}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
-      {storeMatches.length > 0 && (
-        <ScrollView
-          horizontal
-          keyboardShouldPersistTaps="always"
-          showsHorizontalScrollIndicator={false}
-          style={styles.storeStrip}
-          contentContainerStyle={styles.storeStripInner}
-        >
-          {storeMatches.map((name) => (
-            <Pressable
-              key={name}
-              onPress={() => {
-                setDraft(applyStoreToken(draft, name));
-                // The field must keep focus — this is a burst composer and the
-                // next word is already coming.
-                inputRef.current?.focus();
-              }}
-              style={({ pressed }) => [
-                styles.storeChip,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.storeChipText}>@{name}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
       <Text style={styles.subline}>{listSubline(summary)}</Text>
 
       <SectionList
@@ -668,7 +628,7 @@ export default function ListDetailScreen() {
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Nothing on this list</Text>
               <Text style={styles.emptyHint}>
-                Type above, or add from anywhere with #
+                Tap + to add one, or add from anywhere with #
                 {(list?.name ?? '').toLowerCase().replace(/\s+/g, '')}
               </Text>
             </View>
@@ -716,6 +676,154 @@ export default function ListDetailScreen() {
           ) : null
         }
       />
+
+      {composerOpen ? null : (
+        /*
+          The same button the task screens use. `onPress` opens this screen's
+          composer instead of the task composer; see the note at the top.
+        */
+        <QuickAddButton onPress={openComposer} />
+      )}
+
+      {/*
+        The composer sheet, drawn over the list.
+
+        Rendered inline, not in a `Modal`: on Android a Modal opens a new
+        window and closes the keyboard. Tapping the dimmed area closes the
+        sheet. The card and its suggestion strips move with the keyboard
+        together.
+
+        The strips sit above the card, because the card sits directly on the
+        keyboard.
+      */}
+      {composerOpen ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Pressable
+            style={styles.composerScrim}
+            onPress={closeComposer}
+            accessibilityLabel="Close the composer"
+          />
+          <Animated.View
+            style={[
+              styles.composerDock,
+              { paddingBottom: restingGap },
+              liftStyle,
+            ]}
+            pointerEvents="box-none"
+          >
+            {/*
+              The composer's memory: a few keystrokes to put back something
+              bought repeatedly, with its store attached. Tapping adds it
+              directly rather than completing the field, since a confirm step
+              would undo the speed.
+            */}
+            {storeMatches.length === 0 && pantryMatches.length > 0 && (
+              <ScrollView
+                horizontal
+                keyboardShouldPersistTaps="always"
+                showsHorizontalScrollIndicator={false}
+                style={styles.storeStrip}
+                contentContainerStyle={styles.storeStripInner}
+              >
+                {pantryMatches.map((entry) => (
+                  <Pressable
+                    key={entry.term}
+                    onPress={() => {
+                      void putBack(entry);
+                      inputRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.pantryChip,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.pantryChipText}>{entry.title}</Text>
+                    <Text style={styles.pantryChipAge}>
+                      {lastBoughtLabel(entry.last_bought_at)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+
+            {/*
+              The stores already on this list, offered while an `@` token is
+              open. A horizontal strip rather than a dropdown, so it sits
+              directly over the field where the thumb already is. It pushes
+              nothing around, since the row only exists while a token is open.
+            */}
+            {storeMatches.length > 0 && (
+              <ScrollView
+                horizontal
+                keyboardShouldPersistTaps="always"
+                showsHorizontalScrollIndicator={false}
+                style={styles.storeStrip}
+                contentContainerStyle={styles.storeStripInner}
+              >
+                {storeMatches.map((name) => (
+                  <Pressable
+                    key={name}
+                    onPress={() => {
+                      setDraft(applyStoreToken(draft, name));
+                      // Keep focus so the next item can be typed straight away.
+                      inputRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.storeChip,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.storeChipText}>@{name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+
+            <View
+              style={styles.composer}
+              onLayout={(e) => setComposerWidth(e.nativeEvent.layout.width)}
+            >
+              <ComposerActionGlyph
+                width={composerWidth}
+                active={composerFocused || draft.length > 0}
+                // The same test `submit` guards on, so the return key is live
+                // exactly when pressing it would write something.
+                armed={extractStoreTokens(draft).title.length > 0}
+                onSubmit={() => void submit()}
+                onFocusField={() => inputRef.current?.focus()}
+                idleLabel="Add an item"
+                submitLabel="Add this item"
+              />
+              {/* The field keeps clear of both gutters at all times, so the
+                  glyph has somewhere to sit at either end and the "N added"
+                  receipt never lands under it. */}
+              <View style={styles.composerField}>
+                <TextInput
+                  ref={inputRef}
+                  value={draft}
+                  onChangeText={setDraft}
+                  onSubmitEditing={submit}
+                  onFocus={() => setComposerFocused(true)}
+                  onBlur={() => setComposerFocused(false)}
+                  // The field mounts when the sheet opens, so autoFocus
+                  // raises the keyboard as soon as the plus is tapped.
+                  autoFocus
+                  // The two props that make this a burst rather than one item:
+                  // the keyboard stays up, and return commits instead of
+                  // dismissing.
+                  blurOnSubmit={false}
+                  returnKeyType="done"
+                  submitBehavior="submit"
+                  placeholder="Add an item to buy"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.input}
+                />
+                {added > 0 && <Text style={styles.added}>{added} added</Text>}
+              </View>
+            </View>
+          </Animated.View>
+        </View>
+      ) : null}
 
       <ItemSheet
         item={picking}
@@ -993,6 +1101,18 @@ const styles = StyleSheet.create({
   },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   clear: { fontSize: 13, fontWeight: '600', color: '#6366f1' },
+  // Dims the list behind the sheet. Tapping it closes the sheet.
+  composerScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17,24,39,0.4)',
+  },
+  // Pinned to the bottom, outside the list's layout, and moved by the keyboard.
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1002,6 +1122,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: GLYPH_PAD,
     paddingVertical: 10,
     borderRadius: 12,
+    // A shadow separates the white card from the dimmed list behind it.
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
   },
   // Clears the glyph's gutter at both ends, whichever one it is parked in.
   composerField: {
@@ -1013,7 +1139,7 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 15, color: '#111827', padding: 0 },
   added: { fontSize: 11, color: '#9ca3af', fontVariant: ['tabular-nums'] },
-  storeStrip: { flexGrow: 0, marginTop: 8 },
+  storeStrip: { flexGrow: 0 },
   storeStripInner: { paddingHorizontal: 12, gap: 8 },
   storeChip: {
     backgroundColor: '#eef0fe',
