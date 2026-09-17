@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { BaseButton } from 'react-native-gesture-handler';
 
 /**
  * How a list names one of its sections, on every mobile list screen.
@@ -70,5 +71,50 @@ export function SectionCount({ value }: { value: number }) {
     <View style={countStyles.pill}>
       <Text style={countStyles.text}>{value}</Text>
     </View>
+  );
+}
+
+/**
+ * The tappable row of a collapsible section header. Tapping it opens or closes
+ * the section.
+ *
+ * This must not be a React Native `Pressable`. On Android, a `Pressable`
+ * inside a pinned sticky header could not be tapped. React Native pins the
+ * header with a transform that runs on the native side. When the finger moves
+ * even slightly during a tap, Android re-checks what was tapped in JS, using
+ * the header's position *before* it was pinned. The tap then went to the row
+ * underneath, and the section never opened or closed. Headers that were not
+ * pinned worked, which is why it only failed once the list was scrolled.
+ *
+ * `BaseButton` is gesture-handler's button. It finds its target from the
+ * native views as they are drawn, so it hits the pinned header where it is on
+ * screen. It does not set `disallowInterruption`, so a drag that starts on a
+ * header still scrolls the list.
+ *
+ * Verified on the iOS simulator only. There is no Android emulator on the
+ * machine this was written on, so the Android fix is checked on a device.
+ */
+export function SectionHeaderButton({
+  collapsed,
+  onToggle,
+  children,
+}: {
+  collapsed: boolean;
+  /** Leave undefined when the section cannot be toggled. */
+  onToggle?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <BaseButton
+      style={sectionHeaderStyles.container}
+      enabled={onToggle != null}
+      onPress={onToggle}
+      rippleColor="rgba(17,24,39,0.06)"
+      accessible
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !collapsed, disabled: onToggle == null }}
+    >
+      {children}
+    </BaseButton>
   );
 }

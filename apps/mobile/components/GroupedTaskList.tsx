@@ -1,11 +1,12 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import type { RefreshControlProps } from 'react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import TaskItem from '@/components/TaskItem';
 import {
   SectionCount,
+  SectionHeaderButton,
   sectionHeaderStyles,
 } from '@/components/SectionHeader';
 import SectionedDraggableList, {
@@ -226,10 +227,13 @@ export default function GroupedTaskList({
     const collapsed = isCollapsed(configRef.current, section.key);
     const toggle = onConfigChangeRef.current;
     return (
-      <Pressable
-        style={sectionHeaderStyles.container}
-        disabled={!toggle}
-        onPress={() => toggle?.(toggleCollapsed(configRef.current, section.key))}
+      <SectionHeaderButton
+        collapsed={collapsed}
+        onToggle={
+          toggle
+            ? () => toggle(toggleCollapsed(configRef.current, section.key))
+            : undefined
+        }
       >
         <Ionicons
           name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -241,7 +245,7 @@ export default function GroupedTaskList({
           {section.title}
         </Text>
         <SectionCount value={count} />
-      </Pressable>
+      </SectionHeaderButton>
     );
   }, []);
 

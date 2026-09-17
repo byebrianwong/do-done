@@ -18,6 +18,7 @@ import DisplaySheet from '@/components/DisplaySheet';
 import GroupedTaskList from '@/components/GroupedTaskList';
 import {
   SectionCount,
+  SectionHeaderButton,
   sectionHeaderStyles,
 } from '@/components/SectionHeader';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
@@ -224,9 +225,9 @@ export function UpcomingView() {
       const showCount = count > 0 || dayEvents.length === 0;
       return (
         <View>
-          <Pressable
-            style={sectionHeaderStyles.container}
-            onPress={() => setConfig(toggleCollapsed(config, section.key))}
+          <SectionHeaderButton
+            collapsed={collapsed}
+            onToggle={() => setConfig(toggleCollapsed(config, section.key))}
           >
             <Ionicons
               name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -243,7 +244,7 @@ export function UpcomingView() {
               {section.title}
             </Text>
             {showCount ? <SectionCount value={count} /> : null}
-          </Pressable>
+          </SectionHeaderButton>
           {!collapsed &&
             dayEvents.map((e) => <CalendarEventRow key={e.id} event={e} />)}
         </View>
