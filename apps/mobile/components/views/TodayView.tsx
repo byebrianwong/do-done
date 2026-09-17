@@ -22,6 +22,7 @@ import CalendarEventsNotice from '@/components/CalendarEventsNotice';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
 import {
   SectionCount,
+  SectionHeaderButton,
   sectionHeaderStyles,
 } from '@/components/SectionHeader';
 import SectionedDraggableList, {
@@ -197,9 +198,9 @@ export function TodayView() {
       const collapsed = isCollapsed(config, section.key);
       const count = countByKey.get(section.key) ?? section.data.length;
       return (
-        <Pressable
-          style={sectionHeaderStyles.container}
-          onPress={() => setConfig(toggleCollapsed(config, section.key))}
+        <SectionHeaderButton
+          collapsed={collapsed}
+          onToggle={() => setConfig(toggleCollapsed(config, section.key))}
         >
           <Ionicons
             name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -214,7 +215,7 @@ export function TodayView() {
             {section.title}
           </Text>
           <SectionCount value={count} />
-        </Pressable>
+        </SectionHeaderButton>
       );
     },
     [config, setConfig, countByKey]
