@@ -119,6 +119,38 @@ enough — that needs step 3 below, on a device, with the app force-stopped.
 
 ---
 
+## The List widget
+
+Also never seen on a device. It is the only widget that stores anything, and the
+store is what needs checking — the drawing is the Today widget's, already
+exercised by the four above.
+
+1. **Add it.** The card opens on a picker: one row per list, then one per
+   project, each with its own ring. An empty card here means the projects read
+   failed; a card with *one* row and no picker is the "only candidate picks
+   itself" rule and is correct.
+2. **Tap a shopping list.** It redraws immediately into that list, grouped by
+   aisle with the aisle's colour and icon in each ring. Rings all one colour
+   means the row fell back to the project — see `buildTaskRow`'s `listItems`
+   branch. The subtitle reads "8 items · 3 in the cart".
+3. **Wait out one `updatePeriodMillis` tick (30 min), or open and close the app.**
+   It must still be on the same list. Reverting to the picker means the pick was
+   drawn but not written.
+4. **Tap the swap arrows** in the header. The picker comes back.
+5. **Add a second one and pin it to a project.** Two widgets, two subjects, at
+   the same time. Both showing the same thing means the pin is not keyed on
+   `widgetId`.
+6. **Tick a row off** on the project widget. It leaves that widget *and* the
+   Today widget beside it, without either being tapped.
+7. **Remove a widget, then add a fresh one.** It must open on the picker. Opening
+   straight onto the removed widget's list means `WIDGET_DELETED` did not clear
+   the key and the launcher reused the id.
+
+Step 7 is the one nothing else can catch: on a launcher that does not reuse ids
+it passes for the wrong reason.
+
+---
+
 ## Launcher quick actions (app shortcuts)
 
 Separate mechanism, same "never seen on a device" status. `plugins/withAndroidShortcuts.js`

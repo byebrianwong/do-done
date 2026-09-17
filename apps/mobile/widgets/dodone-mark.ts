@@ -77,3 +77,22 @@ export function dodoneMarkSvg(color: string): string {
     '</svg>'
   );
 }
+
+/**
+ * Two arrows swapping places — the "pin this widget to something else" control.
+ *
+ * The same glyph the app's own `SwapTitle` uses to swap Today for Upcoming, and
+ * chosen there for a reason that holds here too: a folder or a list icon beside
+ * a list's name reads as "open it", which is what tapping the name already
+ * does. Arrows can only mean switch.
+ */
+export function swapSvg(color: string): string {
+  return (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
+    `<g fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">` +
+    '<path d="M4 8.5H18M14 4.5L18 8.5L14 12.5"/>' +
+    '<path d="M20 15.5H6M10 11.5L6 15.5L10 19.5"/>' +
+    '</g>' +
+    '</svg>'
+  );
+}

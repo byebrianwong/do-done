@@ -104,6 +104,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      // Android draws a notification's small icon as a silhouette cut from its
+      // alpha channel: every opaque pixel becomes white and the colour is
+      // discarded. Without this block expo-notifications falls back to the
+      // launcher icon, which is opaque edge to edge, so the status bar drew a
+      // plain white circle with no way to tell which app had posted.
+      //
+      // The source asset is therefore one white glyph on transparency, and it
+      // is generated rather than drawn: `node tools/notification-icon/emit.mjs`
+      // rasterises the DoDone mark from the path data in widgets/dodone-mark.ts.
+      //
+      // `color` is the accent Android tints the icon and the app-name line
+      // with in the shade. It is only ever read on Android; iOS takes the app
+      // icon and needs nothing here.
+      "expo-notifications",
+      {
+        icon: "./assets/images/notification-icon.png",
+        color: "#6366f1",
+      },
+    ],
+    [
       "react-native-android-widget",
       {
         widgets: [
@@ -164,6 +184,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             previewImage: "./assets/images/icon.png",
             updatePeriodMillis: 1800000,
           },
+          {
+            // Everything in one list or project, picked in the widget itself.
+            // The default footprint is a cell taller than Today's, because this
+            // is the only widget that has to ask a question before it can
+            // answer one — the picker needs room for four rows, not two.
+            name: "List",
+            label: "DoDone — List",
+            description: "Everything in one list or project",
+            minWidth: "180dp",
+            minHeight: "150dp",
+            targetCellWidth: 3,
+            targetCellHeight: 3,
+            resizeMode: "horizontal|vertical",
+            previewImage: "./assets/images/icon.png",
+            updatePeriodMillis: 1800000,
+          },
         ],
       },
     ],
@@ -189,8 +225,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     git: gitInfo(),
     // Deployed DoDone web app — the mobile app calls its /api/calendar/events
-    // route to show Google Calendar events. EXPO_PUBLIC_WEB_APP_URL overrides
-    // at runtime; leaving both unset just hides calendar events on mobile.
+    // route to show Google Calendar events. This is an override: leaving it
+    // unset falls back to the production URL in lib/calendar-queries.ts, which
+    // is where the reasoning is. Set it to point a build at a local web app.
     webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? null,
   },
 });

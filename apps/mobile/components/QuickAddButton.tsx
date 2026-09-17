@@ -63,12 +63,22 @@ interface QuickAddButtonProps {
   projectId?: string;
   /** Pre-schedule for this day (the Today screen passes today). */
   scheduledDate?: string;
+  /**
+   * Runs instead of opening the shared quick-add composer.
+   *
+   * The shopping list screen uses this to open its own composer, which stays
+   * open for the next item, parses `@store`, and suggests from the pantry.
+   * When `onPress` is set, long press does nothing, because the list composer
+   * has no voice input.
+   */
+  onPress?: () => void;
 }
 
 export default function QuickAddButton({
   defaultStatus = 'inbox',
   projectId,
   scheduledDate,
+  onPress,
 }: QuickAddButtonProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -109,10 +119,12 @@ export default function QuickAddButton({
         testID="quick-add-button"
         accessibilityRole="button"
         accessibilityLabel="Add task"
-        accessibilityHint="Long press to dictate a task"
+        accessibilityHint={
+          onPress ? undefined : 'Long press to dictate a task'
+        }
         style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        onPress={() => open(false)}
-        onLongPress={() => open(true)}
+        onPress={onPress ?? (() => open(false))}
+        onLongPress={onPress ? undefined : () => open(true)}
         hitSlop={6}
       >
         <Ionicons name="add" size={30} color="#fff" />

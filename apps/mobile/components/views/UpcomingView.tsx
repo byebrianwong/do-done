@@ -22,6 +22,7 @@ import {
 } from '@/components/SectionHeader';
 import { ListActionsMenu } from '@/components/ListActionsMenu';
 import CalendarEventRow from '@/components/CalendarEventRow';
+import CalendarEventsNotice from '@/components/CalendarEventsNotice';
 import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
@@ -173,7 +174,7 @@ export function UpcomingView() {
   // useLocalDay keeps the window anchored to the CURRENT day across overnight
   // foregrounds, not the day the screen last rendered.
   const localDay = useLocalDay();
-  const { data: events = [] } = useCalendarEvents(
+  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, HORIZON_DAYS + 1)
   );
@@ -302,6 +303,7 @@ export function UpcomingView() {
         </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
+      <CalendarEventsNotice visible={eventsFailed} />
 
       {loadState.showSkeleton ? (
         <ListSkeleton rows={6} />

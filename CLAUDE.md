@@ -1122,6 +1122,49 @@ hours, and it looked exactly like data loss.
     the locations read fails. Lower stakes — Settings links to Places
     unconditionally, so there is always a way in.
 
+## Calendar events on mobile
+
+Today and Upcoming show the user's Google Calendar events beside their tasks,
+the same events the web views show. Today draws them in a "Today's schedule"
+card above the list. Upcoming draws them under each day's section header.
+
+**The phone cannot read Google itself.** That needs the refresh token and the
+client secret, and neither leaves the server. So `lib/calendar-queries.ts` calls
+the web app's `/api/calendar/events` route with the Supabase access token as a
+Bearer header, and `apps/web/src/lib/calendar-events.ts` serves that route and
+the web pages from one function.
+
+- **The web app URL defaults to production.** `EXPO_PUBLIC_WEB_APP_URL` only
+  overrides it, for pointing a build at a laptop or a preview deploy. It used to
+  be required, and that was the whole failure: an `EXPO_PUBLIC_*` var has to
+  reach the bundler, so every EAS build and every OTA bundle inherited whatever
+  the EAS environment held, and where it held nothing the query was disabled and
+  the phone showed no events at all. The host is already a constant of this
+  project, pinned in `ios.associatedDomains` in the same `app.config.ts`.
+- **The device timezone rides along as `?tz=`.** The screens bucket events by
+  the device's local day, so the server has to resolve the window in that same
+  zone. The stored web preference can differ, through travel or through never
+  having been set.
+- **`useLocalDay` is what keeps the window on the current day.** A query key
+  built from `todayLocalISO()` at render freezes overnight, because the focus
+  refetch re-runs the old key without re-rendering. The screen would go on
+  asking for yesterday.
+- **A failed fetch says so. An empty answer does not.** A disconnected calendar,
+  "Show calendar events" switched off, and a Google outage all come back from
+  that route as a successful empty list, and the screens render tasks-only for
+  each, matching web. Only an HTTP failure reaches `isError`, and that is the
+  one case `CalendarEventsNotice` draws a line for. Both used to produce the
+  same `[]`, which is how a build that could not reach the web app read as a
+  clear week.
+- **That notice is one muted line under the title bar, not `ListError`.** The
+  tasks loaded, so the screen keeps working and only the calendar part reports a
+  problem. Same shape as the sidebar's "Couldn't load projects" on web. It has
+  no Retry button: pull-to-refresh already refetches it, and a button there
+  would sit above a list that is not the thing that failed.
+- **Events are read-only here.** A row opens Google Calendar, which is where
+  events are edited. Connecting the account is a web-only flow, and both the
+  Settings row and the Calendars screen say so.
+
 ## Cold start (mobile)
 
 **"Nothing scheduled today" is an answer, and the app must not give it before it
@@ -3232,6 +3275,105 @@ padding-and-margin sums rather than a typographic ideal.
 **Adding the Next up widget changes `app.config.ts`, so it needs a fresh `eas build`.** The
 row redesign itself is pure JS and ships over an update.
 
+### The List widget is pinned to something you pick
+
+**Today, Upcoming and Next up answer a question with one answer per user.** "Everything in
+one list" is not a question until you say *which* list, so the **List** widget is the only
+one that stores anything: `widget:list-target:<widgetId>` in AsyncStorage, written by a tap
+on the widget's own picker.
+
+Per widget id, not per user, so two of these side by side show Groceries and Hardware. That
+is the whole reason the pick is not a `user_preferences` column: a widget id belongs to this
+launcher on this device, it means nothing to the laptop, and syncing it would have two phones
+fighting over one row. AsyncStorage is also the one store a cold headless widget update can
+already read — it is where the Supabase session comes from.
+
+**The widget asks in its own cell.** `react-native-android-widget` has no configuration
+activity, and adding one is native code plus a fresh build to ask a question the card can ask
+itself. An unpinned widget draws the picker: one tappable row per list and project, each with
+the ring the app draws beside that name everywhere else. A tap is the whole interaction.
+
+| State | What it draws |
+| --- | --- |
+| signed out | the prompt every widget shows |
+| unpinned | the picker |
+| pinned | the list, with two swap arrows in the header to re-open the picker |
+
+`targetDecision` in `widgets/widget-target.ts` is the rule, pure so the node suite covers it.
+Every way it can be wrong is silent on a home screen:
+
+- **A pin to a list that no longer exists falls back to the picker**, the same way the Lists
+  tab's resume memory falls back to its index. A list deleted on the laptop must not strand
+  the phone, and the widget is the one surface with no back button.
+- **It never expires**, for the reason `lib/tab-resume.ts` gives: a month later Groceries is
+  still the list you keep, and a time limit would only make the home screen unpredictable.
+- **One candidate and nothing pinned picks itself.** A picker with one row is a question with
+  one answer.
+- **`WIDGET_DELETED` forgets the pin.** The launcher reuses widget ids, so a pin left behind
+  is inherited by the next widget that happens to get that id — which opens on a list the
+  user never chose and reads as the widget being broken.
+- **The picker says what does not fit.** A cell too short for every candidate spends a row on
+  "+N more — make the widget taller" rather than silently offering a subset, because a picker
+  that omits the list you keep looks like the list is gone.
+
+#### One widget, two bodies
+
+A shopping list and a project are both `projects` rows and the app already draws them
+differently, so the widget does too rather than averaging them into a shape that is wrong for
+both. `widgets/widget-list-layout.ts` holds both, pure and node-tested.
+
+| Pinned to | Grouped by | Ring | Subline | Subtitle |
+| --- | --- | --- | --- | --- |
+| a list | aisle, in walking order | the aisle | `itemSubline` — the shops, then the day | `listSubline` |
+| a project | overdue, then "To do" | the project | `rowSubline` | "5 left" |
+
+- **The ring is resolved in the layout, not in the component**, because what it carries
+  depends on the kind of row. `WidgetTaskRow.ring` is a raw colour plus an icon token, and
+  `themedColor` applies the dark card's lift to either kind — so a home screen in dark mode
+  cannot treat an aisle ring and a project ring differently.
+- **The aisle is computed per item, never taken from the section.** `groupByAisle` collapses
+  to one unlabelled group on a short list, and reading the group would leave a three-item
+  list with grey rings. Same rule as the app's own list screen.
+- **The cart is not drawn.** Aisle headers over it would imply something was left to walk, and
+  on a launcher cell it would spend the whole height on things already bought. It is reported
+  in the subtitle instead — "8 items · 3 in the cart" — which is what says there is something
+  to put away. That is also the one case where the subtitle survives an empty body
+  (`keepSubtitleWhenEmpty`).
+- **Neither body names its own subject on every row.** `hideProject` is the project-shaped
+  twin of `namesTheDay`: the widget's title already says Work. Both groups keep their dates,
+  though, because seeing when things are is most of why a project gets pinned.
+- **A project widget shows overdue and "To do", not the project screen's status columns.**
+  `applyDisplay` emits a column per status even when empty on purpose — they are drop targets
+  — and a launcher cell has neither the height for five headings nor anything to drop onto.
+
+#### Its data cannot come from the sweep the others share
+
+A shopping list's items are exactly the rows `TasksApi.read()` filters out, so `loadWidgetTasks`
+cannot answer for this widget, and *which* list is a per-widget question the other four never
+ask. `widgets/widget-list-data.ts` is the separate path.
+
+- **`requestWidgetUpdate`'s `renderWidget` may return a promise**, which is what lets each
+  widget resolve its own pin from `info.widgetId` rather than being handed a list it might not
+  be showing.
+- **`createListWidgetLoader()` memoises one sweep.** The project list and the aisle memory are
+  read once however many of these are on the home screen, and two widgets pinned to the same
+  list cost one query. Deliberately per-sweep rather than module-level: a widget update is the
+  one moment the data is meant to be re-read.
+- **A completion propagates both ways.** Ticking a project's task off here removes it from
+  Today, and ticking one off Today removes it from a List widget pinned to that project, so
+  each handler sweeps the other family.
+- **`widgets/widget-actions.ts` names the click actions once.** `clickAction` is a bare string
+  on one side and a comparison on the other with the launcher in between and nothing
+  type-checking the pair, so a rename that reaches one side produces a tap that does nothing,
+  with no error.
+- **The handler inlines the widget's name** rather than importing it from `widget-list-data.ts`,
+  which pulls in Supabase — and that file's *static* graph is what a cold, appless launcher
+  update has to evaluate before anything can be drawn. `widget-list-handler.test.ts` pins the
+  two together.
+
+**Adding this widget changes `app.config.ts`, so it needs a fresh `eas build`.** It will not
+arrive over OTA.
+
 ### Quick-add widget (floats over the home screen)
 
 The 1×1 "Quick Add" widget mimics Todoist's: tapping it opens a quick-add sheet over the live
@@ -3310,9 +3452,10 @@ home screen without launching the main app.
 ### Launcher quick actions (app shortcuts)
 
 Long-pressing the DoDone icon offers **Add task / Voice task / Search / Today / Upcoming**, each
-pinnable to the home screen. These are not widgets: the launcher draws them, so a pinned one
-takes exactly one cell and sits flush with the app icons around it. That is why they exist
-alongside the 1×1 quick-add widget rather than instead of it.
+pinnable to the home screen, plus one shopping list named for itself — see the sub-section below.
+These are not widgets: the launcher draws them, so a pinned one takes exactly one cell and sits
+flush with the app icons around it. That is why they exist alongside the 1×1 quick-add widget
+rather than instead of it.
 
 - `plugins/withAndroidShortcuts.js` writes `res/xml/shortcuts.xml`, the icon drawables, and the
   labels, then hangs a `meta-data` tag off MainActivity. They are static shortcuts, so they
@@ -3332,6 +3475,84 @@ alongside the 1×1 quick-add widget rather than instead of it.
   `dodone://` target has a route file. Every failure mode here is silent on the device, so the
   test is the only place they surface. It is why `vitest.config.ts` includes `plugins/**` as
   well as `lib/**`.
+
+#### A shopping list gets one too, and its label is the list's name
+
+Long-pressing the icon also offers a shopping list by name — **Groceries**, not "Open a list" —
+and any list can be pinned to the home screen as its own icon.
+
+**None of that can be a static shortcut.** A static shortcut's label is a string resource fixed
+at build time, and a list's title is the user's own text. So these are *dynamic* and *pinned*
+shortcuts, written at runtime through `ShortcutManagerCompat`, which has no JS API. That is the
+whole reason `modules/list-shortcuts` exists — a local Expo module, autolinked because it sits
+in `apps/mobile/modules`, which is expo-modules-autolinking's default `nativeModulesDir`.
+
+The two kinds do different jobs and are limited differently:
+
+| | How many | Where it appears |
+| --- | --- | --- |
+| Pinned | No limit | One home-screen icon per list, created on request |
+| Dynamic | One | The app icon's long-press menu |
+
+- **One dynamic entry, because the menu holds four.** Most launchers show four shortcuts there,
+  Launcher3 sorts manifest ones ahead of dynamic ones, and it then reserves up to two of the four
+  slots for dynamic shortcuts by evicting the *last* static ones (`PopupPopulator.MAX_SHORTCUTS`
+  is 4, `NUM_DYNAMIC` is 2). So the list entry costs the fourth static action its slot, and a
+  second list entry would cost the third as well for no gain. With the five declared actions that
+  means the visible menu becomes Add task / Voice task / Search / *the list*, and Today falls off.
+  Today is the right one to lose: tapping the app icon already lands on the Agenda tab, which
+  opens on Today. Upcoming was already the fifth of five and so already invisible there.
+- **The menu entry is the list you were last in**, read from the same `lib/tab-resume.ts` memory
+  the Lists tab opens on, so the app icon and the tab cannot give two different answers to "which
+  list is mine". With nothing remembered it falls back to the first list rather than leaving the
+  slot empty — someone who has never opened a list from the tab is exactly who benefits from
+  finding one in the menu, and the fallback corrects itself the moment they open any list.
+- **A shortcut's id is `list:<uuid>` and never changes**, which is what makes a pinned icon
+  survivable. `sync` therefore calls `updateShortcuts` as well as `setDynamicShortcuts`:
+  `setDynamicShortcuts` cannot reach a pinned copy, so without it a "Groceries" icon someone
+  renamed to "Big shop" would read the old name forever, with nothing in the app to show it.
+- **A deleted list's pinned icon is disabled, not removed.** The launcher owns a pinned shortcut
+  and the app cannot take it back, so the honest end state is an icon that says why it stopped
+  working. `disableShortcuts` carries that message.
+- **`prune` is what stops an outage wiping the home screen.** `ProjectsApi.list()` sets `data` to
+  `[]` when a read fails, so acting on an empty result would disable every pinned list icon over a
+  dropped connection — the same failure web's `lib/read-result.ts` exists to prevent one layer up.
+  The flag is false whenever the caller could not read the lists for certain (signed out, or a
+  failed request); it then clears the menu entry and touches nothing pinned.
+- **The icon is the list's colour with a white list glyph**, drawn with Canvas primitives — no
+  bundled drawable, no `R` class. The list's own icon is deliberately *not* drawn: deciding
+  whether a stored string is an emoji or a `ph:` token belongs to `parseProjectIcon`, and a second
+  implementation of that rule in Kotlin is how a shortcut comes to draw the literal text
+  `ph:cart:fill` on someone's home screen. The colour and the label already tell two icons apart.
+- **Pinning is a button first and a gesture second.** The button is **Add to Home screen** in a
+  list's edit sheet (`ProjectFormSheet`), where the other once-per-list answers already live —
+  not a third icon in the list's title bar, which already spends its two slots on "Put away" and
+  the pencil. The long press on a row in the Lists index is the shortcut for someone who already
+  knows, and it is `undefined` rather than a no-op off Android, because a `Pressable` carrying an
+  `onLongPress` swallows the press that would have fired `onPress`.
+- **Nothing claims the icon was added.** `requestPinShortcut` reports that the *request* was
+  issued; Android's own dialog does the asking and never says what the user chose. So only the two
+  failures speak.
+- **`lib/list-shortcut-plan.ts` holds every decision and is pure**, node-tested like the rest of
+  `lib/`. `modules/list-shortcuts/module.test.ts` covers the seam the compiler cannot: the Kotlin
+  class name against `expo-module.config.json`, `Name(...)` against the string JS asks for, the
+  `AsyncFunction` names against the JS methods, and the `@Field` names against what JS sends. All
+  of those agree only by string, and all of them fail silently on a device. That is why
+  `vitest.config.ts` now includes `modules/**` as well.
+
+**This needs a fresh `eas build`; it will not arrive over OTA.** It does *not* draw the line
+described under *Installs too old to accept OTA updates*, though: `index.ts` uses
+`requireOptionalNativeModule`, which resolves to null on an older build rather than throwing, so
+the bundle still launches there and the feature is simply absent. That is why `version` in
+`app.config.ts` is unchanged.
+
+> **Unverified on a device**, like the widgets and geofencing beside it. There is no Android SDK,
+> JDK, or emulator on this machine, so the Kotlin has never been compiled and nothing here has
+> drawn a pixel. What CI covers is the plan, the deep link and the JS↔Kotlin seam. Still to check
+> on a phone: that the module autolinks, that the list appears in the long-press menu and which
+> static action it displaces, that the icon renders rather than coming out blank, that a rename
+> reaches a pinned icon, and that a deleted list's pinned icon reports itself instead of doing
+> nothing.
 
 ### Location reminders (geofencing)
 
@@ -3727,6 +3948,39 @@ that cleared everything would eat it, and the symptom — a location reminder th
 you do not happen to open the app in the two minutes after arriving — is one nobody would reproduce
 deliberately. Both schedulers track their own identifiers and cancel only those.
 
+### The status bar icon is a silhouette, and needs an asset of its own
+
+**Android draws a notification's small icon from its alpha channel alone.** Every opaque pixel is
+painted white and the colour is thrown away. Nothing else about the artwork survives, so the source
+has to be one white glyph on transparency.
+
+With no icon of its own, `expo-notifications` falls back to the launcher icon.
+`assets/images/icon.png` has no alpha channel at all, and the adaptive icon is opaque edge to edge,
+so every DoDone notification drew a **plain white circle** in the status bar. It was still a
+notification and it still opened the right task. It just said nothing about which app had posted
+it, which on a bar already holding five other apps' icons is the whole job.
+
+`assets/images/notification-icon.png` is the fix, registered through the `expo-notifications` block
+in `app.config.ts` beside `color: "#6366f1"`, the accent Android tints the icon and the app-name
+line with in the shade. iOS needs neither: it draws the app icon.
+
+- **The asset is generated, not drawn.** `node tools/notification-icon/emit.mjs` rasterises the
+  solid half of the DoDone mark at 96x96, white on transparency, from the same path data
+  `widgets/dodone-mark.ts` holds. There is no image library in this repo, so the script carries its
+  own SVG arc sampler and PNG writer. It shades each pixel by its distance to the stroke's
+  centreline, which is what gives the round caps and round joins the mark is drawn with.
+- **The faded trailing glyph is dropped.** A silhouette has no opacity to draw it with, so both
+  copies would flatten to the same white and merge into one unreadable shape at 24dp.
+- **The glyph fills 82 of the 96 px**, which is 20.5dp inside the 24dp box the status bar gives it.
+  Filling the box outright leaves the mark's round caps touching the icons either side.
+- **`plugins/notification-icon.test.ts` asserts the rule against whatever file the config points
+  at.** Nothing in a build, a type-check or a screenshot reads the alpha channel of a drawable the
+  system UI flattens later, so a coloured or opaque replacement would reach a device unremarked.
+  That is the same reason `plugins/` is in that suite at all.
+- **This is the one part of the notification stack that does not ship over OTA.** It is a config
+  plugin, so it lands on a fresh `eas build` and not before. An installed build keeps drawing the
+  white circle through any number of updates.
+
 ### Register the geofence task at the bundle entry
 
 `TaskManager.defineTask` names a JS entry point the OS looks up **by name**, and it delivers a
@@ -3806,8 +4060,9 @@ The copy and the settings schema are in `packages/shared/src/notifications.ts`, 
 read one way on the phone and another on the laptop, and — more immediately — so the date arithmetic
 is testable in node, which is the only place `apps/mobile` can test anything.
 
-**This is all pure JS and ships over OTA.** `expo-notifications` was already in the native build, and
-no config plugin was added precisely so this would not need a rebuild.
+**The digest half is pure JS and ships over OTA.** `expo-notifications` was already in the native
+build. The one piece of this stack that does need a rebuild is the status bar icon those
+notifications draw with, which is a config plugin: see *The status bar icon* above.
 
 > **Unverified on a device**, like the geofencing it sits beside. What CI covers is the arithmetic and
 > the copy (`digest-plan.test.ts`, `notification-routing.test.ts`,
@@ -3871,8 +4126,9 @@ lifecycle).
   free `text` column the Google Calendar pull also writes into, so a value can arrive as `"09:30:00"`.
   A reminder silently not arming over a trailing `:00` is a bug nobody would reproduce.
 
-**This is pure JS and ships over OTA** — no new native module, no config plugin. **Web still has no
-notifications**, unchanged: that needs a service worker and VAPID keys.
+**This is pure JS and ships over OTA**: no new native module. (The status bar icon these draw with
+is not, and is the exception noted above.) **Web still has no notifications**, unchanged: that needs
+a service worker and VAPID keys.
 
 > **Unverified on a device**, like the digests and geofencing beside it. CI covers the arithmetic, the
 > eligibility rules, the cap and the copy (`task-reminders.test.ts` in both packages,

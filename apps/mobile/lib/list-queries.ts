@@ -16,6 +16,7 @@ import {
   getTasksApi,
 } from './supabase';
 import { queryClient } from './query-client';
+import { scheduleListShortcutSync } from './list-shortcuts';
 import { invalidateTasks, listKeys, projectKeys } from './task-queries';
 
 /**
@@ -100,6 +101,11 @@ export function invalidateLists(listId?: string) {
     queryClient.invalidateQueries({ queryKey: listKeys.itemsFor(listId) });
   }
   invalidateTasks();
+  // A list created, renamed or deleted has to reach the launcher: its quick
+  // action is labelled with the list's name, and a pinned icon outlives the
+  // list unless something disables it. Debounced and fire-and-forget, the same
+  // shape as the widget refresh `invalidateTasks` drives. Android-only.
+  scheduleListShortcutSync();
 }
 
 /**

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
+  Platform,
   Pressable,
   StyleSheet,
   FlatList,
@@ -25,6 +26,11 @@ import {
   saveResume,
 } from '@/lib/tab-resume';
 import {
+  pinListShortcut,
+  scheduleListShortcutSync,
+} from '@/lib/list-shortcuts';
+import { useUndoToast } from '@/components/UndoToast';
+import {
   ListError,
   ListSkeleton,
   UpdatingBar,
@@ -44,6 +50,7 @@ export default function ListsScreen() {
   // Not a `SectionedDraggableList`, so it drives the minimizing tab bar and
   // reserves its height itself.
   const tabBar = useTabBarScrollSync();
+  const toast = useUndoToast();
   const [showCreate, setShowCreate] = useState(false);
   const [remembered, setRemembered] = useState<string | null | undefined>(
     undefined
@@ -95,8 +102,31 @@ export default function ListsScreen() {
       // this tab opens on next time.
       setRemembered(null);
       saveResume('lists', null);
+      // And the launcher's quick action goes back to its no-memory answer, for
+      // the reason the detail screen syncs on focus: the two must agree.
+      scheduleListShortcutSync();
     }
   }, [focused, remembered, lists, router]);
+
+  /**
+   * Put this list on the home screen as its own icon.
+   *
+   * The confirmation is Android's own "Add to home screen" dialog, so there is
+   * nothing to say when the request goes through — and nothing that *could* be
+   * said honestly, since the system never reports whether the user accepted.
+   * Only the two failures speak.
+   */
+  const pin = useCallback(
+    async (list: Project) => {
+      const result = await pinListShortcut(list);
+      if (result === 'unsupported') {
+        toast.show({ message: 'This launcher cannot add shortcuts' });
+      } else if (result === 'failed') {
+        toast.show({ message: `Could not add ${list.name} to the home screen` });
+      }
+    },
+    [toast]
+  );
 
   const renderItem = ({ item }: { item: Project }) => {
     const count = counts?.get(item.id) ?? { open: 0, got: 0 };
@@ -110,6 +140,19 @@ export default function ListsScreen() {
           markResumeTried('lists');
           router.push(`/lists/${item.id}` as never);
         }}
+        /*
+          Undefined off Android, not a no-op. A Pressable carrying an
+          onLongPress swallows the press that would otherwise have fired
+          onPress, so a slow tap on an iPhone would open nothing at all. Same
+          rule as `rowLongPressAction` in lib/row-gesture.ts.
+
+          The button for this is in the list's edit sheet; the hold is the
+          shortcut for someone who already knows, which is why nothing on the
+          row advertises it.
+        */
+        onLongPress={
+          Platform.OS === 'android' ? () => void pin(item) : undefined
+        }
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >
         <View style={[styles.ring, { backgroundColor: item.color }]}>

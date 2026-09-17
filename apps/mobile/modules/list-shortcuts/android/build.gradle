@@ -1,0 +1,26 @@
+// Local Expo module. Autolinked because it sits under `apps/mobile/modules` —
+// that directory is expo-modules-autolinking's default `nativeModulesDir`, so
+// nothing needs to register it. The SDK versions come from the plugin, which
+// reads the app's own compileSdk/minSdk/targetSdk.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.listshortcuts'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.listshortcuts'
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // ShortcutManagerCompat / ShortcutInfoCompat / IconCompat. Declared rather
+  // than inherited from React Native's own graph so a future RN bump cannot
+  // quietly drop it.
+  implementation 'androidx.core:core-ktx:1.13.1'
+}
