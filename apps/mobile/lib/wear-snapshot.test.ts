@@ -11,8 +11,17 @@ import {
   type WearRow,
 } from './wear-snapshot';
 
-const NOW = new Date('2026-09-07T10:00:00');
-const TODAY = todayLocalISO(NOW);
+/**
+ * Anchored on the real clock, not a pinned date.
+ *
+ * `buildWearSnapshot` has no `now` to inject — the grouping functions under it
+ * read the clock themselves — so a fixture dated to a fixed day would group by
+ * the real today and format by the fake one. That disagreement is invisible
+ * until the calendar rolls past the pinned date, which is exactly how it was
+ * found.
+ */
+const TODAY = todayLocalISO();
+const LONG_AGO = addDaysLocalISO(-10);
 
 function task(over: Partial<Task> & { id: string }): Task {
   return {
@@ -67,13 +76,17 @@ function rowsOf(list: WearList): WearRow[] {
 
 describe('buildWearSnapshot', () => {
   it('stamps the version the watch checks and the time it was built', () => {
-    const snap = buildWearSnapshot({ tasks: [], projects: [], now: NOW });
+    const before = Date.now();
+    const snap = buildWearSnapshot({ tasks: [], projects: [] });
     expect(snap.v).toBe(WEAR_SNAPSHOT_VERSION);
-    expect(snap.generatedAt).toBe(NOW.getTime());
+    // The watch prints this as "Updated Nm ago", so it has to be the real
+    // build time — a zero here would read as a snapshot from 1970.
+    expect(snap.generatedAt).toBeGreaterThanOrEqual(before);
+    expect(snap.generatedAt).toBeLessThanOrEqual(Date.now());
   });
 
   it('always offers the three lists, even with nothing in them', () => {
-    const snap = buildWearSnapshot({ tasks: [], projects: [], now: NOW });
+    const snap = buildWearSnapshot({ tasks: [], projects: [] });
     expect(snap.lists.map((l) => l.key)).toEqual([
       'today',
       'upcoming',
@@ -93,7 +106,6 @@ describe('buildWearSnapshot', () => {
         }),
       ],
       projects: [project({ id: 'p1', name: 'Admin' })],
-      now: NOW,
     });
     const row = rowsOf(listNamed(snap.lists, 'today'))[0];
     // The Today group names the day, so the row must not repeat it — it is left
@@ -104,10 +116,9 @@ describe('buildWearSnapshot', () => {
   it('keeps the day when the group does not name it', () => {
     const snap = buildWearSnapshot({
       tasks: [
-        task({ id: 't1', title: 'Late thing', scheduled_date: '2026-09-01' }),
+        task({ id: 't1', title: 'Late thing', scheduled_date: LONG_AGO }),
       ],
       projects: [],
-      now: NOW,
     });
     const overdue = listNamed(snap.lists, 'today').groups[0];
     expect(overdue.title).toBe('Overdue');
@@ -120,10 +131,9 @@ describe('buildWearSnapshot', () => {
       tasks: [
         task({ id: 'a', priority: 'p1', scheduled_date: TODAY }),
         task({ id: 'b', priority: 'p4', scheduled_date: TODAY }),
-        task({ id: 'c', priority: 'p2', scheduled_date: '2026-09-01' }),
+        task({ id: 'c', priority: 'p2', scheduled_date: LONG_AGO }),
       ],
       projects: [],
-      now: NOW,
     });
     const byId = new Map(
       rowsOf(listNamed(snap.lists, 'today')).map((r) => [r.id, r])
@@ -139,7 +149,6 @@ describe('buildWearSnapshot', () => {
     const snap = buildWearSnapshot({
       tasks: [task({ id: 't1', scheduled_date: TODAY })],
       projects: [],
-      now: NOW,
     });
     expect(rowsOf(listNamed(snap.lists, 'today'))[0].ring).toMatch(/^#[0-9a-f]{6}$/i);
   });
@@ -148,7 +157,6 @@ describe('buildWearSnapshot', () => {
     const snap = buildWearSnapshot({
       tasks: [task({ id: 't1', scheduled_date: TODAY, project_id: 'p1' })],
       projects: [project({ id: 'p1', color: '#22c55e' })],
-      now: NOW,
     });
     expect(rowsOf(listNamed(snap.lists, 'today'))[0].ring.toLowerCase()).toBe(
       '#22c55e'
@@ -165,7 +173,6 @@ describe('buildWearSnapshot', () => {
         project({ id: 'emoji', icon: '🚀' }),
         project({ id: 'phos', icon: 'ph:briefcase:fill' }),
       ],
-      now: NOW,
     });
     const byId = new Map(
       rowsOf(listNamed(snap.lists, 'today')).map((r) => [r.id, r])
@@ -179,7 +186,6 @@ describe('buildWearSnapshot', () => {
     const snap = buildWearSnapshot({
       tasks: [task({ id: 't1', status: 'inbox' })],
       projects: [],
-      now: NOW,
     });
     const inbox = listNamed(snap.lists, 'inbox');
     expect(inbox.groups).toHaveLength(1);
@@ -195,11 +201,10 @@ describe('buildWearSnapshot', () => {
           id: 'boughtItem',
           status: 'done',
           is_list_item: true,
-          completed_at: NOW.toISOString(),
+          completed_at: new Date().toISOString(),
         }),
       ],
       projects: [],
-      now: NOW,
     });
     expect(rowsOf(listNamed(snap.lists, 'inbox'))).toHaveLength(0);
     expect(snap.counts.doneToday).toBe(0);
@@ -210,7 +215,7 @@ describe('buildWearSnapshot', () => {
     const tasks = Array.from({ length: WEAR_MAX_ROWS_PER_LIST + 25 }, (_, i) =>
       task({ id: `t${i}`, scheduled_date: TODAY })
     );
-    const snap = buildWearSnapshot({ tasks, projects: [], now: NOW });
+    const snap = buildWearSnapshot({ tasks, projects: [] });
     expect(rowsOf(listNamed(snap.lists, 'today'))).toHaveLength(
       WEAR_MAX_ROWS_PER_LIST
     );
@@ -219,13 +224,13 @@ describe('buildWearSnapshot', () => {
   it('spends the budget across groups, not per group', () => {
     const tasks = [
       ...Array.from({ length: 30 }, (_, i) =>
-        task({ id: `late${i}`, scheduled_date: '2026-09-01' })
+        task({ id: `late${i}`, scheduled_date: LONG_AGO })
       ),
       ...Array.from({ length: 30 }, (_, i) =>
         task({ id: `now${i}`, scheduled_date: TODAY })
       ),
     ];
-    const snap = buildWearSnapshot({ tasks, projects: [], now: NOW });
+    const snap = buildWearSnapshot({ tasks, projects: [] });
     expect(rowsOf(listNamed(snap.lists, 'today'))).toHaveLength(
       WEAR_MAX_ROWS_PER_LIST
     );
@@ -241,12 +246,12 @@ describe('buildWearSnapshot', () => {
         title: 'A fairly long task title that someone actually typed out ' + i,
         project_id: `p${i % 12}`,
         priority: 'p1',
-        scheduled_date: addDaysLocalISO(i % 9, NOW),
+        scheduled_date: addDaysLocalISO(i % 9),
         duration_minutes: 90,
       })
     );
     const bytes = Buffer.byteLength(
-      JSON.stringify(buildWearSnapshot({ tasks, projects, now: NOW })),
+      JSON.stringify(buildWearSnapshot({ tasks, projects })),
       'utf8'
     );
     expect(bytes).toBeLessThan(50_000);
@@ -261,7 +266,6 @@ describe('counts', () => {
         task({ id: 'b', title: 'Urgent', priority: 'p1', scheduled_date: TODAY }),
       ],
       projects: [],
-      now: NOW,
     });
     const first = rowsOf(listNamed(snap.lists, 'today'))[0];
     expect(snap.counts.nextTitle).toBe(first.title);
@@ -272,37 +276,30 @@ describe('counts', () => {
     const snap = buildWearSnapshot({
       tasks: [
         task({ id: 'a', scheduled_date: TODAY }),
-        task({ id: 'b', scheduled_date: '2026-09-01' }),
+        task({ id: 'b', scheduled_date: LONG_AGO }),
       ],
       projects: [],
-      now: NOW,
     });
     expect(snap.counts.openToday).toBe(2);
     expect(snap.counts.overdue).toBe(1);
   });
 
   it('counts a completion by the local day it happened on', () => {
+    // Two days back rather than one, so a DST transition cannot make the
+    // "not today" case land on today after all.
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
     const snap = buildWearSnapshot({
       tasks: [
-        task({
-          id: 'a',
-          status: 'done',
-          completed_at: new Date('2026-09-07T23:30:00').toISOString(),
-        }),
-        task({
-          id: 'b',
-          status: 'done',
-          completed_at: new Date('2026-09-06T23:30:00').toISOString(),
-        }),
+        task({ id: 'a', status: 'done', completed_at: new Date().toISOString() }),
+        task({ id: 'b', status: 'done', completed_at: twoDaysAgo.toISOString() }),
       ],
       projects: [],
-      now: NOW,
     });
     expect(snap.counts.doneToday).toBe(1);
   });
 
   it('reports an empty next task rather than a placeholder', () => {
-    const snap = buildWearSnapshot({ tasks: [], projects: [], now: NOW });
+    const snap = buildWearSnapshot({ tasks: [], projects: [] });
     expect(snap.counts.nextTitle).toBe('');
     expect(snap.counts.openToday).toBe(0);
   });

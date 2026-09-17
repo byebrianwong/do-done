@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      The watch's "send me a fresh snapshot" message lands here. It is a
+      system-started service, so it runs with the app dead — which is the case
+      it exists for: the watch app opened after the phone has been asleep long
+      enough for its access token to expire.
+    -->
+    <service
+      android:name="expo.modules.dodonewear.WearSyncRequestService"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+        <data android:scheme="wear" android:host="*" android:pathPrefix="/dodone/request-sync" />
+      </intent-filter>
+    </service>
+
+    <!--
+      The headless JS task the service above starts. Not exported: only our own
+      service starts it.
+    -->
+    <service
+      android:name="expo.modules.dodonewear.WearSyncTaskService"
+      android:exported="false" />
+  </application>
+</manifest>

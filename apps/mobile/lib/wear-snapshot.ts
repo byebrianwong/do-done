@@ -123,8 +123,21 @@ export interface WearSnapshot {
 export interface BuildWearSnapshotInput {
   tasks: Task[];
   projects: Project[];
-  now?: Date;
 }
+
+/**
+ * **There is no `now` to inject, deliberately.**
+ *
+ * `buildTodayGroups` and `buildUpcomingGroups` read the clock themselves and
+ * take no parameter, so a date passed in here could only reach the *rows* — the
+ * grouping would still use the real day. The two then disagree, and the way that
+ * shows up is a task landing in the Overdue group while its own subline reads
+ * "Today".
+ *
+ * This is the convention `widget-layout.test.ts` already follows: anchor a test
+ * on `todayLocalISO()` and `addDaysLocalISO()` rather than pinning a date the
+ * code underneath cannot be told about.
+ */
 
 /**
  * Turn a task list into the three lists, the counts, and every row's finished
@@ -137,8 +150,10 @@ export interface BuildWearSnapshotInput {
 export function buildWearSnapshot({
   tasks,
   projects,
-  now = new Date(),
 }: BuildWearSnapshotInput): WearSnapshot {
+  // Read once, so the rows and the counts cannot straddle midnight even though
+  // the grouping above reads the clock again a microsecond later.
+  const now = new Date();
   const todayGroups = buildTodayGroups(tasks);
   const upcomingGroups = buildUpcomingGroups(tasks);
   const inboxGroups = buildInboxGroups(tasks);
