@@ -649,6 +649,7 @@ See the timezone note under Dates above.
 ```
 apps/web       — Next.js 16 (App Router, Tailwind); also hosts the MCP endpoint at /api/mcp
 apps/mobile    — React Native / Expo (tabs template)
+apps/mobile/wear — Wear OS app, tile and complications: Kotlin + Compose, its own APK
 apps/mcp       — Thin stdio entry point for the MCP server (Claude Code)
 packages/shared      — Zod schemas, types, constants, utils (leaf package)
 packages/api-client  — Supabase client, TasksApi, ProjectsApi, LocationsApi
@@ -3109,8 +3110,8 @@ completion hold, for instance, where the write must go out before the row leaves
 invalidate must not land during the animation.
 
 Modules that reach for native code (`./supabase`, `./widgets`, `./query-client`,
-`./location-queries`) are `vi.mock`ed per test file, so each test names the seam it stands in
-for rather than relying on a global setup.
+`./location-queries`, `./wear`) are `vi.mock`ed per test file, so each test names the seam it
+stands in for rather than relying on a global setup.
 
 **The gap this leaves is real.** Component and screen bugs cannot fail here. A missing task
 title shipped to main and over OTA because nothing in CI can render a row — see *Running
@@ -3731,6 +3732,233 @@ fresh JS context after the OS kills the app.
 >
 > The *editing* half is verified, on web: the task editor's Places block and the Places view were
 > driven in a browser against `/demo`, including live Photon search and real OSM tiles.
+
+## The watch (Wear OS)
+
+Three surfaces on the wrist, and one thing feeding all of them.
+
+| | What it is | DoDone's |
+| --- | --- | --- |
+| **App** | launched from the watch's app list, has its own screens | Today / Upcoming / Inbox, complete, reschedule, add by voice |
+| **Tile** | one card, reached by swiping sideways from the watch face | "TODAY" — three tasks, a summary line, an Add chip |
+| **Complication** | a data slot *on* the watch face, laid out by the face | five: progress, count left, overdue, next task, add |
+
+**React Native does not run on Wear OS**, so none of `apps/mobile`'s screens
+could be reused. The watch app is Kotlin and Compose for Wear OS, in
+`apps/mobile/wear/`, and it is a second Android *application* module — a separate
+APK, going to the Wear OS track of the same Play listing.
+
+It lives outside `android/` because that directory is gitignored and regenerated.
+`plugins/withWearApp.js` copies the tree in on every prebuild, adds
+`include ':wear'` to `settings.gradle`, and puts the Compose compiler plugin on
+the root buildscript classpath — Kotlin 2.x moved Compose out of the compiler, and
+Expo's generated project does not carry it because nothing else in an Expo app
+uses Compose.
+
+**None of it has been compiled.** There is no Android SDK, JDK, emulator or watch
+on this machine, and the AndroidX versions in `wear/build.gradle` were written
+from memory rather than resolved. See
+[`docs/wear-os-verification.md`](docs/wear-os-verification.md) for the order to
+check things in; the first build is a debugging session.
+
+### The phone decides what a row says; the watch draws it
+
+Every row in the snapshot arrives with its subline, its gutter, its ring colour
+and its icon already computed — by the same `rowSubline` / `rowGutter` /
+`ringColor` the in-app row and the home-screen widgets call. `buildWearSnapshot`
+in `apps/mobile/lib/wear-snapshot.ts` is where that happens, and it is pure so
+the node suite covers it.
+
+The alternative was porting those rules to Kotlin, and that would be the worst
+case of the drift the shared package exists to prevent: a second implementation,
+in a second language, on the one surface nothing in CI can render. It also makes
+the watch cheap — a tile renders on a coin-sized battery and gets handed strings
+rather than a task list and a rule set.
+
+- **The two dated lists reuse the widgets' grouping** (`buildTodayGroups`,
+  `buildUpcomingGroups`), for the reason `buildNextUp` gives: a watch and a home
+  screen disagreeing about what is next is worse than either showing nothing.
+- **Inbox is one group with no header.** Every other list here is grouped by day,
+  and the Inbox is the one screen that is explicitly untriaged.
+- **`WEAR_MAX_ROWS_PER_LIST` is 40, and the cap is not cosmetic.** A `DataItem`
+  payload is capped at 100 KB and exceeding it fails the put rather than
+  truncating it — so the whole watch would go stale, silently, for the users with
+  the most tasks. There is a test asserting a full snapshot stays under 50 KB.
+- **A Phosphor project icon arrives empty**, leaving a bare coloured ring.
+  Drawing one needs `PHOSPHOR_PATHS`, ~697 KB of generated path data, ported into
+  the watch APK to render a glyph at 14 dp. A ring with no icon is already a
+  first-class state.
+- **Rings use the light table.** `ringColor`'s dark variant lifts a colour toward
+  white for a dark *card*; on a black watch face that lift washes the twelve
+  palette hues into each other, and the ring is the only thing telling two
+  projects apart.
+- **Shopping-list items never reach the watch**, tasks or counts. A list is
+  walked with a phone in your hand.
+
+### The watch is dark, and the phone app is not
+
+Not drift. The phone's light-only decision is about a screen held in a lit room
+for minutes at a time. A watch screen is OLED, glanced at for two seconds, often
+in the dark, and a white card on a wrist at night is the one thing every Wear OS
+guide agrees not to draw.
+
+The palette in `wear/.../ui/Theme.kt` also lifts two colours the phone does not:
+the accent goes from `indigo-500` (3.4:1 on black) to `indigo-400` (6.5:1), and
+the subline from `#9CA3AF` (3.2:1) to `#B6BCC8` (6.9:1). A watch subline is 12sp
+and read at arm's length in whatever light there is.
+
+### Which door a write goes through is a rule, not a fallback order
+
+| Write | Path |
+| --- | --- |
+| Complete, reschedule | the phone when it is reachable, Supabase directly when it is not |
+| Create | the phone, always — queued when it is not reachable |
+
+A completion is one field. `TasksApi.update` does a few more things around it —
+stamps `completed_at`, feeds the pet, records a shopping item in the pantry — and
+of those only the stamp changes what the user sees, so `WearWriter` does that
+part itself and is right about the row. **The pet is not fed by a completion made
+directly by the watch**, and that is the whole cost of the direct path. It is
+paid only when the phone is out of range.
+
+A create cannot be done that way. `parseTaskInput` is what makes "call the bank
+tomorrow" a task scheduled tomorrow, and it is several hundred lines of
+TypeScript. A watch that guessed at it would file dictated tasks undated, which
+is worse than one that waits — so a create is relayed or it queues.
+
+- **`lib/wear-write.ts` reads what the watch sent**, and returns null for
+  anything it does not recognise rather than throwing. The watch APK does not
+  ship over OTA, so a watch running *ahead* of the phone's bundle is an ordinary
+  state, and the snapshot still has to go back afterwards.
+- **A relayed create names no status**, so it inherits the `inbox` default. Same
+  reasoning as the quick-add widget and the launcher shortcut: the watch has no
+  view context, and capture is not triage.
+- **The queue is bounded at 40 and persisted.** Unbounded, a watch out of range
+  for a week grows a preference file until something fails; in memory, the
+  promise is broken by the next tile refresh.
+- **A tick moves the row before the write lands.** `SnapshotStore` remembers
+  locally-completed ids and filters them out of the app, the tile *and* the
+  counts — a tile saying "3 left" over a list of two is worse than either number
+  being stale, because the two disagree on the same screen.
+
+### The watch cannot refresh its own credentials
+
+It is handed a Supabase **access token** with each snapshot, and that lasts about
+an hour. It is deliberately not handed the refresh token: Supabase rotates one
+when it is spent, so two clients holding the same one sign each other out — the
+watch would take the phone down with it, silently, an hour after pairing.
+
+So the phone pushes a fresh token on three triggers, and they are not
+interchangeable:
+
+- **Every task write**, debounced, through `invalidateTasks()` — the same
+  chokepoint the widget refresh and the geofence sync hang off.
+- **Every foreground**, from `app/_layout.tsx`. This one is about the token, not
+  the tasks: a phone opened after a night asleep holds a session the watch
+  expired out of hours ago. It is deliberately **not** gated on there being a
+  session, unlike the effects around it — signing out is exactly when the watch
+  has to hear from us, because it is holding a task list and a token that nothing
+  else would take back.
+- **The watch asking.** `WearSyncRequestService` (a `WearableListenerService`)
+  starts a headless JS task, which is the only thing that can reach the session.
+  This covers a phone that has not been opened in hours, which is when a watch is
+  most useful.
+
+`lib/wear.test.ts` covers the sequencing, which is the half that fails silently:
+a relayed write lands before the snapshot that reports it, two syncs never
+overlap, each caller is handed a promise for *its own* run — the headless task's
+JS context is torn down when its promise resolves, so a caller handed the
+in-flight one would take its own sync down with it — and the session payload
+carries no refresh token.
+
+`doSync` loads Supabase behind `await import` rather than `require`, which is
+where it differs from `lib/widgets.ts`. That one is called from a synchronous
+function and has no choice; the cost of the choice is that its body cannot be
+exercised outside Metro.
+
+**The headless task is registered in `index.js`, at bundle evaluation**, for
+exactly the reason the widget handler and the geofence task are: it starts the
+runtime with no activity and no React tree, so anything registered from a
+component has not run yet and the task key is simply unknown.
+
+### The tile and the complications are pushed, never polled
+
+Neither carries a refresh interval (`UPDATE_PERIOD_SECONDS` is 0, and the tile
+sets no freshness interval). A watch face polling DoDone every fifteen minutes
+would spend battery to find nothing changed nine times out of ten.
+`DataLayerListenerService` nudges them when a new snapshot lands, which is the
+only moment anything can have changed.
+
+- **Both read `SnapshotStore.cached`, which is a `SharedPreferences` read.** A
+  tile is rendered while the wrist is already turning, and a complication has
+  about a hundred milliseconds; neither has any business awaiting a Data Layer
+  round trip.
+- **Five complication services, not one offering five types.** A watch face slot
+  picks a *provider*, so five providers is what puts five named choices in the
+  face's picker. One would appear once and choose for the user which reading they
+  got.
+- **The overdue complication returns null when nothing is overdue**, leaving the
+  slot empty. A persistent "0" is a mark that appears on every ordinary day, and a
+  mark that appears everywhere carries no information.
+- **`COMPLICATION_SERVICES` is a hand-written list**, and there is a test
+  asserting every service in the manifest is in it. A complication missing from
+  it still installs and still shows a value — it just never refreshes, so it sits
+  on this morning's number all week.
+- **`proguard-rules.pro` keeps the tile, the complications and the listener.**
+  Nothing in the module references them by name, so R8 would strip them, and a
+  stripped tile is one the watch simply does not list.
+
+### The whole row opens the task; nothing on it completes
+
+The one deliberate divergence from the phone's row, where the ring ticks and the
+words open the editor. A 24 dp ring on a 45 mm watch is under every touch minimum
+there is, and the two targets would be four millimetres apart on a screen operated
+by a fingertip while walking. Completing is the first button on the screen the row
+opens: one tap further on, and impossible to hit by accident.
+
+Two more layout rules on that screen:
+
+- **Add is at the top of the list, list-switching at the bottom.** Adding is what
+  a watch is best at and what a user arrives with in mind; switching lists is the
+  rarest thing there.
+- **The other two lists are named, not cycled.** A single cycling button would fit
+  one slot instead of two, and the user could not see where the second tap goes. On
+  a watch, a control you have to try in order to understand has already cost more
+  than the space it saved.
+
+### Two copies of the contract, and a test that they agree
+
+`WearContract.kt` exists twice — once in `modules/dodone-wear/`, once in `wear/` —
+because the phone module and the watch app are separate Gradle modules with no
+shared source set, and a third module for six strings would be a module nothing
+here can compile either.
+
+`plugins/withWearApp.test.ts` asserts they match, along with the manifest's path
+filter, the declared capability, the headless task name `index.js` registers, and
+that every class the wear manifest names actually exists. **Every one of those
+fails silently on a device**: a path typo leaves the watch listening to a channel
+nothing writes to, and shows an empty list forever.
+
+`WEAR_SNAPSHOT_VERSION` is checked in the same test, one way: the watch may lag
+the phone, never lead it. The phone's bundle ships over OTA and the watch APK does
+not, so a phone running ahead is the ordinary state after every JS release. A
+snapshot the watch cannot read is **dropped, not stored** — overwriting the last
+readable one would turn a newer phone into an empty watch, and the user cannot
+tell "your watch app is old" from "you have nothing on".
+
+### Settings says whether there is a watch
+
+**Every way this feature fails is silent.** An empty list on a wrist looks exactly
+like a clear day, and there is nowhere on the watch to tell "not paired" from
+"nothing to do". The phone is the only surface that can, so Settings → App version
+carries a **Watch** row: Checking… / Connected / Not connected. Three states, not
+two — showing "Not connected" while the capability query is still out would send a
+user with a perfectly good watch off to reinstall it.
+
+**This needs a fresh `eas build`, and two of them.** The phone half adds a local
+Expo module with native code, so it will not arrive over OTA; the watch half is a
+separate APK entirely, built by the `wear-preview` / `wear-production` profiles in
+`eas.json`.
 
 ## Notifications
 

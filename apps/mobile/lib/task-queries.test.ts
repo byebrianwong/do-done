@@ -37,6 +37,9 @@ vi.mock("./location-queries", () => ({ scheduleGeofenceSync }));
 // invalidateTasks() re-arms the per-task reminders, which reaches native
 // notification APIs. Stubbed for the same reason the geofence sync above is.
 vi.mock("./task-reminders", () => ({ scheduleTaskReminderSync: vi.fn() }));
+// `./wear` reaches for react-native at module scope (AppState, Platform), so
+// it is stood in for here like every other native seam in this suite.
+vi.mock("./wear", () => ({ scheduleWatchSync: vi.fn() }));
 
 const { taskKeys, toggleComplete, deleteTask, restoreTasks } = await import(
   "./task-queries"

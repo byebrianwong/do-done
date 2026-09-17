@@ -29,6 +29,7 @@ import { queryClient } from './query-client';
 import { refreshTaskWidgets } from './widgets';
 import { scheduleGeofenceSync } from './location-queries';
 import { scheduleTaskReminderSync } from './task-reminders';
+import { scheduleWatchSync } from './wear';
 import { notifyAutoSync } from './auto-sync-notice';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
@@ -495,6 +496,10 @@ export function invalidateTasks() {
   // created or re-dated. Foreground-only re-arming would miss exactly that.
   // Debounced for the same reason as the two above.
   scheduleTaskReminderSync();
+  // A paired watch reads a snapshot rather than the database, so a task ticked
+  // off on the phone stays on the wrist until the phone says otherwise. Same
+  // debounce, same fire-and-forget.
+  scheduleWatchSync();
 }
 
 export interface ToggleCompleteOptions {

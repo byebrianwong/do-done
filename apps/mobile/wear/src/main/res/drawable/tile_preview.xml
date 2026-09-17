@@ -1,0 +1,11 @@
+<!--
+  What the tile picker shows before the tile has any data. A drawn placeholder
+  rather than a screenshot: a screenshot of a task list is someone else's tasks,
+  and on a carousel of previews that reads as the tile being stuck.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+  <item android:drawable="@color/dodone_background" />
+  <item
+      android:drawable="@drawable/ic_launcher_foreground"
+      android:gravity="center" />
+</layer-list>

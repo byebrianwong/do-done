@@ -1,0 +1,109 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+
+/**
+ * The watch app.
+ *
+ * `applicationId` matches the phone app deliberately. Play pairs a Wear OS APK
+ * to its phone app by package name, and the Data Layer only connects nodes that
+ * share one — two ids would give a watch app that installs and then never sees a
+ * snapshot, with nothing reporting why.
+ *
+ * The versions below are the one part of this file nothing here can check.
+ * Confirm them against the current AndroidX releases on the first build rather
+ * than assuming they resolve; see docs/wear-os-verification.md.
+ */
+android {
+  namespace 'com.beamer408.dodone.wear'
+  compileSdk safeExtGet('compileSdkVersion', 36)
+
+  defaultConfig {
+    applicationId 'com.beamer408.dodone'
+    // Wear OS 3 is the floor. Below it there is no Tiles API, no Compose for
+    // Wear OS, and no watch worth shipping to.
+    minSdkVersion 30
+    targetSdkVersion safeExtGet('targetSdkVersion', 36)
+    versionCode 1
+    versionName '1.0.0'
+  }
+
+  buildFeatures {
+    compose true
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled true
+      shrinkResources true
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+      // Signed with the same key as the phone app. EAS injects the credentials
+      // for the `app` module; the wear profiles in eas.json point the build at
+      // this module so it inherits them.
+      signingConfig signingConfigs.debug
+    }
+  }
+
+  packagingOptions {
+    resources {
+      excludes += ['/META-INF/{AL2.0,LGPL2.1}']
+    }
+  }
+}
+
+dependencies {
+  implementation "androidx.core:core-ktx:1.15.0"
+  implementation "androidx.activity:activity-compose:1.9.3"
+  implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
+
+  // Compose for Wear OS. Material3 rather than the older Material: it is what
+  // the platform's own apps draw now, and its list and button shapes are the
+  // ones a round screen is laid out for.
+  implementation "androidx.compose.ui:ui:1.7.6"
+  implementation "androidx.compose.ui:ui-tooling-preview:1.7.6"
+  debugImplementation "androidx.compose.ui:ui-tooling:1.7.6"
+  implementation "androidx.wear.compose:compose-material3:1.4.1"
+  implementation "androidx.wear.compose:compose-foundation:1.4.1"
+  implementation "androidx.wear.compose:compose-navigation:1.4.1"
+
+  // Wear's own input picker — voice, keyboard and handwriting behind one
+  // intent. Reaching straight for RecognizerIntent would offer voice alone, and
+  // a name that will not dictate ("Ikea", a colleague's surname) would have
+  // nowhere to go.
+  implementation "androidx.wear:wear-input:1.1.0"
+
+  // The Data Layer — how the snapshot arrives.
+  implementation "com.google.android.gms:play-services-wearable:19.0.0"
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1"
+
+  // Tiles and complications.
+  implementation "androidx.wear.tiles:tiles:1.4.1"
+  implementation "androidx.wear.protolayout:protolayout:1.2.1"
+  implementation "androidx.wear.protolayout:protolayout-material:1.2.1"
+  implementation "androidx.wear.protolayout:protolayout-expression:1.2.1"
+  implementation "androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1"
+
+  // `Futures.immediateFuture`, which every TileService returns. The
+  // `listenablefuture` stub that arrives transitively carries the interface and
+  // none of the helpers, so leaving this out fails to resolve `Futures` alone —
+  // a confusing error, since the type it operates on resolves fine.
+  implementation "com.google.guava:guava:33.3.1-android"
+
+  // Deliberately no HTTP client and no JSON library. `HttpURLConnection` and
+  // `org.json` are in the platform, the watch makes three kinds of request, and
+  // every dependency here is one more thing to resolve in a build nothing in
+  // this repo can run.
+}
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}

@@ -65,3 +65,28 @@ if (Platform.OS === 'android' && !IS_EXPO_GO) {
     }
   }
 }
+
+// The watch's "send me a fresh snapshot" message arrives as a headless task,
+// and must be registered here for exactly the reason the widget handler above
+// is: `WearSyncTaskService` starts the runtime with no activity and no React
+// tree, and the case it exists for is the phone's app having been dead for
+// hours. A handler registered from a component has not run by then, the task
+// key is unknown, and the watch's request is dropped with nothing logged
+// anywhere the user could see.
+//
+// The work itself is behind a require, so this costs nothing on the cold starts
+// that are not watch requests — including the headless widget ones.
+if (Platform.OS === 'android' && !IS_EXPO_GO) {
+  AppRegistry.registerHeadlessTask('DoDoneWearSync', () => async (data) => {
+    try {
+      const { runWearTask } = require('./lib/wear');
+      await runWearTask(data);
+    } catch (err) {
+      // The watch keeps the snapshot it has and says how old it is, which is a
+      // better outcome than a crashed background process.
+      if (__DEV__) {
+        console.warn('[wear] sync task failed:', err);
+      }
+    }
+  });
+}

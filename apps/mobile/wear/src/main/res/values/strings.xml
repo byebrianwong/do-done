@@ -1,0 +1,11 @@
+<resources>
+  <string name="app_name">DoDone</string>
+
+  <string name="tile_today_label">DoDone — Today</string>
+
+  <string name="complication_today_progress">Today\'s progress</string>
+  <string name="complication_open_today">Tasks today</string>
+  <string name="complication_overdue">Overdue</string>
+  <string name="complication_next_task">Next task</string>
+  <string name="complication_add_task">Add a task</string>
+</resources>

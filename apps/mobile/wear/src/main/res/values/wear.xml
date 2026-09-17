@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+  <!--
+    What the phone asks for to answer "is DoDone on the paired watch". The name
+    is mirrored in WearContract on both sides; the plugin test asserts they
+    match, because a typo here means the phone reports no watch forever.
+  -->
+  <string-array name="android_wear_capabilities">
+    <item>dodone_wear_app</item>
+  </string-array>
+</resources>

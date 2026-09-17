@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <!-- The glyph scaled into the 24..84 safe zone no launcher mask can clip. -->
+  <group android:scaleX="0.6" android:scaleY="0.6" android:translateX="24" android:translateY="24">
+    <!--
+      The offset has to be on a group. `android:translateX` on a <path> is not a
+      vector-drawable attribute at all: it is ignored without warning, which
+      would stack the faded copy exactly on the solid one and leave the mark
+      looking merely thick.
+    -->
+    <group android:translateX="-22" android:translateY="-1">
+      <path
+          android:pathData="M54.5,49.7A10.3,10.3 0 1 0 56.6,65.9L80.1,32.2"
+          android:strokeColor="#FFFFFFFF"
+          android:strokeWidth="11.2"
+          android:strokeLineCap="round"
+          android:strokeLineJoin="round"
+          android:strokeAlpha="0.45" />
+    </group>
+    <path
+        android:pathData="M54.5,49.7A10.3,10.3 0 1 0 56.6,65.9L80.1,32.2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="11.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+  </group>
+</vector>

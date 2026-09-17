@@ -33,6 +33,7 @@ import {
   syncListShortcuts,
 } from '@/lib/list-shortcuts';
 import { startStatusSyncSweeps } from '@/lib/status-sync';
+import { startWatchSync } from '@/lib/wear';
 import { hydrateViewModes } from '@/lib/view-mode';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
@@ -203,6 +204,17 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!session?.user) return;
     return startStatusSyncSweeps();
+  }, [session?.user?.id]);
+
+  // Hand a paired watch a fresh snapshot and a fresh access token, now and on
+  // every return to the foreground.
+  //
+  // Deliberately **not** gated on there being a session, unlike the effects
+  // around it. Signing out is exactly when the watch has to hear from us: it is
+  // holding a task list and a token, and nothing else would take them back.
+  // `syncWatchNow` reads the session itself and clears when there isn't one.
+  useEffect(() => {
+    return startWatchSync();
   }, [session?.user?.id]);
 
   // Arm the daily/weekly digests, and re-arm on every return to the

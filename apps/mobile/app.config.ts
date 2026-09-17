@@ -210,6 +210,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // pinnable to the home screen as a one-cell icon. See
     // plugins/withAndroidShortcuts.js.
     "./plugins/withAndroidShortcuts",
+    // The Wear OS app, its tile and its five complications. A second Android
+    // application module, copied into the generated project on every prebuild
+    // because `android/` is gitignored. Built by its own EAS profile — it is
+    // not in the phone APK. See plugins/withWearApp.js and wear/README.md.
+    "./plugins/withWearApp",
   ],
   experiments: {
     typedRoutes: true,

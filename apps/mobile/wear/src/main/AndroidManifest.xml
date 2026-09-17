@@ -1,0 +1,167 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+  <uses-feature android:name="android.hardware.type.watch" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <!-- The watch writes completions straight to Supabase; see data/DoDoneApi.kt. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <application
+      android:allowBackup="false"
+      android:icon="@mipmap/ic_launcher"
+      android:label="@string/app_name"
+      android:supportsRtl="true"
+      android:theme="@android:style/Theme.DeviceDefault">
+
+    <!--
+      Tells the system this app has no phone half to require. DoDone's phone app
+      is where the account lives, but the watch app is still usable on its own
+      against the last snapshot, so a watch paired to an iPhone gets a list
+      rather than an install error.
+    -->
+    <meta-data
+        android:name="com.google.android.wearable.standalone"
+        android:value="true" />
+
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:label="@string/app_name"
+        android:taskAffinity=""
+        android:theme="@style/DoDoneSplash">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+      <!--
+        How a tile row, a complication tap and a notification all open one
+        specific list or task. A watch has no browser to fall back on, so the
+        scheme is matched here and nowhere else.
+      -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:scheme="dodonewear" />
+      </intent-filter>
+    </activity>
+
+    <!--
+      Hears the phone's data items. Exported because the system delivers to it.
+    -->
+    <service
+        android:name=".DataLayerListenerService"
+        android:exported="true"
+        tools:ignore="ExportedService">
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+        <data android:scheme="wear" android:host="*" android:pathPrefix="/dodone" />
+      </intent-filter>
+    </service>
+
+    <service
+        android:name=".tile.TodayTileService"
+        android:exported="true"
+        android:label="@string/tile_today_label"
+        android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+      <intent-filter>
+        <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+      </intent-filter>
+      <meta-data
+          android:name="androidx.wear.tiles.PREVIEW"
+          android:resource="@drawable/tile_preview" />
+    </service>
+
+    <!--
+      Five complication services. One per reading rather than one service
+      offering five types: a watch face slot picks a *provider*, so five
+      providers is what puts five named choices in the face's picker. A single
+      provider offering five types would show up once, and the face would choose
+      which reading the user got.
+    -->
+    <service
+        android:name=".complication.TodayProgressComplicationService"
+        android:exported="true"
+        android:label="@string/complication_today_progress"
+        android:icon="@drawable/ic_dodone"
+        android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+      <intent-filter>
+        <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+      </intent-filter>
+      <meta-data
+          android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+          android:value="RANGED_VALUE,SHORT_TEXT" />
+      <meta-data
+          android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+          android:value="0" />
+    </service>
+
+    <service
+        android:name=".complication.OpenTodayComplicationService"
+        android:exported="true"
+        android:label="@string/complication_open_today"
+        android:icon="@drawable/ic_dodone"
+        android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+      <intent-filter>
+        <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+      </intent-filter>
+      <meta-data
+          android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+          android:value="SHORT_TEXT,MONOCHROMATIC_IMAGE" />
+      <meta-data
+          android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+          android:value="0" />
+    </service>
+
+    <service
+        android:name=".complication.OverdueComplicationService"
+        android:exported="true"
+        android:label="@string/complication_overdue"
+        android:icon="@drawable/ic_overdue"
+        android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+      <intent-filter>
+        <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+      </intent-filter>
+      <meta-data
+          android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+          android:value="SHORT_TEXT" />
+      <meta-data
+          android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+          android:value="0" />
+    </service>
+
+    <service
+        android:name=".complication.NextTaskComplicationService"
+        android:exported="true"
+        android:label="@string/complication_next_task"
+        android:icon="@drawable/ic_dodone"
+        android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+      <intent-filter>
+        <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+      </intent-filter>
+      <meta-data
+          android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+          android:value="LONG_TEXT,SHORT_TEXT" />
+      <meta-data
+          android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+          android:value="0" />
+    </service>
+
+    <service
+        android:name=".complication.AddTaskComplicationService"
+        android:exported="true"
+        android:label="@string/complication_add_task"
+        android:icon="@drawable/ic_add"
+        android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+      <intent-filter>
+        <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+      </intent-filter>
+      <meta-data
+          android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+          android:value="SMALL_IMAGE,MONOCHROMATIC_IMAGE,SHORT_TEXT" />
+      <meta-data
+          android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+          android:value="0" />
+    </service>
+  </application>
+</manifest>

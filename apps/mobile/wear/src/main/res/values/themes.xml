@@ -1,0 +1,11 @@
+<resources>
+  <!--
+    A splash theme only. Everything after the first frame is Compose, and the
+    window is painted the app's own black so the launch does not flash the
+    system's grey before the list arrives.
+  -->
+  <style name="DoDoneSplash" parent="@android:style/Theme.DeviceDefault">
+    <item name="android:windowBackground">@color/dodone_background</item>
+    <item name="android:colorBackground">@color/dodone_background</item>
+  </style>
+</resources>
