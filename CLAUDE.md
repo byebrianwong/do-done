@@ -1333,6 +1333,7 @@ where the system eats the first upward swipe.
 | File | What |
 | --- | --- |
 | `lib/tab-bar-motion.ts` | The policy: thresholds, the state machine, the interpolations. Pure, node-tested. |
+| `lib/tab-press-motion.ts` | The press policy: the ripple's curves and the icon's pop. Pure, node-tested. |
 | `lib/tab-bar-minimize.tsx` | The provider holding the one shared value, plus `useTabBarScrollSync` for lists. |
 | `components/MinimizingTabBar.tsx` | The bar. Passed to `<Tabs tabBar={...}>` in `app/(tabs)/_layout.tsx`. |
 
@@ -1361,6 +1362,48 @@ Two consequences:
   what the bar sheds, off the same shared value. A transform, not an animated
   `bottom`, so the sweep costs no layout. Off a tab there is no provider, the
   progress stays 0, and it sits in the corner it always did.
+
+### A press plays its own animation
+
+Tapping a tab plays two animations: a ripple spreads out from behind the icon,
+and the icon dips and springs back. Both start on press-**in** and run to the
+end, whether the finger lifts, stays down, or slides off.
+
+**The animation runs on its own timer because the finger hides the tab.** A
+thumb stays on the tab it just hit, so feedback that lasts only while the touch
+lasts is never seen. Before this, Android used the platform ripple, which just
+holds a flat tint while the press is held. iOS dimmed the tab's opacity, which
+cleared the moment the finger lifted. Google Maps and Todoist use the pattern
+this copies.
+
+- **One hand-written ripple on both platforms.** `android_ripple` is removed.
+  Keeping it would draw two ripples on Android, and the platform ripple cannot
+  run on its own timer.
+- **The ripple is centred on the icon, not on the touch point.** A tab is a
+  quarter of the screen wide, so a ripple starting wherever the thumb landed
+  would often start far from the icon.
+- **The row clips the ripple** at the top and bottom. It still reads as a
+  ripple when the bar is minimized to 30pt.
+- **It appears fast and fades slowly.** `TAB_RIPPLE_RISE` is 16% of the 420ms
+  run. A slow appearance would make the tap feel laggy.
+- **The ripple's shared value rests at 1 between presses.** `rippleOpacity`
+  returns 0 at both 0 and 1, so nothing needs resetting. A second tap restarts
+  the run from 0.
+- **The icon's scale is the minimize scale times the press scale**
+  (`pressedIconScale`). A tab can be pressed while the bar is minimizing, and
+  using only one of the two would make the icon jump size during the press.
+- **The press spring is underdamped** (ζ ≈ 0.54, about 13% overshoot). The
+  minimize spring is critically damped because it should not draw attention.
+  The press should, and the overshoot is what makes it look like a pop.
+- **Reduce Motion skips both animations** and dims the tab while pressed, as
+  before.
+- **Each tab is its own component.** It needs two shared values, and hooks
+  cannot be called inside the bar's `map`.
+- **A press also plays a selection haptic** (`hapticSelection`). Every tab press
+  does something: it navigates, swaps the Agenda or Tasks view, or pops a stack
+  back to its index.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro
+  bundle pass; the animation itself has not been watched on a simulator.
 
 ### Rules in the state machine
 
