@@ -2718,6 +2718,27 @@ matches `stickyHeaderIndices` against `dataIndex + stickyOffset` without adding
 the offset itself. Forget it and every section pins its first task instead of
 its name, which looks deliberate enough that nobody would report it.
 
+**Nothing is pinned while a row is being dragged.** React Native pins a header
+by wrapping its cell in `ScrollViewStickyHeader`, so the cell's own `onLayout`
+reports its position inside that wrapper and does not fire when the header
+moves. `react-native-draggable-flatlist` uses that event to measure each cell,
+and to clear the offset it gave a cell during a drag. A pinned header kept that
+offset after the drop: dragging a task from Next into Not started on All left
+the Next header drawn one row too low, over the first task of its section, with
+an empty gap where it belonged.
+
+- `SectionedDraggableList` passes no sticky indices while a drag is active.
+  React remounts a header cell whenever its wrapper is added or removed, so the
+  headers measure themselves fresh when a drag starts and carry no offset out of
+  it. The rule is `stickyHeaderIndices` in `lib/section-rows.ts`.
+- The cost: a header pinned at the top of the screen goes back to its place in
+  the list for the length of the drag.
+- The library cancels a drag without calling `onDragEnd` when the list's row
+  order changes under it (a refetch landing mid-drag). The re-sync effect ends
+  the drag state itself in that case, or the headers would stay unpinned.
+- Not yet seen on a device. The typecheck, the node tests and a full Metro
+  bundle pass.
+
 The Completed screen was already a `SectionList` with
 `stickySectionHeadersEnabled`, so it needed no change.
 

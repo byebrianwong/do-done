@@ -23,7 +23,7 @@
  * See `hasTaskRows` in `lib/section-rows.ts` for why the two differ.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   RefreshControlProps,
   StyleProp,
@@ -49,6 +49,11 @@ export type { DraggableSection };
 
 /** Stable identity, so swapping to it can't churn the list on every render. */
 const NO_ROWS: Row[] = [];
+
+/** The row order, which is what the drag library compares to spot new data. */
+function rowKeys(rows: Row[]): string {
+  return rows.map((r) => r.key).join('\n');
+}
 
 interface Props {
   sections: DraggableSection[];
@@ -104,7 +109,28 @@ export default function SectionedDraggableList({
   ListEmptyComponent,
 }: Props) {
   const [rows, setRows] = useState<Row[]>(() => flatten(sections));
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const tabBar = useTabBarScrollSync();
+
+  // Whether a row is being dragged. Section headers are not pinned while it is
+  // true; see `stickyHeaderIndices` in lib/section-rows.ts for why.
+  const [dragging, setDragging] = useState(false);
+
+  function beginDrag() {
+    setDragging(true);
+    // Dragging a row near the bottom of the screen makes the library
+    // auto-scroll the list, which would minimize the bar in response to a
+    // movement the user did not make. The freeze can only ever *keep the bar
+    // out*, so a drag whose end somehow never fires leaves the bar expanded
+    // rather than stuck away.
+    tabBar.setDragging(true);
+  }
+
+  function endDrag() {
+    setDragging(false);
+    tabBar.setDragging(false);
+  }
 
   // The tab bar floats over the screen rather than sitting beside it in flow,
   // so this list runs all the way to the bottom edge and has to reserve the
@@ -136,12 +162,18 @@ export default function SectionedDraggableList({
     .map((s) => `${s.key}#${s.data.map((t) => JSON.stringify(t)).join(',')}`)
     .join('|');
   useEffect(() => {
-    setRows(flatten(sections));
+    const next = flatten(sections);
+    // New row order mid-drag means the drag is over. The library cancels a
+    // drag when its data's keys change, and does not call `onDragEnd` when it
+    // does, so without this the headers would stay unpinned until the next
+    // drag ended.
+    if (rowKeys(next) !== rowKeys(rowsRef.current)) endDrag();
+    setRows(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
   function handleDragEnd({ data, to }: { data: Row[]; from: number; to: number }) {
-    tabBar.setDragging(false);
+    endDrag();
     const moved = data[to];
     if (!moved || moved.kind !== 'task') {
       setRows(data);
@@ -181,8 +213,12 @@ export default function SectionedDraggableList({
   const visibleRows = showEmpty ? NO_ROWS : rows;
 
   const stickyIndices = useMemo(
-    () => stickyHeaderIndices(visibleRows, ListHeaderComponent != null),
-    [visibleRows, ListHeaderComponent]
+    () =>
+      stickyHeaderIndices(visibleRows, {
+        hasListHeader: ListHeaderComponent != null,
+        dragging,
+      }),
+    [visibleRows, ListHeaderComponent, dragging]
   );
 
   // The authoritative section data is the `sections` prop, not the local `rows`
@@ -205,12 +241,7 @@ export default function SectionedDraggableList({
           ? renderHeader(item.section)
           : renderTask(item.task, drag, isActive, sectionOf(item.sectionKey))
       }
-      // Dragging a row near the bottom of the screen makes the library
-      // auto-scroll the list, which would minimize the bar in response to a
-      // movement the user did not make. The freeze can only ever *keep the bar
-      // out*, so a drag whose end somehow never fires leaves the bar expanded
-      // rather than stuck away.
-      onDragBegin={() => tabBar.setDragging(true)}
+      onDragBegin={beginDrag}
       // The library sets its own `onScroll` after spreading props, so this is
       // the only way in — and it is already hopping to JS on every frame
       // whether or not anyone listens. Undefined off a tab, where there is no

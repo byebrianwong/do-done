@@ -71,11 +71,35 @@ export function collectSectionTaskIds(rows: Row[], key: string): string[] {
  * Pass the rows actually being rendered, not the sections: mid-drag that is
  * the local copy, and on a list showing its empty state there are no rows to
  * pin at all.
+ *
+ * **Nothing is pinned while a row is being dragged.** React Native pins a
+ * header by wrapping its cell in `ScrollViewStickyHeader`, so the cell's own
+ * `onLayout` reports its position inside that wrapper, which is always 0, and
+ * does not fire when the header moves. The drag library uses that event for two
+ * things, and both go wrong for a pinned header:
+ *
+ * - It measures each cell's offset in `onLayout`. A header's offset is taken
+ *   once, when it mounts, and is stale as soon as a row above it moves.
+ * - While dragging, it shifts the rows between the finger and the row's old
+ *   place by one row height. After the drop it holds each row's last shift
+ *   until that row's next `onLayout`, so a row does not flicker back before
+ *   the reordered data lands.
+ *   A pinned header never gets that event, so it keeps the shift. The header
+ *   is then drawn one row below its slot, over the first row of its section,
+ *   and the slot shows as an empty gap. It stays there until something
+ *   remounts the header.
+ *
+ * Dropping the indices at drag start unwraps the headers, and restoring them
+ * at the drop wraps them again. React remounts a header cell each time its
+ * wrapper changes, so the header measures itself fresh when the drag starts
+ * and cannot carry a shift out of it. The cost: a header pinned at the top of
+ * the screen goes back to its place in the list for the length of the drag.
  */
 export function stickyHeaderIndices(
   rows: Row[],
-  hasListHeader: boolean
+  { hasListHeader, dragging }: { hasListHeader: boolean; dragging: boolean }
 ): number[] {
+  if (dragging) return [];
   const offset = hasListHeader ? 1 : 0;
   const indices: number[] = [];
   rows.forEach((row, i) => {
