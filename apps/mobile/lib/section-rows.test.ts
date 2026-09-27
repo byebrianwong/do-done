@@ -81,25 +81,49 @@ describe('collectSectionTaskIds', () => {
 });
 
 /**
- * Two rules, one of which main's own comment warns about: the offset that
- * `ListHeaderComponent` occupies, and — since an empty list is handed no rows
- * at all — that there is then nothing to pin.
+ * Three rules, one of which main's own comment warns about: the offset that
+ * `ListHeaderComponent` occupies, that an empty list (handed no rows at all)
+ * has nothing to pin, and that nothing is pinned while a row is dragged.
  */
 describe('stickyHeaderIndices', () => {
+  const resting = { hasListHeader: false, dragging: false };
+
   it('pins each section header where it sits', () => {
     const rows = flatten([section('a', ['a1', 'a2']), section('b', ['b1'])]);
-    expect(stickyHeaderIndices(rows, false)).toEqual([0, 3]);
+    expect(stickyHeaderIndices(rows, resting)).toEqual([0, 3]);
   });
 
   it('shifts by one when a list header occupies index 0', () => {
     const rows = flatten([section('a', ['a1', 'a2']), section('b', ['b1'])]);
-    expect(stickyHeaderIndices(rows, true)).toEqual([1, 4]);
+    expect(
+      stickyHeaderIndices(rows, { hasListHeader: true, dragging: false })
+    ).toEqual([1, 4]);
   });
 
   it('pins nothing on a list rendering its empty state', () => {
     // `showEmpty` hands DraggableFlatList no rows, so indices computed from the
     // sections would point at rows that are not there.
-    expect(stickyHeaderIndices([], false)).toEqual([]);
-    expect(stickyHeaderIndices([], true)).toEqual([]);
+    expect(stickyHeaderIndices([], resting)).toEqual([]);
+    expect(
+      stickyHeaderIndices([], { hasListHeader: true, dragging: false })
+    ).toEqual([]);
+  });
+
+  /**
+   * The bug this encodes: after dragging a task from Next into Not started on
+   * the All screen, the Next header was drawn one row below where it belonged,
+   * over the section's first task, with an empty gap in its own place. A
+   * pinned header never gets the layout event the drag library uses to clear a
+   * row's drag offset after a drop, so it kept the offset. Unpinning for the
+   * drag remounts the headers at both ends of it, which clears that state.
+   */
+  it('pins nothing while a row is being dragged', () => {
+    const rows = flatten([section('a', ['a1', 'a2']), section('b', ['b1'])]);
+    expect(
+      stickyHeaderIndices(rows, { hasListHeader: false, dragging: true })
+    ).toEqual([]);
+    expect(
+      stickyHeaderIndices(rows, { hasListHeader: true, dragging: true })
+    ).toEqual([]);
   });
 });
