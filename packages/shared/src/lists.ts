@@ -1,5 +1,6 @@
 import type { Project, Task } from "./schemas.js";
-import { isListProject } from "./schemas.js";
+import { isListProject, isShoppingList } from "./schemas.js";
+import { matchProject } from "./project-match.js";
 import { shortDayLabel } from "./task-row.js";
 import { formatRelativeDay, formatTimeOfDay, isOverdue } from "./utils.js";
 
@@ -399,11 +400,19 @@ export interface ItemSublineContext {
    * `rowSubline`'s `projectName: null`.
    */
   hideStore?: boolean;
+  /**
+   * The list the item is on, printed first. Only "All shopping" passes it: it
+   * is the one surface where the rows come from more than one list, so it is
+   * the one place the list's name tells the reader something.
+   */
+  listName?: string;
 }
 
 export function itemSubline(item: Task, ctx: ItemSublineContext = {}): string[] {
   const now = ctx.now ?? new Date();
   const parts: string[] = [];
+
+  if (ctx.listName) parts.push(ctx.listName);
 
   if (!ctx.hideStore) {
     // One part, not one per store: the caller joins parts with a middot, and
@@ -478,13 +487,190 @@ export function summarizeList(
  *
  * An empty list says "Nothing on it" rather than "0 items". Empty is a shopping
  * list's normal resting state, not a number worth printing.
+ *
+ * A checklist says "3 done" where a shopping list says "3 in the cart". Ticking
+ * "passport" off a packing list is not a purchase.
  */
-export function listSubline(summary: ListSummary): string {
+export function listSubline(
+  summary: Pick<ListSummary, "open" | "got">,
+  opts: { shopping?: boolean } = {}
+): string {
+  const shopping = opts.shopping ?? true;
   const parts: string[] = [];
   if (summary.open === 0) parts.push("Nothing on it");
   else parts.push(`${summary.open} item${summary.open === 1 ? "" : "s"}`);
-  if (summary.got > 0) parts.push(`${summary.got} in the cart`);
+  if (summary.got > 0)
+    parts.push(shopping ? `${summary.got} in the cart` : `${summary.got} done`);
   return parts.join(" · ");
+}
+
+// ── Shopping list or checklist ─────────────────────────
+
+/**
+ * The words a list screen uses, by kind of list.
+ *
+ * Shared so the phone and the laptop cannot name the same action differently.
+ * A shopping list's words are about buying; a checklist's are the task app's
+ * own words, because ticking off "passport" is finishing something, not buying
+ * it.
+ *
+ * "Put away" is a shopping word for a second reason: it is safe because the
+ * pantry recorded each item when it was ticked. A checklist has no pantry, so
+ * clearing it does remove the items, and "Clear done" says so. Both are still
+ * undoable from the toast.
+ */
+export interface ListCopy {
+  /** The heading over the ticked items. */
+  gotHeader: string;
+  /** The action that clears the ticked items off the list. */
+  clear: string;
+  /** The toast after clearing `n` items. */
+  cleared: (n: number) => string;
+  /** The composer's placeholder. */
+  placeholder: string;
+  /** The toast after ticking an item off. */
+  ticked: (title: string) => string;
+  /** The tick control's accessible name. */
+  tickLabel: (title: string, done: boolean) => string;
+  /** The swipe-right panel's label, before and after ticking. */
+  swipeTick: string;
+  swipeUntick: string;
+}
+
+const plural = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
+
+export function listCopy(shopping: boolean): ListCopy {
+  return shopping
+    ? {
+        gotHeader: "Got it",
+        clear: "Put away",
+        cleared: (n) => `Put away ${plural(n)}`,
+        placeholder: "Add an item to buy",
+        ticked: (title) => `Bought “${title}”`,
+        tickLabel: (title, done) =>
+          `Mark ${title} as ${done ? "not bought" : "bought"}`,
+        swipeTick: "Got it",
+        swipeUntick: "Put back",
+      }
+    : {
+        gotHeader: "Done",
+        clear: "Clear done",
+        cleared: (n) => `Cleared ${plural(n)}`,
+        placeholder: "Add an item",
+        ticked: (title) => `Completed “${title}”`,
+        tickLabel: (title, done) =>
+          `Mark ${title} as ${done ? "not done" : "done"}`,
+        swipeTick: "Done",
+        swipeUntick: "Reopen",
+      };
+}
+
+// ── All shopping ───────────────────────────────────────
+
+/**
+ * The id the combined view goes by wherever a list id is expected: its URL
+ * (`/lists/shopping`), the Lists tab's resume memory, the query cache, and the
+ * launcher shortcut. A list's id is a uuid, so this can never collide with one.
+ */
+export const ALL_SHOPPING_ID = "shopping";
+
+/** What the combined view is called. */
+export const ALL_SHOPPING_NAME = "All shopping";
+
+/**
+ * How many shopping lists it takes before "All shopping" is offered.
+ *
+ * With one shopping list the combined view is that list again, under a second
+ * name, so the index row and the sidebar link would be a duplicate. The route
+ * still works below this, and so does a launcher icon pinned earlier: it shows
+ * whatever shopping lists exist.
+ */
+export const ALL_SHOPPING_MIN_LISTS = 2;
+
+/** The shopping lists among `all`, in the order given. Checklists and projects are left out. */
+export function shoppingLists<P extends Pick<Project, "kind" | "is_shopping">>(
+  all: P[]
+): P[] {
+  return all.filter((p) => isShoppingList(p));
+}
+
+/** Whether the index and the sidebar offer "All shopping". */
+export function offersAllShopping(
+  all: Pick<Project, "kind" | "is_shopping">[]
+): boolean {
+  return shoppingLists(all).length >= ALL_SHOPPING_MIN_LISTS;
+}
+
+/**
+ * Open and bought counts across every shopping list, for the "All shopping"
+ * row. Summed from the per-list counts the index already has, so the row and
+ * the lists under it cannot disagree.
+ */
+export function allShoppingCounts(
+  all: Pick<Project, "id" | "kind" | "is_shopping">[],
+  counts: ReadonlyMap<string, { open: number; got: number }>
+): { open: number; got: number } {
+  let open = 0;
+  let got = 0;
+  for (const list of shoppingLists(all)) {
+    const c = counts.get(list.id);
+    if (!c) continue;
+    open += c.open;
+    got += c.got;
+  }
+  return { open, got };
+}
+
+/**
+ * Which list a new item in "All shopping" goes to when nothing else says.
+ *
+ * The list last added to from the combined view, if it is still a shopping
+ * list; otherwise the first shopping list in the user's order; otherwise none.
+ * Remembering the last one is what makes a burst of "paper towels, bin bags,
+ * sponges" into Household cost one chip tap rather than three.
+ */
+export function defaultAllShoppingTarget(input: {
+  lists: Pick<Project, "id">[];
+  lastId: string | null;
+}): string | null {
+  if (input.lastId && input.lists.some((l) => l.id === input.lastId))
+    return input.lastId;
+  return input.lists[0]?.id ?? null;
+}
+
+/**
+ * A `#token` naming one of `lists`, taken out of a line typed into the
+ * combined composer.
+ *
+ * `#` already files a task into the project it names everywhere else in the
+ * app, so "bin bags #household" filing into Household is that rule applied
+ * here, not a new one. Only a token that names one of `lists` is taken out; an
+ * unmatched `#word` stays in the title, which is what the single-list composer
+ * has always done with it.
+ *
+ * Run before `extractStoreTokens`. The store run reaches the end of the line,
+ * so a `#household` typed after an `@Target` would otherwise become part of the
+ * store's name.
+ *
+ * The last matching token wins, the same way a later chip pick beats an
+ * earlier one.
+ */
+export function extractListToken<L extends { id: string; name: string }>(
+  text: string,
+  lists: readonly L[]
+): { text: string; list: L | null } {
+  const pattern = /(^|\s)#(\w+)(?=\s|$)/g;
+  let found: { list: L; index: number; length: number } | null = null;
+  for (const match of text.matchAll(pattern)) {
+    const list = matchProject(match[2], lists);
+    if (list) {
+      found = { list, index: match.index ?? 0, length: match[0].length };
+    }
+  }
+  if (!found) return { text, list: null };
+  const rest =
+    text.slice(0, found.index) + " " + text.slice(found.index + found.length);
+  return { text: rest.replace(/\s+/g, " ").trim(), list: found.list };
 }
 
 // ── Splitting projects from lists ──────────────────────

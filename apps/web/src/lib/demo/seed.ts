@@ -30,7 +30,10 @@ function demoId(n: number): string {
 }
 
 const PROJECT_SEED: Array<
-  Pick<Project, "name" | "color" | "icon"> & { kind?: Project["kind"] }
+  Pick<Project, "name" | "color" | "icon"> & {
+    kind?: Project["kind"];
+    is_shopping?: boolean;
+  }
 > = [
   { name: "Work", color: "#6366f1", icon: "💼" },
   { name: "Home", color: "#10b981", icon: "🏠" },
@@ -43,6 +46,15 @@ const PROJECT_SEED: Array<
   // would be a demo of the feature's least interesting half.
   { name: "Groceries", color: "#22c55e", icon: "🛒", kind: "list" },
   { name: "Amazon", color: "#f59e0b", icon: "📦", kind: "list" },
+  // A checklist beside them, so the sandbox shows that a list does not have to
+  // be shopping: no aisles, no shops, no pantry, and not in All shopping.
+  {
+    name: "Weekend packing",
+    color: "#0ea5e9",
+    icon: "🧳",
+    kind: "list",
+    is_shopping: false,
+  },
 ];
 
 /** Index into PROJECT_SEED, by name, for readable task definitions below. */
@@ -54,6 +66,7 @@ const P = {
   reading: 4,
   groceries: 5,
   amazon: 6,
+  packing: 7,
 } as const;
 
 /**
@@ -443,6 +456,9 @@ const TASK_SEED: TaskSeed[] = [
   { title: "USB-C cable, 2m", project: P.amazon },
   { title: "Replacement kettle filter", project: P.amazon },
   { title: "Birthday card", project: P.amazon },
+  { title: "Passport", project: P.packing },
+  { title: "Phone charger", project: P.packing },
+  { title: "Hiking boots", project: P.packing, status: "done", doneDaysAgo: 0 },
 ];
 
 /**
@@ -528,6 +544,7 @@ export function buildDemoSeed(today: string = todayLocalISO()): DemoSeed {
     parent_project_id: null,
     sort_order: i * 1000,
     kind: p.kind ?? "tasks",
+    is_shopping: p.is_shopping ?? true,
     created_at: stamp(40),
     updated_at: stamp(40),
   }));

@@ -1348,3 +1348,113 @@ describe("TasksApi.clearGot", () => {
     expect(calls.some((c) => c.method === "update")).toBe(false);
   });
 });
+
+describe("TasksApi.listItemsIn: All shopping", () => {
+  it("reads items only, across every list it is given", async () => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any).listItemsIn(["g", "h"]);
+    expect(
+      calls.some(
+        (c) => c.method === "eq" && c.args[0] === "is_list_item" && c.args[1] === true
+      )
+    ).toBe(true);
+    const inCall = calls.find(
+      (c) => c.method === "in" && c.args[0] === "project_id"
+    );
+    expect(inCall?.args[1]).toEqual(["g", "h"]);
+  });
+
+  it("answers no lists with no items and no query", async () => {
+    // `.in()` with an empty array is a PostgREST syntax error, and a user with
+    // no shopping lists can still open the combined view from a pinned icon.
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await new TasksApi(supabase as any).listItemsIn([]);
+    expect(data).toEqual([]);
+    expect(error).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("TasksApi.clearGotIn: Put away on All shopping", () => {
+  it("scopes the sweep to the lists it is given", async () => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any).clearGotIn(["g", "h"]);
+    const inCall = calls.find(
+      (c) => c.method === "in" && c.args[0] === "project_id"
+    );
+    expect(inCall?.args[1]).toEqual(["g", "h"]);
+  });
+
+  it("does nothing for no lists", async () => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await new TasksApi(supabase as any).clearGotIn([]);
+    expect(data).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("TasksApi.update: only a shopping list records a buy", () => {
+  function stub(isShopping: boolean | undefined) {
+    const item = makeTask({
+      id: "i1",
+      title: "Passport",
+      project_id: "list-1",
+      is_list_item: true,
+      status: "inbox",
+    });
+    const tree = makeTreeStub([item]);
+    const rpcs: string[] = [];
+    const projectRow = isShopping === undefined ? {} : { is_shopping: isShopping };
+    const supabase = {
+      from(table: string) {
+        if (table !== "projects") return tree.supabase.from(table);
+        const proxy: unknown = new Proxy(
+          {},
+          {
+            get(_t, prop: string) {
+              if (prop === "maybeSingle" || prop === "single")
+                return () => Promise.resolve({ data: projectRow, error: null });
+              if (prop === "then")
+                return (resolve: (v: unknown) => unknown) =>
+                  resolve({ data: projectRow, error: null });
+              return () => proxy;
+            },
+          }
+        );
+        return proxy;
+      },
+      rpc(name: string) {
+        rpcs.push(name);
+        return Promise.resolve({ data: null, error: null });
+      },
+    };
+    return { supabase, rpcs };
+  }
+
+  it("records a tick on a shopping list", async () => {
+    const { supabase, rpcs } = stub(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any, "user-1").update("i1", { status: "done" });
+    await vi.waitFor(() => expect(rpcs).toContain("record_pantry_buy"));
+  });
+
+  it("records as before when the column is not there yet", async () => {
+    const { supabase, rpcs } = stub(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any, "user-1").update("i1", { status: "done" });
+    await vi.waitFor(() => expect(rpcs).toContain("record_pantry_buy"));
+  });
+
+  it("does not record a tick on a checklist", async () => {
+    const { supabase, rpcs } = stub(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new TasksApi(supabase as any, "user-1").update("i1", { status: "done" });
+    // The record is fire-and-forget, so give it every chance to have happened.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rpcs).not.toContain("record_pantry_buy");
+  });
+});

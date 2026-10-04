@@ -8,7 +8,7 @@ import {
   projectColorName,
 } from "@do-done/shared";
 import type { Project, ProjectKind } from "@do-done/shared";
-import { projectKind } from "@do-done/shared";
+import { isShoppingList, projectKind } from "@do-done/shared";
 import { getClientProjectsApi } from "@/lib/supabase/projects-client";
 import { demoHref, isDemoPath } from "@/lib/demo/mode";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
@@ -46,6 +46,10 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
     project?.color ?? DEFAULT_PROJECT_COLORS[0]
   );
   const [icon, setIcon] = useState(project?.icon ?? "");
+  // A new list starts as a shopping list, which is what nearly every list is.
+  const [shopping, setShopping] = useState(
+    project ? isShoppingList(project) : true
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,17 +62,27 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
 
     const projects = await getClientProjectsApi();
 
+    /*
+      `is_shopping` is sent only when it says something the column default does
+      not: false on create, and a change on edit. A rename from this bundle
+      against a database that has not had the migration yet would otherwise
+      name a column the table lacks, and fail.
+    */
+    const shoppingChanged =
+      isList && !!project && isShoppingList(project) !== shopping;
     const result = project
       ? await projects.update(project.id, {
           name: name.trim(),
           color,
           icon: icon || undefined,
+          ...(shoppingChanged ? { is_shopping: shopping } : {}),
         })
       : await projects.create({
           name: name.trim(),
           color,
           icon: icon || undefined,
           kind: effectiveKind,
+          ...(isList && !shopping ? { is_shopping: false } : {}),
         });
 
     setSaving(false);
@@ -198,6 +212,33 @@ export function ProjectForm({ project, onClose, kind }: ProjectFormProps) {
             </label>
             <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
           </div>
+
+          {isList && (
+            /*
+              Lists only. On, the list groups by aisle, takes `@store`, keeps a
+              pantry and joins All shopping. Off, it is a plain checklist.
+              Switching changes no item, so it can be flipped back without
+              losing anything.
+            */
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={shopping}
+                onChange={(e) => setShopping(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-neutral-300 text-indigo-500 focus:ring-indigo-500/30 dark:border-neutral-700"
+              />
+              <span>
+                <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                  Shopping list
+                </span>
+                <span className="block text-xs text-neutral-500">
+                  {shopping
+                    ? "Grouped by aisle, with shops and what you bought before. Shown in All shopping."
+                    : "A plain checklist. No aisles, shops or pantry."}
+                </span>
+              </span>
+            </label>
+          )}
 
           {error && (
             <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">

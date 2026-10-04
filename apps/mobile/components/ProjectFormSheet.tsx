@@ -16,6 +16,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -24,6 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   PROJECT_COLOR_OPTIONS,
   DEFAULT_PROJECT_COLORS,
+  isShoppingList,
   projectKind,
 } from '@do-done/shared';
 import { createProject, deleteProject, updateProject } from '@/lib/task-queries';
@@ -59,6 +61,8 @@ export function ProjectFormSheet({
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
   const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  // A new list starts as a shopping list, which is what nearly every list is.
+  const [shopping, setShopping] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput | null>(null);
@@ -76,6 +80,7 @@ export function ProjectFormSheet({
     setName(project?.name ?? '');
     setIcon(project?.icon ?? '');
     setColor(project?.color ?? DEFAULT_PROJECT_COLORS[0]);
+    setShopping(project ? isShoppingList(project) : true);
     setSaving(false);
     setError(null);
     const t = setTimeout(() => inputRef.current?.focus(), 120);
@@ -88,13 +93,22 @@ export function ProjectFormSheet({
     setSaving(true);
     setError(null);
     try {
+      /*
+        `is_shopping` is sent only when it says something the column default
+        does not: false on create, and a change on edit. A rename from this
+        bundle against a database that has not had the migration yet would
+        otherwise name a column the table lacks, and fail.
+      */
+      const isList = effectiveKind === 'list';
       if (project) {
+        const shoppingChanged = isList && isShoppingList(project) !== shopping;
         await updateProject(project.id, {
           name: trimmed,
           color,
           // An emptied icon field is a real answer — it clears the glyph and
           // leaves the ring its colour — so it is sent as null, not dropped.
           icon: icon.trim() || null,
+          ...(shoppingChanged ? { is_shopping: shopping } : {}),
         });
       } else {
         await createProject({
@@ -102,6 +116,7 @@ export function ProjectFormSheet({
           color,
           icon: icon.trim() || undefined,
           kind: effectiveKind,
+          ...(isList && !shopping ? { is_shopping: false } : {}),
         });
       }
       // The lists index is its own query root, so the project caches these
@@ -237,6 +252,32 @@ export function ProjectFormSheet({
 
           <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
 
+          {effectiveKind === 'list' ? (
+            /*
+              Lists only. On, the list groups by aisle, takes `@store`, keeps a
+              pantry and joins All shopping. Off, it is a plain checklist.
+              Switching changes no item: an item on either is still an item,
+              so the switch can be flipped back without losing anything.
+            */
+            <View style={styles.shoppingRow}>
+              <View style={styles.shoppingText}>
+                <Text style={styles.shoppingLabel}>Shopping list</Text>
+                <Text style={styles.shoppingHint}>
+                  {shopping
+                    ? 'Grouped by aisle, with shops and what you bought before. Shown in All shopping.'
+                    : 'A plain checklist. No aisles, shops or pantry.'}
+                </Text>
+              </View>
+              <Switch
+                value={shopping}
+                onValueChange={setShopping}
+                disabled={saving}
+                trackColor={{ true: '#6366f1', false: '#d1d5db' }}
+                accessibilityLabel="Shopping list"
+              />
+            </View>
+          ) : null}
+
           {canPin ? (
             <Pressable
               onPress={pin}
@@ -354,6 +395,16 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   pinRowPressed: { backgroundColor: '#f9fafb' },
+  shoppingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 14,
+    paddingHorizontal: 4,
+  },
+  shoppingText: { flex: 1, gap: 2 },
+  shoppingLabel: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  shoppingHint: { fontSize: 12, color: '#6b7280', lineHeight: 17 },
   pinText: { fontSize: 14, fontWeight: '600', color: '#6366f1' },
   error: {
     marginTop: 12,

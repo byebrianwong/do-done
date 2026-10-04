@@ -678,6 +678,22 @@ export class TasksApi {
       const listId = updated.project_id;
       void (async () => {
         try {
+          /*
+            A checklist has no pantry. Ticking "passport" off a packing list is
+            not a purchase, and recording it would put "passport" in a "Bought
+            before" drawer the day the list was switched to shopping.
+
+            Read here, inside the fire-and-forget, so the tick never waits on
+            it. A failed read, or a database without the column yet, leaves
+            `is_shopping` undefined, which records exactly as before.
+          */
+          const { data: list } = await supabase
+            .from("projects")
+            .select("is_shopping")
+            .eq("id", listId)
+            .maybeSingle();
+          if ((list as { is_shopping?: boolean } | null)?.is_shopping === false)
+            return;
           const [{ PantryApi }, { storeHints }] = await Promise.all([
             import("./pantry.js"),
             import("@do-done/shared"),
@@ -1021,6 +1037,34 @@ export class TasksApi {
   }
 
   /**
+   * Every item on several lists at once, in the same order `listItems` uses.
+   *
+   * What "All shopping" reads: the items of every shopping list, so a shop
+   * that sells from more than one of them is one screen rather than two. The
+   * caller names the lists rather than this asking for "every shopping list",
+   * because which lists count is decided from the project rows. The caller
+   * already holds those, since it needs them for the list name on each item.
+   *
+   * No ids is an empty answer, not a query: `.in()` with an empty array is a
+   * PostgREST syntax error.
+   */
+  async listItemsIn(
+    listIds: string[]
+  ): Promise<{ data: Task[]; error: Error | null }> {
+    if (listIds.length === 0) return { data: [], error: null };
+    let query = this.readItems()
+      .in("project_id", listIds)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (this.userId) query = query.eq("user_id", this.userId);
+    const { data, error } = await query;
+    return {
+      data: normalizeTasks((data as Task[]) ?? []),
+      error: error as Error | null,
+    };
+  }
+
+  /**
    * Open and bought counts per list, for the sidebar and the lists index.
    *
    * Two narrow columns and no `.range()`, the same shape and cost as
@@ -1070,8 +1114,20 @@ export class TasksApi {
   async clearGot(
     listId: string
   ): Promise<{ data: string[]; error: Error | null }> {
+    return this.clearGotIn([listId]);
+  }
+
+  /**
+   * `clearGot` across several lists: "Put away" on "All shopping", where the
+   * cart holds items from every shopping list. One sweep and one undo token,
+   * because it was one tap.
+   */
+  async clearGotIn(
+    listIds: string[]
+  ): Promise<{ data: string[]; error: Error | null }> {
+    if (listIds.length === 0) return { data: [], error: null };
     let find = this.readItems("id")
-      .eq("project_id", listId)
+      .in("project_id", listIds)
       .in("status", ["done", "cancelled"]);
     if (this.userId) find = find.eq("user_id", this.userId);
     const { data: rows, error: findError } = await find;

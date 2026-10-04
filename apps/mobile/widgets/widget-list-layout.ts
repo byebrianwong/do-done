@@ -46,10 +46,27 @@ import type { WidgetGroup } from './widget-layout';
  */
 export function buildListGroups(
   items: Task[],
-  memory?: AisleMemory
+  memory?: AisleMemory,
+  opts: { shopping?: boolean } = {}
 ): WidgetGroup[] {
   const open = openItems(items);
   if (open.length === 0) return [];
+
+  // A checklist is one flat group, the way the app draws it: aisle headers
+  // over a packing list would be the lexicon guessing at something that is not
+  // about shops.
+  if (opts.shopping === false) {
+    return [
+      {
+        key: 'items',
+        title: '',
+        tasks: open,
+        namesTheDay: false,
+        listItems: true,
+        checklist: true,
+      },
+    ];
+  }
 
   return groupByAisle(open, { memory }).map((group) => ({
     // "Other" is the trailing group nothing was recognised in. It gets a key of
@@ -121,10 +138,14 @@ export function buildProjectGroups(tasks: Task[], now?: Date): WidgetGroup[] {
  */
 export function listWidgetSubtitle(input: {
   isList: boolean;
+  /** False for a checklist, which says "3 done" rather than "3 in the cart". */
+  shopping?: boolean;
   tasks: Task[];
 }): string {
   if (input.isList) {
-    return listSubline(summarizeList(input.tasks));
+    return listSubline(summarizeList(input.tasks), {
+      shopping: input.shopping ?? true,
+    });
   }
   const open = input.tasks.filter(
     (t) => t.status !== 'done' && t.status !== 'cancelled'

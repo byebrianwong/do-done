@@ -18,6 +18,7 @@
  *   quick action to no purpose.
  */
 import type { Project } from '@do-done/shared';
+import { ALL_SHOPPING_ID, ALL_SHOPPING_NAME } from '@do-done/shared';
 
 /**
  * Prefixed so the sync can tell its own shortcuts from the five static quick
@@ -37,6 +38,16 @@ export const LONG_LABEL_MAX = 25;
 
 /** What a shortcut whose list is gone says when its pinned icon is tapped. */
 export const DELETED_LIST_MESSAGE = 'This list was deleted.';
+
+/**
+ * "All shopping"'s short label. Its full name is 12 characters, and
+ * `truncateLabel` would make it "All shopp…" under the icon. "Shopping" says
+ * the same thing in the space there is; the menu has room for the full name.
+ */
+export const ALL_SHOPPING_SHORT_LABEL = 'Shopping';
+
+/** The accent. "All shopping" is every shopping list, so no list's colour fits. */
+export const ALL_SHOPPING_COLOR = '#6366f1';
 
 export type ListShortcut = {
   id: string;
@@ -110,6 +121,24 @@ export function listShortcutFor(
 }
 
 /**
+ * The shortcut for "All shopping".
+ *
+ * Its id is `list:shopping` (the list prefix and `ALL_SHOPPING_ID`), so the
+ * sync diffs it with the lists' own shortcuts, and the native module needs to
+ * know nothing about it. `ALL_SHOPPING_ID` is not a uuid, so it cannot collide
+ * with a list's.
+ */
+export function allShoppingShortcut(): ListShortcut {
+  return {
+    id: listShortcutId(ALL_SHOPPING_ID),
+    shortLabel: ALL_SHOPPING_SHORT_LABEL,
+    longLabel: ALL_SHOPPING_NAME,
+    url: listShortcutUrl(ALL_SHOPPING_ID),
+    color: ALL_SHOPPING_COLOR,
+  };
+}
+
+/**
  * Which lists get a shortcut, and which one takes the menu slot.
  *
  * The menu slot goes to the list you were last in — the same memory the Lists
@@ -127,8 +156,24 @@ export function planListShortcuts(input: {
   lists: Pick<Project, 'id' | 'name' | 'color'>[];
   lastListId: string | null;
 }): ListShortcutPlan {
-  const shortcuts = input.lists.map(listShortcutFor);
-  if (shortcuts.length === 0) return { shortcuts, dynamicId: null };
+  const own = input.lists.map(listShortcutFor);
+  /*
+    "All shopping" is in every plan, whatever lists exist.
+
+    The plan is also the set the sync keeps enabled, and anything pinned that
+    is not in it gets disabled with `DELETED_LIST_MESSAGE`. The view is not a
+    list and cannot be deleted; with no shopping lists it opens on an empty
+    state that says how to get one. Leaving it out would tell someone with a
+    pinned icon that a list was deleted when none was.
+  */
+  const shortcuts = [...own, allShoppingShortcut()];
+
+  // The menu slot follows the Lists tab's memory, and the combined view is a
+  // screen that memory can hold.
+  if (input.lastListId === ALL_SHOPPING_ID) {
+    return { shortcuts, dynamicId: listShortcutId(ALL_SHOPPING_ID) };
+  }
+  if (own.length === 0) return { shortcuts, dynamicId: null };
 
   const remembered =
     input.lastListId !== null &&
@@ -136,5 +181,5 @@ export function planListShortcuts(input: {
       ? listShortcutId(input.lastListId)
       : null;
 
-  return { shortcuts, dynamicId: remembered ?? shortcuts[0].id };
+  return { shortcuts, dynamicId: remembered ?? own[0].id };
 }

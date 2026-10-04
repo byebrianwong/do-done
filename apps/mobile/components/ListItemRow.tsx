@@ -11,6 +11,7 @@ import {
   TASK_DELETE_EXIT_MS,
   aisleRing,
   itemSubline,
+  listCopy,
   type Aisle,
   type Task,
 } from '@do-done/shared';
@@ -53,24 +54,37 @@ import { useUndoToast } from '@/components/UndoToast';
 export function ListItemRow({
   item,
   aisle,
+  shopping = true,
+  listName,
   onOpen,
   onDragStart,
   onToggled,
 }: {
   item: Task;
-  /** Where this item was filed. Null for the trailing "Other" group. */
+  /**
+   * Where this item was filed. Null for the trailing "Other" group, and always
+   * null on a checklist, whose ring is the plain neutral one.
+   */
   aisle: Aisle | null;
+  /**
+   * False on a checklist. Changes the words ("Done" rather than "Got it",
+   * "Completed" rather than "Bought") and nothing about the gesture.
+   */
+  shopping?: boolean;
+  /** The list the item is on, first in the subline. "All shopping" only. */
+  listName?: string;
   /** Tap on the words: the full editor. */
   onOpen: () => void;
   /**
    * Long press: picks the row up, the same as on a task list. Dropped in
-   * another section it moves there; put down without moving, the list opens
-   * the aisle / store sheet.
+   * another section it moves there; put down without moving, a shopping list
+   * opens the aisle / store sheet.
    */
   onDragStart: () => void;
   /** Ticking writes to the pantry, so the drawer has to reload. */
   onToggled: () => void;
 }) {
+  const copy = listCopy(shopping);
   // Optimistic, because the row deliberately stays mounted for the length of
   // the completion animation — the cache still says "to buy" while the row is
   // busy showing that it has been bought.
@@ -94,7 +108,7 @@ export function ListItemRow({
   const ring = aisleRing(aisle);
   // The store and the day as one muted line, the same shape `rowSubline` gives
   // every other row in the app. Empty for most items, so nothing renders.
-  const subline = itemSubline(item).join(' · ');
+  const subline = itemSubline(item, { listName }).join(' · ');
 
   /**
    * Tick the item off once the row has sprung back to where it was.
@@ -156,7 +170,7 @@ export function ListItemRow({
         // beside a row that just snapped back, and hands the user an Undo for
         // something that never happened.
         if (nextCompleted) {
-          toast.show({ message: `Bought “${item.title}”`, undo: undoComplete });
+          toast.show({ message: copy.ticked(item.title), undo: undoComplete });
         }
       })
       .catch(() => {
@@ -186,7 +200,9 @@ export function ListItemRow({
     } catch {
       // Say so. A silent failure here reads as a dead button.
       toast.show({
-        message: `Couldn't undo — “${item.title}” is still bought.`,
+        message: `Couldn't undo — “${item.title}” is still ${
+          shopping ? 'bought' : 'done'
+        }.`,
       });
     }
   }
@@ -234,7 +250,7 @@ export function ListItemRow({
         color="#fff"
       />
       <Text style={styles.swipeActionText}>
-        {completed ? 'Put back' : 'Got it'}
+        {completed ? copy.swipeUntick : copy.swipeTick}
       </Text>
     </View>
   );
@@ -331,9 +347,7 @@ export function ListItemRow({
             style={styles.ringSlot}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: completed }}
-            accessibilityLabel={`Mark ${item.title} as ${
-              completed ? 'not bought' : 'bought'
-            }`}
+            accessibilityLabel={copy.tickLabel(item.title, completed)}
           >
             {/* A hairline copy of the ring, expanding out of it and dissolving.
                 Behind the ring and outside its bounds, so it reads as something

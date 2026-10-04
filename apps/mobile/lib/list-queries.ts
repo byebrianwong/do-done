@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   Aisle,
   AisleMemory,
@@ -7,7 +8,12 @@ import type {
   Project,
   Task,
 } from '@do-done/shared';
-import { learnableTerm, splitProjects } from '@do-done/shared';
+import {
+  ALL_SHOPPING_ID,
+  learnableTerm,
+  shoppingLists,
+  splitProjects,
+} from '@do-done/shared';
 
 import {
   getAisleTermsApi,
@@ -58,12 +64,31 @@ export function useListCounts() {
 /**
  * One list's items. The only query on mobile that asks for rows every other
  * one filters out.
+ *
+ * `ALL_SHOPPING_ID` asks for the items of every shopping list instead: "All
+ * shopping". Same hook and the same key shape (`itemsFor('shopping')`), so the
+ * cache holds a `Task[]` under `listKeys.items()` like every other list. That
+ * is what lets the optimistic sweeps in `task-queries.ts` tick a row off here
+ * without knowing this view exists.
  */
 export function useListItems(listId: string) {
   return useQuery({
     queryKey: listKeys.itemsFor(listId),
     queryFn: async (): Promise<Task[]> => {
       const api = await getTasksApi();
+      if (listId === ALL_SHOPPING_ID) {
+        // Which lists count is decided from the project rows, so the read is
+        // two round trips. The project read is the same one `useLists` makes;
+        // a failure in it fails this query, rather than reading as a view with
+        // nothing on it.
+        const projects = await getProjectsApi();
+        const lists = await projects.list();
+        if (lists.error) throw lists.error;
+        const ids = shoppingLists(lists.data ?? []).map((l) => l.id);
+        const { data, error } = await api.listItemsIn(ids);
+        if (error) throw error;
+        return data ?? [];
+      }
       const { data, error } = await api.listItems(listId);
       if (error) throw error;
       return data ?? [];
@@ -117,17 +142,27 @@ export function invalidateLists(listId?: string) {
  */
 export async function addListItem(
   listId: string,
-  input: Omit<CreateTaskInput, 'project_id'>
+  input: Omit<CreateTaskInput, 'project_id'>,
+  options: {
+    /**
+     * Another cached view to append the row to: "All shopping", which shows
+     * this list's items without being this list. Only the screen adding the
+     * item knows it is in that view.
+     */
+    alsoInto?: string;
+  } = {}
 ): Promise<Task | null> {
   const api = await getTasksApi();
   const { data, error } = await api.create({ ...input, project_id: listId });
   if (error) throw error;
   if (data) {
-    queryClient.setQueryData<Task[]>(listKeys.itemsFor(listId), (prev) =>
-      // Guarded against a refetch having already landed the row — same race
-      // the web composer has, and the same one-line answer.
-      !prev || prev.some((t) => t.id === data.id) ? prev ?? [data] : [...prev, data]
-    );
+    for (const key of [listId, ...(options.alsoInto ? [options.alsoInto] : [])]) {
+      queryClient.setQueryData<Task[]>(listKeys.itemsFor(key), (prev) =>
+        // Guarded against a refetch having already landed the row — same race
+        // the web composer has, and the same one-line answer.
+        !prev || prev.some((t) => t.id === data.id) ? prev ?? [data] : [...prev, data]
+      );
+    }
   }
   invalidateLists(listId);
   return data;
@@ -146,6 +181,44 @@ export async function clearGotItems(listId: string): Promise<string[]> {
   if (error) throw error;
   invalidateLists(listId);
   return data;
+}
+
+/**
+ * `clearGotItems` across several lists: "Put away" on "All shopping", whose
+ * cart holds items from every shopping list. One sweep, one undo token.
+ */
+export async function clearGotItemsIn(listIds: string[]): Promise<string[]> {
+  const api = await getTasksApi();
+  const { data, error } = await api.clearGotIn(listIds);
+  if (error) throw error;
+  invalidateLists();
+  return data;
+}
+
+// ─── All shopping: which list a new item goes to ────────────
+
+/**
+ * The list last added to from "All shopping". Per device, in AsyncStorage,
+ * the same as the Lists tab's resume memory: it is a habit of this phone's
+ * user, not a setting worth syncing. Resolved against the current shopping
+ * lists by `defaultAllShoppingTarget`, so a stale id falls back on its own.
+ */
+const ALL_SHOPPING_TARGET_KEY = 'lists:all-shopping:target';
+
+export async function loadAllShoppingTarget(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(ALL_SHOPPING_TARGET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAllShoppingTarget(listId: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(ALL_SHOPPING_TARGET_KEY, listId);
+  } catch {
+    // A default that did not save costs one chip tap next time.
+  }
 }
 
 /** Put back what `clearGotItems` hid. */
