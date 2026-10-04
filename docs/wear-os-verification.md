@@ -185,9 +185,16 @@ Written down because each is a real risk, not a formality.
   from the phone APK's in some configurations. That is a release-time problem
   and is not solved here.
 - **`eas.json` has `wear-preview` and `wear-production` profiles**, which point
-  Gradle at `:wear:assembleRelease` / `:wear:bundleRelease`. Neither has been
-  run. The release build uses `signingConfigs.debug`, which is wrong for
-  anything going to Play and right for anything going to a test watch.
+  Gradle at `:wear:assembleRelease` / `:wear:bundleRelease` and EAS at
+  `android/wear/build/outputs` for the result. Neither has been run.
+- **Signing.** The watch must be signed with the phone app's key, or the Data
+  Layer never connects them. Locally, `wear/build.gradle` signs with
+  `android/app/debug.keystore`, the same file the phone app's debug build uses.
+  On EAS it applies `android/app/eas-build-inject-android-credentials.gradle`,
+  the script EAS writes for the phone app, because EAS does not apply it to any
+  other module. That script has never been run from the wear module. If an EAS
+  watch build reads "Not connected", compare the two APKs' certificates with
+  `apksigner verify --print-certs` before looking anywhere else.
 
 ## What the watch deliberately does not do
 

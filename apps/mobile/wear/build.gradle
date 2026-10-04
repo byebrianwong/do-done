@@ -41,14 +41,32 @@ android {
     jvmTarget = '17'
   }
 
+  // The watch app must be signed with the same key as the phone app. The Data
+  // Layer only connects apps that share a package name *and* a signing key, so
+  // a mismatch installs fine and then never receives a snapshot.
+  //
+  // Without this block Gradle signs with its own `~/.android/debug.keystore`,
+  // which is a different key from the `android/app/debug.keystore` the phone
+  // app uses. On EAS, the release key is applied at the bottom of this file.
+  signingConfigs {
+    debug {
+      storeFile file('../app/debug.keystore')
+      storePassword 'android'
+      keyAlias 'androiddebugkey'
+      keyPassword 'android'
+    }
+  }
+
   buildTypes {
+    debug {
+      signingConfig signingConfigs.debug
+    }
     release {
       minifyEnabled true
       shrinkResources true
       proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-      // Signed with the same key as the phone app. EAS injects the credentials
-      // for the `app` module; the wear profiles in eas.json point the build at
-      // this module so it inherits them.
+      // Replaced by the EAS release key on EAS builds (see below). A local
+      // release build uses the debug key, the same as the phone app's does.
       signingConfig signingConfigs.debug
     }
   }
@@ -106,4 +124,16 @@ dependencies {
 
 def safeExtGet(prop, fallback) {
   rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+// On EAS, sign with the phone app's release key.
+//
+// EAS writes its signing script into `android/app/` and applies it from the
+// phone app's build.gradle only, so this module does not get it on its own
+// (checked in @expo/build-tools 24.9.0). The script reads the keystore from
+// EAS's credentials.json and sets it on every build type of whichever module
+// applies it. The file exists only on an EAS build machine.
+def easCredentials = file('../app/eas-build-inject-android-credentials.gradle')
+if (easCredentials.exists()) {
+  apply from: easCredentials
 }
