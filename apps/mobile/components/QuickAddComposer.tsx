@@ -250,8 +250,13 @@ export default function QuickAddComposer({
             value={text}
             onChangeText={(v) => setText(fields.absorbTags(v))}
             onSubmitEditing={handleSubmit}
+            // The field wraps so a long title can be read in full. A dictated
+            // title runs up to VOICE_TITLE_MAX_CHARS, and on one line most of
+            // it scrolled out of sight. Return still adds the task and keeps
+            // the keyboard up. It never inserts a newline.
+            multiline
+            submitBehavior="submit"
             returnKeyType="done"
-            blurOnSubmit={false}
             editable={!submitting}
           />
           {voiceQuickAdd.supported ? (
@@ -361,7 +366,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     paddingVertical: 8,
+    // Grows with the text to about five lines, then scrolls. The buttons
+    // beside it are bottom-aligned (titleRow), so they stay by the keyboard.
     maxHeight: 120,
+    textAlignVertical: 'top',
   },
   sendBtn: {
     width: 40,
