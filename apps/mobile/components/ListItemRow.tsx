@@ -24,6 +24,7 @@ import {
   useRowExit,
 } from '@/lib/use-row-exit';
 import { SWIPE_RETURN_MS, SWIPE_RETURN_SPRING, panelForSwipe } from '@/lib/swipe-actions';
+import { ROW_DRAG_HOLD_MS } from '@/lib/row-gesture';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { StruckText } from '@/components/StruckText';
 import { useUndoToast } from '@/components/UndoToast';
@@ -56,7 +57,7 @@ export function ListItemRow({
   shopping = true,
   listName,
   onOpen,
-  onCorrect,
+  onDragStart,
   onToggled,
 }: {
   item: Task;
@@ -75,10 +76,11 @@ export function ListItemRow({
   /** Tap on the words: the full editor. */
   onOpen: () => void;
   /**
-   * Long press: the aisle / store correction sheet. Absent on a checklist,
-   * which has neither to correct.
+   * Long press: picks the row up, the same as on a task list. Dropped in
+   * another section it moves there; put down without moving, a shopping list
+   * opens the aisle / store sheet.
    */
-  onCorrect?: () => void;
+  onDragStart: () => void;
   /** Ticking writes to the pantry, so the drawer has to reload. */
   onToggled: () => void;
 }) {
@@ -315,21 +317,13 @@ export function ListItemRow({
       >
         <Pressable
           onPress={onOpen}
-          /*
-            Undefined when there is nothing to correct, not a no-op. A Pressable
-            carrying an onLongPress swallows the press that would otherwise
-            have fired onPress, so a slow tap on a checklist row would open
-            nothing. Same rule as `rowLongPressAction` in lib/row-gesture.ts.
-          */
-          onLongPress={
-            onCorrect
-              ? () => {
-                  hapticMedium();
-                  onCorrect();
-                }
-              : undefined
-          }
-          delayLongPress={300}
+          onLongPress={() => {
+            // The tick that says the row is now under the finger. The lift is
+            // the only other feedback the gesture gives.
+            hapticMedium();
+            onDragStart();
+          }}
+          delayLongPress={ROW_DRAG_HOLD_MS}
           style={({ pressed }) => [
             styles.row,
             pressed && styles.pressed,

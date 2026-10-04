@@ -12,8 +12,8 @@
  * mutation reconciles through the query cache).
  *
  * It is also where the minimizing tab bar is fed, because it is the one door
- * every task list on a tab goes through — Today and Upcoming render it
- * directly, Inbox and All reach it via `GroupedTaskList`. Wiring it here
+ * every task list on a tab goes through — Today, Upcoming and a shopping list
+ * render it directly, Inbox and All reach it via `GroupedTaskList`. Wiring it here
  * rather than at each screen is the difference between one call site and five
  * that can drift. `useTabBarScrollSync` answers with nothing on a screen that
  * has no tab bar under it (a pushed project, a tag, Completed), so the same
@@ -36,9 +36,9 @@ import DraggableFlatList, {
 import type { Task } from '@do-done/shared';
 
 import {
-  collectSectionTaskIds,
   flatten,
   hasTaskRows,
+  resolveDrop,
   stickyHeaderIndices,
   type DraggableSection,
   type Row,
@@ -71,13 +71,31 @@ interface Props {
   ) => React.ReactElement;
   /** Reorder within one section: the section's new id order. */
   onReorder: (sectionKey: string, orderedIds: string[]) => void;
-  /** Move across sections: task moved from→to, plus the dest section's new order. */
+  /**
+   * Move across sections: task moved from→to, plus the dest section's new order.
+   *
+   * Return `false` to refuse the drop, and the row goes back where it was
+   * picked up. Refusing by refetching does not do this: a refetch that comes
+   * back unchanged leaves `sections` unchanged, so nothing re-seeds the rows and
+   * the row stays where the finger left it.
+   */
   onMove: (
     taskId: string,
     fromKey: string,
     toKey: string,
     destOrderedIds: string[]
-  ) => void;
+  ) => void | boolean;
+  /**
+   * A row picked up and put down without moving. A plain long press, in other
+   * words, and the only way to give one a meaning on a list where the long
+   * press starts a drag. Absent, it does nothing.
+   */
+  onHold?: (task: Task) => void;
+  /**
+   * The key React reconciles a task row on. Defaults to the task's id. Every
+   * callback above is still handed ids.
+   */
+  rowKey?: (task: Task) => string;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
   /** Non-draggable block rendered above all sections (e.g. Today's Overdue). */
@@ -95,6 +113,10 @@ interface Props {
   ListEmptyComponent?: React.ComponentProps<
     typeof DraggableFlatList
   >["ListEmptyComponent"];
+  /** Non-draggable block rendered below all sections (e.g. a list's pantry). */
+  ListFooterComponent?: React.ComponentProps<
+    typeof DraggableFlatList
+  >["ListFooterComponent"];
 }
 
 export default function SectionedDraggableList({
@@ -103,12 +125,15 @@ export default function SectionedDraggableList({
   renderTask,
   onReorder,
   onMove,
+  onHold,
+  rowKey,
   refreshControl,
   contentContainerStyle,
   ListHeaderComponent,
   ListEmptyComponent,
+  ListFooterComponent,
 }: Props) {
-  const [rows, setRows] = useState<Row[]>(() => flatten(sections));
+  const [rows, setRows] = useState<Row[]>(() => flatten(sections, rowKey));
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const tabBar = useTabBarScrollSync();
@@ -116,8 +141,12 @@ export default function SectionedDraggableList({
   // Whether a row is being dragged. Section headers are not pinned while it is
   // true; see `stickyHeaderIndices` in lib/section-rows.ts for why.
   const [dragging, setDragging] = useState(false);
+  // Whether the drop slot has moved during this drag, which is what tells a
+  // hold from a drag that came back to where it started. See `resolveDrop`.
+  const placeholderMoved = useRef(false);
 
   function beginDrag() {
+    placeholderMoved.current = false;
     setDragging(true);
     // Dragging a row near the bottom of the screen makes the library
     // auto-scroll the list, which would minimize the bar in response to a
@@ -162,7 +191,7 @@ export default function SectionedDraggableList({
     .map((s) => `${s.key}#${s.data.map((t) => JSON.stringify(t)).join(',')}`)
     .join('|');
   useEffect(() => {
-    const next = flatten(sections);
+    const next = flatten(sections, rowKey);
     // New row order mid-drag means the drag is over. The library cancels a
     // drag when its data's keys change, and does not call `onDragEnd` when it
     // does, so without this the headers would stay unpinned until the next
@@ -172,36 +201,37 @@ export default function SectionedDraggableList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  function handleDragEnd({ data, to }: { data: Row[]; from: number; to: number }) {
+  function handleDragEnd({ data, from, to }: { data: Row[]; from: number; to: number }) {
     endDrag();
-    const moved = data[to];
-    if (!moved || moved.kind !== 'task') {
-      setRows(data);
-      return;
-    }
-    // The new section is the nearest header at or above the drop position.
-    let newKey: string | null = null;
-    for (let i = to; i >= 0; i--) {
-      const r = data[i];
-      if (r.kind === 'header') {
-        newKey = r.section.key;
-        break;
-      }
-    }
-    if (!newKey) {
-      setRows(data);
-      return;
-    }
-    const oldKey = moved.sectionKey;
-    const next = data.map((r) =>
-      r.kind === 'task' && r.key === moved.key
-        ? { ...r, sectionKey: newKey as string }
-        : r
+    const { rows: next, result } = resolveDrop(
+      data,
+      from,
+      to,
+      placeholderMoved.current
     );
     setRows(next);
-    const destIds = collectSectionTaskIds(next, newKey);
-    if (newKey === oldKey) onReorder(newKey, destIds);
-    else onMove(moved.key, oldKey, newKey, destIds);
+    switch (result.kind) {
+      case 'hold':
+        onHold?.(result.task);
+        return;
+      case 'none':
+        return;
+      case 'reorder':
+        onReorder(result.sectionKey, result.orderedIds);
+        return;
+      case 'move':
+        if (
+          onMove(
+            result.taskId,
+            result.fromKey,
+            result.toKey,
+            result.orderedIds
+          ) === false
+        ) {
+          setRows(flatten(sections, rowKey));
+        }
+        return;
+    }
   }
 
   // A list with sections but no tasks in them is empty, and has to say so.
@@ -242,6 +272,9 @@ export default function SectionedDraggableList({
           : renderTask(item.task, drag, isActive, sectionOf(item.sectionKey))
       }
       onDragBegin={beginDrag}
+      onPlaceholderIndexChange={() => {
+        placeholderMoved.current = true;
+      }}
       // The library sets its own `onScroll` after spreading props, so this is
       // the only way in — and it is already hopping to JS on every frame
       // whether or not anyone listens. Undefined off a tab, where there is no
@@ -255,6 +288,7 @@ export default function SectionedDraggableList({
       contentContainerStyle={contentStyle}
       ListHeaderComponent={ListHeaderComponent}
       ListEmptyComponent={ListEmptyComponent}
+      ListFooterComponent={ListFooterComponent}
     />
   );
 }

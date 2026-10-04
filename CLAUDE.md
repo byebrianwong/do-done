@@ -1258,6 +1258,12 @@ task.
   `Pressable` carrying an `onLongPress` swallows the press that would otherwise have
   fired `onPress`, so a list that cannot reorder (search, Completed) would eat a slow
   tap.
+- **A row put down where it was picked up writes nothing.** The library reports that
+  as a drop with `from === to`, which used to reach the reorder branch: a write
+  restating the order on every long press, and on a view sorted by anything other
+  than manual, a switch to manual sort for holding a row. `resolveDrop` in
+  `lib/section-rows.ts` reads it as `hold` (never moved) or `none` (moved and came
+  back). A list can give `hold` a meaning through `onHold`; only a shopping list does.
 - **`isActive` on `TaskSelectionValue` is its own flag**, no longer
   `selectedIds.size > 0`. The menu arms the mode with nothing picked yet, and under
   the old derivation that state was indistinguishable from "not selecting" — the rows
@@ -1892,7 +1898,7 @@ Three places to set a store:
 | --- | --- |
 | The composer | Type `@`. Stores already on the list are suggested; Tab accepts the first. |
 | The row (web) | A `<datalist>`-backed field adds one, on hover. Each shop's own name in the subline removes it. |
-| The long-press sheet (mobile) | `ItemSheet`, which used to be the aisle picker. Every shop ticks on and off; the sheet stays open. |
+| The item sheet (mobile) | `ItemSheet`, which used to be the aisle picker. Opened by holding a row and letting go without moving it. Every shop ticks on and off; the sheet stays open. |
 
 Tab is the same binding `SuggestedFacets` uses for the history's guesses, so the
 two cannot come to mean different things.
@@ -2031,9 +2037,11 @@ sweep — the one place in the app where that shape does not apply.
 
 Correcting is a `<select>` on web — keyboard-operable and labelled for free, and
 the control genuinely is "which of twelve" — revealed on row hover or its own
-focus. On mobile it is a long-press, because the row's two tap targets are already
-spoken for (see *The item row* below) and a third visible control would cost
-mis-ticks.
+focus. On mobile it is behind the long press, because the row's two tap targets
+are already spoken for (see *The item row* below) and a third visible control
+would cost mis-ticks. Holding a row and dragging it under another aisle's header
+files it there. Holding it and letting go without moving opens `ItemSheet`, which
+also offers the aisles the list has nothing in. See *Dragging an item (mobile)*.
 
 #### The aisle is what the ring carries
 
@@ -2084,6 +2092,9 @@ Neither list screen uses the app's list machinery — not `TaskDisplayView`, not
 deadline, filter by priority) is meaningless on things to buy, and the row they
 draw spends its width on a project ring and an urgency gutter a list has no use
 for. What is left is a checkbox, a word, and a field that must not lose focus.
+Mobile does use `SectionedDraggableList`, the drag layer underneath
+`GroupedTaskList`, so an item can be dragged between aisles the way a task is
+dragged between sections. That component draws no rows of its own.
 
 **The composer commits without dismissing** — Enter clears the field and keeps the
 keyboard, the sheet and the list; a running "N added" is the receipt. Capture here
@@ -2145,8 +2156,8 @@ undo toast the rest of the app gives.
   aisle and the item reappeared in the cart a round trip later, which reads as it
   vanishing and coming back. `lib/list-item-complete.test.ts` asserts the frames in
   between, since the settled state was always right.
-- **The `keyExtractor` carries which side of the list the row is on**, not just the
-  id. A row shrinks its own height on the way out, and the patch above then moves
+- **The row key carries which side of the list the row is on**, not just the
+  id (`rowKey` on `SectionedDraggableList`). A row shrinks its own height on the way out, and the patch above then moves
   it between the aisles and the cart. Keyed by id alone, React reconciles those as
   the same element whenever the row lands at the same index in the flattened list,
   so the instance survives with its exit state still collapsed and is drawn at zero
@@ -2154,6 +2165,61 @@ undo toast the rest of the app gives.
   "Got it · 1" header over nothing at all. This is the `keepsCompleted` trap on the
   task row, reached from the other direction, and it is invisible to CI — there is
   no renderer here, so it was caught on the simulator and can only be caught there.
+
+#### Dragging an item (mobile)
+
+**A long press picks an item up, the same as a task.** Drop it under another
+header and it is filed there. Let go without moving it and `ItemSheet` opens,
+which is what the long press did before.
+
+| Dropped into | Write |
+| --- | --- |
+| an aisle | an `aisle:` tag, plus the lesson the item sheet teaches |
+| Other | the tag and the lesson cleared, if the lexicon does not know the words |
+| Got it (Done on a checklist) | `status: 'done'`, which on a shopping list records the buy in the pantry |
+| out of Got it | `status: 'not_started'`, as an un-tick on the ring does |
+
+`itemDrop` in `apps/mobile/lib/list-item-drop.ts` holds that table as a pure
+function, tested in node.
+
+- **A drop into Other is refused for words the lexicon knows.** No tag means "no
+  aisle" (see *Aisle corrections are remembered*). Clearing the tag hands milk back
+  to the lexicon, which files it under Dairy, so the row would land somewhere it
+  was not dropped. It goes back to where it was picked up instead. A caller refuses
+  by returning `false` from `onMove`. Invalidating does not work for this: a
+  refetch that comes back unchanged leaves `sections` unchanged, nothing re-seeds
+  the rows, and the row stays where the finger left it.
+- **Only aisles with something in them are drop targets.** `groupByAisle` emits no
+  empty groups, and twelve empty headers would bury a short list. The item sheet
+  still lists every aisle.
+- **A short list has no aisles to drag between.** Under `AISLE_GROUP_MIN_ITEMS` it
+  is one unlabelled group, so its sections are that group and Got it. Reordering
+  and ticking by drag still work.
+- **The dropped order is ranked below zero** (`aheadOfNew` on `reorderTasks` and
+  `moveTask`). An item is created with `sort_order` 0. Ranked 1000 and up, as a
+  task list's drag is, every dragged item would sort after every item added since,
+  and a new item would appear at the top of its aisle rather than the bottom, where
+  people look for it.
+- **The lesson is put in the cache before the write** (`previewAisleLesson`). The
+  drop changes the row's tag in the cache at once, and a row with no tag falls back
+  to the memory, which still holds the old lesson until the write lands. Without
+  the preview, an item dragged into Other stopped in its old aisle for a round trip
+  first.
+- **A checklist drags too.** It is one flat group plus Done, so a drag reorders an
+  item or ticks it. Holding still does nothing there (`onHold` is absent), because
+  a checklist has no aisle or store to correct.
+- **In All shopping a reorder can touch several lists.** That view interleaves
+  every shopping list's items by `sort_order`, so a drop stamps ranks on items from
+  each list in the section. Each list's own view keeps the relative order the drop
+  gave those items, since it sorts by the same column.
+- **Dropping into Got it plays no completion animation and offers no undo toast**,
+  the same as dropping a task into a Done column. Dragging it back out is the undo.
+- **The hold and the drag share a start.** `resolveDrop` tells them apart by
+  whether the drop slot ever moved (`onPlaceholderIndexChange`), because
+  `from === to` alone cannot tell a row that never moved from one that went out and
+  came back. A thumb that wobbles without shifting the slot still opens the sheet.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
+  pass.
 
 #### The row shows the store and the scheduled day
 
@@ -2830,9 +2896,10 @@ an empty gap where it belonged.
 The Completed screen was already a `SectionList` with
 `stickySectionHeadersEnabled`, so it needed no change.
 
-A shopping list is a `SectionList` too, and was missed: it kept its own copy of
+A shopping list was a `SectionList` too, and was missed: it kept its own copy of
 the old 11px uppercase grey header long after the four screens above moved. It
-uses `SectionHeader` now, with the aisle's own colour on the dot — so the header
+is a `SectionedDraggableList` now, so its headers pin by the rules above, drag
+included. It uses `SectionHeader`, with the aisle's own colour on the dot — so the header
 and the rings under it say the same thing — and its rows went full-bleed to match
 every other list. They had been floating white cards, which a sticky header sits
 badly over and which leaves a swipe panel opening outside the row it belongs to.

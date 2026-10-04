@@ -8,7 +8,12 @@ import type {
   Project,
   Task,
 } from '@do-done/shared';
-import { ALL_SHOPPING_ID, shoppingLists, splitProjects } from '@do-done/shared';
+import {
+  ALL_SHOPPING_ID,
+  learnableTerm,
+  shoppingLists,
+  splitProjects,
+} from '@do-done/shared';
 
 import {
   getAisleTermsApi,
@@ -263,6 +268,34 @@ export function useAisleMemory() {
 }
 
 /**
+ * Put a correction into the cached memory now, before anything is written.
+ *
+ * For a drag. The drop clears or replaces the row's `aisle:` tag in the cache
+ * at once, and a row with no tag falls back to the memory. Until the lesson
+ * write lands, that memory still holds the old lesson, so an item dragged into
+ * Other would stop in the aisle the old lesson names and only reach Other a
+ * round trip later. A setter rather than part of `rememberAisle`, because the
+ * lesson itself is written only after the row's own write succeeds. A caller
+ * whose write fails invalidates `aisleKeys.all` to take this back.
+ */
+export function previewAisleLesson(title: string, aisle: Aisle | null): void {
+  const term = learnableTerm(title);
+  if (!term) return;
+  queryClient.setQueryData<AisleMemory>(aisleKeys.all, (prev) => {
+    if (!prev) return prev;
+    const next = new Map(prev);
+    if (aisle) next.set(term, aisle);
+    else next.delete(term);
+    return next;
+  });
+}
+
+/** Read the memory again, dropping anything `previewAisleLesson` put there. */
+export function invalidateAisleMemory(): void {
+  queryClient.invalidateQueries({ queryKey: aisleKeys.all });
+}
+
+/**
  * Record a correction, or un-teach one.
  *
  * The caller has already written the `aisle:` tag on the row it corrected;
@@ -278,9 +311,12 @@ export async function rememberAisle(
     const api = await getAisleTermsApi();
     if (aisle) await api.learn(title, aisle);
     else await api.forget(title);
-    queryClient.invalidateQueries({ queryKey: aisleKeys.all });
   } catch {
     // Deliberately swallowed — see above.
+  } finally {
+    // Either way, so a lesson `previewAisleLesson` put in the cache is
+    // replaced by what the server actually holds.
+    queryClient.invalidateQueries({ queryKey: aisleKeys.all });
   }
 }
 
