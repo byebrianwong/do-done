@@ -190,3 +190,36 @@ describe('the wear module is complete enough to be copied', () => {
     }
   });
 });
+
+describe('the watch is built and signed like the phone app', () => {
+  // The Data Layer only connects a phone app and a watch app that share a
+  // package name and a signing key. A mismatch installs fine, and Settings then
+  // reads "Not connected" forever.
+  const gradle = read('wear/build.gradle');
+
+  it('signs debug builds with the phone app debug keystore', () => {
+    // Without this, Gradle signs with ~/.android/debug.keystore, a different key
+    // from the android/app/debug.keystore that Expo's template gives the phone.
+    expect(gradle).toContain("storeFile file('../app/debug.keystore')");
+  });
+
+  it('applies the EAS signing script when it exists', () => {
+    // EAS writes this file into android/app and applies it from the phone app's
+    // build.gradle only, so the watch module has to apply it itself.
+    expect(gradle).toContain(
+      "file('../app/eas-build-inject-android-credentials.gradle')"
+    );
+    expect(gradle).toMatch(/apply from: easCredentials/);
+  });
+
+  it('points the EAS wear profiles at the wear module outputs', () => {
+    // EAS looks in android/app/build/outputs unless told otherwise, so a wear
+    // build would compile and then fail to find anything to upload.
+    const eas = JSON.parse(read('eas.json'));
+    for (const name of ['wear-preview', 'wear-production']) {
+      const android = eas.build[name].android;
+      expect(android.gradleCommand).toMatch(/^:wear:/);
+      expect(android.applicationArchivePath).toMatch(/^android\/wear\/build\/outputs\//);
+    }
+  });
+});
