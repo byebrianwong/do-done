@@ -12,7 +12,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Project } from '@do-done/shared';
-import { listSubline } from '@do-done/shared';
+import {
+  ALL_SHOPPING_ID,
+  ALL_SHOPPING_NAME,
+  allShoppingCounts,
+  isShoppingList,
+  listSubline,
+  offersAllShopping,
+} from '@do-done/shared';
 
 import { useLists, useListCounts } from '@/lib/list-queries';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
@@ -26,6 +33,7 @@ import {
   saveResume,
 } from '@/lib/tab-resume';
 import {
+  pinAllShoppingShortcut,
   pinListShortcut,
   scheduleListShortcutSync,
 } from '@/lib/list-shortcuts';
@@ -86,7 +94,15 @@ export default function ListsScreen() {
     if (!focused || remembered === undefined) return;
     const decision = resumeDecision({
       remembered,
-      known: lists ? lists.map((l) => l.id) : null,
+      // "All shopping" counts as a screen this tab can reopen while it is
+      // offered. Below two shopping lists the row is gone, so a memory of it
+      // falls back to the index like a deleted list's would.
+      known: lists
+        ? [
+            ...lists.map((l) => l.id),
+            ...(offersAllShopping(lists) ? [ALL_SHOPPING_ID] : []),
+          ]
+        : null,
       alreadyTried: hasResumeTried('lists'),
     });
     if (decision.action === 'wait') return;
@@ -128,6 +144,52 @@ export default function ListsScreen() {
     [toast]
   );
 
+  /** The same as `pin`, for the combined view. */
+  const pinCombined = useCallback(async () => {
+    const result = await pinAllShoppingShortcut();
+    if (result === 'unsupported') {
+      toast.show({ message: 'This launcher cannot add shortcuts' });
+    } else if (result === 'failed') {
+      toast.show({
+        message: `Could not add ${ALL_SHOPPING_NAME} to the home screen`,
+      });
+    }
+  }, [toast]);
+
+  /*
+    "All shopping" heads the list once there are two shopping lists to combine.
+    With one it would be that list again under a second name.
+
+    A row above the lists rather than a list among them: it is not draggable,
+    not editable and not deletable, and its count is the sum of the rows below.
+  */
+  const allShopping =
+    lists && offersAllShopping(lists) ? (
+      <Pressable
+        onPress={() => {
+          // Same reason as a list row: opening one by hand spends the restore.
+          markResumeTried('lists');
+          router.push(`/lists/${ALL_SHOPPING_ID}` as never);
+        }}
+        onLongPress={
+          Platform.OS === 'android' ? () => void pinCombined() : undefined
+        }
+        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+        accessibilityRole="button"
+      >
+        <View style={[styles.ring, { backgroundColor: '#6366f1' }]}>
+          <Ionicons name="cart" size={14} color="#ffffff" />
+        </View>
+        <View style={styles.info}>
+          <Text style={styles.name}>{ALL_SHOPPING_NAME}</Text>
+          <Text style={styles.sub}>
+            {listSubline(allShoppingCounts(lists, counts ?? new Map()))}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
+      </Pressable>
+    ) : null;
+
   const renderItem = ({ item }: { item: Project }) => {
     const count = counts?.get(item.id) ?? { open: 0, got: 0 };
     return (
@@ -162,7 +224,7 @@ export default function ListsScreen() {
           <Text style={styles.name}>{item.name}</Text>
           {/* Shared with web, so "Nothing on it" can't become "0 items" here. */}
           <Text style={styles.sub}>
-            {listSubline({ ...count, elsewhere: 0 })}
+            {listSubline(count, { shopping: isShoppingList(item) })}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
@@ -191,6 +253,7 @@ export default function ListsScreen() {
         data={lists ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        ListHeaderComponent={allShopping}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -207,8 +270,8 @@ export default function ListsScreen() {
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No lists yet</Text>
               <Text style={styles.emptyHint}>
-                Groceries, Amazon, the hardware store — things to buy, kept out
-                of your tasks.
+                Groceries, the hardware store, a packing list. Kept out of
+                your tasks.
               </Text>
             </View>
           )

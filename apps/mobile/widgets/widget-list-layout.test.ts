@@ -176,6 +176,29 @@ describe('a shopping list in the widget', () => {
   });
 });
 
+describe('a checklist in the widget', () => {
+  it('is one flat group, however many aisles the words would guess', () => {
+    const groups = buildListGroups(aShop(), undefined, { shopping: false });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe('');
+    expect(groups[0].tasks).toHaveLength(6);
+  });
+
+  it('draws the neutral ring rather than an aisle', () => {
+    const [group] = buildListGroups(aShop(), undefined, { shopping: false });
+    const row = buildTaskRow(group.tasks[0], group, [project()]);
+    expect(row.ring.color).toBe(NO_AISLE_COLOR);
+    expect(row.ring.icon).toBeNull();
+  });
+
+  it('says done rather than in the cart', () => {
+    const items = [item('passport'), item('charger', { status: 'done' })];
+    expect(
+      listWidgetSubtitle({ isList: true, shopping: false, tasks: items })
+    ).toBe('1 item · 1 done');
+  });
+});
+
 describe('a project in the widget', () => {
   const work = project({ id: 'work', name: 'Work', color: '#6366f1', icon: null });
 

@@ -16,7 +16,11 @@
  */
 
 import type { AisleMemory, Project, Task } from '@do-done/shared';
-import { isListProject, splitProjects } from '@do-done/shared';
+import {
+  isListProject,
+  isShoppingList,
+  splitProjects,
+} from '@do-done/shared';
 import {
   supabase,
   getAisleTermsApi,
@@ -39,6 +43,8 @@ export type ListWidgetData =
       state: 'show';
       project: Project;
       isList: boolean;
+      /** A shopping list rather than a checklist. False for a project. */
+      isShopping: boolean;
       /** Items or tasks as read; the layout does the filtering. */
       tasks: Task[];
       /** Taught aisles. Empty is the correct fallback, not a failure. */
@@ -104,11 +110,13 @@ export function createListWidgetLoader() {
     if (!project) return { state: 'pick', candidates };
 
     const isList = isListProject(project);
+    const isShopping = isShoppingList(project);
     const [tasks, aisleMemory] = await Promise.all([
       tasksFor(project),
-      isList ? memory() : Promise.resolve(new Map() as AisleMemory),
+      // Only a shopping list is grouped by aisle, so only it needs the memory.
+      isShopping ? memory() : Promise.resolve(new Map() as AisleMemory),
     ]);
-    return { state: 'show', project, isList, tasks, aisleMemory };
+    return { state: 'show', project, isList, isShopping, tasks, aisleMemory };
   }
 
   return { load };

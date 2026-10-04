@@ -357,7 +357,16 @@ class DemoTasksApiImpl {
       rule enforced only there would leave the demo drawer frozen at whatever
       the seed installed, on the one surface built for trying the feature out.
     */
-    if (becomingDone && updated.is_list_item && updated.project_id) {
+    const list = updated.project_id
+      ? getDemoState().projects.find((p) => p.id === updated.project_id)
+      : undefined;
+    // A checklist has no pantry: the same gate `TasksApi.update` applies.
+    if (
+      becomingDone &&
+      updated.is_list_item &&
+      updated.project_id &&
+      list?.is_shopping !== false
+    ) {
       void demoPantry.record(
         updated.project_id,
         updated.title,
@@ -470,9 +479,14 @@ class DemoTasksApiImpl {
   // The only reads here that look at `itemRows`.
 
   async listItems(listId: string) {
+    return this.listItemsIn([listId]);
+  }
+
+  async listItemsIn(listIds: string[]) {
+    const wanted = new Set(listIds);
     return ok(
       this.itemRows
-        .filter((t) => t.project_id === listId)
+        .filter((t) => t.project_id !== null && wanted.has(t.project_id))
         .sort((a, b) => bySortOrder(a, b) || a.created_at.localeCompare(b.created_at))
     );
   }
@@ -490,8 +504,13 @@ class DemoTasksApiImpl {
   }
 
   async clearGot(listId: string) {
+    return this.clearGotIn([listId]);
+  }
+
+  async clearGotIn(listIds: string[]) {
+    const wanted = new Set(listIds);
     const ids = this.itemRows
-      .filter((t) => t.project_id === listId && !isOpen(t))
+      .filter((t) => t.project_id !== null && wanted.has(t.project_id) && !isOpen(t))
       .map((t) => t.id);
     if (ids.length === 0) return { data: [], error: null };
     const doomed = new Set(ids);
@@ -610,6 +629,8 @@ class DemoProjectsApiImpl {
       parent_project_id: input.parent_project_id ?? null,
       sort_order: Math.max(0, ...this.projects.map((p) => p.sort_order)) + 1000,
       kind: input.kind ?? "tasks",
+      // The column default.
+      is_shopping: input.is_shopping ?? true,
       created_at: nowISO(),
       updated_at: nowISO(),
     };

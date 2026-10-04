@@ -63,6 +63,12 @@ export interface WidgetGroup {
    */
   listItems?: boolean;
   /**
+   * These list items are on a checklist rather than a shopping list, so the
+   * ring is the plain neutral one. A checklist has no aisles, and guessing one
+   * for "passport" would colour the row for no reason.
+   */
+  checklist?: boolean;
+  /**
    * Leave the project out of every subline. For a widget whose *title* is the
    * project: naming it again on each row spends the width that the row's own
    * date and estimate need. The date-shaped twin is `namesTheDay`.
@@ -339,7 +345,9 @@ export function buildTaskRow(
     // `groupByAisle` collapses to one unlabelled group on a short list and
     // reading the group would then leave every row grey. The gutter is left
     // alone: an item can still be late, and `rowGutter` says so the same way.
-    const ring = aisleRing(itemAisle(task, opts.aisleMemory));
+    const ring = aisleRing(
+      group.checklist ? null : itemAisle(task, opts.aisleMemory)
+    );
     return {
       type: 'task',
       task,

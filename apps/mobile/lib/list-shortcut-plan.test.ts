@@ -1,9 +1,12 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ALL_SHOPPING_ID } from '@do-done/shared';
 
 import {
+  ALL_SHOPPING_SHORT_LABEL,
   LIST_SHORTCUT_PREFIX,
+  allShoppingShortcut,
   LONG_LABEL_MAX,
   SHORT_LABEL_MAX,
   listIdFromShortcutId,
@@ -108,7 +111,7 @@ describe('listShortcutFor', () => {
 });
 
 describe('planListShortcuts', () => {
-  it('gives every list a shortcut', () => {
+  it('gives every list a shortcut, then All shopping', () => {
     const plan = planListShortcuts({
       lists: [GROCERIES, HARDWARE],
       lastListId: null,
@@ -116,6 +119,7 @@ describe('planListShortcuts', () => {
     expect(plan.shortcuts.map((s) => s.shortLabel)).toEqual([
       'Groceries',
       'Hardware',
+      ALL_SHOPPING_SHORT_LABEL,
     ]);
   });
 
@@ -147,9 +151,36 @@ describe('planListShortcuts', () => {
 
   it('has no menu entry when there are no lists', () => {
     expect(planListShortcuts({ lists: [], lastListId: null })).toEqual({
-      shortcuts: [],
+      shortcuts: [allShoppingShortcut()],
       dynamicId: null,
     });
+  });
+
+  it('keeps All shopping in the plan with no lists, so its pinned icon is not called deleted', () => {
+    // Everything pinned and absent from the plan is disabled with "This list
+    // was deleted." The combined view is not a list and was not deleted.
+    const plan = planListShortcuts({ lists: [], lastListId: null });
+    expect(plan.shortcuts.map((s) => s.id)).toContain(
+      listShortcutId(ALL_SHOPPING_ID)
+    );
+  });
+
+  it('gives All shopping the menu slot when it was the last list screen', () => {
+    const plan = planListShortcuts({
+      lists: [GROCERIES, HARDWARE],
+      lastListId: ALL_SHOPPING_ID,
+    });
+    expect(plan.dynamicId).toBe(listShortcutId(ALL_SHOPPING_ID));
+  });
+
+  it('never falls back to All shopping when nothing is remembered', () => {
+    // The fallback exists to put *a list* in front of someone who has never
+    // opened one from the tab.
+    const plan = planListShortcuts({
+      lists: [GROCERIES, HARDWARE],
+      lastListId: null,
+    });
+    expect(plan.dynamicId).not.toBe(listShortcutId(ALL_SHOPPING_ID));
   });
 
   it('only ever names one menu entry', () => {
@@ -161,6 +192,28 @@ describe('planListShortcuts', () => {
       lastListId: GROCERIES.id,
     });
     expect(plan.shortcuts.filter((s) => s.id === plan.dynamicId)).toHaveLength(1);
+  });
+});
+
+describe('allShoppingShortcut', () => {
+  it('fits its short label without truncation', () => {
+    expect(allShoppingShortcut().shortLabel.length).toBeLessThanOrEqual(
+      SHORT_LABEL_MAX
+    );
+    expect(allShoppingShortcut().longLabel).toBe('All shopping');
+  });
+
+  it('opens a route that exists', () => {
+    expect(allShoppingShortcut().url).toBe('dodone://lists/shopping');
+    expect(
+      existsSync(
+        resolve(__dirname, '..', 'app', '(tabs)', 'lists', 'shopping.tsx')
+      )
+    ).toBe(true);
+  });
+
+  it('has an id the sync treats as one of its own', () => {
+    expect(allShoppingShortcut().id.startsWith(LIST_SHORTCUT_PREFIX)).toBe(true);
   });
 });
 

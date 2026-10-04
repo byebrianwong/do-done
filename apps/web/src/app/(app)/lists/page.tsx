@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { ReadError, read } from "@/lib/read-result";
 import { requireServerApis } from "@/lib/supabase/tasks-server";
-import { listSubline } from "@do-done/shared";
+import {
+  allShoppingCounts,
+  isShoppingList,
+  listSubline,
+  offersAllShopping,
+} from "@do-done/shared";
 import { ProjectIcon } from "@/components/project-icon";
 import { NewListButton, NewListMount } from "./lists-client";
+import { AllShoppingCard } from "./all-shopping-card";
 
 export default async function ListsPage() {
   const { tasksApi, projectsApi } = await requireServerApis();
@@ -33,11 +39,15 @@ export default async function ListsPage() {
         <div className="rounded-xl border-2 border-dashed border-neutral-200 py-16 text-center dark:border-neutral-800">
           <p className="text-sm text-neutral-500">No lists yet.</p>
           <p className="mt-1 text-xs text-neutral-400">
-            Groceries, Amazon, the hardware store — things to buy, kept out of
-            your tasks.
+            Groceries, the hardware store, a packing list. Kept out of your
+            tasks.
           </p>
         </div>
       ) : (
+        <>
+        {offersAllShopping(lists) && (
+          <AllShoppingCard base="" counts={allShoppingCounts(lists, counts)} />
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           {lists.map((list) => {
             const count = counts.get(list.id) ?? { open: 0, got: 0 };
@@ -64,12 +74,13 @@ export default async function ListsPage() {
                   of printing a 0 that reads as an achievement.
                 */}
                 <p className="mt-3 text-xs text-neutral-500">
-                  {listSubline({ ...count, elsewhere: 0 })}
+                  {listSubline(count, { shopping: isShoppingList(list) })}
                 </p>
               </Link>
             );
           })}
         </div>
+        </>
       )}
 
       <NewListMount />

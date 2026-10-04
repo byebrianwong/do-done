@@ -4,7 +4,15 @@ import Link from "next/link";
 import { DemoLoading } from "@/components/demo/demo-loading";
 import { useDemoData } from "@/lib/demo/use-demo-data";
 import { ProjectIcon } from "@/components/project-icon";
-import { isGot, listSubline, splitProjects } from "@do-done/shared";
+import {
+  allShoppingCounts,
+  isGot,
+  isShoppingList,
+  listSubline,
+  offersAllShopping,
+  splitProjects,
+} from "@do-done/shared";
+import { AllShoppingCard } from "@/app/(app)/lists/all-shopping-card";
 
 export default function DemoListsPage() {
   // `items`, not `tasks` — the sandbox's two halves of the same store. See
@@ -13,6 +21,16 @@ export default function DemoListsPage() {
   if (!ready) return <DemoLoading rows={3} />;
 
   const { lists } = splitProjects(projects);
+  // The same counts the real index gets from `TasksApi.listCounts`.
+  const counts = new Map(
+    lists.map((list) => {
+      const mine = items.filter((t) => t.project_id === list.id);
+      return [
+        list.id,
+        { open: mine.filter((t) => !isGot(t)).length, got: mine.filter(isGot).length },
+      ] as const;
+    })
+  );
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -20,17 +38,17 @@ export default function DemoListsPage() {
         Lists
       </h1>
       <p className="mb-6 text-xs text-neutral-500">
-        Things to buy. None of these show up in Today, Inbox or All tasks.
+        Things to buy, and checklists. None of these show up in Today, Inbox or
+        All tasks.
       </p>
+
+      {offersAllShopping(lists) && (
+        <AllShoppingCard base="/demo" counts={allShoppingCounts(lists, counts)} />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {lists.map((list) => {
-          const mine = items.filter((t) => t.project_id === list.id);
-          const summary = {
-            open: mine.filter((t) => !isGot(t)).length,
-            got: mine.filter(isGot).length,
-            elsewhere: 0,
-          };
+          const summary = counts.get(list.id) ?? { open: 0, got: 0 };
           return (
             <Link
               key={list.id}
@@ -49,7 +67,7 @@ export default function DemoListsPage() {
                 </h2>
               </div>
               <p className="mt-3 text-xs text-neutral-500">
-                {listSubline(summary)}
+                {listSubline(summary, { shopping: isShoppingList(list) })}
               </p>
             </Link>
           );
