@@ -6,8 +6,10 @@ import {
   collectSectionTaskIds,
   flatten,
   hasTaskRows,
+  resolveDrop,
   stickyHeaderIndices,
   type DraggableSection,
+  type Row,
 } from './section-rows';
 
 function task(id: string): Task {
@@ -74,6 +76,12 @@ describe('collectSectionTaskIds', () => {
     expect(collectSectionTaskIds(rows, 'b')).toEqual(['b1']);
   });
 
+  it('returns task ids, not row keys, when rows are keyed by something else', () => {
+    const rows = flatten([section('a', ['a1', 'a2'])], (t) => `${t.id}:open`);
+    expect(rows.map((r) => r.key)).toEqual(['h:a', 'a1:open', 'a2:open']);
+    expect(collectSectionTaskIds(rows, 'a')).toEqual(['a1', 'a2']);
+  });
+
   it('returns nothing for a section with no tasks', () => {
     const rows = flatten([section('a', []), section('b', ['b1'])]);
     expect(collectSectionTaskIds(rows, 'a')).toEqual([]);
@@ -125,5 +133,69 @@ describe('stickyHeaderIndices', () => {
     expect(
       stickyHeaderIndices(rows, { hasListHeader: true, dragging: true })
     ).toEqual([]);
+  });
+});
+
+/** The library's reordered copy: the row at `from` taken out and put at `to`. */
+function dropped(rows: Row[], from: number, to: number): Row[] {
+  const next = [...rows];
+  const [row] = next.splice(from, 1);
+  next.splice(to, 0, row);
+  return next;
+}
+
+describe('resolveDrop', () => {
+  // h:a a1 a2 h:b b1
+  const rows = flatten([section('a', ['a1', 'a2']), section('b', ['b1'])]);
+
+  /**
+   * The rule this encodes: a long press that never moved the row is a press,
+   * not a drag. It used to reach the reorder branch, which sent a write
+   * restating the order, and on a sorted view flipped it to manual sort just
+   * for holding a row.
+   */
+  it('reads a row put down without moving as a hold', () => {
+    const { result } = resolveDrop(rows, 1, 1, false);
+    expect(result).toEqual({ kind: 'hold', task: task('a1') });
+  });
+
+  it('reads a row brought back to where it started as no change', () => {
+    expect(resolveDrop(rows, 1, 1, true).result).toEqual({ kind: 'none' });
+  });
+
+  it('reorders within the section the row started in', () => {
+    const { result } = resolveDrop(dropped(rows, 1, 2), 1, 2, true);
+    expect(result).toEqual({
+      kind: 'reorder',
+      sectionKey: 'a',
+      orderedIds: ['a2', 'a1'],
+    });
+  });
+
+  it('moves a row dropped under another header into that section', () => {
+    // a2 dropped after b1.
+    const { rows: next, result } = resolveDrop(dropped(rows, 2, 4), 2, 4, true);
+    expect(result).toEqual({
+      kind: 'move',
+      taskId: 'a2',
+      fromKey: 'a',
+      toKey: 'b',
+      orderedIds: ['b1', 'a2'],
+    });
+    const moved = next.find((r) => r.key === 'a2');
+    expect(moved?.kind === 'task' && moved.sectionKey).toBe('b');
+  });
+
+  it('hands back task ids when rows are keyed by something else', () => {
+    const keyed = flatten(
+      [section('a', ['a1', 'a2']), section('b', ['b1'])],
+      (t) => `${t.id}:open`
+    );
+    const { result } = resolveDrop(dropped(keyed, 2, 4), 2, 4, true);
+    expect(result).toMatchObject({
+      kind: 'move',
+      taskId: 'a2',
+      orderedIds: ['b1', 'a2'],
+    });
   });
 });

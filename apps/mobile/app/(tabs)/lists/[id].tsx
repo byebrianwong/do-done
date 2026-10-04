@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  SectionList,
   TextInput,
   RefreshControl,
   Keyboard,
@@ -69,8 +68,10 @@ import {
   addListItem,
   clearGotItems,
   forgetPantryEntry,
+  invalidateAisleMemory,
   invalidateLists,
   invalidatePantry,
+  previewAisleLesson,
   rememberAisle,
   restoreItems,
   useAisleMemory,
@@ -78,12 +79,14 @@ import {
   useListItems,
   usePantry,
 } from '@/lib/list-queries';
-import { updateTask } from '@/lib/task-queries';
-import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { moveTask, reorderTasks, updateTask } from '@/lib/task-queries';
 import {
-  useTabBarMinimize,
-  useTabBarScrollSync,
-} from '@/lib/tab-bar-minimize';
+  GOT_SECTION,
+  aisleSectionKey,
+  itemDrop,
+} from '@/lib/list-item-drop';
+import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { useTabBarMinimize } from '@/lib/tab-bar-minimize';
 import { TAB_BAR_ROW_HEIGHT } from '@/lib/tab-bar-motion';
 import { markResumeTried, saveResume } from '@/lib/tab-resume';
 import { scheduleListShortcutSync } from '@/lib/list-shortcuts';
@@ -95,6 +98,9 @@ import {
 } from '@/components/ListPlaceholder';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import ListItemRow from '@/components/ListItemRow';
+import SectionedDraggableList, {
+  type DraggableSection,
+} from '@/components/SectionedDraggableList';
 import QuickAddButton from '@/components/QuickAddButton';
 import {
   SectionCount,
@@ -108,6 +114,9 @@ import { hapticLight, hapticMedium } from '@/lib/haptics';
 /** Space between the composer card and the keyboard or tab bar below it. */
 const COMPOSER_GAP = 8;
 
+/** A section of the list, with the colour its header dot is drawn in. */
+type ListSection = DraggableSection & { color: string | null };
+
 /**
  * A shopping list.
  *
@@ -116,6 +125,10 @@ const COMPOSER_GAP = 8;
  * list of things to buy, and the row it draws spends its width on a project
  * ring and an urgency gutter that a list has no use for. What is left is a
  * checkbox, a word, and a text field that must not lose focus.
+ *
+ * It does use `SectionedDraggableList`, the drag layer under `GroupedTaskList`,
+ * so a long press picks an item up and it can be dropped into another aisle or
+ * the cart, as a task can be dropped into another section.
  *
  * Items are added with the plus button in the bottom-right corner, the same
  * `QuickAddButton` the task screens use. There used to be a text field pinned
@@ -141,8 +154,6 @@ export default function ListDetailScreen() {
   const loadState = useListLoadState(itemsQuery);
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
-  // The items list drives the minimizing tab bar and reserves its height.
-  const tabBar = useTabBarScrollSync();
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.
   const { data: memory } = useAisleMemory();
@@ -374,12 +385,14 @@ export default function ListDetailScreen() {
     }
   }, [listId, toast]);
 
-  const sections = useMemo(() => {
+  const sections = useMemo((): ListSection[] => {
     // Aisle groups in walking order. `groupByAisle` collapses to one unlabelled
     // group when grouping would gain nothing, which is what makes a short list
     // — or one full of words the lexicon doesn't know — look like the plain
     // list it always was rather than a broken grouped one.
     const aisles = groupByAisle(open, { memory }).map((g) => ({
+      // What a drop into this section is read back as. See lib/list-item-drop.
+      key: aisleSectionKey(g),
       title: g.label,
       // The dot beside the header takes the same colour the rows' rings do, so
       // a group and its items read as one thing. Null on the "Other" group and
@@ -393,10 +406,14 @@ export default function ListDetailScreen() {
       // while walking is one glance from being found. Never grouped: it is a
       // record of what happened, not a route through anything.
       ...(got.length > 0
-        ? [{ title: 'Got it', color: null, data: got }]
+        ? [{ key: GOT_SECTION, title: 'Got it', color: null, data: got }]
         : []),
     ].filter((s) => s.data.length > 0);
   }, [open, got, memory]);
+  const headerColors = useMemo(
+    () => new Map(sections.map((s) => [s.key, s.color])),
+    [sections]
+  );
 
   /**
    * Each item's aisle, by id.
@@ -471,6 +488,93 @@ export default function ListDetailScreen() {
     [writeStores]
   );
 
+  /*
+    Dragging. A long press picks a row up, the same as on every task list.
+    Dropped in a different section, the item is filed there: see
+    `lib/list-item-drop.ts` for what each section writes. Released without
+    moving, it opens the item sheet, which is what the long press did before.
+
+    `aheadOfNew` ranks the dropped order below the column default of 0, so an
+    item added afterwards still appears at the bottom of its aisle.
+  */
+  const onReorder = useCallback(
+    (_sectionKey: string, ids: string[]) => {
+      void reorderTasks(ids, { aheadOfNew: true }).catch(() =>
+        toast.show({ message: "Couldn't move that item" })
+      );
+    },
+    [toast]
+  );
+
+  const onMove = useCallback(
+    (id: string, _fromKey: string, toKey: string, ids: string[]) => {
+      const item = items.find((t) => t.id === id);
+      const drop = item ? itemDrop(item, toKey, memory) : null;
+      // Refused: the row goes back where it was picked up.
+      if (!item || !drop) return false;
+      const { patch, teach } = drop;
+      if (teach !== undefined) previewAisleLesson(item.title, teach);
+      void moveTask(id, patch, ids, { aheadOfNew: true })
+        .then(async () => {
+          // The same two halves as a correction made in the item sheet: the
+          // tag fixes this row, the lesson fixes the same words next week.
+          if (teach !== undefined) await rememberAisle(item.title, teach);
+          // A tick or un-tick is recorded in the pantry inside
+          // `TasksApi.update`, so the drawer has to reload.
+          if (patch.status) invalidatePantry(listId);
+        })
+        .catch(() => {
+          // `moveTask` has already put the cached rows back. The previewed
+          // lesson is taken back by reading the memory again.
+          if (teach !== undefined) invalidateAisleMemory();
+          toast.show({ message: "Couldn't move that item" });
+        });
+      return true;
+    },
+    [items, memory, listId, toast]
+  );
+
+  const renderHeader = useCallback(
+    (section: DraggableSection) => {
+      // The collapsed group has no title and draws no header. It is still a
+      // section, so a bought item dragged up out of the cart has somewhere to
+      // land.
+      if (!section.title) return <View />;
+      const color = headerColors.get(section.key);
+      return (
+        <View style={sectionHeaderStyles.container}>
+          {color ? (
+            <View
+              style={[sectionHeaderStyles.dot, { backgroundColor: color }]}
+            />
+          ) : null}
+          <Text style={sectionHeaderStyles.text}>{section.title}</Text>
+          <SectionCount value={section.data.length} />
+        </View>
+      );
+    },
+    [headerColors]
+  );
+
+  const renderItem = useCallback(
+    (item: Task, drag: () => void, isActive: boolean) => (
+      <View style={isActive ? styles.activeRow : undefined}>
+        <ListItemRow
+          item={item}
+          aisle={itemAisles.get(item.id) ?? null}
+          onOpen={() => setEditing(item)}
+          onDragStart={drag}
+          // Ticking writes to the pantry, so the drawer has to reload. The
+          // write is fire-and-forget inside `TasksApi.update`, so this is a
+          // refetch rather than an optimistic patch: the client does not know
+          // what the gap arithmetic decided.
+          onToggled={() => invalidatePantry(listId)}
+        />
+      </View>
+    ),
+    [itemAisles, listId]
+  );
+
   return (
     <View style={styles.container}>
       <Stack.Screen
@@ -523,7 +627,7 @@ export default function ListDetailScreen() {
 
       <Text style={styles.subline}>{listSubline(summary)}</Text>
 
-      <SectionList
+      <SectionedDraggableList
         sections={sections}
         /*
           The key carries which side of the list the row is on, not just its id.
@@ -540,13 +644,12 @@ export default function ListDetailScreen() {
           Changing the key on the move forces a remount, which is also what the
           row is: a fresh row, at full height, in a different place.
         */
-        keyExtractor={(item) => `${item.id}:${isGot(item) ? 'got' : 'open'}`}
-        keyboardShouldPersistTaps="handled"
-        // A tap on a row while typing must reach the row, not be swallowed
-        // dismissing the keyboard.
-        // An empty title is the ungrouped case — `groupByAisle` collapses to
-        // one unlabelled group when grouping would gain nothing, and that has
-        // to render as a plain list with no header at all.
+        rowKey={(item) => `${item.id}:${isGot(item) ? 'got' : 'open'}`}
+        renderHeader={renderHeader}
+        renderTask={renderItem}
+        onReorder={onReorder}
+        onMove={onMove}
+        onHold={(item) => setPickingId(item.id)}
         /*
           Above the list rather than inside the drawer. This is a prompt about
           the trip you are about to make, not a record of past ones, so it has
@@ -579,39 +682,6 @@ export default function ListDetailScreen() {
             </View>
           ) : null
         }
-        // An aisle header has to stay on screen while its aisle does, or a
-        // long list stops saying which shelf you are reading. Same rule as
-        // every other list in the app — see *Sticky list headers*.
-        stickySectionHeadersEnabled
-        renderSectionHeader={({ section }) =>
-          section.title ? (
-            <View style={sectionHeaderStyles.container}>
-              {section.color ? (
-                <View
-                  style={[
-                    sectionHeaderStyles.dot,
-                    { backgroundColor: section.color },
-                  ]}
-                />
-              ) : null}
-              <Text style={sectionHeaderStyles.text}>{section.title}</Text>
-              <SectionCount value={section.data.length} />
-            </View>
-          ) : null
-        }
-        renderItem={({ item }) => (
-          <ListItemRow
-            item={item}
-            aisle={itemAisles.get(item.id) ?? null}
-            onOpen={() => setEditing(item)}
-            onCorrect={() => setPickingId(item.id)}
-            // Ticking writes to the pantry, so the drawer has to reload. The
-            // write is fire-and-forget inside `TasksApi.update`, so this is a
-            // refetch rather than an optimistic patch: the client does not know
-            // what the gap arithmetic decided.
-            onToggled={() => invalidatePantry(listId)}
-          />
-        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -634,23 +704,9 @@ export default function ListDetailScreen() {
             </View>
           )
         }
-        // The bar floats over the screen, so the last item — and the pantry
-        // under it — has to scroll clear of it. See `useTabBarScrollSync`.
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: 40 + tabBar.contentInset },
-        ]}
-        onScroll={(e) =>
-          tabBar.onScrollOffsetChange?.(e.nativeEvent.contentOffset.y)
-        }
-        onContentSizeChange={tabBar.onContentSizeChange}
-        onLayout={tabBar.onListLayout}
-        scrollEventThrottle={16}
-        onScrollBeginDrag={() => {
-          Keyboard.dismiss();
-          tabBar.setDragging(true);
-        }}
-        onScrollEndDrag={() => tabBar.setDragging(false)}
+        // The list adds the floating tab bar's height to this itself. See
+        // `useTabBarScrollSync`.
+        contentContainerStyle={styles.listContent}
         /*
           The pantry sits under the list as its footer. It is where the list
           came from, so scrolling past what is left to buy to reach it is the
@@ -944,6 +1000,11 @@ function PantryBandView({
  * tapped while walking, and extra targets on that surface would cause mis-ticks.
  * Both corrections are rare and usually made sitting down, so a hidden gesture
  * is an acceptable cost.
+ *
+ * The long press also picks the row up for a drag, so the sheet opens when the
+ * row is put down without moving. Dragging covers the aisles already on screen.
+ * This sheet is still the only way to file an item into an aisle the list has
+ * nothing in, and the only way to change its shops.
  *
  * Store sits above aisle because it changes more often. An aisle is a fact
  * about the words and is usually right first time; a store is a fact about
@@ -1242,6 +1303,8 @@ const styles = StyleSheet.create({
   // which brings its own, or a full-bleed row that should meet the summary
   // line above it.
   listContent: { paddingBottom: 40 },
+  // The row being dragged. The same lift every task list gives a held row.
+  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   pressed: { opacity: 0.65 },
   backdrop: {
     flex: 1,

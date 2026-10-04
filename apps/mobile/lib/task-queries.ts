@@ -437,9 +437,31 @@ function patchCachedTasks(patches: Map<string, UpdateTaskInput>) {
   );
 }
 
-/** The `sort_order` a drag assigns to the nth id it hands back. */
-function rankFor(index: number): number {
-  return (index + 1) * 1000;
+/** How a drag's id list is turned into `sort_order` values. */
+export interface DropOrderOptions {
+  /**
+   * Rank the dropped order below zero rather than above it.
+   *
+   * A new row is created with the column's default `sort_order` of 0. With the
+   * default ranks (1000, 2000, …) it then sorts ahead of every row a drag has
+   * touched. That is fine for a task list. A shopping list is append-only in
+   * practice, and the first thing anyone does after adding an item is look for
+   * it at the bottom (see `TasksApi.listItems`). So a list passes this, the run
+   * ends at -1000, and an item added afterwards still lands at the bottom of
+   * its aisle.
+   */
+  aheadOfNew?: boolean;
+}
+
+/** The `sort_order` a drag assigns to each id it hands back. */
+function ranksFor(
+  orderedIds: string[],
+  { aheadOfNew = false }: DropOrderOptions = {}
+): Map<string, number> {
+  const n = orderedIds.length;
+  return new Map(
+    orderedIds.map((id, i) => [id, (aheadOfNew ? i - n : i + 1) * 1000])
+  );
 }
 
 /**
@@ -454,9 +476,9 @@ function rankFor(index: number): number {
  * re-sorting here reproduces exactly what the refetch will return. Sort is
  * stable, so rows the drag didn't touch keep their relative places.
  */
-function patchCachedOrder(orderedIds: string[]) {
+function patchCachedOrder(orderedIds: string[], opts?: DropOrderOptions) {
   if (orderedIds.length === 0) return;
-  const ranks = new Map(orderedIds.map((id, i) => [id, rankFor(i)]));
+  const ranks = ranksFor(orderedIds, opts);
   patchTaskLists((old) =>
     old
       .map((t) => {
@@ -988,8 +1010,11 @@ export async function reorderProjects(orderedIds: string[]) {
 }
 
 /** The `sort_order` patches a drag's id list turns into. */
-function orderPatches(orderedIds: string[]) {
-  return orderedIds.map((id, i) => ({ id, input: { sort_order: rankFor(i) } }));
+function orderPatches(orderedIds: string[], opts?: DropOrderOptions) {
+  return [...ranksFor(orderedIds, opts)].map(([id, sort_order]) => ({
+    id,
+    input: { sort_order },
+  }));
 }
 
 /**
@@ -1001,12 +1026,15 @@ function orderPatches(orderedIds: string[]) {
  * one background refetch away from yanking the row back out from under the
  * finger.
  */
-export async function reorderTasks(orderedIds: string[]) {
+export async function reorderTasks(
+  orderedIds: string[],
+  opts?: DropOrderOptions
+) {
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  patchCachedOrder(orderedIds);
+  patchCachedOrder(orderedIds, opts);
   const api = await getTasksApi();
-  const { error } = await api.bulkUpdate(orderPatches(orderedIds));
+  const { error } = await api.bulkUpdate(orderPatches(orderedIds, opts));
   if (error) restoreTaskLists(prev);
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   refreshTaskWidgets();
@@ -1029,12 +1057,13 @@ export async function reorderTasks(orderedIds: string[]) {
 export async function moveTask(
   id: string,
   input: UpdateTaskInput,
-  orderedIds: string[]
+  orderedIds: string[],
+  opts?: DropOrderOptions
 ) {
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
   patchCachedTasks(new Map([[id, input]]));
-  patchCachedOrder(orderedIds);
+  patchCachedOrder(orderedIds, opts);
   try {
     const api = await getTasksApi();
     const { error, autoSync } = await api.update(id, input);
@@ -1042,7 +1071,9 @@ export async function moveTask(
     notifyAutoSync(autoSync?.notice);
     // The move landed; the order is a separate write because `sort_order` has
     // to be stamped across the whole destination section, not just this row.
-    const { error: orderError } = await api.bulkUpdate(orderPatches(orderedIds));
+    const { error: orderError } = await api.bulkUpdate(
+      orderPatches(orderedIds, opts)
+    );
     if (orderError) throw orderError;
   } catch (e) {
     restoreTaskLists(prev);

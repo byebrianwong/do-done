@@ -38,7 +38,9 @@ vi.mock("./task-reminders", () => ({ scheduleTaskReminderSync: vi.fn() }));
 // it is stood in for here like every other native seam in this suite.
 vi.mock("./wear", () => ({ scheduleWatchSync: vi.fn() }));
 
-const { taskKeys, moveTask, reorderTasks } = await import("./task-queries");
+const { taskKeys, listKeys, moveTask, reorderTasks } = await import(
+  "./task-queries"
+);
 
 function seed(...ids: string[]) {
   queryClient.setQueryData(
@@ -170,5 +172,58 @@ describe("moveTask", () => {
 
     expect(order()).toEqual(["a", "b", "c"]);
     expect(cached().find((t) => t.id === "c")?.scheduled_date).toBeNull();
+  });
+});
+
+/**
+ * A shopping list's order, after a drag.
+ *
+ * Items are created with the column default of 0. Ranked 1000 and up, a dragged
+ * run sorts after every item nobody has dragged, so the next item added goes to
+ * the top of its aisle rather than the bottom, where people look for it.
+ * `aheadOfNew` ranks the run below zero instead.
+ */
+describe("aheadOfNew", () => {
+  const listKey = listKeys.itemsFor("groceries");
+  const listOrder = () =>
+    (queryClient.getQueryData<Task[]>(listKey) ?? []).map((t) => t.id);
+
+  function seedList(...ids: string[]) {
+    queryClient.setQueryData(
+      listKey,
+      ids.map(
+        (id) =>
+          ({ id, title: id, status: "inbox", sort_order: 0 }) as unknown as Task
+      )
+    );
+  }
+
+  it("ranks the dropped order below zero, ending at -1000", async () => {
+    seedList("a", "b", "c");
+    await reorderTasks(["b", "a"], { aheadOfNew: true });
+    expect(bulkUpdate).toHaveBeenCalledWith([
+      { id: "b", input: { sort_order: -2000 } },
+      { id: "a", input: { sort_order: -1000 } },
+    ]);
+  });
+
+  it("keeps an undragged item after the dragged ones", async () => {
+    seedList("a", "b", "c");
+    await reorderTasks(["b", "a"], { aheadOfNew: true });
+    expect(listOrder()).toEqual(["b", "a", "c"]);
+  });
+
+  it("is what stops an undragged item jumping ahead without it", async () => {
+    seedList("a", "b", "c");
+    await reorderTasks(["b", "a"]);
+    expect(listOrder()).toEqual(["c", "b", "a"]);
+  });
+
+  it("applies to a move as well as a reorder", async () => {
+    seedList("a", "b", "c");
+    await moveTask("c", { status: "done" }, ["c"], { aheadOfNew: true });
+    expect(bulkUpdate).toHaveBeenCalledWith([
+      { id: "c", input: { sort_order: -1000 } },
+    ]);
   });
 });
