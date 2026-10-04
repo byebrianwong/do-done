@@ -136,6 +136,16 @@ export const ProjectSchema = z.object({
    * field, so that default lives in one place.
    */
   kind: ProjectKind.optional(),
+  /**
+   * Whether a list is a shopping list (aisles, store hints, the pantry, and a
+   * place in "All shopping") or a plain checklist. Only read when `kind` is
+   * `"list"`.
+   *
+   * Optional on read for the reason `kind` is, and undefined means true: every
+   * list was a shopping list before the column existed. Read it through
+   * `isShoppingList()` rather than testing the field.
+   */
+  is_shopping: z.boolean().optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
@@ -155,11 +165,27 @@ export function projectKind(
   return project?.kind === "list" ? "list" : "tasks";
 }
 
-/** True when the project is a shopping list. */
+/**
+ * True when the project is a list: a shopping list or a checklist. Its tasks
+ * are items, kept out of every task view.
+ */
 export function isListProject(
   project: Pick<Project, "kind"> | null | undefined
 ): boolean {
   return projectKind(project) === "list";
+}
+
+/**
+ * True when the project is a list *and* a shopping list.
+ *
+ * A list with `is_shopping` unset is a shopping list, because every list was
+ * one before the column existed. Only `false` makes a checklist. A project of
+ * kind `"tasks"` is never a shopping list, whatever the column holds.
+ */
+export function isShoppingList(
+  project: Pick<Project, "kind" | "is_shopping"> | null | undefined
+): boolean {
+  return isListProject(project) && project?.is_shopping !== false;
 }
 
 export const LocationSchema = z.object({
@@ -458,6 +484,10 @@ export const CreateProjectInput = z.object({
   // Omitted means an ordinary project — the column defaults to 'tasks', so
   // only the list surfaces ever pass this.
   kind: ProjectKind.optional(),
+  // Omitted means a shopping list: the column defaults to true. The forms send
+  // it only when it is false, so a create from this bundle still works against
+  // a database that has not had the migration yet.
+  is_shopping: z.boolean().optional(),
 });
 export type CreateProjectInput = z.infer<typeof CreateProjectInput>;
 
@@ -477,6 +507,9 @@ export const UpdateProjectInput = z.object({
   // task in it (`project_cascade_kind`), which is why the trigger exists rather
   // than the column being immutable.
   kind: ProjectKind.optional(),
+  // Switching a list between shopping and checklist. Nothing cascades: an
+  // item on either is still an item. See `isShoppingList`.
+  is_shopping: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof UpdateProjectInput>;
 

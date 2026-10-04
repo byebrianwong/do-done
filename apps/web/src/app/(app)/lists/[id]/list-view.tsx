@@ -20,6 +20,10 @@ import type {
 } from "@do-done/shared";
 import {
   aisleOptions,
+  defaultAllShoppingTarget,
+  extractListToken,
+  isShoppingList,
+  listCopy,
   gotItems,
   groupByAisle,
   itemAisle,
@@ -51,8 +55,17 @@ import { getClientPantryApi } from "@/lib/supabase/pantry-client";
 import { useOpenTask } from "@/lib/open-task";
 import { ComposerActionGlyph } from "@/components/composer-action-glyph";
 
+/** Which list "All shopping" adds to next. See `defaultAllShoppingTarget`. */
+const ALL_SHOPPING_TARGET_KEY = "dodone.all-shopping.target";
+
 interface ListViewProps {
-  list: Project;
+  /** The list on screen, or null for "All shopping". */
+  list: Project | null;
+  /**
+   * Every shopping list, in the user's order. Only "All shopping" reads it:
+   * for the composer's list pills and for the list name on each row.
+   */
+  shoppingLists?: Project[];
   initialItems: Task[];
   /**
    * The user's aisle memory, as entries — a Map can't cross the
@@ -74,12 +87,52 @@ interface ListViewProps {
  * Local state rather than a router refresh per tick: this is the one surface in
  * the app where the user's hands are moving faster than a round trip, and a
  * server re-render between "milk" and "eggs" would eat a keystroke.
+ *
+ * **One view, three kinds of list**, the same split mobile's `ListDetail`
+ * makes. A shopping list gets aisles, `@store` and the pantry. A checklist
+ * (`is_shopping` false) gets none of them. "All shopping" (`list` null) shows
+ * every shopping list's items, with aisles and `@store`, the pantry only in the
+ * composer's suggestions, and a pill per list to say where a new item goes.
  */
 export function ListView({
   list,
+  shoppingLists: shopLists = [],
   initialItems,
   memoryEntries = [],
 }: ListViewProps) {
+  const combined = list === null;
+  const shopping = combined || isShoppingList(list);
+  const copy = listCopy(shopping);
+  const listNames = useMemo(
+    () => new Map(shopLists.map((l) => [l.id, l.name])),
+    [shopLists]
+  );
+  /*
+    Which list the combined composer adds to: the last one added to, while it
+    is still a shopping list, else the first. Per browser, in localStorage:
+    a habit of whoever is at this keyboard, not a setting worth syncing.
+  */
+  const [lastTarget, setLastTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (!combined) return;
+    try {
+      const stored = window.localStorage.getItem(ALL_SHOPPING_TARGET_KEY);
+      if (stored) setLastTarget((current) => current ?? stored);
+    } catch {
+      // Storage blocked: the first list is the default, which is fine.
+    }
+  }, [combined]);
+  const rememberTarget = useCallback((id: string) => {
+    setLastTarget(id);
+    try {
+      window.localStorage.setItem(ALL_SHOPPING_TARGET_KEY, id);
+    } catch {
+      // As above.
+    }
+  }, []);
+  const chosenTarget = combined
+    ? defaultAllShoppingTarget({ lists: shopLists, lastId: lastTarget })
+    : list.id;
   const router = useRouter();
   const [, startTransition] = useTransition();
   /**
@@ -115,6 +168,19 @@ export function ListView({
   const got = gotItems(items);
   const summary = summarizeList(items);
   /*
+    Where Enter would send the item. A typed `#household` beats the pill, the
+    same precedence quick-add gives a typed `#project` over the page. The
+    pill lights up to match, so the highlighted one is always the destination.
+  */
+  const routedDraft = combined
+    ? extractListToken(draft, shopLists)
+    : { text: draft, list: null };
+  const destination = routedDraft.list?.id ?? chosenTarget;
+  /** The item name `addItem` would write. */
+  const draftTitle = shopping
+    ? extractStoreTokens(routedDraft.text).title
+    : routedDraft.text.trim();
+  /*
     Every store already named on this list, most-used first. Bought items count
     too. The cart holds last week's stores, and a suggestion list that dropped
     them the moment something was ticked would be empty when it is most useful.
@@ -128,12 +194,20 @@ export function ListView({
     changed it. It is also the only source available to the demo sandbox, which
     is why the aisle memory reloads here too.
   */
+  //
+  // A checklist has none. "All shopping" reads the pantry of the list the
+  // composer is adding to, which is the one list a suggestion would land in.
   const [pantry, setPantry] = useState<PantryEntry[]>([]);
+  const pantryListId = shopping ? chosenTarget : null;
   const reloadPantry = useCallback(async () => {
+    if (!pantryListId) {
+      setPantry([]);
+      return;
+    }
     const api = await getClientPantryApi();
-    const { data } = await api.load(list.id);
+    const { data } = await api.load(pantryListId);
     setPantry(data);
-  }, [list.id]);
+  }, [pantryListId]);
   useEffect(() => {
     void reloadPantry();
   }, [reloadPantry]);
@@ -155,11 +229,22 @@ export function ListView({
     which is everything on the first shop after this ships, and a shrinking
     share of entries afterwards.
   */
-  const due = useMemo(() => dueEntries(pantry, { onList: items }), [pantry, items]);
+  //
+  // Neither these nor the drawer appear on "All shopping". Both are a record of
+  // one list, and over several they would offer to put things back on a list
+  // the view does not otherwise single out.
+  const showPantry = shopping && !combined;
+  const due = useMemo(
+    () => (showPantry ? dueEntries(pantry, { onList: items }) : []),
+    [showPantry, pantry, items]
+  );
   const bands = useMemo(
     // Excluded from the bands below, so nothing is offered twice on one screen.
-    () => pantryBands(pantry, { onList: items, exclude: due.map((e) => e.term) }),
-    [pantry, items, due]
+    () =>
+      showPantry
+        ? pantryBands(pantry, { onList: items, exclude: due.map((e) => e.term) })
+        : [],
+    [showPantry, pantry, items, due]
   );
   const pantryCount = useMemo(
     () => bands.reduce((n, b) => n + b.entries.length, 0),
@@ -167,7 +252,8 @@ export function ListView({
   );
   // What the composer is typing after an `@`, or null if no token is open. An
   // empty string is a real answer: a bare `@` opens the full list.
-  const storeQuery = typingStoreToken(draft);
+  // A checklist has no stores, so `@` is only a character there.
+  const storeQuery = shopping ? typingStoreToken(draft) : null;
   const storeMatches = useMemo(
     () =>
       storeQuery === null
@@ -212,17 +298,32 @@ export function ListView({
   useEffect(() => {
     void reloadMemory();
   }, [reloadMemory]);
+  // A checklist is never grouped: an aisle header over "passport" would be the
+  // lexicon guessing at a list that is not about shops at all.
   const groups = useMemo(
-    () => groupByAisle(open, { memory }),
-    [open, memory]
+    () =>
+      shopping
+        ? groupByAisle(open, { memory })
+        : [{ aisle: null, label: "", items: open }],
+    [shopping, open, memory]
   );
 
   async function addItem() {
+    const typedDraft = draft;
+    // On "All shopping" a `#list` token picks the list and comes out of the
+    // title. Taken out first: the store run below reaches the end of the line
+    // and would otherwise swallow it.
+    const routed = combined
+      ? extractListToken(typedDraft, shopLists)
+      : { text: typedDraft, list: null };
+    const target = routed.list?.id ?? chosenTarget;
     // `@` names a store, the way `#` names a project. Parsed here rather than
     // in `parseTaskInput`, because elsewhere in the app `@` usually means a
-    // person. See `extractStoreTokens`.
-    const { title, stores: typed } = extractStoreTokens(draft);
-    if (!title || busy) return;
+    // person. See `extractStoreTokens`. Only a shopping list has stores.
+    const { title, stores: typed } = shopping
+      ? extractStoreTokens(routed.text)
+      : { title: routed.text.trim(), stores: [] as string[] };
+    if (!title || !target || busy) return;
     // Cleared *before* the write, not after: the field has to be ready for the
     // next word immediately, which is what the burst composer exists for.
     setDraft("");
@@ -230,17 +331,21 @@ export function ListView({
     const api = await getClientTasksApi();
     const { data, error } = await api.create({
       title,
-      project_id: list.id,
+      project_id: target,
       ...(typed.length > 0 ? { tags: typed.map(storeTag) } : {}),
     });
     setBusy(false);
     inputRef.current?.focus();
     if (error || !data) {
-      // Restore what they typed, every `@store` included. Restoring the parsed
-      // title alone would silently drop the shops when the network fails.
-      setDraft([title, ...typed.map((s) => `@${s}`)].join(" ").trim());
+      // Restore exactly what they typed, every `@store` and `#list` included.
+      // Rebuilding it from the parsed parts would silently drop one of them
+      // when the network fails.
+      setDraft(typedDraft);
       return;
     }
+    // "The list last added to" is the default for the next item, so a typed
+    // `#household` moves the pill for the rest of the burst too.
+    if (combined) rememberTarget(target);
     // Append only if the row isn't already here. The optimistic add and the
     // parent's re-sync are in a race, and which one lands first differs by
     // surface: against Supabase the append wins and `router.refresh()` catches
@@ -261,13 +366,14 @@ export function ListView({
    * difference between taking a suggestion and typing the word again.
    */
   async function addFromPantry(entry: PantryEntry) {
-    if (busy) return;
+    // The pantry is the target list's, so the entry goes back there.
+    if (busy || !pantryListId) return;
     setDraft("");
     setBusy(true);
     const api = await getClientTasksApi();
     const { data } = await api.create({
       title: entry.title,
-      project_id: list.id,
+      project_id: pantryListId,
       ...(entry.stores.length > 0 ? { tags: entry.stores.map(storeTag) } : {}),
     });
     setBusy(false);
@@ -287,9 +393,10 @@ export function ListView({
    * here instead, on the action that cannot be undone.
    */
   async function forget(entry: PantryEntry) {
+    if (!pantryListId) return;
     setPantry((prev) => prev.filter((e) => e.term !== entry.term));
     const api = await getClientPantryApi();
-    await api.forget(list.id, entry.term);
+    await api.forget(pantryListId, entry.term);
   }
 
   async function toggle(item: Task) {
@@ -310,7 +417,7 @@ export function ListView({
     else await api.reopen(item.id);
     // Ticking writes to the pantry, so the drawer has to reload. Awaited, or
     // the reload races the write that caused it and the entry appears late.
-    if (nextDone) await reloadPantry();
+    if (nextDone && shopping) await reloadPantry();
     startTransition(() => router.refresh());
   }
 
@@ -372,14 +479,23 @@ export function ListView({
     if (got.length === 0) return;
     setItems(open);
     const api = await getClientTasksApi();
-    await api.clearGot(list.id);
+    // The combined cart holds items from every shopping list, so its sweep
+    // covers all of them.
+    if (combined) await api.clearGotIn(shopLists.map((l) => l.id));
+    else await api.clearGot(list.id);
     startTransition(() => router.refresh());
   }
+
+  /** The list a row came from, said only where rows come from more than one. */
+  const listNameFor = (item: Task) =>
+    combined && item.project_id ? listNames.get(item.project_id) : undefined;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline gap-3">
-        <p className="text-xs text-neutral-500">{listSubline(summary)}</p>
+        <p className="text-xs text-neutral-500">
+          {listSubline(summary, { shopping })}
+        </p>
         {got.length > 0 && (
           /*
             "Put away", not "Clear bought".
@@ -394,10 +510,14 @@ export function ListView({
           */
           <button
             onClick={clearGot}
-            title="Move the bought items off the list. They stay in Bought before."
+            title={
+              shopping
+                ? "Move the bought items off the list. They stay in Bought before."
+                : "Take the done items off the list."
+            }
             className="ml-auto rounded-lg border border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 active:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            Put away
+            {copy.clear}
           </button>
         )}
       </div>
@@ -408,6 +528,52 @@ export function ListView({
         own — each row is one tap from being ticked or deleted, so a separate
         undo affordance here would be a third way to do the same thing.
       */}
+      {/*
+        Which list a new item goes to, on "All shopping" only. One pill per
+        shopping list rather than a select: there are usually two or three,
+        and a row of them says where the item is going before Enter rather
+        than after. A typed `#household` lights its pill.
+      */}
+      {combined && shopLists.length > 0 && (
+        <div
+          role="radiogroup"
+          aria-label="Add to list"
+          className="-mb-2 flex flex-wrap items-center gap-1.5"
+        >
+          <span className="text-xs text-neutral-500">Add to</span>
+          {shopLists.map((l) => {
+            const selected = l.id === destination;
+            return (
+              <button
+                key={l.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                // The field keeps focus: this is a burst composer, and the
+                // pill is picked between two items, not instead of typing.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  rememberTarget(l.id);
+                  inputRef.current?.focus();
+                }}
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  selected
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    : "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: l.color }}
+                />
+                {l.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="relative">
         {/*
           The field reserves a gutter on both sides at all times, so the glyph
@@ -420,7 +586,7 @@ export function ListView({
             active={composerFocused || draft.length > 0}
             // The same test `addItem` guards on, so the return key is live
             // exactly when pressing it would write something.
-            armed={!busy && extractStoreTokens(draft).title.length > 0}
+            armed={!busy && draftTitle.length > 0 && !!destination}
             onSubmit={() => void addItem()}
             onFocusField={() => inputRef.current?.focus()}
             idleLabel="Add an item"
@@ -459,7 +625,10 @@ export function ListView({
                 void addItem();
               }
             }}
-            placeholder="Add an item to buy"
+            placeholder={copy.placeholder}
+            // All shopping with no shopping lists has nowhere to add to. Its
+            // empty state below says how to get one.
+            disabled={!chosenTarget}
             className="flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
           />
           {addedCount > 0 && (
@@ -575,14 +744,35 @@ export function ListView({
 
       {open.length === 0 && got.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-neutral-200 py-12 text-center dark:border-neutral-800">
-          <p className="text-sm text-neutral-500">Nothing on this list.</p>
-          <p className="mt-1 text-xs text-neutral-400">
-            Type above, or add from anywhere with{" "}
-            <code className="rounded bg-neutral-100 px-1 py-0.5 dark:bg-neutral-800">
-              #{list.name.toLowerCase().replace(/\s+/g, "")}
-            </code>
-            .
-          </p>
+          {combined ? (
+            shopLists.length === 0 ? (
+              <>
+                <p className="text-sm text-neutral-500">No shopping lists.</p>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Turn on Shopping list in a list&rsquo;s settings and its
+                  items show up here.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-neutral-500">Nothing to buy.</p>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Type above to add to any of your shopping lists.
+                </p>
+              </>
+            )
+          ) : (
+            <>
+              <p className="text-sm text-neutral-500">Nothing on this list.</p>
+              <p className="mt-1 text-xs text-neutral-400">
+                Type above, or add from anywhere with{" "}
+                <code className="rounded bg-neutral-100 px-1 py-0.5 dark:bg-neutral-800">
+                  #{list.name.toLowerCase().replace(/\s+/g, "")}
+                </code>
+                .
+              </p>
+            </>
+          )}
         </div>
       ) : (
         /*
@@ -604,11 +794,15 @@ export function ListView({
                 <ItemRow
                   key={item.id}
                   item={item}
+                  shopping={shopping}
+                  listName={listNameFor(item)}
                   onToggle={toggle}
                   onOpen={openTask?.open}
-                  onAisle={setAisle}
-                  onAddStore={addStore}
-                  onRemoveStore={removeStore}
+                  // A checklist has no aisle or shop to set, so the row's
+                  // hover controls are absent rather than inert.
+                  onAisle={shopping ? setAisle : undefined}
+                  onAddStore={shopping ? addStore : undefined}
+                  onRemoveStore={shopping ? removeStore : undefined}
                   stores={stores}
                   memory={memory}
                 />
@@ -649,7 +843,7 @@ export function ListView({
       {got.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
-            Got it · {got.length}
+            {copy.gotHeader} · {got.length}
           </p>
           {/* The cart is never grouped: it's a record of what happened, not a
               route through anything, and aisle headers over it would imply
@@ -659,6 +853,8 @@ export function ListView({
               <ItemRow
                 key={item.id}
                 item={item}
+                shopping={shopping}
+                listName={listNameFor(item)}
                 onToggle={toggle}
                 onOpen={openTask?.open}
               />
@@ -751,6 +947,8 @@ function PantryBandView({
 
 function ItemRow({
   item,
+  shopping = true,
+  listName,
   onToggle,
   onOpen,
   onAisle,
@@ -760,6 +958,10 @@ function ItemRow({
   memory,
 }: {
   item: Task;
+  /** False on a checklist, which changes the tick's words and nothing else. */
+  shopping?: boolean;
+  /** The list the item is on, first in the subline. "All shopping" only. */
+  listName?: string;
   onToggle: (t: Task) => void;
   /**
    * Open the item's editor. Absent outside `OpenTaskProvider`, and then the
@@ -800,6 +1002,7 @@ function ItemRow({
     what `itemSubline` has for exactly this.
   */
   const subline = itemSubline(item, { hideStore: true }).join(" · ");
+  const tickLabel = listCopy(shopping).tickLabel(item.title, done);
   return (
     /*
       `items-start`, not `items-center`. A row can now be two lines of title
@@ -820,7 +1023,7 @@ function ItemRow({
         type="button"
         onClick={() => onToggle(item)}
         aria-pressed={done}
-        aria-label={`Mark ${item.title} as ${done ? "not bought" : "bought"}`}
+        aria-label={tickLabel}
         className="flex shrink-0 items-center py-2 pr-0.5"
       >
         <span
@@ -857,7 +1060,7 @@ function ItemRow({
         ) : (
           <span className={titleClass}>{item.title}</span>
         )}
-        {(stored.length > 0 || subline) && (
+        {(listName || stored.length > 0 || subline) && (
           /*
             The shops sit where they always were, in the muted line under the
             title — but each is a button that takes it off.
@@ -885,6 +1088,11 @@ function ItemRow({
             lets a long shop name wrap mid-line like the words it sits among.
           */
           <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            {/* First, the way `itemSubline` orders it on mobile. */}
+            {listName && <span>{listName}</span>}
+            {listName && (stored.length > 0 || subline) && (
+              <span aria-hidden> · </span>
+            )}
             {stored.map((name, i) => (
               <Fragment key={name}>
                 {/*

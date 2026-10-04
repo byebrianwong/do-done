@@ -68,15 +68,15 @@ export function ListWidget({
     );
   }
 
-  const { project, isList, tasks, aisleMemory } = data;
+  const { project, isList, isShopping, tasks, aisleMemory } = data;
   const groups = isList
-    ? buildListGroups(tasks, aisleMemory)
+    ? buildListGroups(tasks, aisleMemory, { shopping: isShopping })
     : buildProjectGroups(tasks);
 
   return (
     <TaskListWidget
       title={project.name}
-      subtitle={listWidgetSubtitle({ isList, tasks })}
+      subtitle={listWidgetSubtitle({ isList, shopping: isShopping, tasks })}
       // `(tabs)` is a route group, so these are the app's own URLs unchanged.
       tabUri={`dodone://${isList ? 'lists' : 'projects'}/${project.id}`}
       groups={groups}
@@ -86,7 +86,9 @@ export function ListWidget({
       projects={[project]}
       // A finished shopping list is a normal resting state and a finished
       // project is an achievement, so they do not say the same thing.
-      emptyText={isList ? 'Nothing left to get 🛒' : 'Nothing left here 🎉'}
+      emptyText={
+        isList && isShopping ? 'Nothing left to get 🛒' : 'Nothing left here 🎉'
+      }
       swappable
       // An empty list with a full cart still has "3 in the cart" to report, and
       // that is the sentence that says there is something to put away.

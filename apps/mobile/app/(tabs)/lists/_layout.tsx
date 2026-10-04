@@ -35,6 +35,10 @@ export default function ListsLayout() {
         options={{ headerShown: false, title: 'Lists' }}
       />
       <Stack.Screen name="[id]" options={{ headerShown: true }} />
+      <Stack.Screen
+        name="shopping"
+        options={{ headerShown: true, title: 'All shopping' }}
+      />
     </Stack>
   );
 }

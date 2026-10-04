@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted
+- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted; list items through `readItems()`: listItems, listItemsIn, listCounts, clearGot, clearGotIn
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, listAll, create, update, remove, linkTask, unlinkTask, getTaskLocations, listTaskLinks, save, listWithPendingTasks
 

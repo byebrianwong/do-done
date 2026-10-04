@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
 import type { Project, Task } from "./schemas.js";
-import { isListProject, projectKind } from "./schemas.js";
+import { isListProject, isShoppingList, projectKind } from "./schemas.js";
 import {
+  ALL_SHOPPING_ID,
   STORE_TAG_PREFIX,
+  allShoppingCounts,
+  defaultAllShoppingTarget,
+  extractListToken,
+  listCopy,
+  offersAllShopping,
+  shoppingLists,
   addStoreHint,
   applyStoreToken,
   extractStoreTokens,
@@ -574,5 +581,165 @@ describe("splitProjects", () => {
       p("Groceries", "list"),
     ]);
     expect(lists.map((x) => x.name)).toEqual(["Amazon", "Groceries"]);
+  });
+});
+
+describe("isShoppingList", () => {
+  it("treats a list with no is_shopping as a shopping list", () => {
+    // Every list was one before the column existed, and a deploy that lands
+    // ahead of its migration reads rows without it.
+    expect(isShoppingList({ kind: "list" })).toBe(true);
+    expect(isShoppingList({ kind: "list", is_shopping: true })).toBe(true);
+  });
+
+  it("makes a checklist only from an explicit false", () => {
+    expect(isShoppingList({ kind: "list", is_shopping: false })).toBe(false);
+  });
+
+  it("never calls a project a shopping list, whatever the column says", () => {
+    expect(isShoppingList({ kind: "tasks", is_shopping: true })).toBe(false);
+    expect(isShoppingList({})).toBe(false);
+    expect(isShoppingList(null)).toBe(false);
+  });
+});
+
+describe("listSubline for a checklist", () => {
+  it("says done where a shopping list says in the cart", () => {
+    expect(listSubline({ open: 2, got: 3 })).toBe("2 items · 3 in the cart");
+    expect(listSubline({ open: 2, got: 3 }, { shopping: false })).toBe(
+      "2 items · 3 done"
+    );
+  });
+
+  it("keeps Nothing on it for an empty checklist", () => {
+    expect(listSubline({ open: 0, got: 0 }, { shopping: false })).toBe(
+      "Nothing on it"
+    );
+  });
+});
+
+describe("listCopy", () => {
+  it("uses buying words only on a shopping list", () => {
+    expect(listCopy(true).gotHeader).toBe("Got it");
+    expect(listCopy(true).clear).toBe("Put away");
+    expect(listCopy(false).gotHeader).toBe("Done");
+    expect(listCopy(false).clear).toBe("Clear done");
+    expect(listCopy(false).ticked("Passport")).not.toMatch(/bought/i);
+  });
+
+  it("counts cleared items with the right plural", () => {
+    expect(listCopy(true).cleared(1)).toBe("Put away 1 item");
+    expect(listCopy(false).cleared(3)).toBe("Cleared 3 items");
+  });
+});
+
+describe("All shopping", () => {
+  const groceries = { id: "g", name: "Groceries", kind: "list" as const };
+  const household = {
+    id: "h",
+    name: "Household",
+    kind: "list" as const,
+    is_shopping: true,
+  };
+  const packing = {
+    id: "p",
+    name: "Packing",
+    kind: "list" as const,
+    is_shopping: false,
+  };
+  const work = { id: "w", name: "Work", kind: "tasks" as const };
+
+  it("has an id no list can have", () => {
+    // List ids are uuids. The combined view shares their URL space and the
+    // resume memory, so a uuid-shaped id would be a collision waiting.
+    expect(ALL_SHOPPING_ID).not.toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("collects shopping lists in the order given, skipping checklists and projects", () => {
+    expect(
+      shoppingLists([work, household, packing, groceries]).map((l) => l.id)
+    ).toEqual(["h", "g"]);
+  });
+
+  it("is offered from two shopping lists, not one", () => {
+    expect(offersAllShopping([groceries, packing, work])).toBe(false);
+    expect(offersAllShopping([groceries, household])).toBe(true);
+  });
+
+  it("sums counts across shopping lists only", () => {
+    const counts = new Map([
+      ["g", { open: 4, got: 1 }],
+      ["h", { open: 2, got: 0 }],
+      ["p", { open: 9, got: 9 }],
+    ]);
+    expect(
+      allShoppingCounts([groceries, household, packing], counts)
+    ).toEqual({ open: 6, got: 1 });
+  });
+
+  it("defaults new items to the list last added to, while it is still offered", () => {
+    const lists = [groceries, household];
+    expect(defaultAllShoppingTarget({ lists, lastId: "h" })).toBe("h");
+    // A remembered list that was deleted or turned into a checklist falls
+    // back to the first one rather than writing into something not on screen.
+    expect(defaultAllShoppingTarget({ lists, lastId: "p" })).toBe("g");
+    expect(defaultAllShoppingTarget({ lists, lastId: null })).toBe("g");
+    expect(defaultAllShoppingTarget({ lists: [], lastId: "h" })).toBeNull();
+  });
+});
+
+describe("extractListToken", () => {
+  const lists = [
+    { id: "g", name: "Groceries" },
+    { id: "h", name: "Household" },
+  ];
+
+  it("takes out a #token that names a list", () => {
+    expect(extractListToken("bin bags #household", lists)).toEqual({
+      text: "bin bags",
+      list: lists[1],
+    });
+  });
+
+  it("leaves an unmatched #word in the title", () => {
+    expect(extractListToken("size #4 batteries", lists)).toEqual({
+      text: "size #4 batteries",
+      list: null,
+    });
+  });
+
+  it("finds a token typed after the store run", () => {
+    // The store run reaches the end of the line, so this has to run first or
+    // the store would be called "Target #household".
+    const { text, list } = extractListToken(
+      "sponges @Target #household",
+      lists
+    );
+    expect(list?.id).toBe("h");
+    expect(extractStoreTokens(text)).toEqual({
+      title: "sponges",
+      stores: ["Target"],
+    });
+  });
+
+  it("lets the last matching token win", () => {
+    expect(
+      extractListToken("milk #household #groceries", lists).list?.id
+    ).toBe("g");
+  });
+
+  it("ignores a # in the middle of a word", () => {
+    expect(extractListToken("item#household", lists).list).toBeNull();
+  });
+});
+
+describe("itemSubline in All shopping", () => {
+  it("names the list first, then the store", () => {
+    expect(
+      itemSubline(fullItem({ tags: [storeTag("Target")] }), {
+        now: NOW,
+        listName: "Household",
+      })
+    ).toEqual(["Household", "Target"]);
   });
 });

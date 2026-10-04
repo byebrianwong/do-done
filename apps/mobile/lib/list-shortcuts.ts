@@ -24,9 +24,11 @@ import { loadResume } from '@/lib/tab-resume';
 import {
   DELETED_LIST_MESSAGE,
   LIST_SHORTCUT_PREFIX,
+  allShoppingShortcut,
   listShortcutFor,
   planListShortcuts,
 } from '@/lib/list-shortcut-plan';
+import type { ListShortcut } from '@/lib/list-shortcut-plan';
 import type { ListShortcutsNativeModule } from '@/modules/list-shortcuts';
 
 const DEBOUNCE_MS = 800;
@@ -139,11 +141,23 @@ export type PinResult =
 export async function pinListShortcut(
   list: Pick<Project, 'id' | 'name' | 'color'>
 ): Promise<PinResult> {
+  return requestPin(listShortcutFor(list));
+}
+
+/**
+ * Ask the system to put "All shopping" on the home screen. Same contract as
+ * `pinListShortcut`: `'requested'` is as much as anyone can know.
+ */
+export async function pinAllShoppingShortcut(): Promise<PinResult> {
+  return requestPin(allShoppingShortcut());
+}
+
+async function requestPin(shortcut: ListShortcut): Promise<PinResult> {
   const native = nativeModule();
   if (!native) return 'unsupported';
   try {
     if (!(await native.isPinSupported())) return 'unsupported';
-    const ok = await native.requestPin(listShortcutFor(list));
+    const ok = await native.requestPin(shortcut);
     return ok ? 'requested' : 'failed';
   } catch {
     return 'failed';

@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Project } from "@do-done/shared";
-import { splitProjects } from "@do-done/shared";
+import {
+  ALL_SHOPPING_ID,
+  ALL_SHOPPING_NAME,
+  offersAllShopping,
+  splitProjects,
+} from "@do-done/shared";
 import { openQuickAdd } from "@/lib/quick-add-events";
 import { DEMO_BASE, isDemoPath } from "@/lib/demo/mode";
 import { NavPendingDot } from "./nav-pending-dot";
@@ -348,6 +353,29 @@ export function SidebarNav({
               Lists
             </Link>
           </div>
+          {/*
+            "All shopping" heads the section once there are two shopping lists
+            to combine; with one it would be that list again under a second
+            name. Outside the sortable list, because it is not a list and has
+            no place in their order. It is always first.
+          */}
+          {offersAllShopping(lists) && (
+            <Link
+              href={`${base}/lists/${ALL_SHOPPING_ID}`}
+              className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-[background-color,color] duration-75 ${
+                pathname === `${base}/lists/${ALL_SHOPPING_ID}`
+                  ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 active:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 dark:active:bg-neutral-700"
+              }`}
+            >
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-full bg-indigo-500"
+              />
+              <span className="truncate">{ALL_SHOPPING_NAME}</span>
+              <NavPendingDot />
+            </Link>
+          )}
           <SortableProjectList projects={lists} segment="lists" />
         </>
       )}

@@ -1661,7 +1661,8 @@ in the same drawer as everything they are trying to think about.
 
 ```
 projects.kind = 'tasks' | 'list'
-tasks.is_list_item        derived from it, by trigger
+projects.is_shopping      shopping list or checklist; read only on a list
+tasks.is_list_item        derived from kind, by trigger
 ```
 
 A thing you are going to buy is a small task: it gets ticked off, it can carry a
@@ -1694,7 +1695,7 @@ that shows someone their groceries in Today.
 | --- | --- |
 | `base()` | live rows of both kinds. Only the two below may call it. |
 | `read()` | the task universe. All fifteen existing reads, unchanged. |
-| `readItems()` | shopping-list items. `listItems`, `listCounts`, `clearGot`. |
+| `readItems()` | list items. `listItems`, `listItemsIn`, `listCounts`, `clearGot`, `clearGotIn`. |
 
 **Reads by *id* deliberately use `base()`.** The isolation is about lists of
 tasks, not about addressing one: an item has a `/task/<id>` link and opens in the
@@ -1723,6 +1724,93 @@ Four rules that are not in that function:
 
 The calendar trigger learned the same clause: a dated item re-parented into a
 list would otherwise leave a live event pointing at a tin of tomatoes.
+
+### A list is a shopping list or a checklist
+
+**`projects.is_shopping` turns the shopping features on.** With it off, a list is
+a plain checklist: no aisle groups or aisle rings, no `@store`, no store controls,
+no pantry, no "Probably due", and it is left out of All shopping. A packing list
+or a reading list is a list of things to tick off, and an aisle header over
+"passport" was the lexicon guessing at a list that is not about shops.
+
+| | Shopping list | Checklist |
+| --- | --- | --- |
+| Grouping | aisles, in walking order | one flat group |
+| Ring | the aisle's colour and icon | the neutral ring |
+| `@` in the composer | names a store | an ordinary character |
+| Ticking off | records the buy in the pantry | records nothing |
+| Words | "Got it", "Put away", "3 in the cart" | "Done", "Clear done", "3 done" |
+| In All shopping | yes | no |
+
+- **It defaults to true**, in the column and on read. Every list was a shopping
+  list before the column existed, so `isShoppingList()` treats an absent value as
+  true and only `false` makes a checklist. Read it through that function, which
+  also checks `kind`: the column means nothing on a project.
+- **The forms send it only when it says something the default does not**: `false`
+  on create, and a change on edit. A rename from a bundle that predates the
+  migration (`20261004000001_list_is_shopping.sql`) would otherwise name a column
+  the table lacks.
+- **Nothing cascades.** An item on a checklist is still `is_list_item`, still
+  outside the task universe, still read through `readItems()`. That is why there
+  is no trigger, and why the switch can be flipped back without losing anything.
+- **The pantry gate is in `TasksApi.update`**, beside the record it gates. It
+  reads the list's `is_shopping` inside the fire-and-forget, so the tick never
+  waits on it. A failed read, or a database without the column, records as
+  before. `apps/web/src/lib/demo/api.ts` mirrors it.
+- **The words live in `listCopy(shopping)`** in `packages/shared/src/lists.ts`, so
+  the phone and the laptop cannot name the same action differently. "Put away" is
+  a shopping word for a second reason: it is safe because the pantry recorded each
+  item. A checklist has no pantry, so its clear says "Clear done". Both undo.
+- **The switch is in the list's own form**: `ProjectFormSheet` on mobile, a
+  checkbox in `ProjectForm` on web. A new list starts as a shopping list.
+- **The List widget follows it** (`buildListGroups(…, { shopping })`): a checklist
+  pinned there is one flat group with neutral rings.
+
+### All shopping: every shopping list on one screen
+
+**One view shows the items of every shopping list, grouped by aisle.** Groceries
+and household things both come from Target, and walking two lists in one shop
+means switching between them at every aisle.
+
+| Surface | Where |
+| --- | --- |
+| Web | `/lists/shopping`. A card heads `/lists`, and a link heads the sidebar's Lists section. |
+| Mobile | `/lists/shopping`. A row heads the Lists tab. |
+| Android | a pinned icon, and the long-press menu entry when it was the last list screen |
+
+`ALL_SHOPPING_ID` (`"shopping"`) is what the view goes by wherever a list id is
+expected: the URL, the Lists tab's resume memory, the query cache and the shortcut
+id. A list's id is a uuid, so the two cannot collide. The route is a static
+segment beside `[id]` on both platforms, and both routers match the static one
+first.
+
+- **It is offered from two shopping lists** (`offersAllShopping`). With one it is
+  that list again under a second name. The route works with any number, including
+  none, because a pinned icon or a bookmark made earlier has to land on something
+  that explains itself.
+- **Each row names its list first** (`itemSubline`'s `listName`). It is the one
+  surface where rows come from more than one list.
+- **The composer adds to the list shown by a pill row.** One pill per shopping
+  list, defaulting to the list last added to from this view
+  (`defaultAllShoppingTarget`; AsyncStorage on mobile, localStorage on web).
+  A typed `#household` beats the pill and lights it, the same precedence
+  quick-add gives a typed `#project` over the page. `extractListToken` takes it
+  out of the title, and has to run before `extractStoreTokens`, whose run reaches
+  the end of the line.
+- **The pantry appears only as the composer's suggestions**, read from the list
+  the pills point at. "Probably due" and the drawer are a record of one list, and
+  over several they would put things back on a list the view does not single out.
+- **"Put away" clears every shopping list's cart** (`clearGotIn`), as one undo.
+- **One screen component, not two.** Mobile's `components/ListDetail.tsx` and
+  web's `ListView` take the mode from their props: a list, a checklist, or
+  `ALL_SHOPPING_ID` / `list={null}`. The burst composer, the tick animation's
+  keying and the keyboard lift are the same in all three, and a copy is how one
+  stops matching the others.
+- **On mobile its cache is `listKeys.itemsFor('shopping')`**, under
+  `listKeys.items()` like every list. That is what lets the optimistic sweeps in
+  `task-queries.ts` tick a row off here without knowing the view exists.
+  `addListItem`'s `alsoInto` appends a new item to it, since only the screen adding
+  the item knows it is in this view.
 
 ### Store hints change the order, never what is shown
 
@@ -3563,6 +3651,20 @@ The two kinds do different jobs and are limited differently:
 | --- | --- | --- |
 | Pinned | No limit | One home-screen icon per list, created on request |
 | Dynamic | One | The app icon's long-press menu |
+
+**All shopping gets one too**, through the same module with no Kotlin change.
+Its shortcut is `list:shopping`, labelled "Shopping" under the icon (the full
+name truncates to "All shopp…") and "All shopping" in the menu, on the accent
+colour. It is pinned from the "Add to Home screen" button in that screen's title
+bar, or a long press on its row in the Lists tab.
+
+- **It is in every plan**, whatever lists exist. The sync disables anything pinned
+  that is not in the plan, with "This list was deleted." The view is not a list
+  and cannot be deleted, so leaving it out would show that message on an icon
+  whose target still works.
+- **It takes the menu slot only when it was the last list screen.** The fallback
+  for no memory stays the first list, because the fallback exists to put a list
+  in front of someone who has never opened one.
 
 - **One dynamic entry, because the menu holds four.** Most launchers show four shortcuts there,
   Launcher3 sorts manifest ones ahead of dynamic ones, and it then reserves up to two of the four

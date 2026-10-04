@@ -12,7 +12,7 @@
  * thing this component is responsible for producing.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Project } from "@do-done/shared";
 import { OpenTaskProvider } from "@/lib/open-task";
@@ -89,6 +89,7 @@ beforeEach(() => {
   update.mockReset();
   update.mockResolvedValue({ data: null, error: null });
   window.history.replaceState(null, "", "/lists/list-1");
+  window.localStorage.clear();
 });
 
 describe("a shopping-list row", () => {
@@ -225,5 +226,127 @@ describe("the shops on an item", () => {
     // shown nowhere.
     expect(screen.getByRole("button", { name: "Remove Target" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Costco" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A list with Shopping list turned off is a plain checklist. Everything that
+ * is about shops goes, and the words stop being about buying.
+ */
+describe("a checklist", () => {
+  const CHECKLIST = { ...LIST, name: "Packing", is_shopping: false } as Project;
+  const PASSPORT = makeTask({ id: "item-9", title: "Passport", project_id: "list-1" });
+
+  function mountChecklist() {
+    return render(
+      <OpenTaskProvider>
+        <ListView list={CHECKLIST} initialItems={[PASSPORT]} />
+      </OpenTaskProvider>
+    );
+  }
+
+  it("ticks with task words, not shopping words", async () => {
+    mountChecklist();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Mark Passport as done" })
+    );
+    expect(complete).toHaveBeenCalledWith("item-9");
+  });
+
+  it("offers no shop field and no aisle picker on a row", () => {
+    mountChecklist();
+    expect(
+      screen.queryByRole("combobox", { name: "Add a shop for Passport" })
+    ).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Aisle for Passport" })).toBeNull();
+  });
+
+  it("keeps an @ in the title rather than reading it as a shop", async () => {
+    mountChecklist();
+    await userEvent.type(
+      screen.getByPlaceholderText("Add an item"),
+      "Email @sam{Enter}"
+    );
+    expect(create).toHaveBeenCalledWith({
+      title: "Email @sam",
+      project_id: "list-1",
+    });
+  });
+});
+
+/**
+ * "All shopping": every shopping list's items on one page, and a pill per list
+ * saying where a new item goes.
+ */
+describe("All shopping", () => {
+  const GROCERIES = { ...LIST, id: "g", name: "Groceries" } as Project;
+  const HOUSEHOLD = {
+    ...LIST,
+    id: "h",
+    name: "Household",
+    color: "#0ea5e9",
+  } as Project;
+  const MILK = makeTask({ id: "m", title: "Milk", project_id: "g" });
+  const TOWELS = makeTask({ id: "t", title: "Paper towels", project_id: "h" });
+
+  function mountAll() {
+    return render(
+      <OpenTaskProvider>
+        <ListView
+          list={null}
+          shoppingLists={[GROCERIES, HOUSEHOLD]}
+          initialItems={[MILK, TOWELS]}
+        />
+      </OpenTaskProvider>
+    );
+  }
+
+  it("says which list each item is on", () => {
+    mountAll();
+    const row = screen.getByRole("button", { name: "Paper towels" }).closest("li")!;
+    // "Household" is also an aisle, so the row's aisle picker has an option
+    // with the same text. The list name is the one in the subline.
+    expect(
+      within(row)
+        .getAllByText("Household")
+        .some((el) => el.tagName === "SPAN")
+    ).toBe(true);
+  });
+
+  it("adds to the first shopping list when nothing is remembered", async () => {
+    mountAll();
+    await userEvent.type(screen.getByPlaceholderText("Add an item to buy"), "Eggs{Enter}");
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Eggs", project_id: "g" })
+    );
+  });
+
+  it("adds to the list whose pill was picked", async () => {
+    mountAll();
+    await userEvent.click(screen.getByRole("radio", { name: /Household/ }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Add an item to buy"),
+      "Bin bags{Enter}"
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Bin bags", project_id: "h" })
+    );
+  });
+
+  it("files a typed #list there, and takes the token out of the name", async () => {
+    mountAll();
+    const field = screen.getByPlaceholderText("Add an item to buy");
+    await userEvent.type(field, "Sponges #household");
+    // The pill shows where Enter would send it before Enter is pressed.
+    expect(screen.getByRole("radio", { name: /Household/ })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    await userEvent.type(field, " @Target{Enter}");
+    expect(create).toHaveBeenCalledWith({
+      title: "Sponges",
+      project_id: "h",
+      tags: ["at:Target"],
+    });
   });
 });
