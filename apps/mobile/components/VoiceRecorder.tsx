@@ -14,7 +14,14 @@
  */
 
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
   formatRecordingTime,
@@ -25,6 +32,12 @@ import type { VoiceCapture } from "@/lib/voice-capture";
 
 /** Bars in the level meter. Odd, so there is a centre one to peak. */
 const BAR_COUNT = 9;
+
+/** Line height of the dictated note's text. */
+const NOTE_LINE_HEIGHT = 18;
+
+/** The dictated note shows six lines, then scrolls. */
+const NOTE_MAX_HEIGHT = NOTE_LINE_HEIGHT * 6;
 
 /**
  * A bar's height for the current input level.
@@ -134,11 +147,11 @@ export default function VoiceRecorder({
  * What a finished dictation left behind, shown on the quick-add surfaces while
  * the task is still being composed.
  *
- * Both halves need saying. The description is text the collapsed line can't
- * show, and the recording is a file that exists but has nowhere to live until
- * the task is submitted — without the pill there is no evidence at all that
- * audio is about to be attached, and a user who cleared the text would
- * reasonably assume they had cleared the recording too.
+ * Both halves need saying. The description is the part of the transcript that
+ * did not go into the title, and the recording is a file that exists but has
+ * nowhere to live until the task is submitted — without the pill there is no
+ * evidence at all that audio is about to be attached, and a user who cleared
+ * the text would reasonably assume they had cleared the recording too.
  */
 export function DictatedNote({
   description,
@@ -170,9 +183,18 @@ export function DictatedNote({
         </Pressable>
       </View>
       {description ? (
-        <Text style={styles.noteBody} numberOfLines={3}>
-          {description}
-        </Text>
+        // Scrolls past NOTE_MAX_HEIGHT instead of cutting off with an
+        // ellipsis. A long dictation puts most of its words here, and a
+        // three-line clamp hid them until the task was opened in the editor.
+        // "handled" lets a tap inside the note land without dropping the
+        // keyboard first.
+        <ScrollView
+          style={styles.noteScroll}
+          keyboardShouldPersistTaps="handled"
+          persistentScrollbar
+        >
+          <Text style={styles.noteBody}>{description}</Text>
+        </ScrollView>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -247,5 +269,6 @@ const styles = StyleSheet.create({
   noteHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   noteLabel: { fontSize: 11, fontWeight: "700", color: "#4f46e5" },
   noteClear: { fontSize: 17, lineHeight: 18, color: "#a5b4fc" },
-  noteBody: { fontSize: 13, lineHeight: 18, color: "#374151" },
+  noteScroll: { maxHeight: NOTE_MAX_HEIGHT },
+  noteBody: { fontSize: 13, lineHeight: NOTE_LINE_HEIGHT, color: "#374151" },
 });

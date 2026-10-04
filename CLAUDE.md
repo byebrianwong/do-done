@@ -2905,6 +2905,12 @@ Rules that look arbitrary and are not:
 - **The recorder is a plain card, not a `Modal`.** Every surface it appears on is
   keyboard-anchored, and an Android `Modal` opens a new window and drops the IME — the same
   reason `QuickAddFields`' chip popovers are inline.
+- **The quick-add title field wraps, and the dictated note scrolls.** A dictated title runs up
+  to `VOICE_TITLE_MAX_CHARS`, and a second dictation appends to it. The field used to be one
+  line, so most of a dictated title scrolled sideways out of sight. It now grows to about
+  five lines and then scrolls. Return still adds the task: `submitBehavior="submit"` keeps
+  it from inserting a newline. The note below it held the rest of the transcript in three
+  lines with an ellipsis. It now shows six and scrolls past that.
 
 ### Ways in
 
