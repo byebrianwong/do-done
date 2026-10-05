@@ -22,12 +22,102 @@ data class WearSnapshot(
   val version: Int,
   val generatedAt: Long,
   val lists: List<WearList>,
-  val counts: WearCounts
+  val counts: WearCounts,
+  /** The phone's local day `lists` and `counts` describe. Empty from an older phone bundle. */
+  val day: String = "",
+  /**
+   * Epoch ms of the midnight that ends [day]. Past it, `lists` and `counts` are
+   * yesterday's. Zero means the phone did not say, and the view never expires,
+   * which is how this app behaved before the field existed.
+   */
+  val validUntil: Long = 0L,
+  /** The same tasks as they read after midnight, built by the phone. See [at]. */
+  val next: WearDayView? = null,
+  /** Which of the views [at] picked. Never sent; always [Validity.CURRENT] as stored. */
+  val validity: Validity = Validity.CURRENT
 ) {
   fun list(key: String): WearList? = lists.firstOrNull { it.key == key }
 
+  /**
+   * The view that is true at [nowMs].
+   *
+   * **The watch never re-derives a day on its own.** The phone sends today's
+   * view and tomorrow's, each with the instant it stops being true, and this
+   * only picks between them. Re-bucketing rows by date here would be a second
+   * copy of the grouping rules in Kotlin, which this app avoids everywhere else.
+   *
+   * Past tomorrow's end there is nothing true left to show. The view is then
+   * [Validity.EXPIRED]: the tile and the complications say so rather than show
+   * a count from two days ago as if it were today's.
+   */
+  fun at(nowMs: Long): WearSnapshot {
+    if (validUntil == 0L || nowMs < validUntil) return this
+    val following = next
+    if (following != null && nowMs < following.validUntil) {
+      return copy(
+        day = following.day,
+        validUntil = following.validUntil,
+        lists = following.lists,
+        counts = following.counts,
+        next = null,
+        validity = Validity.NEXT_DAY
+      )
+    }
+    val latest = following ?: WearDayView(day, validUntil, lists, counts)
+    return copy(
+      day = latest.day,
+      validUntil = latest.validUntil,
+      lists = latest.lists,
+      counts = latest.counts,
+      next = null,
+      validity = Validity.EXPIRED
+    )
+  }
+
+  /**
+   * From [nowMs] on, one period per answer [at] gives: today until midnight,
+   * tomorrow until the midnight after, then expired.
+   *
+   * The tile and the complications hand the system one timeline entry per
+   * period, so the switch at midnight happens on the watch's own clock without
+   * waking this app or the phone.
+   *
+   * The first period starts at zero rather than at [nowMs]. The system checks
+   * entries against its own clock, read a moment after this one, and a first
+   * entry starting in its future would leave nothing to draw for that moment.
+   */
+  fun periodsFrom(nowMs: Long): List<ViewPeriod> {
+    val cuts = listOfNotNull(validUntil.takeIf { it > 0L }, next?.validUntil?.takeIf { it > 0L })
+      .filter { it > nowMs }
+      .distinct()
+      .sorted()
+    val out = mutableListOf<ViewPeriod>()
+    var start = nowMs
+    for (cut in cuts) {
+      out += ViewPeriod(if (out.isEmpty()) 0L else start, cut, at(start))
+      start = cut
+    }
+    out += ViewPeriod(if (out.isEmpty()) 0L else start, FOREVER_MS, at(start))
+    return out
+  }
+
+  /** Every task id either view lists. */
+  fun rowIds(): Set<String> =
+    (lists + (next?.lists ?: emptyList()))
+      .flatMap { it.groups }
+      .flatMap { it.rows }
+      .map { it.id }
+      .toSet()
+
   companion object {
     val EMPTY = WearSnapshot(WearContract.SNAPSHOT_VERSION, 0L, emptyList(), WearCounts.EMPTY)
+
+    /**
+     * Far enough out to mean "from here on". Not `Long.MAX_VALUE`: the
+     * platform converts these to seconds and compares them, and a value at the
+     * edge of the type is one arithmetic step from overflowing.
+     */
+    const val FOREVER_MS = 4_102_444_800_000L // 2100-01-01
 
     /**
      * Returns null for anything this build cannot read — a bad payload, or a
@@ -44,12 +134,47 @@ data class WearSnapshot(
           version = version,
           generatedAt = root.optLong("generatedAt", 0L),
           lists = root.optJSONArray("lists").mapObjects { WearList.parse(it) },
-          counts = WearCounts.parse(root.optJSONObject("counts"))
+          counts = WearCounts.parse(root.optJSONObject("counts")),
+          day = root.optString("day"),
+          validUntil = root.optLong("validUntil", 0L),
+          next = root.optJSONObject("next")?.let { WearDayView.parse(it) }
         )
       }
     } catch (err: Exception) {
       null
     }
+  }
+}
+
+/** A stretch of time and the view that is true during it. End is exclusive. */
+data class ViewPeriod(val startMs: Long, val endMs: Long, val view: WearSnapshot)
+
+/** Which view [WearSnapshot.at] picked. */
+enum class Validity {
+  /** The day the phone built the snapshot on. */
+  CURRENT,
+
+  /** The phone's precomputed view of the following day. */
+  NEXT_DAY,
+
+  /** Past both. Nothing in the snapshot describes today. */
+  EXPIRED
+}
+
+/** One day's lists and counts. The phone sends today's and tomorrow's. */
+data class WearDayView(
+  val day: String,
+  val validUntil: Long,
+  val lists: List<WearList>,
+  val counts: WearCounts
+) {
+  companion object {
+    fun parse(o: JSONObject) = WearDayView(
+      day = o.optString("day"),
+      validUntil = o.optLong("validUntil", 0L),
+      lists = o.optJSONArray("lists").mapObjects { WearList.parse(it) },
+      counts = WearCounts.parse(o.optJSONObject("counts"))
+    )
   }
 }
 

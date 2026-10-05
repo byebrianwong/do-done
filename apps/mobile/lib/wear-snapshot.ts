@@ -51,9 +51,12 @@ export const WEAR_SNAPSHOT_VERSION = 1;
  *
  * A `DataItem` payload is capped at 100 KB by the Wearable Data Layer, and
  * exceeding it fails the put rather than truncating it — so the whole watch
- * goes stale, silently, for the users with the most tasks. At roughly 150 bytes
- * a row across three lists this leaves an order of magnitude of headroom, and
- * nobody scrolls past forty rows on a watch anyway.
+ * goes stale, silently, for the users with the most tasks.
+ *
+ * A snapshot carries three lists for two days (see `next`), so up to 240 rows.
+ * With every subline part filled in (time, deadline, recurrence, a long project
+ * name) and 80-character titles, that measured about 63 KB. The test holds it
+ * under 75 KB. Nobody scrolls past forty rows on a watch anyway.
  */
 export const WEAR_MAX_ROWS_PER_LIST = 40;
 
@@ -112,67 +115,112 @@ export interface WearCounts {
   nextTitle: string;
 }
 
-export interface WearSnapshot {
+/**
+ * The three lists and the counts, as they read on one day.
+ *
+ * A snapshot carries two of these: the day it was built on, and the next one.
+ */
+export interface WearDayView {
+  /** The phone's local day this view describes, `YYYY-MM-DD`. */
+  day: string;
+  /**
+   * Epoch ms of the local midnight that ends `day`. Past it, this view is
+   * yesterday's: its "Today" group, its overdue count and every "Tomorrow" in a
+   * subline are a day off.
+   */
+  validUntil: number;
+  lists: WearList[];
+  counts: WearCounts;
+}
+
+export interface WearSnapshot extends WearDayView {
   v: number;
   /** Epoch ms, so the watch can say how old the list it is showing is. */
   generatedAt: number;
-  lists: WearList[];
-  counts: WearCounts;
+  /**
+   * The same tasks, grouped and worded as they will read after midnight.
+   *
+   * **This is what keeps the tile and the complications right overnight.**
+   * Nothing rebuilds a snapshot at midnight: the phone sends one on a write, on
+   * a foreground, or when the watch app asks. So a tile glanced at before the
+   * phone is opened in the morning would otherwise show yesterday's Today list.
+   * The watch switches to this view at `validUntil` without waking anything,
+   * and asks the phone for a fresh snapshot the next time it is drawn.
+   *
+   * It is a forecast from today's rows, not a second query. Anything that
+   * changes a task at midnight on its own (the status-sync sweep) is not in it
+   * until the phone sends the real thing.
+   */
+  next: WearDayView;
 }
 
 export interface BuildWearSnapshotInput {
   tasks: Task[];
   projects: Project[];
+  /** Defaults to the clock. Tests pass a fixed instant. */
+  now?: Date;
 }
 
 /**
- * **There is no `now` to inject, deliberately.**
- *
- * `buildTodayGroups` and `buildUpcomingGroups` read the clock themselves and
- * take no parameter, so a date passed in here could only reach the *rows* — the
- * grouping would still use the real day. The two then disagree, and the way that
- * shows up is a task landing in the Overdue group while its own subline reads
- * "Today".
- *
- * This is the convention `widget-layout.test.ts` already follows: anchor a test
- * on `todayLocalISO()` and `addDaysLocalISO()` rather than pinning a date the
- * code underneath cannot be told about.
- */
-
-/**
  * Turn a task list into the three lists, the counts, and every row's finished
- * presentation.
+ * presentation, for today and for tomorrow.
  *
  * The two dated lists reuse the widgets' grouping rather than re-deriving it,
  * for the reason `buildNextUp` gives: a watch and a home screen showing
  * different answers to "what is next" is worse than either showing nothing.
+ *
+ * `now` reaches the grouping as well as the rows. If only the rows got it, a
+ * task could land in the Overdue group while its own subline read "Today".
  */
 export function buildWearSnapshot({
   tasks,
   projects,
+  now = new Date(),
 }: BuildWearSnapshotInput): WearSnapshot {
-  // Read once, so the rows and the counts cannot straddle midnight even though
-  // the grouping above reads the clock again a microsecond later.
-  const now = new Date();
-  const todayGroups = buildTodayGroups(tasks);
-  const upcomingGroups = buildUpcomingGroups(tasks);
-  const inboxGroups = buildInboxGroups(tasks);
-
-  const lists: WearList[] = [
-    { key: 'today', title: 'Today', groups: toGroups(todayGroups, projects, now) },
-    {
-      key: 'upcoming',
-      title: 'Upcoming',
-      groups: toGroups(upcomingGroups, projects, now),
-    },
-    { key: 'inbox', title: 'Inbox', groups: toGroups(inboxGroups, projects, now) },
-  ];
-
+  const tomorrow = startOfLocalDay(now, 1);
   return {
     v: WEAR_SNAPSHOT_VERSION,
     generatedAt: now.getTime(),
+    ...buildDayView(tasks, projects, now, tomorrow),
+    next: buildDayView(tasks, projects, tomorrow, startOfLocalDay(now, 2)),
+  };
+}
+
+/**
+ * Local midnight, `offsetDays` after the day `from` falls on.
+ *
+ * Built from the date parts rather than by adding 24 hours, so a day with a
+ * daylight-saving change still ends at midnight.
+ */
+function startOfLocalDay(from: Date, offsetDays: number): Date {
+  return new Date(from.getFullYear(), from.getMonth(), from.getDate() + offsetDays);
+}
+
+function buildDayView(
+  tasks: Task[],
+  projects: Project[],
+  at: Date,
+  end: Date
+): WearDayView {
+  const todayGroups = buildTodayGroups(tasks, at);
+  const upcomingGroups = buildUpcomingGroups(tasks, at);
+  const inboxGroups = buildInboxGroups(tasks);
+
+  const lists: WearList[] = [
+    { key: 'today', title: 'Today', groups: toGroups(todayGroups, projects, at) },
+    {
+      key: 'upcoming',
+      title: 'Upcoming',
+      groups: toGroups(upcomingGroups, projects, at),
+    },
+    { key: 'inbox', title: 'Inbox', groups: toGroups(inboxGroups, projects, at) },
+  ];
+
+  return {
+    day: todayLocalISO(at),
+    validUntil: end.getTime(),
     lists,
-    counts: buildCounts(tasks, todayGroups, now),
+    counts: buildCounts(tasks, todayGroups, at),
   };
 }
 

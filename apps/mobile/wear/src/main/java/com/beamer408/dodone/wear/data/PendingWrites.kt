@@ -66,6 +66,10 @@ object PendingWrites {
     }
   }
 
+  /** Task ids with a completion still waiting to go out. */
+  fun queuedCompletions(context: Context): Set<String> =
+    all(context).filter { it.op == Entry.OP_COMPLETE }.map { it.taskId }.toSet()
+
   fun add(context: Context, entry: Entry) {
     // Newest wins on a full queue. The alternative — refusing the write — would
     // put the row back under the user's finger with no way to say why.

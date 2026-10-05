@@ -94,11 +94,17 @@ function dayLabel(iso: string): string {
 /**
  * Today widget groups: Overdue (if any) then Today — everything scheduled on or
  * before today plus the focus picks, matching the app's Today view universe.
+ *
+ * `now` defaults to the clock. `lib/wear-snapshot.ts` passes the next local
+ * midnight to build the list the watch switches to when the day turns over.
  */
-export function buildTodayGroups(tasks: Task[]): WidgetGroup[] {
-  const today = todayLocalISO();
-  const universe = todayUniverse(tasks, today, 3);
-  const overdue = universe.filter((t) => isOverdue(t));
+export function buildTodayGroups(
+  tasks: Task[],
+  now: Date = new Date()
+): WidgetGroup[] {
+  const today = todayLocalISO(now);
+  const universe = todayUniverse(tasks, today, 3, now);
+  const overdue = universe.filter((t) => isOverdue(t, now));
   const overdueIds = new Set(overdue.map((t) => t.id));
   const rest = universe.filter((t) => !overdueIds.has(t.id));
 
@@ -125,11 +131,15 @@ export function buildTodayGroups(tasks: Task[]): WidgetGroup[] {
  * horizon → Later (beyond the horizon) → Anytime (undated). Mirrors the app's
  * Upcoming screen (minus calendar events and drag targets). Empty day sections
  * are dropped except Today, which always shows so the widget isn't blank.
+ * `now` works as it does for {@link buildTodayGroups}.
  */
-export function buildUpcomingGroups(tasks: Task[]): WidgetGroup[] {
-  const today = todayLocalISO();
-  const tomorrow = addDaysLocalISO(1);
-  const horizonEnd = addDaysLocalISO(UPCOMING_HORIZON_DAYS);
+export function buildUpcomingGroups(
+  tasks: Task[],
+  now: Date = new Date()
+): WidgetGroup[] {
+  const today = todayLocalISO(now);
+  const tomorrow = addDaysLocalISO(1, now);
+  const horizonEnd = addDaysLocalISO(UPCOMING_HORIZON_DAYS, now);
 
   const overdue: Task[] = [];
   const byDate = new Map<string, Task[]>([
@@ -141,7 +151,7 @@ export function buildUpcomingGroups(tasks: Task[]): WidgetGroup[] {
 
   for (const t of tasks) {
     if (t.status === 'done' || t.status === 'cancelled') continue;
-    if (isOverdue(t)) {
+    if (isOverdue(t, now)) {
       overdue.push(t);
       continue;
     }
