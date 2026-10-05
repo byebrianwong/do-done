@@ -3951,11 +3951,20 @@ the root buildscript classpath — Kotlin 2.x moved Compose out of the compiler,
 Expo's generated project does not carry it because nothing else in an Expo app
 uses Compose.
 
-**None of it has been compiled.** There is no Android SDK, JDK, emulator or watch
-on this machine, and the AndroidX versions in `wear/build.gradle` were written
-from memory rather than resolved. See
+**It compiles, and has never run.** The first build was done in a cloud
+session with the Android SDK installed, from a clean `expo prebuild`: the watch
+APK (debug and release, with R8), the phone-side module and the phone app's
+Kotlin all compile. That build found four faults, all fixed: a Compose version
+that does not exist (`compose-material3` jumped from `1.0.0-alpha37` to
+`1.5.0`), a `kotlinVersion` the config plugin read before anything set it, a
+phone module with no `versionName` and no React Native dependency, and one type
+mismatch. No emulator or watch has drawn a pixel of it. See
 [`docs/wear-os-verification.md`](docs/wear-os-verification.md) for the order to
-check things in; the first build is a debugging session.
+check things on a device.
+
+CI still has no Android SDK. The JVM tests in `wear/src/test` cover the rules
+below that are pure Kotlin, and run with `./gradlew :wear:testDebugUnitTest`
+from the generated `android/` project.
 
 ### The phone decides what a row says; the watch draws it
 
@@ -4036,6 +4045,17 @@ is worse than one that waits — so a create is relayed or it queues.
   locally-completed ids and filters them out of the app, the tile *and* the
   counts — a tile saying "3 left" over a list of two is worse than either number
   being stale, because the two disagree on the same screen.
+- **A tick that never lands comes back.** A relay reports success when the
+  message reaches the phone, not when the phone applies it, and the phone can
+  still fail: a refused background start, a network error, the headless
+  timeout. Each local mark records when its write left the watch, and
+  `keptCompletionMarks` drops it once a snapshot built more than two minutes
+  later (`LANDING_GRACE_MS`) still lists the task. The row reappears, which is
+  the truth. Before this, the mark lasted as long as the task stayed open, so
+  the task was hidden on the watch and open everywhere else. The write is not
+  retried, because a task reopened on the phone after the tick has to stay open.
+- **Signing out clears the write queue too.** It is keyed to no account, so a
+  queued create would otherwise be filed in the account that signs in next.
 
 ### The watch cannot refresh its own credentials
 
@@ -4082,10 +4102,10 @@ component has not run yet and the task key is simply unknown.
 Neither carries a refresh interval (`UPDATE_PERIOD_SECONDS` is 0, and the tile
 sets no freshness interval). A watch face polling DoDone every fifteen minutes
 would spend battery to find nothing changed nine times out of ten.
-`DataLayerListenerService` nudges them when a new snapshot lands, which is the
-only moment anything can have changed.
+`DataLayerListenerService` nudges them when a new snapshot lands. Midnight is
+the one change nothing pushes, and the next section covers it.
 
-- **Both read `SnapshotStore.cached`, which is a `SharedPreferences` read.** A
+- **Both read `SnapshotStore.stored`, which is a `SharedPreferences` read.** A
   tile is rendered while the wrist is already turning, and a complication has
   about a hundred milliseconds; neither has any business awaiting a Data Layer
   round trip.
@@ -4093,9 +4113,12 @@ only moment anything can have changed.
   picks a *provider*, so five providers is what puts five named choices in the
   face's picker. One would appear once and choose for the user which reading they
   got.
-- **The overdue complication returns null when nothing is overdue**, leaving the
-  slot empty. A persistent "0" is a mark that appears on every ordinary day, and a
-  mark that appears everywhere carries no information.
+- **The overdue complication is empty when nothing is overdue.** A persistent
+  "0" is a mark that appears on every ordinary day, and a mark that appears
+  everywhere carries no information.
+- **"Nothing to show" is `NoDataComplicationData`, never null.** A null answer
+  means "keep the previous data" (the library's own KDoc says so), so the
+  overdue complication used to stay on "2" after both tasks were done.
 - **`COMPLICATION_SERVICES` is a hand-written list**, and there is a test
   asserting every service in the manifest is in it. A complication missing from
   it still installs and still shows a value — it just never refreshes, so it sits
@@ -4103,6 +4126,44 @@ only moment anything can have changed.
 - **`proguard-rules.pro` keeps the tile, the complications and the listener.**
   Nothing in the module references them by name, so R8 would strip them, and a
   stripped tile is one the watch simply does not list.
+
+### The tile and the complications switch days on their own
+
+Nothing rebuilds a snapshot at midnight. The phone sends one on a write, on a
+foreground, or when the watch app asks. So a tile glanced at before the phone is
+opened in the morning showed yesterday's Today list, and its sublines said
+"Tomorrow" about today.
+
+The phone now sends two days in one snapshot. `buildWearSnapshot` builds
+today's view and a `next` view from the same rows, judged at the next local
+midnight, and stamps each with the instant it stops being true (`validUntil`).
+
+- **The watch only picks between them.** `WearSnapshot.at(now)` returns today's
+  view, the next day's, or `EXPIRED` once both have passed. It never re-buckets
+  rows by date, for the same reason the snapshot exists: a second copy of the
+  grouping rules in Kotlin.
+- **The tile and the complications are handed timelines.** `periodsFrom(now)`
+  gives one entry per period (today, tomorrow, expired), and the system switches
+  between them on the watch's own clock. Nothing wakes for midnight.
+- **Expired means "out of date", not yesterday's numbers.** The tile drops its
+  rows and says "Out of date. Open DoDone on your phone"; each reading
+  complication goes empty. The Add complication is a button, not a reading, and
+  stays.
+- **Drawn with anything but today's view, they ask the phone for a fresh
+  snapshot**, at most once every 15 minutes. The next day's view is a forecast
+  from yesterday's rows: anything that changes a task at midnight on its own,
+  such as the status-sync sweep, is not in it until the phone answers.
+- **A complication timeline's default has to share a type with every entry that
+  has data.** The entries cover every moment from zero on, so the default is
+  never drawn; it is taken from the first entry with data. A `NoData` default
+  would reject an overdue count that starts after midnight.
+- **Two days of three lists fit the payload.** Every list at the 40-row cap,
+  with every subline part present, measured about 63 KB against the Data Layer's
+  100 KB. `wear-snapshot.test.ts` holds it under 75 KB.
+- **`now` is threaded through the grouping to make this possible.**
+  `buildTodayGroups`, `buildUpcomingGroups`, `todayUniverse`,
+  `generateFocusList` and `isDeadlineToday` take an optional `now` that defaults
+  to the clock, so no other caller changed.
 
 ### The whole row opens the task; nothing on it completes
 

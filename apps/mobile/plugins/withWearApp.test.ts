@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { todayLocalISO, type Task } from '@do-done/shared';
+import { buildWearSnapshot } from '../lib/wear-snapshot';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const plugin = require('./withWearApp.js');
 
@@ -58,13 +60,16 @@ describe('withWearApp: the generated project edits', () => {
     expect(pluginLine).toBeLessThan(after.lastIndexOf('}'));
   });
 
-  it('pins the Compose plugin to the project kotlinVersion', () => {
+  it('reads the Compose plugin version from the expoLibs catalog', () => {
     // Not a literal version: the Compose compiler plugin ships with Kotlin and
-    // a mismatch fails at configuration time.
+    // a mismatch fails at configuration time. Not `kotlinVersion` either: that
+    // property is set by the expo-root-project plugin, which is applied after
+    // the buildscript block, so it is undefined on the line this writes.
     const after = plugin.withComposePlugin(
       "dependencies {\n  classpath('com.android.tools.build:gradle')\n}"
     );
-    expect(after).toContain('kotlinVersion');
+    expect(after).toContain('expoLibs.versions.kotlin.get()');
+    expect(after).not.toMatch(/\+ kotlinVersion/);
     expect(after).not.toMatch(/compose-compiler-gradle-plugin:\d/);
   });
 
@@ -125,6 +130,47 @@ describe('the two halves of the Data Layer contract', () => {
     expect(entry).toContain(
       `registerHeadlessTask('${constants(phone).get('HEADLESS_TASK')}'`
     );
+  });
+
+  it('reads every snapshot field the phone sends', () => {
+    // The watch parses by hand with a default for every missing field, so a
+    // key renamed on one side is not an error anywhere. It is a field that
+    // quietly reads as empty or zero on the wrist.
+    const snapshot = buildWearSnapshot({
+      tasks: [
+        {
+          id: 't1',
+          title: 'A task',
+          status: 'not_started',
+          priority: 'p1',
+          scheduled_date: todayLocalISO(),
+          tags: [],
+          sort_order: 0,
+          is_list_item: false,
+        } as unknown as Task,
+      ],
+      projects: [],
+    });
+    const keys = new Set<string>();
+    const collect = (value: unknown) => {
+      if (Array.isArray(value)) value.forEach(collect);
+      else if (value && typeof value === 'object') {
+        for (const [k, v] of Object.entries(value)) {
+          keys.add(k);
+          collect(v);
+        }
+      }
+    };
+    collect(JSON.parse(JSON.stringify(snapshot)));
+    expect(keys).toContain('next');
+    expect(keys).toContain('rows');
+
+    const parser = read('wear/src/main/java/com/beamer408/dodone/wear/data/Snapshot.kt');
+    for (const key of keys) {
+      expect(parser, `Snapshot.kt never reads "${key}"`).toMatch(
+        new RegExp(`\\.opt\\w*\\("${key}"`)
+      );
+    }
   });
 
   it('agrees with the snapshot version the phone stamps', () => {

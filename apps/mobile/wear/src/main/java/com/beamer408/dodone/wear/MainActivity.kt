@@ -38,6 +38,9 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    // Re-read from disk first: the view that is true depends on the time, and
+    // the app may be resuming on the far side of midnight.
+    SnapshotStore.hydrate(this)
     // Coming back from the input picker or a long screen-off is the same case
     // as opening: whatever the phone did meanwhile has not been heard about.
     refresh()
