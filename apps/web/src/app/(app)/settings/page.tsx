@@ -74,6 +74,39 @@ function PlacesSection() {
   );
 }
 
+/**
+ * Links to the author's site and GitHub profile, at the foot of Settings.
+ *
+ * Small and last on the page so it does not compete with the settings above
+ * it. Text is neutral-500, not 400: 400 on white measures about 2.5:1.
+ * Mobile's Settings screen carries the same two links.
+ */
+function CreditFooter() {
+  const link =
+    "underline-offset-2 hover:text-neutral-700 hover:underline dark:hover:text-neutral-200";
+  return (
+    <footer className="mt-12 flex justify-end gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+      <a
+        href="https://byebrianwong.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={link}
+      >
+        byebrianwong.com
+      </a>
+      <span aria-hidden>·</span>
+      <a
+        href="https://github.com/byebrianwong"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={link}
+      >
+        GitHub @byebrianwong
+      </a>
+    </footer>
+  );
+}
+
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -157,6 +190,8 @@ export default async function SettingsPage({
           errorMessage={params.error ?? null}
         />
       </section>
+
+      <CreditFooter />
     </div>
   );
 }
