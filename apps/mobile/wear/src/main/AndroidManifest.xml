@@ -3,7 +3,7 @@
 
   <uses-feature android:name="android.hardware.type.watch" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
-  <!-- The watch writes completions straight to Supabase; see data/DoDoneApi.kt. -->
+  <!-- The watch writes completions straight to Supabase; see data/WearWriter.kt. -->
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 

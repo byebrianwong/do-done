@@ -19,9 +19,11 @@
  *    Expo app uses Compose. The wear module's `apply plugin` line fails at
  *    configuration time without it.
  *
- * Nothing here can be verified by this repo's CI — there is no Android SDK on
- * the machine. `withWearApp.test.ts` asserts everything about the edits that can
- * be checked without one, which is the same bargain `withAndroidShortcuts` makes.
+ * CI has no Android SDK, so it cannot run Gradle against the result.
+ * `withWearApp.test.ts` asserts everything about the edits that can be checked
+ * without one, which is the same bargain `withAndroidShortcuts` makes. The
+ * edits have been run through `expo prebuild` and `./gradlew :wear:assembleDebug`
+ * by hand; see docs/wear-os-verification.md.
  */
 
 const { withDangerousMod, withSettingsGradle, withProjectBuildGradle } =
@@ -34,12 +36,21 @@ const MODULE = 'wear';
 
 /**
  * The Compose compiler plugin. Its version has to match the Kotlin version the
- * project builds with, which is why it is interpolated from `kotlinVersion`
- * rather than pinned: they are released together and a mismatch is a
- * configuration-time failure with a long message about an incompatible plugin.
+ * project builds with, which is why it is read rather than pinned: they are
+ * released together and a mismatch is a configuration-time failure with a long
+ * message about an incompatible plugin.
+ *
+ * It is read from the `expoLibs` version catalog, not from `kotlinVersion`.
+ * Expo 54's template no longer sets `ext.kotlinVersion` in the root
+ * `build.gradle`; the `expo-root-project` plugin sets it, and that plugin is
+ * applied *after* the `buildscript` block runs. So `kotlinVersion` is undefined
+ * at the line this writes, and Gradle fails with "Could not get unknown
+ * property 'kotlinVersion'". The catalog is created in `settings.gradle`
+ * (`useExpoVersionCatalog`) and is readable from `buildscript`. It is also the
+ * source `expo-root-project` reads, so the two cannot disagree.
  */
 const COMPOSE_PLUGIN =
-  "classpath('org.jetbrains.kotlin:compose-compiler-gradle-plugin:' + kotlinVersion)";
+  "classpath('org.jetbrains.kotlin:compose-compiler-gradle-plugin:' + expoLibs.versions.kotlin.get())";
 
 const INCLUDE_LINE = `include ':${MODULE}'`;
 

@@ -14,11 +14,11 @@ import {
 /**
  * Anchored on the real clock, not a pinned date.
  *
- * `buildWearSnapshot` has no `now` to inject — the grouping functions under it
- * read the clock themselves — so a fixture dated to a fixed day would group by
- * the real today and format by the fake one. That disagreement is invisible
- * until the calendar rolls past the pinned date, which is exactly how it was
- * found.
+ * `buildWearSnapshot` takes a `now`, and the grouping under it does too, but
+ * these fixtures are dated with `todayLocalISO()` and `addDaysLocalISO()`. A
+ * fixture dated to a pinned day while `now` defaulted to the clock would group
+ * by one day and format by another. That disagreement is invisible until the
+ * calendar rolls past the pinned date, which is how it was found.
  */
 const TODAY = todayLocalISO();
 const LONG_AGO = addDaysLocalISO(-10);
@@ -236,25 +236,108 @@ describe('buildWearSnapshot', () => {
     );
   });
 
-  it('stays well inside the Data Layer payload limit when full', () => {
+  it('stays inside the Data Layer payload limit with every list full on both days', () => {
+    // The worst case, not a typical one: all three lists at the row cap, on
+    // today and on `next`, and every subline part present. This measured about
+    // 63 KB. The cap is 100 KB, and a put over it fails outright.
     const projects = Array.from({ length: 12 }, (_, i) =>
       project({ id: `p${i}`, name: `Project number ${i}`, icon: '📦' })
     );
-    const tasks = Array.from({ length: 400 }, (_, i) =>
+    const full = (i: number, over: Partial<Task>) =>
       task({
         id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
         title: 'A fairly long task title that someone actually typed out ' + i,
         project_id: `p${i % 12}`,
         priority: 'p1',
-        scheduled_date: addDaysLocalISO(i % 9),
+        scheduled_time: '09:30',
+        deadline_date: addDaysLocalISO(5),
         duration_minutes: 90,
-      })
-    );
-    const bytes = Buffer.byteLength(
-      JSON.stringify(buildWearSnapshot({ tasks, projects })),
-      'utf8'
-    );
-    expect(bytes).toBeLessThan(50_000);
+        recurrence_rule: 'FREQ=WEEKLY',
+        ...over,
+      });
+    const tasks = [
+      ...Array.from({ length: 200 }, (_, i) =>
+        full(i, { scheduled_date: addDaysLocalISO((i % 9) - 2) })
+      ),
+      ...Array.from({ length: 100 }, (_, i) =>
+        full(1000 + i, { status: 'inbox', scheduled_date: addDaysLocalISO(i % 3) })
+      ),
+    ];
+    const snap = buildWearSnapshot({ tasks, projects });
+    for (const view of [snap, snap.next]) {
+      for (const list of view.lists) {
+        expect(rowsOf(list)).toHaveLength(WEAR_MAX_ROWS_PER_LIST);
+      }
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(snap), 'utf8');
+    expect(bytes).toBeLessThan(75_000);
+  });
+});
+
+describe('the next day', () => {
+  /** Local midnight, `days` from today, built the way the snapshot builds it. */
+  function midnight(days: number): number {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days).getTime();
+  }
+
+  it('says which day each view is for and when it stops being true', () => {
+    const snap = buildWearSnapshot({ tasks: [], projects: [] });
+    expect(snap.day).toBe(TODAY);
+    expect(snap.validUntil).toBe(midnight(1));
+    expect(snap.next.day).toBe(addDaysLocalISO(1));
+    expect(snap.next.validUntil).toBe(midnight(2));
+  });
+
+  it("files tomorrow's task under Today and today's unfinished one as overdue", () => {
+    // Excluded from focus, or today's Today list would take it in as a focus
+    // pick and the two views would hold the same rows.
+    const snap = buildWearSnapshot({
+      tasks: [
+        task({ id: 'today', scheduled_date: TODAY }),
+        task({
+          id: 'tomorrow',
+          scheduled_date: addDaysLocalISO(1),
+          focus_override: 'exclude',
+        }),
+      ],
+      projects: [],
+    });
+
+    const todayNow = rowsOf(listNamed(snap.lists, 'today')).map((r) => r.id);
+    expect(todayNow).toEqual(['today']);
+
+    const nextToday = listNamed(snap.next.lists, 'today');
+    expect(nextToday.groups.map((g) => g.title)).toEqual(['Overdue', 'Today']);
+    expect(nextToday.groups[0].rows.map((r) => r.id)).toEqual(['today']);
+    expect(nextToday.groups[0].rows[0].gutter).toBe('overdue');
+    expect(nextToday.groups[1].rows.map((r) => r.id)).toEqual(['tomorrow']);
+  });
+
+  it('starts the next day with nothing done and today\'s leftovers overdue', () => {
+    const snap = buildWearSnapshot({
+      tasks: [
+        task({ id: 'done', status: 'done', completed_at: new Date().toISOString() }),
+        task({ id: 'open', scheduled_date: TODAY }),
+        task({
+          id: 'tomorrow',
+          scheduled_date: addDaysLocalISO(1),
+          focus_override: 'exclude',
+        }),
+      ],
+      projects: [],
+    });
+    expect(snap.counts).toMatchObject({ openToday: 1, doneToday: 1, overdue: 0 });
+    expect(snap.next.counts).toMatchObject({ openToday: 2, doneToday: 0, overdue: 1 });
+  });
+
+  it('builds both views from the same instant when one is passed', () => {
+    // Late evening, so a test running near midnight cannot split the two.
+    const d = new Date();
+    const now = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0);
+    const snap = buildWearSnapshot({ tasks: [], projects: [], now });
+    expect(snap.generatedAt).toBe(now.getTime());
+    expect(snap.validUntil).toBe(midnight(1));
   });
 });
 

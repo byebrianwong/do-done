@@ -15,6 +15,9 @@ ios/
 # nothing and every call into the module would resolve to null.
 !apps/mobile/modules/*/android/
 !apps/mobile/modules/*/ios/
+# Gradle builds those modules in place, so their build output lands inside the
+# directory the exception above re-includes.
+apps/mobile/modules/*/android/build/
 
 # Supabase CLI per-developer scratch — project ref + version pins
 supabase/.temp/

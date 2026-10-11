@@ -366,9 +366,9 @@ export function isOverdue(task: Task, now: Date = new Date()): boolean {
   return false;
 }
 
-export function isDeadlineToday(task: Task): boolean {
+export function isDeadlineToday(task: Task, now: Date = new Date()): boolean {
   if (!task.deadline_date) return false;
-  return task.deadline_date === todayLocalISO();
+  return task.deadline_date === todayLocalISO(now);
 }
 
 export function sortByPriority(tasks: Task[]): Task[] {

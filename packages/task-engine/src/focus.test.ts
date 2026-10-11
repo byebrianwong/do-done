@@ -280,4 +280,30 @@ describe("todayUniverse", () => {
     expect(titles).toContain("pinned undated");
     expect(titles).not.toContain("future excluded");
   });
+
+  it("judges overdue at the instant it is given, not at the clock", () => {
+    // The watch snapshot builds tomorrow's list ahead of midnight. Today's
+    // unfinished task is overdue by then, and tomorrow's is on the day.
+    const today = makeTask({ title: "today", scheduled_date: "2026-04-12" });
+    const tomorrow = makeTask({
+      title: "tomorrow",
+      scheduled_date: "2026-04-13",
+      focus_override: "exclude",
+    });
+    const atMidnight = new Date(2026, 3, 13, 0, 0, 0);
+
+    expect(todayUniverse([tomorrow, today], TODAY).map((t) => t.title)).toEqual([
+      "today",
+    ]);
+    // Overdue goes first, so the leftover leads only if it was judged overdue.
+    // Judged at the clock instead, the input order would stand.
+    expect(
+      todayUniverse([tomorrow, today], "2026-04-13", 3, atMidnight).map(
+        (t) => t.title
+      )
+    ).toEqual(["today", "tomorrow"]);
+    expect(
+      todayUniverse([tomorrow, today], "2026-04-13").map((t) => t.title)
+    ).toEqual(["tomorrow", "today"]);
+  });
 });

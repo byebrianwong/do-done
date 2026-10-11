@@ -15,6 +15,7 @@ import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
+import com.beamer408.dodone.wear.data.Validity
 import com.beamer408.dodone.wear.data.WearSnapshot
 
 /**
@@ -103,7 +104,9 @@ fun TaskListScreen(
  */
 @Composable
 private fun EmptyState(listKey: String, snapshot: WearSnapshot, onRefresh: () -> Unit) {
-  if (snapshot.generatedAt == 0L) {
+  // An expired snapshot's empty list is about a day that has passed, so it gets
+  // the same answer as no snapshot at all.
+  if (snapshot.generatedAt == 0L || snapshot.validity == Validity.EXPIRED) {
     FilledTonalButton(
       onClick = onRefresh,
       label = { Text("Open DoDone on your phone") },
@@ -132,12 +135,16 @@ private fun EmptyState(listKey: String, snapshot: WearSnapshot, onRefresh: () ->
  * everything on this screen is as old as the phone's last sync, and a list that
  * only admits its age past some threshold is one the user has no reason to trust
  * below it.
+ *
+ * Past the end of the phone's precomputed next day, the rows are from a day
+ * that has passed, and the line says so first.
  */
 @Composable
 private fun Freshness(snapshot: WearSnapshot) {
   if (snapshot.generatedAt == 0L) return
+  val age = relativeAge(System.currentTimeMillis() - snapshot.generatedAt)
   Text(
-    text = "Updated ${relativeAge(System.currentTimeMillis() - snapshot.generatedAt)}",
+    text = if (snapshot.validity == Validity.EXPIRED) "Out of date. Updated $age" else "Updated $age",
     color = DoDoneMuted,
     textAlign = TextAlign.Center,
     style = MaterialTheme.typography.labelSmall,

@@ -20,11 +20,11 @@ function quickWinBonus(task: Task): number {
   return 0;
 }
 
-function scoreTask(task: Task): number {
+function scoreTask(task: Task, now: Date): number {
   let score = 0;
 
-  if (isOverdue(task)) score += FOCUS_SCORES.OVERDUE;
-  if (isDeadlineToday(task)) score += FOCUS_SCORES.DEADLINE_TODAY;
+  if (isOverdue(task, now)) score += FOCUS_SCORES.OVERDUE;
+  if (isDeadlineToday(task, now)) score += FOCUS_SCORES.DEADLINE_TODAY;
   if (task.status === "in_progress") score += FOCUS_SCORES.IN_PROGRESS;
   if (task.deadline_time) score += FOCUS_SCORES.HAS_TIME_BLOCK;
 
@@ -50,8 +50,15 @@ function isActive(task: Task): boolean {
  *
  * Final order honors manual drag position (`sort_order`); ties fall back to
  * urgency so an un-touched list still reads most-important-first.
+ *
+ * `now` defaults to the clock. The watch snapshot passes tomorrow's midnight to
+ * build the list the phone would show once the day turns over.
  */
-export function generateFocusList(tasks: Task[], maxItems: number = 7): Task[] {
+export function generateFocusList(
+  tasks: Task[],
+  maxItems: number = 7,
+  now: Date = new Date()
+): Task[] {
   const active = tasks.filter(isActive);
 
   // Auto picks: top `maxItems` by urgency among everything not excluded. Pins
@@ -59,7 +66,7 @@ export function generateFocusList(tasks: Task[], maxItems: number = 7): Task[] {
   // isn't also added a second time below.
   const auto = active
     .filter((t) => t.focus_override !== "exclude")
-    .map((task) => ({ task, score: scoreTask(task) }))
+    .map((task) => ({ task, score: scoreTask(task, now) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(0, maxItems))
     .map(({ task }) => task);
@@ -72,7 +79,8 @@ export function generateFocusList(tasks: Task[], maxItems: number = 7): Task[] {
   );
 
   return [...auto, ...extraPins].sort(
-    (a, b) => a.sort_order - b.sort_order || scoreTask(b) - scoreTask(a)
+    (a, b) =>
+      a.sort_order - b.sort_order || scoreTask(b, now) - scoreTask(a, now)
   );
 }
 
@@ -108,19 +116,22 @@ export function partitionToday(
  * `focus_override === "include"` task — even an undated one a user pinned in).
  *
  * `today` is a device-local ISO date string (YYYY-MM-DD); pass the caller's
- * `todayLocalISO()` so "today" matches the user's real day, not UTC.
+ * `todayLocalISO()` so "today" matches the user's real day, not UTC. `now` is
+ * the instant overdue and the focus score are judged at, and should fall on
+ * `today`.
  */
 export function todayUniverse(
   allTasks: Task[],
   today: string,
-  focusMax: number = 3
+  focusMax: number = 3,
+  now: Date = new Date()
 ): Task[] {
   const active = allTasks.filter(isActive);
-  const overdue = active.filter((t) => isOverdue(t));
+  const overdue = active.filter((t) => isOverdue(t, now));
   const overdueIds = new Set(overdue.map((t) => t.id));
   const nonOverdue = active.filter((t) => !overdueIds.has(t.id));
   const focusIds = new Set(
-    generateFocusList(nonOverdue, focusMax).map((t) => t.id)
+    generateFocusList(nonOverdue, focusMax, now).map((t) => t.id)
   );
   const scheduledOrFocus = nonOverdue.filter((t) => {
     if (focusIds.has(t.id)) return true;

@@ -17,11 +17,16 @@ import androidx.wear.tiles.RequestBuilders
 import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
 import com.beamer408.dodone.wear.data.SnapshotStore
+import com.beamer408.dodone.wear.data.Validity
 import com.beamer408.dodone.wear.data.WearRow
 import com.beamer408.dodone.wear.data.WearSnapshot
 import com.beamer408.dodone.wear.ui.WearRoutes
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * The Today tile: what is left today, and a way to add.
@@ -35,29 +40,52 @@ import com.google.common.util.concurrent.ListenableFuture
  * It carries **no refresh interval of its own** (`freshnessIntervalMillis` is
  * left at zero). A tile that polls every fifteen minutes would spend battery to
  * find nothing changed nine times out of ten; instead `DataLayerListenerService`
- * pushes an update at the only moment anything can have changed, which is when
- * the phone sends a new snapshot.
+ * pushes an update when the phone sends a new snapshot.
+ *
+ * **Midnight is the one change nothing pushes.** So the tile is handed a
+ * timeline: today's layout until midnight, the phone's precomputed next day
+ * until the midnight after, then an "out of date" layout. The system switches
+ * between them on its own clock. The first time the tile is drawn with
+ * anything but today's view, it also asks the phone for a fresh snapshot.
  */
 class TodayTileService : TileService() {
+  // Not cancelled in onDestroy. The service can be destroyed as soon as the
+  // tile is returned, and the ask below is a single message that should still
+  // go out. Same shape as DataLayerListenerService.
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
   override fun onTileRequest(
     requestParams: RequestBuilders.TileRequest
   ): ListenableFuture<TileBuilders.Tile> {
-    val snapshot = SnapshotStore.cached(this)
-    val layout = layout(snapshot, requestParams.deviceConfiguration)
+    val now = System.currentTimeMillis()
+    val stored = SnapshotStore.stored(this)
+    val device = requestParams.deviceConfiguration
+
+    val timeline = TimelineBuilders.Timeline.Builder()
+    for (period in stored.periodsFrom(now)) {
+      timeline.addTimelineEntry(
+        TimelineBuilders.TimelineEntry.Builder()
+          .setValidity(
+            TimelineBuilders.TimeInterval.Builder()
+              .setStartMillis(period.startMs)
+              .setEndMillis(period.endMs)
+              .build()
+          )
+          .setLayout(
+            LayoutElementBuilders.Layout.Builder().setRoot(layout(period.view, device)).build()
+          )
+          .build()
+      )
+    }
+
+    scope.launch {
+      SnapshotStore.requestPhoneSyncIfStale(this@TodayTileService, stored.at(now), now)
+    }
 
     return Futures.immediateFuture(
       TileBuilders.Tile.Builder()
         .setResourcesVersion(RESOURCES_VERSION)
-        .setTileTimeline(
-          TimelineBuilders.Timeline.Builder()
-            .addTimelineEntry(
-              TimelineBuilders.TimelineEntry.Builder()
-                .setLayout(LayoutElementBuilders.Layout.Builder().setRoot(layout).build())
-                .build()
-            )
-            .build()
-        )
+        .setTileTimeline(timeline.build())
         .build()
     )
   }
@@ -73,10 +101,13 @@ class TodayTileService : TileService() {
     snapshot: WearSnapshot,
     device: DeviceParameters
   ): LayoutElementBuilders.LayoutElement {
-    val rows = snapshot.list("today")
-      ?.groups
-      ?.flatMap { it.rows }
-      .orEmpty()
+    // An expired view's rows are from a day that has passed. Showing them
+    // under "TODAY" would be the bug this timeline exists to prevent.
+    val rows = if (snapshot.validity == Validity.EXPIRED) {
+      emptyList()
+    } else {
+      snapshot.list("today")?.groups?.flatMap { it.rows }.orEmpty()
+    }
 
     val content = LayoutElementBuilders.Column.Builder()
     if (rows.isEmpty()) {
@@ -152,6 +183,7 @@ class TodayTileService : TileService() {
    * one number here that changes what you would do next.
    */
   private fun summary(snapshot: WearSnapshot, shown: Int): String {
+    if (snapshot.validity == Validity.EXPIRED) return ""
     val counts = snapshot.counts
     val parts = mutableListOf<String>()
     if (counts.overdue > 0) parts.add("${counts.overdue} overdue")
@@ -166,8 +198,11 @@ class TodayTileService : TileService() {
    * the same from here, so they are worded apart — the same rule the app's list
    * screen follows.
    */
-  private fun emptyMessage(snapshot: WearSnapshot): String =
-    if (snapshot.generatedAt == 0L) "Open DoDone on your phone" else "Nothing on today"
+  private fun emptyMessage(snapshot: WearSnapshot): String = when {
+    snapshot.generatedAt == 0L -> "Open DoDone on your phone"
+    snapshot.validity == Validity.EXPIRED -> "Out of date. Open DoDone on your phone"
+    else -> "Nothing on today"
+  }
 
   private companion object {
     /**

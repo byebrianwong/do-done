@@ -10,9 +10,11 @@ apply plugin: 'org.jetbrains.kotlin.plugin.compose'
  * share one — two ids would give a watch app that installs and then never sees a
  * snapshot, with nothing reporting why.
  *
- * The versions below are the one part of this file nothing here can check.
- * Confirm them against the current AndroidX releases on the first build rather
- * than assuming they resolve; see docs/wear-os-verification.md.
+ * The versions below were resolved and built against Expo 54's AGP 8.11 and
+ * Kotlin 2.1.20. They are from the same release era on purpose: a newer
+ * AndroidX release can be compiled with a Kotlin this project's compiler cannot
+ * read, so move them together. CI has no Android SDK and does not build this;
+ * see docs/wear-os-verification.md.
  */
 android {
   namespace 'com.beamer408.dodone.wear'
@@ -79,19 +81,19 @@ android {
 }
 
 dependencies {
-  implementation "androidx.core:core-ktx:1.15.0"
-  implementation "androidx.activity:activity-compose:1.9.3"
-  implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
+  implementation "androidx.core:core-ktx:1.16.0"
+  implementation "androidx.activity:activity-compose:1.10.1"
+  implementation "androidx.lifecycle:lifecycle-runtime-compose:2.9.4"
 
   // Compose for Wear OS. Material3 rather than the older Material: it is what
   // the platform's own apps draw now, and its list and button shapes are the
   // ones a round screen is laid out for.
-  implementation "androidx.compose.ui:ui:1.7.6"
-  implementation "androidx.compose.ui:ui-tooling-preview:1.7.6"
-  debugImplementation "androidx.compose.ui:ui-tooling:1.7.6"
-  implementation "androidx.wear.compose:compose-material3:1.4.1"
-  implementation "androidx.wear.compose:compose-foundation:1.4.1"
-  implementation "androidx.wear.compose:compose-navigation:1.4.1"
+  implementation "androidx.compose.ui:ui:1.9.5"
+  implementation "androidx.compose.ui:ui-tooling-preview:1.9.5"
+  debugImplementation "androidx.compose.ui:ui-tooling:1.9.5"
+  implementation "androidx.wear.compose:compose-material3:1.5.6"
+  implementation "androidx.wear.compose:compose-foundation:1.5.6"
+  implementation "androidx.wear.compose:compose-navigation:1.5.6"
 
   // Wear's own input picker — voice, keyboard and handwriting behind one
   // intent. Reaching straight for RecognizerIntent would offer voice alone, and
@@ -104,10 +106,10 @@ dependencies {
   implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1"
 
   // Tiles and complications.
-  implementation "androidx.wear.tiles:tiles:1.4.1"
-  implementation "androidx.wear.protolayout:protolayout:1.2.1"
-  implementation "androidx.wear.protolayout:protolayout-material:1.2.1"
-  implementation "androidx.wear.protolayout:protolayout-expression:1.2.1"
+  implementation "androidx.wear.tiles:tiles:1.5.0"
+  implementation "androidx.wear.protolayout:protolayout:1.3.0"
+  implementation "androidx.wear.protolayout:protolayout-material:1.3.0"
+  implementation "androidx.wear.protolayout:protolayout-expression:1.3.0"
   implementation "androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1"
 
   // `Futures.immediateFuture`, which every TileService returns. The
@@ -115,6 +117,10 @@ dependencies {
   // none of the helpers, so leaving this out fails to resolve `Futures` alone —
   // a confusing error, since the type it operates on resolves fine.
   implementation "com.google.guava:guava:33.3.1-android"
+
+  // JVM tests for the pure rules in data/ (see src/test). They need an SDK to
+  // run, which CI does not have, so they run wherever the watch app is built.
+  testImplementation "junit:junit:4.13.2"
 
   // Deliberately no HTTP client and no JSON library. `HttpURLConnection` and
   // `org.json` are in the platform, the watch makes three kinds of request, and

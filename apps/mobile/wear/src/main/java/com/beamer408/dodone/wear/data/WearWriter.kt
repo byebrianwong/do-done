@@ -23,7 +23,7 @@ import java.util.TimeZone
  *
  * | Write | Path |
  * | --- | --- |
- * | Complete, reopen, reschedule | the phone if it is reachable, Supabase directly if not |
+ * | Complete, reschedule | the phone if it is reachable, Supabase directly if not |
  * | Create | the phone, always — queued when it is not reachable |
  *
  * The split is about what a write needs to be correct.
@@ -39,7 +39,7 @@ import java.util.TimeZone
  * of TypeScript in `packages/task-engine`. Porting it to Kotlin would be the
  * exact drift this design avoids everywhere else, and getting it subtly wrong
  * means a dictated task silently landing undated. So a create is relayed or it
- * waits, and the composer says which.
+ * waits.
  */
 object WearWriter {
   sealed interface Result {
@@ -90,16 +90,31 @@ object WearWriter {
       }
       if (!sent) return // Still out of range. Keep the rest in order.
       PendingWrites.remove(context, entry)
+      handedOff(context, entry)
     }
   }
 
   private suspend fun write(context: Context, entry: PendingWrites.Entry): Result {
     // The phone first, so the write goes through the one door the rules live
     // behind. Not an optimisation: it is where the write is most correct.
-    if (relay(context, entry)) return Result.Done
-    if (direct(context, entry)) return Result.Done
+    if (relay(context, entry) || direct(context, entry)) {
+      handedOff(context, entry)
+      return Result.Done
+    }
     PendingWrites.add(context, entry)
     return Result.Queued
+  }
+
+  /**
+   * A completion has left the watch, so its local mark starts waiting for the
+   * phone to confirm it. "Left" is all a relay can say: the message reached the
+   * phone, which may still fail to apply it. `keptCompletionMarks` is what
+   * notices when it did.
+   */
+  private fun handedOff(context: Context, entry: PendingWrites.Entry) {
+    if (entry.op == PendingWrites.Entry.OP_COMPLETE) {
+      SnapshotStore.markHandedOff(context, entry.taskId)
+    }
   }
 
   // ── Through the phone ──────────────────────────────────
