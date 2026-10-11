@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -391,6 +392,34 @@ export default function SettingsScreen() {
       >
         <Text style={styles.signoutText}>Sign out</Text>
       </Pressable>
+
+      {/*
+        Links to the author's site and GitHub profile. Small and last, so it
+        does not compete with the settings above. Web's Settings page carries
+        the same two links. Linking is core React Native, so this ships over
+        OTA.
+      */}
+      <View style={styles.credit}>
+        <Pressable
+          onPress={() => void Linking.openURL('https://byebrianwong.com')}
+          hitSlop={8}
+          accessibilityRole="link"
+        >
+          <Text style={styles.creditLink}>byebrianwong.com</Text>
+        </Pressable>
+        <Text style={styles.creditLink} accessibilityElementsHidden>
+          ·
+        </Text>
+        <Pressable
+          onPress={() =>
+            void Linking.openURL('https://github.com/byebrianwong')
+          }
+          hitSlop={8}
+          accessibilityRole="link"
+        >
+          <Text style={styles.creditLink}>GitHub @byebrianwong</Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -540,5 +569,20 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 15,
     fontWeight: '600',
+  },
+  credit: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 32,
+  },
+  // #4b5563, not the #6b7280 used for row values: this sits on the #f3f4f6
+  // page background rather than a white row, where #6b7280 measures about
+  // 4.4:1 and 12px text needs 4.5:1.
+  creditLink: {
+    fontSize: 12,
+    color: '#4b5563',
   },
 });
