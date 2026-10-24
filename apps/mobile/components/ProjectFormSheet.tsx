@@ -5,22 +5,43 @@
  * only differences are the verb on the button and whether Delete is offered.
  *
  * Writes go through createProject / updateProject / deleteProject, which
- * invalidate the project caches — including the detail read a list screen's
+ * invalidate the project caches, including the detail read a list screen's
  * title bar uses, so a rename shows there without a refocus.
+ *
+ * **The sheet is an overlay at the app root, not a `Modal`.** On Android,
+ * React Native 0.81 draws a `Modal` in its own window, and with edge-to-edge
+ * on that window ignores `adjustResize`. Reanimated's `useAnimatedKeyboard`
+ * only watches the activity's window, so it cannot see a keyboard raised over
+ * a `Modal` either. The result was a sheet that focused its name field and
+ * then sat behind the keyboard, with only its title showing.
+ *
+ * So `ProjectFormHost` is mounted once in `app/_layout.tsx`, after the
+ * navigator. It draws over the tab bar the way `BulkActionBar` does, it is in
+ * the activity's window, and it lifts the sheet by the keyboard's height every
+ * frame, like `QuickAddComposer`. Screens open it with `openProjectForm`.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Modal,
+  BackHandler,
+  Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   PROJECT_COLOR_OPTIONS,
@@ -34,58 +55,115 @@ import { pinListShortcut } from '@/lib/list-shortcuts';
 import type { Project, ProjectKind } from '@do-done/shared';
 import { ProjectIconPicker } from '@/components/ProjectIconPicker';
 
-export function ProjectFormSheet({
-  visible,
-  onClose,
+/** How long the overlay takes to fade in and out. */
+const FADE_MS = 180;
+
+export interface ProjectFormRequest {
   // A shopping list is the same row with a different `kind`, so this is the
   // same sheet with different words on it rather than a copy of it.
-  kind = 'tasks',
-  project,
-  onDeleted,
-}: {
-  visible: boolean;
-  onClose: () => void;
   kind?: ProjectKind;
   /** Present = edit mode, absent = create mode. */
   project?: Project;
   /**
    * Called after a delete lands. The screen that opened this sheet is usually
-   * the deleted row's own screen, so it has to leave — the sheet cannot know
+   * the deleted row's own screen, so it has to leave. The sheet cannot know
    * where to.
    */
   onDeleted?: () => void;
-}) {
+}
+
+type Opener = (request: ProjectFormRequest) => void;
+
+let opener: Opener | null = null;
+
+/**
+ * Open the form over the whole app.
+ *
+ * Does nothing before `ProjectFormHost` has mounted, and nothing while signed
+ * out, since the host is unmounted with the navigator.
+ */
+export function openProjectForm(request: ProjectFormRequest = {}): void {
+  opener?.(request);
+}
+
+/** The one place the form is drawn. Mounted once, after the root navigator. */
+export function ProjectFormHost() {
+  const [request, setRequest] = useState<ProjectFormRequest | null>(null);
+
+  useEffect(() => {
+    const open: Opener = (next) => setRequest(next);
+    opener = open;
+    return () => {
+      // Only clear if it is still ours: a remount can install the new one
+      // before the old one's cleanup runs.
+      if (opener === open) opener = null;
+    };
+  }, []);
+
+  const close = useCallback(() => setRequest(null), []);
+
+  if (!request) return null;
+  return <ProjectFormSheet {...request} onClose={close} />;
+}
+
+function ProjectFormSheet({
+  kind = 'tasks',
+  project,
+  onDeleted,
+  onClose,
+}: ProjectFormRequest & { onClose: () => void }) {
   // In edit mode the row already knows what it is; `kind` describes what is
   // being created and is ignored.
   const effectiveKind: ProjectKind = project ? projectKind(project) : kind;
-  const [name, setName] = useState('');
-  const [icon, setIcon] = useState('');
-  const [color, setColor] = useState<string>(DEFAULT_PROJECT_COLORS[0]);
+  // Seeded once. The sheet mounts on open and unmounts on close, so re-opening
+  // after a cancelled edit shows what is saved, not what was abandoned. A
+  // refetch of the row while the sheet is open does not overwrite the draft.
+  const [name, setName] = useState(project?.name ?? '');
+  const [icon, setIcon] = useState(project?.icon ?? '');
+  const [color, setColor] = useState<string>(
+    project?.color ?? DEFAULT_PROJECT_COLORS[0]
+  );
   // A new list starts as a shopping list, which is what nearly every list is.
-  const [shopping, setShopping] = useState(true);
+  const [shopping, setShopping] = useState(
+    project ? isShoppingList(project) : true
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput | null>(null);
   const noun = effectiveKind === 'list' ? 'list' : 'project';
 
-  // Seeded from the row every time the sheet opens — so re-opening after a
-  // cancelled edit shows what is saved, not what was abandoned. Create mode
-  // seeds the same fields empty, which is the same statement.
+  const insets = useSafeAreaInsets();
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: true,
+    isNavigationBarTranslucentAndroid: true,
+  });
+  // The sheet already pads itself clear of the gesture bar, and the reported
+  // keyboard height covers that same strip, so lift by the difference.
+  // Padding rather than a transform: the frame has to shrink, so that a sheet
+  // taller than the space left above the keyboard scrolls instead of running
+  // off the top of the screen.
+  const liftStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(keyboard.height.value - insets.bottom, 0),
+  }));
+
   useEffect(() => {
-    if (!visible) {
-      setSaving(false);
-      setError(null);
-      return;
-    }
-    setName(project?.name ?? '');
-    setIcon(project?.icon ?? '');
-    setColor(project?.color ?? DEFAULT_PROJECT_COLORS[0]);
-    setShopping(project ? isShoppingList(project) : true);
-    setSaving(false);
-    setError(null);
     const t = setTimeout(() => inputRef.current?.focus(), 120);
     return () => clearTimeout(t);
-  }, [visible, project]);
+  }, []);
+
+  const close = useCallback(() => {
+    Keyboard.dismiss();
+    onClose();
+  }, [onClose]);
+
+  // Android's back button closes the sheet. `Modal`'s onRequestClose used to.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      close();
+      return true;
+    });
+    return () => sub.remove();
+  }, [close]);
 
   const submit = async () => {
     const trimmed = name.trim();
@@ -124,7 +202,7 @@ export function ProjectFormSheet({
       // left the screen still saying "No lists yet" until it was re-focused.
       invalidateLists();
       setSaving(false);
-      onClose();
+      close();
     } catch (e) {
       setSaving(false);
       setError(
@@ -160,7 +238,7 @@ export function ProjectFormSheet({
               await deleteProject(project.id);
               invalidateLists();
               setSaving(false);
-              onClose();
+              close();
               onDeleted?.();
             } catch (e) {
               setSaving(false);
@@ -208,94 +286,118 @@ export function ProjectFormSheet({
   const disabled = !name.trim() || saving;
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+    <Animated.View
+      entering={FadeIn.duration(FADE_MS)}
+      exiting={FadeOut.duration(FADE_MS)}
+      style={StyleSheet.absoluteFill}
     >
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable onPress={() => {}} style={styles.sheet}>
+      <Pressable
+        onPress={close}
+        style={styles.backdrop}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+      />
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.frame, { paddingTop: insets.top + 12 }, liftStyle]}
+      >
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
           <Text style={styles.title}>
             {project ? `Edit ${noun}` : `New ${noun}`}
           </Text>
 
-          <TextInput
-            ref={inputRef}
-            value={name}
-            onChangeText={setName}
-            onSubmitEditing={submit}
-            placeholder={
-              effectiveKind === 'list' ? 'Groceries, Amazon…' : 'Project name…'
-            }
-            placeholderTextColor="#9ca3af"
-            maxLength={100}
-            style={styles.input}
-          />
+          {/* The fields scroll and the buttons below them do not, so Create
+              stays reachable when the keyboard and an open icon grid leave
+              little room. */}
+          <ScrollView
+            style={styles.body}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <TextInput
+              ref={inputRef}
+              value={name}
+              onChangeText={setName}
+              onSubmitEditing={submit}
+              placeholder={
+                effectiveKind === 'list'
+                  ? 'Groceries, Amazon…'
+                  : 'Project name…'
+              }
+              placeholderTextColor="#9ca3af"
+              maxLength={100}
+              style={styles.input}
+            />
 
-          <View style={styles.swatchRow}>
-            {PROJECT_COLOR_OPTIONS.map((c) => (
-              <Pressable
-                key={c.value}
-                onPress={() => setColor(c.value)}
-                accessibilityRole="button"
-                accessibilityLabel={c.name}
-                accessibilityState={{ selected: color === c.value }}
-                style={[
-                  styles.swatch,
-                  { backgroundColor: c.value },
-                  color === c.value && styles.swatchActive,
-                ]}
-              />
-            ))}
-          </View>
-
-          <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
-
-          {effectiveKind === 'list' ? (
-            /*
-              Lists only. On, the list groups by aisle, takes `@store`, keeps a
-              pantry and joins All shopping. Off, it is a plain checklist.
-              Switching changes no item: an item on either is still an item,
-              so the switch can be flipped back without losing anything.
-            */
-            <View style={styles.shoppingRow}>
-              <View style={styles.shoppingText}>
-                <Text style={styles.shoppingLabel}>Shopping list</Text>
-                <Text style={styles.shoppingHint}>
-                  {shopping
-                    ? 'Grouped by aisle, with shops and what you bought before. Shown in All shopping.'
-                    : 'A plain checklist. No aisles, shops or pantry.'}
-                </Text>
-              </View>
-              <Switch
-                value={shopping}
-                onValueChange={setShopping}
-                disabled={saving}
-                trackColor={{ true: '#6366f1', false: '#d1d5db' }}
-                accessibilityLabel="Shopping list"
-              />
+            <View style={styles.swatchRow}>
+              {PROJECT_COLOR_OPTIONS.map((c) => (
+                <Pressable
+                  key={c.value}
+                  onPress={() => setColor(c.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={c.name}
+                  accessibilityState={{ selected: color === c.value }}
+                  style={[
+                    styles.swatch,
+                    { backgroundColor: c.value },
+                    color === c.value && styles.swatchActive,
+                  ]}
+                />
+              ))}
             </View>
-          ) : null}
 
-          {canPin ? (
-            <Pressable
-              onPress={pin}
-              disabled={saving}
-              style={({ pressed }) => [
-                styles.pinRow,
-                pressed && styles.pinRowPressed,
-              ]}
-              accessibilityRole="button"
-              /* The saved name, not the draft: the shortcut is built from the
-                 row, and a rename typed above reaches the icon through
-                 `updateShortcuts` on the next save rather than through this. */
-              accessibilityLabel={`Add ${project?.name ?? 'this list'} to the home screen`}
-            >
-              <Ionicons name="phone-portrait-outline" size={17} color="#6366f1" />
-              <Text style={styles.pinText}>Add to Home screen</Text>
-            </Pressable>
-          ) : null}
+            <ProjectIconPicker value={icon} onChange={setIcon} color={color} />
+
+            {effectiveKind === 'list' ? (
+              /*
+                Lists only. On, the list groups by aisle, takes `@store`, keeps
+                a pantry and joins All shopping. Off, it is a plain checklist.
+                Switching changes no item: an item on either is still an item,
+                so the switch can be flipped back without losing anything.
+              */
+              <View style={styles.shoppingRow}>
+                <View style={styles.shoppingText}>
+                  <Text style={styles.shoppingLabel}>Shopping list</Text>
+                  <Text style={styles.shoppingHint}>
+                    {shopping
+                      ? 'Grouped by aisle, with shops and what you bought before. Shown in All shopping.'
+                      : 'A plain checklist. No aisles, shops or pantry.'}
+                  </Text>
+                </View>
+                <Switch
+                  value={shopping}
+                  onValueChange={setShopping}
+                  disabled={saving}
+                  trackColor={{ true: '#6366f1', false: '#d1d5db' }}
+                  accessibilityLabel="Shopping list"
+                />
+              </View>
+            ) : null}
+
+            {canPin ? (
+              <Pressable
+                onPress={pin}
+                disabled={saving}
+                style={({ pressed }) => [
+                  styles.pinRow,
+                  pressed && styles.pinRowPressed,
+                ]}
+                accessibilityRole="button"
+                /* The saved name, not the draft: the shortcut is built from
+                   the row, and a rename typed above reaches the icon through
+                   `updateShortcuts` on the next save rather than through
+                   this. */
+                accessibilityLabel={`Add ${project?.name ?? 'this list'} to the home screen`}
+              >
+                <Ionicons
+                  name="phone-portrait-outline"
+                  size={17}
+                  color="#6366f1"
+                />
+                <Text style={styles.pinText}>Add to Home screen</Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -312,7 +414,7 @@ export function ProjectFormSheet({
               </Pressable>
             )}
             <View style={styles.actionsSpacer} />
-            <Pressable onPress={onClose} style={styles.cancel}>
+            <Pressable onPress={close} style={styles.cancel}>
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>
             <Pressable
@@ -331,26 +433,35 @@ export function ProjectFormSheet({
               </Text>
             </Pressable>
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(17,24,39,0.45)',
+  },
+  // Fills the screen and holds the sheet at its bottom. Its padding is the
+  // status bar above and the keyboard below, so the sheet is always sized to
+  // the space between them.
+  frame: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
+  // `flexShrink` lets the sheet be shorter than its content, and the body
+  // scrolls the difference.
   sheet: {
+    flexShrink: 1,
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 16,
-    paddingBottom: 28,
     paddingHorizontal: 16,
   },
+  body: { flexGrow: 0, flexShrink: 1 },
   title: {
     fontSize: 11,
     fontWeight: '700',

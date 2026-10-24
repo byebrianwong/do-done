@@ -203,13 +203,20 @@ and the deep link: `dodone://quick-add`, a transparent modal over the list.
   nobody is told about is not a replacement for a button; it is one of four ways
   into the same recorder (see *Voice notes → Ways in*), and the composer's own
   mic is one tap further on.
+- **Lists and projects are created from the same corner.** The Lists and
+  Projects tabs had their `+` in the title bar, while tasks and list items were
+  added from the bottom-right corner. Both tabs use `QuickAddButton` now, with
+  `onPress` opening `ProjectFormSheet` instead of the task composer, the same
+  way a list's own screen opens its item composer. The list padding on those
+  two tabs is 96 plus the tab bar, as on the task screens, so the button never
+  covers the last row.
 
 ### Every composer's plus does something
 
-A `+` is a button everywhere else in DoDone: the mobile add button, the Lists
-and Projects `+`, the sidebar's New task. So a `+` drawn beside a text field and
-wired to nothing is a promise the app does not keep, and three composers drew
-one that way.
+A `+` is a button everywhere else in DoDone: the mobile add button (which is
+also how the Lists and Projects tabs create a list or a project), the sidebar's
+New task. So a `+` drawn beside a text field and wired to nothing is a promise
+the app does not keep, and three composers drew one that way.
 
 `ComposerActionGlyph` is the fix — one per platform, `components/composer-action-glyph.tsx`
 on web and `components/ComposerActionGlyph.tsx` on mobile. It is a single
@@ -354,7 +361,7 @@ Two doors closed with this: the cart button on the Projects tab and the
 "Shopping lists" row in Settings. Both existed to reach a feature with no tab
 of its own, and the Settings row specifically existed because the cart button
 only appeared once a list existed — so there was no way to make a first one.
-The Lists tab is permanent and has its own **+**.
+The Lists tab is permanent and has its own plus button.
 
 ## Subtasks follow their parent's project
 
@@ -3200,6 +3207,29 @@ second window and drop the IME. The form grows and its body scrolls instead.
 
 `ProjectFormSheet` is the whole of it on mobile — create, edit and delete, for a project
 and for a list alike — so the full palette and both icon tabs are reachable there.
+
+**`ProjectFormSheet` is not a `Modal`, and should not become one again.** On Android,
+React Native 0.81 draws a `Modal` in a window of its own, and with edge-to-edge on, that
+window ignores `adjustResize`. Reanimated's `useAnimatedKeyboard` listens on the
+activity's window only, so it cannot see a keyboard raised over a `Modal` either. The form
+focuses its name field on open, so the keyboard covered everything but the sheet's title,
+and nothing in the sheet could react to it.
+
+- **`ProjectFormHost` draws it, once, in `app/_layout.tsx`**, after the navigator, where
+  `BulkActionBar` also sits. That puts it over the tab bar and in the activity's window.
+  Screens call `openProjectForm({ kind, project, onDeleted })`.
+- **The keyboard lift is padding, not a transform.** The frame's bottom padding follows
+  the keyboard height every frame, and the sheet shrinks to the space that is left, with
+  its fields in a `ScrollView`. A transform would push a tall sheet (one with the icon
+  grid open) off the top of the screen. Cancel and Create sit below the scroll, so they
+  stay on screen.
+- **The sheet mounts on open and unmounts on close**, so its fields are seeded once from
+  the row. Before, they were re-seeded whenever the `project` prop changed, so a refetch
+  while the sheet was open could replace a half-typed rename.
+- **Android's back button closes it**, through `BackHandler`. `Modal`'s `onRequestClose`
+  used to do this.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
+  pass. The keyboard behaviour can only be checked on a phone.
 
 **Where it is opened from differs by screen, and the reason is the header.** A list's
 detail bar has no ⋯ menu, so editing is a pencil beside "Put away". A project's already

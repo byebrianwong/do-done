@@ -13,7 +13,8 @@ import { splitProjects } from '@do-done/shared';
 import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useListLoadState } from '@/lib/list-load-state';
-import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import { openProjectForm } from '@/components/ProjectFormSheet';
+import QuickAddButton from '@/components/QuickAddButton';
 import {
   ListError,
   ListSkeleton,
@@ -46,7 +47,6 @@ export default function ProjectsScreen() {
   // Local copy so a drag reorders instantly; re-seeded whenever the server list
   // changes (a create, a reconcile after reorder, another device's edit).
   const [ordered, setOrdered] = useState<ProjectRow[]>(projects);
-  const [showCreate, setShowCreate] = useState(false);
 
   // Shopping lists have their own tab and are dropped from this one entirely.
   // Left in, every one of them would read "0 open": their items are excluded
@@ -171,18 +171,10 @@ export default function ProjectsScreen() {
           <Pressable
             onPress={() => router.push('/tags' as never)}
             hitSlop={10}
-            style={styles.addBtn}
+            style={styles.topBtn}
             accessibilityLabel="Tags"
           >
             <Ionicons name="pricetags-outline" size={19} color="#6366f1" />
-          </Pressable>
-          <Pressable
-            onPress={() => setShowCreate(true)}
-            hitSlop={10}
-            style={styles.addBtn}
-            accessibilityLabel="New project"
-          >
-            <Ionicons name="add" size={24} color="#6366f1" />
           </Pressable>
         </View>
       </View>
@@ -219,16 +211,18 @@ export default function ProjectsScreen() {
           )
         }
         // The bar floats over the screen, so the last project has to be able
-        // to scroll clear of it. See `useTabBarScrollSync`.
+        // to scroll clear of it. See `useTabBarScrollSync`. The 96 also
+        // clears the plus button, as on the task screens.
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: 40 + tabBar.contentInset },
+          { paddingBottom: 96 + tabBar.contentInset },
         ]}
       />
 
-      <ProjectFormSheet
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
+      {/* The same plus button the task screens add with. See the Lists tab. */}
+      <QuickAddButton
+        accessibilityLabel="New project"
+        onPress={() => openProjectForm()}
       />
     </View>
   );
@@ -248,7 +242,7 @@ const styles = StyleSheet.create({
   },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  addBtn: {
+  topBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,

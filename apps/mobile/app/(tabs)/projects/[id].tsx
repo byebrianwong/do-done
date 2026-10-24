@@ -36,7 +36,7 @@ import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 import { ProjectIcon } from '@/components/ProjectIcon';
-import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import { openProjectForm } from '@/components/ProjectFormSheet';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -60,7 +60,6 @@ export default function ProjectDetailScreen() {
 
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
-  const [editingProject, setEditingProject] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('project');
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
@@ -127,7 +126,20 @@ export default function ProjectDetailScreen() {
                     key: 'edit',
                     label: 'Edit project',
                     icon: 'create-outline',
-                    onPress: () => setEditingProject(true),
+                    // Not before the row has loaded: with no project the form
+                    // would open as "New project".
+                    onPress: () => {
+                      if (!project) return;
+                      openProjectForm({
+                        project,
+                        // The deleted project is this screen, so there is
+                        // nothing left to show. The Projects tab's memory
+                        // still points at it; `resumeDecision` checks the
+                        // stored id against the projects that exist and falls
+                        // back to the index, so it does not need clearing.
+                        onDeleted: () => router.back(),
+                      });
+                    },
                   },
                 ]}
               />
@@ -186,16 +198,6 @@ export default function ProjectDetailScreen() {
         visible={editing !== null}
         onClose={() => setEditing(null)}
         onSaved={invalidateTasks}
-      />
-      <ProjectFormSheet
-        visible={editingProject}
-        project={project ?? undefined}
-        onClose={() => setEditingProject(false)}
-        // The deleted project is this screen, so there is nothing left to show.
-        // The Projects tab's memory still points at it; `resumeDecision` checks
-        // the stored id against the projects that exist and falls back to the
-        // index, so it does not need clearing here.
-        onDeleted={() => router.back()}
       />
     </View>
   );
