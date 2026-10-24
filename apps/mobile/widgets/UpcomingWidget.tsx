@@ -6,8 +6,8 @@ import type { WidgetTasks } from './widget-data';
 
 /**
  * Home-screen widget mirroring the app's Upcoming view: tasks grouped by day
- * (Overdue → Today → Tomorrow → next days → Later → Anytime). Resizable —
- * taller widgets show more days and rows.
+ * (Overdue → Today → Tomorrow → next days → Later → Anytime). The rows scroll,
+ * and a taller widget shows more of them at once.
  *
  * Because every group header names a day, the rows beneath one don't repeat it:
  * a task under "Tomorrow" prints its time, not the word "Tomorrow".

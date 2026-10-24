@@ -1,11 +1,11 @@
 /**
- * What a widget says, and how much of it fits.
+ * What a widget says, and which rows its list holds.
  *
  * Both are invisible failures on a device. A subline that repeats its own group
- * header just looks like the app being wordy; a "+N more" computed off the wrong
- * capacity is a wrong number about the user's own task list, and nothing on the
- * home screen contradicts it. Neither shows up in a screenshot, so they are
- * pinned here.
+ * header just looks like the app being wordy; a list that leaves tasks off
+ * without saying so is a wrong answer about the user's own task list, and
+ * nothing on the home screen contradicts it. Neither shows up in a screenshot,
+ * so they are pinned here.
  */
 import { describe, it, expect } from 'vitest';
 import type { Project, Task } from '@do-done/shared';
@@ -17,15 +17,12 @@ import {
   buildUpcomingGroups,
   contentBudget,
   layoutRows,
-  rowHeight,
+  listHeight,
   CARD_PADDING_HEIGHT,
   COMPACT_BUDGET_DP,
-  FIRST_GROUP_HEADER_HEIGHT,
-  GROUP_HEADER_HEIGHT,
   HEADER_BAR_HEIGHT,
-  MORE_ROW_HEIGHT,
-  ROW_HEIGHT_BARE,
   ROW_HEIGHT_WITH_SUBLINE,
+  WIDGET_MAX_LIST_ROWS,
   type WidgetGroup,
 } from './widget-layout';
 
@@ -105,7 +102,6 @@ describe('what a row says', () => {
     );
     // No placeholder, no empty chip — the row is one line tall.
     expect(row.subline).toBe('');
-    expect(rowHeight(row, false)).toBe(ROW_HEIGHT_BARE);
   });
 
   it('keeps the age under Overdue, which is not a day', () => {
@@ -144,7 +140,7 @@ describe('what a row says', () => {
   });
 });
 
-describe('spending the height budget', () => {
+describe('listing the rows', () => {
   function groupsOf(counts: number[], overrides: Partial<Task> = {}): WidgetGroup[] {
     return counts.map((n, i) => ({
       key: `g${i}`,
@@ -154,10 +150,22 @@ describe('spending the height budget', () => {
     }));
   }
 
+  const tasksIn = (rows: ReturnType<typeof layoutRows>['rows']) =>
+    rows.filter((r) => r.type === 'task').length;
+
   it('subtracts the title bar and the card padding from the widget height', () => {
     expect(contentBudget(160)).toBe(160 - HEADER_BAR_HEIGHT - CARD_PADDING_HEIGHT);
     // A widget too small to hold anything gets a floor, not a negative budget.
     expect(contentBudget(10)).toBe(0);
+  });
+
+  it('never gives the list less height than its tallest row', () => {
+    // The library throws on a 0-tall ListWidget, and the throw blanks the
+    // widget. It also requires each item to fit inside the list.
+    expect(listHeight(0)).toBe(ROW_HEIGHT_WITH_SUBLINE);
+    expect(listHeight(60)).toBe(ROW_HEIGHT_WITH_SUBLINE);
+    // At the smallest size app.config.ts allows, the list is the space left.
+    expect(listHeight(110)).toBe(contentBudget(110));
   });
 
   it('omits group headers when there is only one group', () => {
@@ -165,14 +173,16 @@ describe('spending the height budget', () => {
     expect(rows.every((r) => r.type === 'task')).toBe(true);
   });
 
-  it('charges a bare row less than one carrying a subline', () => {
-    const dated = { scheduled_time: '09:00', scheduled_date: todayLocalISO() };
-    const bare = layoutRows(groupsOf([10]), [], 300);
-    const withSub = layoutRows(groupsOf([10], dated), [], 300);
-    // What the budget buys: identical inputs but for what the rows have to say,
-    // and the sparser list gets more of them on screen.
-    expect(bare.rows.length).toBeGreaterThan(withSub.rows.length);
-    expect(ROW_HEIGHT_WITH_SUBLINE).toBeGreaterThan(ROW_HEIGHT_BARE);
+  it('lists every task however short the widget is', () => {
+    // The regression this guards: the rows did not scroll, so a short widget
+    // showed what fit and "+N more", and the rest could only be reached in the
+    // app.
+    for (const budget of [0, 10, 60, 137, 500]) {
+      const { rows, hiddenCount } = layoutRows(groupsOf([4, 3, 2]), [], budget);
+      expect(tasksIn(rows)).toBe(9);
+      expect(rows.filter((r) => r.type === 'header')).toHaveLength(3);
+      expect(hiddenCount).toBe(0);
+    }
   });
 
   it('drops every subline rather than shrink one, on a small cell', () => {
@@ -184,75 +194,39 @@ describe('spending the height budget', () => {
       r.rows.filter((x) => x.type === 'task' && x.subline).length;
     expect(sublines(tight)).toBe(0);
     expect(sublines(roomy)).toBeGreaterThan(0);
-    // ...and the point of dropping them: a 3x2 shows tasks instead of one task.
-    expect(tight.rows.length).toBeGreaterThan(roomy.rows.length);
+    // Density changes what a row says, never which rows there are.
+    expect(tight.rows.length).toBe(roomy.rows.length);
   });
 
-  it('gives a 3x2-ish cell more than a single row', () => {
-    // The regression this guards: at 34 dp a row plus its reserved "+N more"
-    // ate a 160 dp cell after one task, and the widget was a header and a line.
-    const { rows } = layoutRows(
-      groupsOf([1, 4], { scheduled_time: '09:00', scheduled_date: todayLocalISO() }),
+  it('stops at the cap and counts the rest', () => {
+    const half = WIDGET_MAX_LIST_ROWS / 2 + 5;
+    const { rows, hiddenCount } = layoutRows(groupsOf([half, half]), [], 500);
+    expect(tasksIn(rows)).toBe(WIDGET_MAX_LIST_ROWS);
+    expect(hiddenCount).toBe(half * 2 - WIDGET_MAX_LIST_ROWS);
+    // A header counts its whole group, including the tasks the cap left off.
+    const second = rows.filter((r) => r.type === 'header')[1];
+    expect(second?.type === 'header' && second.count).toBe(half);
+  });
+
+  it('does not start a group the cap leaves no room for', () => {
+    const { rows, hiddenCount } = layoutRows(
+      groupsOf([WIDGET_MAX_LIST_ROWS, 5]),
       [],
-      contentBudget(160)
+      500
     );
-    expect(rows.filter((r) => r.type === 'task').length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('never overspends the budget, "+N more" included', () => {
-    for (const budget of [24, 47, 90, 137, 240, 500]) {
-      const { rows, hiddenCount } = layoutRows(groupsOf([4, 3, 2]), [], budget);
-      const used = rows.reduce((n, r, i) => n + rowHeight(r, i === 0), 0);
-      expect(used + (hiddenCount > 0 ? MORE_ROW_HEIGHT : 0)).toBeLessThanOrEqual(
-        budget
-      );
-    }
-  });
-
-  it('offers the way out when the cell is too small for even one row', () => {
-    // The one place the budget is deliberately overspent: a widget this small
-    // has nothing useful to draw, and "+9 more" at least opens the list.
-    const { rows, hiddenCount } = layoutRows(groupsOf([4, 3, 2]), [], 10);
-    expect(rows).toHaveLength(0);
-    expect(hiddenCount).toBe(9);
-  });
-
-  it('counts everything it did not draw', () => {
-    const { rows, hiddenCount } = layoutRows(groupsOf([4, 3, 2]), [], 120);
-    const shown = rows.filter((r) => r.type === 'task').length;
-    expect(shown + hiddenCount).toBe(9);
-    expect(hiddenCount).toBeGreaterThan(0);
-  });
-
-  it('reserves room for "+N more" rather than filling to the edge', () => {
-    // Exactly two bare rows' worth of budget, with three tasks to place. The
-    // second row has to give way, or the "+1 more" it implies has nowhere to go.
-    const { rows, hiddenCount } = layoutRows(groupsOf([3]), [], ROW_HEIGHT_BARE * 2);
-    const used = rows.reduce((n, r, i) => n + rowHeight(r, i === 0), 0);
-    expect(hiddenCount).toBeGreaterThan(0);
-    expect(used + MORE_ROW_HEIGHT).toBeLessThanOrEqual(ROW_HEIGHT_BARE * 2);
-  });
-
-  it('draws every task and reserves nothing when they all fit', () => {
-    const { rows, hiddenCount } = layoutRows(groupsOf([2]), [], ROW_HEIGHT_BARE * 2);
-    expect(rows).toHaveLength(2);
-    expect(hiddenCount).toBe(0);
+    expect(rows[rows.length - 1]?.type).toBe('task');
+    expect(rows.filter((r) => r.type === 'header')).toHaveLength(1);
+    expect(hiddenCount).toBe(5);
   });
 
   it('never leaves a group header with nothing under it', () => {
-    for (let budget = 0; budget <= 200; budget += 3) {
-      const { rows } = layoutRows(groupsOf([2, 2, 2]), [], budget);
+    for (const counts of [[2, 2, 2], [1, 1], [WIDGET_MAX_LIST_ROWS - 1, 3, 3]]) {
+      const { rows } = layoutRows(groupsOf(counts), [], 500);
       expect(rows[rows.length - 1]?.type).not.toBe('header');
       rows.forEach((row, i) => {
         if (row.type === 'header') expect(rows[i + 1]?.type).toBe('task');
       });
     }
-  });
-
-  it('charges the first header less, because it has no row to clear', () => {
-    expect(FIRST_GROUP_HEADER_HEIGHT).toBeLessThan(GROUP_HEADER_HEIGHT);
-    const { rows } = layoutRows(groupsOf([1, 1]), [], 500);
-    expect(rowHeight(rows[0], true)).toBe(FIRST_GROUP_HEADER_HEIGHT);
   });
 });
 

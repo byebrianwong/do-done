@@ -1,5 +1,5 @@
 import React from 'react';
-import { SvgWidget, TextWidget } from 'react-native-android-widget';
+import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
 import { parseProjectIcon, phosphorSvgMarkup } from '@do-done/shared';
 
 /**
@@ -31,7 +31,12 @@ export function WidgetProjectIcon({
   color: string;
 }) {
   const parsed = parseProjectIcon(icon);
-  if (parsed.kind === 'none') return null;
+  // An empty box, never `null`. The library's tree builder calls each
+  // component and reads `.type` off what it returns, so a component that
+  // returns null throws, and the throw leaves the whole widget blank. A project
+  // with no icon, or a `ph:` token this build has no paths for, gets a bare
+  // ring this way, as it does in the app.
+  if (parsed.kind === 'none') return <FlexWidget style={{ width: 0, height: 0 }} />;
 
   if (parsed.kind === 'emoji') {
     return <TextWidget text={parsed.char} style={{ fontSize: size }} />;

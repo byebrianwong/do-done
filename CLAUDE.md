@@ -3457,23 +3457,25 @@ widget and a list can never disagree about what a task is. Priority used to colo
 checkbox here, which put an ordinal variable in a nominal channel on the one surface that
 never said which project a task belonged to.
 
-Four rules the widget adds, all about a launcher cell being small:
+Five rules the widget adds, all about a launcher cell being small:
 
 - **`loadWidgetTasks` fetches projects as well as tasks**, because the ring needs a colour
   and an icon. A projects failure returns an empty list rather than propagating: every ring
   falls back to neutral, which is a duller widget but still a correct one. Letting it take
   the task list down would turn a cosmetic outage into an empty home screen.
-- **Fitting spends a height budget, not a row count.** `layoutRows` in
-  `widgets/widget-layout.ts` charges 24 dp for a bare row, 34 dp for one with a subline, and
-  22 dp for a group header, and reserves the "+N more" line *before* placing the row that
-  would need it. The old `rowCapacity` divided the height by a flat 26 dp, which was wrong in
-  both directions as soon as rows stopped being uniform — and a "+N more" computed off a
-  wrong capacity is a wrong number about the user's own task list, with nothing on the home
-  screen to contradict it.
-- **Below `COMPACT_BUDGET_DP` the sublines all go.** A subline costs 42% more row height,
-  which on a 3×2 is the difference between three tasks and one — the widget was a group
-  header and a single line. There are exactly two densities and no truncated middle ground,
-  and the choice is made inside `layoutRows` from the budget, so no caller can get it wrong.
+- **The rows scroll.** Today, Upcoming and List put their rows in the library's
+  `ListWidget`, an Android ListView, under a header bar that stays put. They used to show
+  only what the cell's height allowed and end in "+N more", so on a short cell most of the
+  list could only be reached in the app. `layoutRows` in
+  `widgets/widget-layout.ts` now lists every task up to `WIDGET_MAX_LIST_ROWS` (50), and
+  "+N more" appears only past that. The cap exists because each row is drawn to two images
+  (light and dark) and written to disk on every update, and an update follows every task
+  write.
+- **The cell's height decides density, not which rows appear.** Below `COMPACT_BUDGET_DP`
+  the sublines all go. A subline costs 42% more row height (34 dp against 24), so a short
+  cell shows noticeably fewer rows at once with them. A widget is read at a glance, and a
+  glance does not scroll. There are exactly two densities and no truncated middle ground, and the choice
+  is made inside `layoutRows` from the budget, so no caller can get it wrong.
 - **A group header owns its day, so the rows beneath do not repeat it.**
   `WidgetGroup.namesTheDay` drives `rowSubline`'s `hideScheduledDay`, the date-shaped twin of
   `projectName: null`. Overdue is deliberately *not* a day group: "3 days ago" is the one
@@ -3492,10 +3494,34 @@ headless handler and the app's own foreground refresh (`lib/widgets.ts`, called 
 would silently drop the dark card until the next 30-minute tick — a bug that only reproduces
 on a phone set to dark.
 
-Two things that can only be checked on a device: an 18 dp ring is well under Material's 48 dp
+**`ListWidget` draws each item to its own image, and that puts four rules on the tree.** None
+of them fails at build time or in a type-check. Each one either throws, which leaves the widget
+blank, or puts a tap in the wrong place. `widgets/widget-scroll.test.ts` builds the real tree
+with the library's own tree builder and its real widget components, and checks them.
+
+- **An item's root is a full-width `FlexWidget` with padding, never margin.** The library draws
+  the image from the item's own bounds, so a margin on the root is dropped from the picture but
+  still offsets the tap areas laid over it. Taps inside an item keep working: the root's
+  `clickAction` becomes the tap on the row, and the ring's becomes a hit area on top of it.
+- **The list is never 0 tall, and never shorter than its tallest item.** The library throws on
+  the first and requires the second. `listHeight` floors it at a subline row.
+- **At most two `ListWidget`s, and never one inside another.** The tree builder throws
+  otherwise. Each widget here uses one.
+- **No component may return `null`.** The tree builder calls each function component and reads
+  `.type` off what it returns. `WidgetProjectIcon` returned `null` for a project with no icon,
+  so the List widget's picker threw for anyone with such a project and never drew. A `ph:`
+  token this build cannot draw did the same to a task row. It returns an empty `FlexWidget`
+  now.
+
+**Scrolling is pure JS and ships over OTA.** `ListWidget` is in the library's native code, and
+its config plugin registers `RNWidgetCollectionService` whether or not a widget uses a list
+(true of 0.20.1, the version in the lockfile).
+
+Three things that can only be checked on a device: an 18 dp ring is well under Material's 48 dp
 touch minimum (its tappable box is padded to 26×24, as far as it goes without making every row
-taller), and `TextWidget` has no `lineHeight`, so the dp constants in `widget-layout.ts` are
-padding-and-margin sums rather than a typographic ideal.
+taller), `TextWidget` has no `lineHeight`, so the dp constants in `widget-layout.ts` are
+padding-and-margin sums rather than a typographic ideal, and the list itself. Nothing in CI can
+show that the launcher scrolls it, or that a ring tapped in a scrolled row completes that row.
 
 **Adding the Next up widget changes `app.config.ts`, so it needs a fresh `eas build`.** The
 row redesign itself is pure JS and ships over an update.
@@ -3537,9 +3563,9 @@ Every way it can be wrong is silent on a home screen:
 - **`WIDGET_DELETED` forgets the pin.** The launcher reuses widget ids, so a pin left behind
   is inherited by the next widget that happens to get that id — which opens on a list the
   user never chose and reads as the widget being broken.
-- **The picker says what does not fit.** A cell too short for every candidate spends a row on
-  "+N more — make the widget taller" rather than silently offering a subset, because a picker
-  that omits the list you keep looks like the list is gone.
+- **The picker offers every candidate.** Its rows scroll like the task rows, so a short cell
+  holds all of them. It used to drop the rest behind "+N more — make the widget taller". A
+  picker that omits the list you keep looks like the list is gone.
 
 #### One widget, two bodies
 

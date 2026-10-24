@@ -151,6 +151,29 @@ it passes for the wrong reason.
 
 ---
 
+## Scrolling (Today, Upcoming, List)
+
+The rows of these three widgets, and the List widget's picker, are in a
+`ListWidget`: an Android ListView inside the widget. Not yet seen on a device.
+It is pure JS, so an OTA update is enough to test it.
+
+1. **Put more tasks on Today than the cell shows, and swipe up on the rows.**
+   The rows scroll. The title, the count and "+" stay where they are. If the
+   whole home screen pages instead, the launcher did not hand the gesture to
+   the list.
+2. **Scroll down and tap a row.** The task that opens is the one under your
+   finger. A different task means the tap areas and the images disagree, which
+   is what a margin on an item's root does.
+3. **Scroll down and tap a ring.** That task completes and leaves the list.
+4. **Switch the phone to dark mode.** The rows redraw on the dark card. Light
+   rows on a dark card means the list items did not get the dark images.
+5. **Add a List widget with more lists and projects than fit.** The picker
+   scrolls, and every one of them is in it.
+6. **Shrink a widget to its smallest size.** It still draws. A blank cell means
+   the list measured 0 tall and the library threw.
+
+---
+
 ## Launcher quick actions (app shortcuts)
 
 Separate mechanism, same "never seen on a device" status. `plugins/withAndroidShortcuts.js`
