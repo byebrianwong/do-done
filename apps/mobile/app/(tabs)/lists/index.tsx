@@ -43,8 +43,9 @@ import {
   ListSkeleton,
   UpdatingBar,
 } from '@/components/ListPlaceholder';
-import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import { openProjectForm } from '@/components/ProjectFormSheet';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import QuickAddButton from '@/components/QuickAddButton';
 
 export default function ListsScreen() {
   const router = useRouter();
@@ -59,7 +60,6 @@ export default function ListsScreen() {
   // reserves its height itself.
   const tabBar = useTabBarScrollSync();
   const toast = useUndoToast();
-  const [showCreate, setShowCreate] = useState(false);
   const [remembered, setRemembered] = useState<string | null | undefined>(
     undefined
   );
@@ -237,15 +237,11 @@ export default function ListsScreen() {
       {/* An in-content bar rather than the stack's native header: this is a
           tab root now, and it has to match the three beside it. */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.topTitle}>Lists</Text>
-        <Pressable
-          onPress={() => setShowCreate(true)}
-          hitSlop={10}
-          style={styles.addBtn}
-          accessibilityLabel="New list"
-        >
-          <Ionicons name="add" size={24} color="#6366f1" />
-        </Pressable>
+        {/* As tall as the buttons in the other tabs' title bars, so the title
+            does not move when switching tabs. */}
+        <View style={styles.titleSlot}>
+          <Text style={styles.topTitle}>Lists</Text>
+        </View>
       </View>
       <UpdatingBar visible={loadState.showUpdating} />
 
@@ -277,10 +273,11 @@ export default function ListsScreen() {
           )
         }
         // The bar floats over the screen, so the last list has to be able to
-        // scroll clear of it. See `useTabBarScrollSync`.
+        // scroll clear of it. See `useTabBarScrollSync`. The 96 also clears
+        // the plus button, as on the task screens.
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: 40 + tabBar.contentInset },
+          { paddingBottom: 96 + tabBar.contentInset },
         ]}
         onScroll={(e) =>
           tabBar.onScrollOffsetChange?.(e.nativeEvent.contentOffset.y)
@@ -292,10 +289,12 @@ export default function ListsScreen() {
         scrollEventThrottle={16}
       />
 
-      <ProjectFormSheet
-        visible={showCreate}
-        kind="list"
-        onClose={() => setShowCreate(false)}
+      {/* The same plus button the task screens add with, in the same corner.
+          It used to be a + in the title bar, while tasks and list items were
+          added from the bottom-right corner. */}
+      <QuickAddButton
+        accessibilityLabel="New list"
+        onPress={() => openProjectForm({ kind: 'list' })}
       />
     </View>
   );
@@ -310,16 +309,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 4,
   },
+  titleSlot: { height: 36, justifyContent: 'center' },
   topTitle: { fontSize: 22, fontWeight: '700', color: '#111827' },
-  addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#eef2ff',
-  },
-  listContent: { paddingTop: 8, paddingBottom: 40 },
+  listContent: { paddingTop: 8 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

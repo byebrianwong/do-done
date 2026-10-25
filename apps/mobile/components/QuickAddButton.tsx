@@ -1,6 +1,10 @@
 /**
- * The mobile add-task control: a plus button in the bottom-right corner of
+ * The mobile add control: a plus button in the bottom-right corner of
  * Today / Inbox / Upcoming / All and of a project's screen.
+ *
+ * The same button, with `onPress` set, adds an item on a list's screen and
+ * creates a list or a project on the Lists and Projects tabs, so all four
+ * kinds of add are in the same corner.
  *
  * It used to be a full-width text field pinned across the bottom of every
  * list. The field could be typed into where it stood, but that is not what it
@@ -72,6 +76,8 @@ interface QuickAddButtonProps {
    * has no voice input.
    */
   onPress?: () => void;
+  /** What the button adds, for a screen reader. Defaults to "Add task". */
+  accessibilityLabel?: string;
 }
 
 export default function QuickAddButton({
@@ -79,6 +85,7 @@ export default function QuickAddButton({
   projectId,
   scheduledDate,
   onPress,
+  accessibilityLabel = 'Add task',
 }: QuickAddButtonProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -118,7 +125,7 @@ export default function QuickAddButton({
       <Pressable
         testID="quick-add-button"
         accessibilityRole="button"
-        accessibilityLabel="Add task"
+        accessibilityLabel={accessibilityLabel}
         accessibilityHint={
           onPress ? undefined : 'Long press to dictate a task'
         }

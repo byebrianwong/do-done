@@ -14,6 +14,7 @@ import DevBanner from '@/components/DevBanner';
 import { LoginScreen } from '@/components/LoginScreen';
 import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
+import { ProjectFormHost } from '@/components/ProjectFormSheet';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
@@ -348,6 +349,10 @@ function RootLayoutNav() {
       <DevBanner />
       {/* Global overlay: docks over the tab bar whenever rows are multi-selected. */}
       <BulkActionBar />
+      {/* The new / edit project and list form. Drawn here rather than in a
+          Modal so it is in the window the keyboard tracking can see. See
+          components/ProjectFormSheet.tsx. */}
+      <ProjectFormHost />
     </ThemeProvider>
   );
 }

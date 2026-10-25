@@ -117,7 +117,7 @@ import {
   SectionCount,
   sectionHeaderStyles,
 } from '@/components/SectionHeader';
-import { ProjectFormSheet } from '@/components/ProjectFormSheet';
+import { openProjectForm } from '@/components/ProjectFormSheet';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { useUndoToast } from '@/components/UndoToast';
 import { hapticLight, hapticMedium } from '@/lib/haptics';
@@ -279,8 +279,6 @@ export function ListDetail({ listId }: { listId: string }) {
   );
   /** The item whose editor is up. An item is a task, so it is the same sheet. */
   const [editing, setEditing] = useState<Task | null>(null);
-  /** The list's own name / icon / colour form. */
-  const [editingList, setEditingList] = useState(false);
   const toast = useUndoToast();
 
   /**
@@ -817,7 +815,17 @@ export function ListDetail({ listId }: { listId: string }) {
                    moment it was created. This is the way back to them, and the
                    only way to delete a list from the phone. */
                 <Pressable
-                  onPress={() => setEditingList(true)}
+                  onPress={() => {
+                    // Not before the row has loaded: with no list the form
+                    // would open as "New list".
+                    if (!list) return;
+                    openProjectForm({
+                      project: list,
+                      // The deleted list is this screen, so there is nothing
+                      // left to show.
+                      onDeleted: () => router.back(),
+                    });
+                  }}
                   hitSlop={10}
                   accessibilityLabel="Edit list"
                 >
@@ -1179,16 +1187,6 @@ export function ListDetail({ listId }: { listId: string }) {
         onClose={() => setEditing(null)}
         onSaved={() => invalidateLists(listId)}
       />
-
-      {combined ? null : (
-        <ProjectFormSheet
-          visible={editingList}
-          project={list ?? undefined}
-          onClose={() => setEditingList(false)}
-          // The deleted list is this screen, so there is nothing left to show.
-          onDeleted={() => router.back()}
-        />
-      )}
     </View>
   );
 }
