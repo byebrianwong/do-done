@@ -253,14 +253,14 @@ describe('a project in the widget', () => {
   });
 });
 
-describe('both bodies go through the one fitter', () => {
-  it('spends the same height budget and reports the same overflow', () => {
+describe('both bodies go through the one lister', () => {
+  it('lists every item on a short widget, the same as the Today widget', () => {
     const groups = buildListGroups(aShop());
-    // Room for a couple of rows and nothing else.
+    // A short cell. The rows scroll, so it still holds all of them.
     const { rows, hiddenCount } = layoutRows(groups, [project()], 70);
     const drawn = rows.filter((r): r is WidgetTaskRow => r.type === 'task');
 
-    expect(drawn.length).toBeGreaterThan(0);
-    expect(drawn.length + hiddenCount).toBe(6);
+    expect(drawn).toHaveLength(6);
+    expect(hiddenCount).toBe(0);
   });
 });

@@ -1,5 +1,12 @@
 import React from 'react';
-import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget';
+import {
+  FlexWidget,
+  // Aliased because `./ListWidget` is the home-screen "List" widget. This one is
+  // the library's scrolling container.
+  ListWidget as ScrollingList,
+  SvgWidget,
+  TextWidget,
+} from 'react-native-android-widget';
 import type { Project, RowGutter, Task } from '@do-done/shared';
 import { plusSvg, swapSvg } from './dodone-mark';
 import { WidgetProjectIcon } from './widget-project-icon';
@@ -8,7 +15,7 @@ import { ringColor, themedColor, type WidgetTheme } from './widget-theme';
 import {
   contentBudget,
   layoutRows,
-  pickerBudget,
+  listHeight,
   PICKER_ROW_HEIGHT,
   ESTIMATE_MIN_WIDTH_DP,
   type LayoutOptions,
@@ -196,16 +203,22 @@ function GroupHeader({
   theme: WidgetTheme;
 }) {
   return (
-    <TextWidget
-      text={`${title} · ${count}`}
+    <FlexWidget
       style={{
-        color: hex(overdue ? theme.overdue : theme.groupLabel),
-        fontSize: 11,
-        fontWeight: '600',
-        marginTop: first ? 1 : 6,
-        marginBottom: 2,
+        width: 'match_parent',
+        paddingTop: first ? 1 : 6,
+        paddingBottom: 2,
       }}
-    />
+    >
+      <TextWidget
+        text={`${title} · ${count}`}
+        style={{
+          color: hex(overdue ? theme.overdue : theme.groupLabel),
+          fontSize: 11,
+          fontWeight: '600',
+        }}
+      />
+    </FlexWidget>
   );
 }
 
@@ -354,17 +367,20 @@ function MoreRow({
   theme: WidgetTheme;
 }) {
   return (
-    <TextWidget
-      text={`+${count} more`}
+    <FlexWidget
       clickAction="OPEN_URI"
       clickActionData={{ uri: tabUri }}
-      style={{
-        color: hex(theme.accent),
-        fontSize: 11,
-        fontWeight: '600',
-        marginTop: 5,
-      }}
-    />
+      style={{ width: 'match_parent', paddingTop: 5, paddingBottom: 3 }}
+    >
+      <TextWidget
+        text={`+${count} more`}
+        style={{
+          color: hex(theme.accent),
+          fontSize: 11,
+          fontWeight: '600',
+        }}
+      />
+    </FlexWidget>
   );
 }
 
@@ -405,9 +421,40 @@ function WidgetCard({
 }
 
 /**
- * The shared task-list widget both Today and Upcoming render. Given already-built
- * day-groups and the widget's size, it spends a height budget on rows and shows
- * a "+N more" affordance for whatever didn't fit.
+ * Everything under the header bar, in a list that scrolls.
+ *
+ * `ListWidget` is an Android ListView. The library draws each direct child to
+ * its own image, and the launcher scrolls those images.
+ *
+ * - **An item's root is a full-width `FlexWidget` with padding, never margin.**
+ *   The image is drawn from the item's own bounds, so a margin on the root is
+ *   dropped from the picture but still offsets the tap areas laid over it.
+ *   Every item in this file follows that rule.
+ * - **Taps still work inside an item.** The root's `clickAction` becomes the
+ *   tap on the whole row, and a nested one (the ring) becomes a hit area on top
+ *   of it.
+ *
+ * The header bar stays outside the list, so the title, the swap arrows and "+"
+ * do not scroll away.
+ */
+function ScrollingBody({
+  height,
+  children,
+}: {
+  height: number;
+  children: React.ReactNode[];
+}) {
+  return (
+    <ScrollingList style={{ width: 'match_parent', height: listHeight(height) }}>
+      {children}
+    </ScrollingList>
+  );
+}
+
+/**
+ * The shared task-list widget Today, Upcoming and List render. Given
+ * already-built groups and the widget's size, it lists the rows in a scrolling
+ * body and ends with "+N more" when the list was capped.
  */
 export function TaskListWidget({
   title,
@@ -472,9 +519,10 @@ export function TaskListWidget({
         hideEstimate: width < ESTIMATE_MIN_WIDTH_DP,
         aisleMemory,
       });
+      const items: React.ReactNode[] = [];
       rows.forEach((row, i) => {
         if (row.type === 'header') {
-          children.push(
+          items.push(
             <GroupHeader
               key={`h-${row.key}`}
               title={row.title}
@@ -485,14 +533,19 @@ export function TaskListWidget({
             />
           );
         } else {
-          children.push(<TaskRow key={row.task.id} row={row} theme={theme} />);
+          items.push(<TaskRow key={row.task.id} row={row} theme={theme} />);
         }
       });
       if (hiddenCount > 0) {
-        children.push(
+        items.push(
           <MoreRow key="more" count={hiddenCount} tabUri={tabUri} theme={theme} />
         );
       }
+      children.push(
+        <ScrollingBody key="list" height={height}>
+          {items}
+        </ScrollingBody>
+      );
     }
   }
 
@@ -687,9 +740,9 @@ export function NextUpWidget({
  * name everywhere else, so the picker reads as a list of things you recognise
  * rather than a list of words.
  *
- * **What does not fit says so.** A cell too short for every candidate spends a
- * row on "+N more — resize" rather than silently offering a subset, because a
- * picker that omits the list you keep looks like the list is gone.
+ * **Every candidate is offered.** The rows scroll, so a short cell holds the
+ * whole list rather than a subset. A picker that omits the list you keep looks
+ * like the list is gone.
  */
 export function ListPickerWidget({
   candidates,
@@ -724,29 +777,13 @@ export function ListPickerWidget({
       />
     );
   } else {
-    const room = pickerBudget(height, candidates.length);
-    const shown = candidates.slice(0, room);
-    for (const project of shown) {
-      children.push(
-        <PickerRow key={project.id} project={project} theme={theme} />
-      );
-    }
-    const hidden = candidates.length - shown.length;
-    if (hidden > 0) {
-      children.push(
-        <TextWidget
-          key="more"
-          text={`+${hidden} more — make the widget taller`}
-          maxLines={1}
-          truncate="END"
-          style={{
-            color: hex(theme.subline),
-            fontSize: 10,
-            marginTop: 4,
-          }}
-        />
-      );
-    }
+    children.push(
+      <ScrollingBody key="list" height={height}>
+        {candidates.map((project) => (
+          <PickerRow key={project.id} project={project} theme={theme} />
+        ))}
+      </ScrollingBody>
+    );
   }
 
   return <WidgetCard theme={theme}>{children}</WidgetCard>;

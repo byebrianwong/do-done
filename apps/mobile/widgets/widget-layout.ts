@@ -1,5 +1,5 @@
 /**
- * What a task widget says, and how much of it fits.
+ * What a task widget says, and which rows its list holds.
  *
  * Two jobs, both pure and both tested in node — `apps/mobile` has no renderer,
  * and a widget that lays itself out wrong fails silently on a home screen.
@@ -7,11 +7,10 @@
  *  1. **Grouping.** The same day-groups the app's own Today and Upcoming
  *     screens use, so a widget reads as a shrunk-down version of the screen it
  *     mirrors.
- *  2. **Fitting.** A height *budget*, spent row by row. The old
- *     `rowCapacity` divided the widget height by a flat 26 dp and hoped, which
- *     was wrong in both directions the moment rows stopped being uniform — and
- *     a "+N more" computed off a wrong capacity reports a wrong number about
- *     the user's own task list.
+ *  2. **Listing.** The rows go into a list that scrolls, so the widget's
+ *     height no longer decides which tasks appear. It decides only how much
+ *     each row says (`COMPACT_BUDGET_DP`). The list stops at
+ *     `WIDGET_MAX_LIST_ROWS` and says how many it left off.
  *
  * Everything a row displays is decided by `@do-done/shared`'s `rowGutter` /
  * `rowSubline` / `rowEstimate`, the same functions the in-app row calls. The
@@ -219,19 +218,14 @@ export function buildNextUp(tasks: Task[]): { task: Task | null; remaining: numb
 // ── What a row costs ───────────────────────────────────
 
 /**
- * Row heights in dp, matching `widget-ui.tsx`. They are here rather than there
- * because the fit has to be computed before anything is drawn, and a number
- * that lives in two files is a number that will disagree with itself.
+ * Row heights in dp, matching `widget-ui.tsx`. A subline row is the tallest
+ * thing the list holds, which is what sets the list's minimum height.
  *
  * `TextWidget` has no `lineHeight`, so these are the padding-and-margin sums
  * the component actually produces, not a typographic ideal.
  */
 export const ROW_HEIGHT_BARE = 24;
 export const ROW_HEIGHT_WITH_SUBLINE = 34;
-export const GROUP_HEADER_HEIGHT = 22;
-/** The first group header has no preceding row to clear, so it sits tighter. */
-export const FIRST_GROUP_HEADER_HEIGHT = 17;
-export const MORE_ROW_HEIGHT = 20;
 /** The "Today · 5 left  +" bar. */
 export const HEADER_BAR_HEIGHT = 30;
 /** The card's own top + bottom padding. */
@@ -243,28 +237,37 @@ export function contentBudget(widgetHeightDp: number): number {
 }
 
 /**
+ * The height to give the scrolling list under the header bar.
+ *
+ * The library throws if a `ListWidget` measures 0 tall, and the throw leaves the
+ * widget blank. It also requires every item to be no taller than the list. So
+ * the list is never shorter than its tallest row, even on a cell so small that
+ * the row then runs past the card's bottom edge. A clipped row is a better
+ * failure than an empty cell. The declared minimum heights in `app.config.ts`
+ * (110 and 150 dp) leave 60 dp or more, so this floor only matters if a
+ * launcher reports a size below them.
+ */
+export function listHeight(widgetHeightDp: number): number {
+  return Math.max(contentBudget(widgetHeightDp), ROW_HEIGHT_WITH_SUBLINE);
+}
+
+/**
  * A picker row: a ring, a name, and nothing else. Shorter than a task row
  * because it can never carry a subline.
  */
 export const PICKER_ROW_HEIGHT = 26;
 
 /**
- * How many lists and projects the picker can offer at this widget height.
+ * The most tasks one list widget draws. Past this the list ends in "+N more",
+ * which opens the screen the widget mirrors.
  *
- * At least one, always. A picker that fits nothing draws an empty card with no
- * way out of it, and a row half-clipped by the cell's edge is a better failure
- * than a widget that can only be removed.
+ * Each row is drawn to two images (light and dark) and written to disk on
+ * every widget update, and an update follows every task write. Upcoming's
+ * Anytime group can hold most of the 200 tasks `loadWidgetTasks` reads, which
+ * would be 400 images per write. Fifty rows is several screens of scrolling on
+ * any widget size.
  */
-export function pickerBudget(widgetHeightDp: number, candidates: number): number {
-  const room = Math.floor(contentBudget(widgetHeightDp) / PICKER_ROW_HEIGHT);
-  if (room >= candidates) return candidates;
-  // Something is being left out, so a line has to say so — and it costs the
-  // height of a row, exactly as "+N more" does on a task list.
-  const withNote = Math.floor(
-    (contentBudget(widgetHeightDp) - MORE_ROW_HEIGHT) / PICKER_ROW_HEIGHT
-  );
-  return Math.max(1, withNote);
-}
+export const WIDGET_MAX_LIST_ROWS = 50;
 
 // ── Rows ───────────────────────────────────────────────
 
@@ -318,8 +321,10 @@ export const ESTIMATE_MIN_WIDTH_DP = 200;
 /**
  * Below this much content height, rows print their title and nothing else.
  *
- * A subline costs 42% more row height, which on a 3×2 cell is the difference
- * between three tasks and one. The app's rule is that an unset field takes no
+ * A subline costs 42% more row height (34 dp against 24), so a short cell
+ * shows noticeably fewer rows at once with them. The list scrolls, so nothing
+ * is lost either way, but a widget is read at a glance and a glance does not
+ * scroll. The app's rule is that an unset field takes no
  * space; a widget's version of it is that a field with nowhere to go isn't
  * drawn smaller, it isn't drawn. There are exactly two densities and no
  * truncated middle ground — the alternative is a widget whose rows are a
@@ -387,25 +392,15 @@ export function buildTaskRow(
   };
 }
 
-export function rowHeight(row: WidgetRow, isFirst: boolean): number {
-  if (row.type === 'header') {
-    return isFirst ? FIRST_GROUP_HEADER_HEIGHT : GROUP_HEADER_HEIGHT;
-  }
-  return row.subline ? ROW_HEIGHT_WITH_SUBLINE : ROW_HEIGHT_BARE;
-}
-
 /**
- * Fill `budgetDp` with as many rows as genuinely fit, and count what didn't.
+ * Every row the widget's list holds, and how many tasks it left off.
  *
- * Two rules carried over from the row-count version because they were right:
- * a single group draws no header (the widget's own title already named it), and
- * a header is never emitted without room for at least one task under it — a
- * section heading with nothing beneath it is worse than the section being
- * absent.
+ * `budgetDp` is the height under the header bar. It no longer limits the rows,
+ * because the list scrolls. It decides only whether rows carry a subline.
  *
- * The "+N more" line reserves its own height *before* the last row is placed,
- * because a widget that fills itself to the edge and then discovers it has
- * something to say has nowhere left to say it.
+ * A single group draws no header, because the widget's own title already named
+ * it. A header is never the last row: the cap is checked before a group starts,
+ * so a group that begins always gets at least one task under its heading.
  */
 export function layoutRows(
   groups: WidgetGroup[],
@@ -423,43 +418,27 @@ export function layoutRows(
   };
 
   const rows: WidgetRow[] = [];
-  let used = 0;
   let shown = 0;
 
   outer: for (const group of nonEmpty) {
-    const built = group.tasks.map((t) => buildTaskRow(t, group, projects, rowOpts));
-
+    if (shown >= WIDGET_MAX_LIST_ROWS) break;
     if (showHeaders) {
-      const header: WidgetHeaderRow = {
+      rows.push({
         type: 'header',
         key: group.key,
         title: group.title,
+        // The whole group, even when the cap cuts it short. The header says
+        // what is in the section; "+N more" says what the list left off.
         count: group.tasks.length,
         overdue: group.key === 'overdue',
-      };
-      const headerCost = rowHeight(header, rows.length === 0);
-      // A header is only worth its height if a task can follow it.
-      const withFirstTask = headerCost + rowHeight(built[0], false);
-      if (used + withFirstTask > budgetDp) break;
-      rows.push(header);
-      used += headerCost;
+      });
     }
-
-    for (const row of built) {
-      const cost = rowHeight(row, rows.length === 0);
-      const remainingAfter = total - shown - 1;
-      // Reserve the "+N more" line while placing the row that would need it.
-      const reserve = remainingAfter > 0 ? MORE_ROW_HEIGHT : 0;
-      if (used + cost + reserve > budgetDp) break outer;
-      rows.push(row);
-      used += cost;
+    for (const task of group.tasks) {
+      if (shown >= WIDGET_MAX_LIST_ROWS) break outer;
+      rows.push(buildTaskRow(task, group, projects, rowOpts));
       shown++;
     }
   }
-
-  // A header with nothing under it can survive the loop when its group's tasks
-  // all failed the reserve check. Drop it rather than draw a bare heading.
-  while (rows.length && rows[rows.length - 1].type === 'header') rows.pop();
 
   return { rows, hiddenCount: total - shown };
 }
