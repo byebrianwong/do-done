@@ -80,8 +80,9 @@ export default function QuickAddRoot() {
    * and a typed `#groceries` silently became a tag on the one surface where it
    * couldn't be a project.
    *
-   * The composer renders before this lands; the chip appears when it does,
-   * rather than holding the input hostage to a round trip. Capture comes first.
+   * The composer renders before this lands, rather than holding the input
+   * hostage to a round trip. Capture comes first. Until then the chip is drawn
+   * dimmed and inert, so it holds its place in the row.
    */
   useEffect(() => {
     if (!session) return;

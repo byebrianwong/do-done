@@ -8,6 +8,7 @@
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { parseTaskInput } from '@do-done/task-engine';
 import {
   PRIORITY_CONFIG,
@@ -119,20 +120,27 @@ export default function ParsePreview({
 
   if (chips.length === 0) return null;
 
+  // Fades in and out as the parse finds or loses something, rather than
+  // popping above the card mid-word.
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.row}
+    <Animated.View
+      entering={FadeIn.duration(160)}
+      exiting={FadeOut.duration(120)}
     >
-      {chips.map((c) => (
-        <View key={c.key} style={styles.chip}>
-          <Ionicons name={c.icon} size={12} color={c.color} />
-          <Text style={[styles.chipLabel, { color: c.color }]}>{c.label}</Text>
-        </View>
-      ))}
-    </ScrollView>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.row}
+      >
+        {chips.map((c) => (
+          <View key={c.key} style={styles.chip}>
+            <Ionicons name={c.icon} size={12} color={c.color} />
+            <Text style={[styles.chipLabel, { color: c.color }]}>{c.label}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    </Animated.View>
   );
 }
 
