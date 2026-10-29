@@ -198,7 +198,7 @@ export default function ProjectsScreen() {
         }
         ListEmptyComponent={
           loadState.showSkeleton ? (
-            <ListSkeleton rows={4} />
+            <ListSkeleton rows={4} header={false} />
           ) : loadState.showError ? (
             <ListError onRetry={refetch} />
           ) : (

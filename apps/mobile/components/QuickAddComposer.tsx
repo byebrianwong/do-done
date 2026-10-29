@@ -76,7 +76,8 @@ interface QuickAddComposerProps {
    * already implies triage (a project screen) passes `not_started`.
    */
   defaultStatus?: 'inbox' | 'not_started';
-  onCreated?: () => void;
+  /** Handed the task that was created. */
+  onCreated?: (task: Task) => void;
   /**
    * What the surface that opened this composer already implies about the task
    * — the project of the screen the plus button was tapped on, the day the
@@ -201,7 +202,8 @@ export default function QuickAddComposer({
   }
 
   async function handleSubmit() {
-    if (await create()) onCreated?.();
+    const created = await create();
+    if (created) onCreated?.(created);
   }
 
   async function handleExpand() {

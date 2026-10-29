@@ -5,6 +5,7 @@ import type { Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import { markArriving } from '@/lib/row-arrival';
 import {
   createProjectOrNull,
   invalidateTasks,
@@ -59,7 +60,10 @@ export default function QuickAddModal() {
    * backdrop clears — long enough to watch the list not contain the task that
    * was just typed into it. Invalidating here closes that gap.
    */
-  const created = () => {
+  const created = (task?: Task) => {
+    // The new row opens up in the list as the refetch brings it in, rather
+    // than appearing at full height. See lib/row-arrival.ts.
+    if (task) markArriving([task.id]);
     invalidateTasks();
     close();
   };
@@ -87,7 +91,7 @@ export default function QuickAddModal() {
           visible
           // The task is already created; closing the editor finishes the
           // capture, so this surface goes with it.
-          onClose={created}
+          onClose={() => created(expandedTask)}
         />
       ) : null}
     </View>

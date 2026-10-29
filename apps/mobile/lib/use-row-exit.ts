@@ -73,8 +73,24 @@ export function prefersReducedMotion(): boolean {
  * via {@link RowExit.onLayout} and the collapse interpolates from that.
  * `maxHeight` rather than `height` so the row keeps sizing itself to its content
  * while idle — an unclamped sentinel means "no constraint".
+ *
+ * The same shell runs backwards for a row that **arrives**: it mounts clamped
+ * to nothing and opens to its natural height, so the rows below are pushed
+ * down over {@link ROW_ARRIVE_MS} rather than in one frame. And it runs
+ * forwards without the hold for a row that **departs** without being finished
+ * (a section folding shut, a task moving from Other tasks up into Focus).
+ * Neither travels sideways: nothing was filed or removed, so there is no
+ * direction to say.
  */
 const UNCLAMPED = 10_000;
+
+/**
+ * How long an arrival opens, and a departure closes. The completion's own
+ * collapse, so a row opening above a row closing in the same frame keeps the
+ * rows under both of them still: the two heights add up to one row the whole
+ * way through.
+ */
+export const ROW_ARRIVE_MS = TASK_COMPLETE_COLLAPSE_MS;
 
 export interface RowExit {
   /** Spread onto the row's outermost `Animated.View`. */
@@ -86,8 +102,28 @@ export interface RowExit {
    * row renders beside itself.
    */
   collapsing: boolean;
-  /** Wire to the same view's `onLayout` so the collapse knows how far to go. */
+  /**
+   * Wire to the `onLayout` of a plain view *inside* the shell, wrapping the
+   * row's content, so the collapse knows how far to go.
+   *
+   * Inside rather than on the shell itself, because an arriving row's shell is
+   * clamped to zero when it first lays out. The content under it still lays out
+   * at its natural height (nothing in a column shrinks it), so that is where
+   * the height has to be read from.
+   */
   onLayout: (e: LayoutChangeEvent) => void;
+  /**
+   * Fold the row shut without the completion's hold or travel. For a row that
+   * is leaving the screen without anything having happened to the task. No-op
+   * under reduce motion, where the row simply goes with the data.
+   */
+  depart: () => void;
+  /**
+   * Open a departing row back up: the list kept it after all (a section
+   * reopened, or a task moved back, before the fold finished). React reuses
+   * the folding instance for the real row, so without this it stayed at zero.
+   */
+  undepart: () => void;
   /** Begin the completion's hold-then-collapse. No-op under reduce motion. */
   start: () => void;
   /**
@@ -144,8 +180,25 @@ export interface RowExit {
   spark: () => void;
 }
 
-export function useRowExit(initiallyChecked: boolean): RowExit {
-  const progress = useSharedValue(0);
+export interface RowExitOptions {
+  /**
+   * Mount clamped shut and open up. Read once, on mount. Only for a row a write
+   * just put here: see `lib/row-arrival.ts` for how a row knows.
+   */
+  arrive?: boolean;
+}
+
+export function useRowExit(
+  initiallyChecked: boolean,
+  options: RowExitOptions = {}
+): RowExit {
+  // Decided once. A row is arriving on the frame it mounts and never again.
+  const [arriving] = useState(
+    () => options.arrive === true && !prefersReducedMotion()
+  );
+  const arriveStarted = useRef(false);
+  const arriveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progress = useSharedValue(arriving ? 1 : 0);
   const naturalHeight = useSharedValue(0);
   // The condemned dim, on its own clock: it runs across the deletion's *hold*,
   // while `progress` is still waiting to start the collapse.
@@ -153,13 +206,14 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
   // Which way the row leaves, and how hard. Held as shared values rather than
   // branched inside the worklet so the style has one expression for both exits
   // — the animation is the same, only its vector differs.
-  const slidePx = useSharedValue(TASK_COMPLETE_SLIDE_PX);
-  const slideScale = useSharedValue(TASK_COMPLETE_SLIDE_SCALE);
+  const slidePx = useSharedValue(arriving ? 0 : TASK_COMPLETE_SLIDE_PX);
+  const slideScale = useSharedValue(arriving ? 1 : TASK_COMPLETE_SLIDE_SCALE);
   const checkScale = useSharedValue(initiallyChecked ? 1 : 0);
   const ringScale = useSharedValue(1);
   const halo = useSharedValue(0);
   const sparkProgress = useSharedValue(0);
-  const [collapsing, setCollapsing] = useState(false);
+  // An arriving row starts cropped: its shell is clamped shut until it opens.
+  const [collapsing, setCollapsing] = useState(arriving);
   const [deleting, setDeleting] = useState(false);
   const [sparking, setSparking] = useState(false);
   const sparkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,6 +221,7 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
   useEffect(
     () => () => {
       if (sparkTimer.current) clearTimeout(sparkTimer.current);
+      if (arriveTimer.current) clearTimeout(arriveTimer.current);
     },
     []
   );
@@ -211,14 +266,59 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
 
   const onLayout = useCallback(
     (e: LayoutChangeEvent) => {
-      // Only while at rest: mid-collapse the measured height IS the animation's
-      // output, and feeding it back would ratchet the row to nothing.
-      if (progress.value === 0) {
-        naturalHeight.value = e.nativeEvent.layout.height;
+      // Read from the content inside the shell, which keeps its natural height
+      // however far the shell is clamped, so this is right mid-collapse too.
+      naturalHeight.value = e.nativeEvent.layout.height;
+      // An arriving row opens once it knows how tall it is. Before this frame
+      // the shell is at zero and there is nothing to interpolate towards.
+      if (arriving && !arriveStarted.current) {
+        arriveStarted.current = true;
+        progress.value = withTiming(0, {
+          duration: ROW_ARRIVE_MS,
+          easing: Easing.out(Easing.quad),
+        });
+        // Uncrop once it is open, so the swipe panels are not clipped.
+        arriveTimer.current = setTimeout(() => {
+          arriveTimer.current = null;
+          setCollapsing(false);
+        }, ROW_ARRIVE_MS);
       }
     },
-    [naturalHeight, progress]
+    [naturalHeight, progress, arriving]
   );
+
+  const depart = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    if (arriveTimer.current) {
+      clearTimeout(arriveTimer.current);
+      arriveTimer.current = null;
+    }
+    setCollapsing(true);
+    slidePx.value = 0;
+    slideScale.value = 1;
+    // The arrival's curve, so a row opening above this one cancels it out.
+    progress.value = withTiming(1, {
+      duration: ROW_ARRIVE_MS,
+      easing: Easing.out(Easing.quad),
+    });
+  }, [progress, slidePx, slideScale]);
+
+  const undepart = useCallback(() => {
+    if (arriveTimer.current) clearTimeout(arriveTimer.current);
+    if (prefersReducedMotion()) {
+      progress.value = 0;
+      setCollapsing(false);
+      return;
+    }
+    progress.value = withTiming(0, {
+      duration: ROW_ARRIVE_MS,
+      easing: Easing.out(Easing.quad),
+    });
+    arriveTimer.current = setTimeout(() => {
+      arriveTimer.current = null;
+      setCollapsing(false);
+    }, ROW_ARRIVE_MS);
+  }, [progress]);
 
   const setChecked = useCallback(
     (checked: boolean) => {
@@ -235,6 +335,10 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
 
   const start = useCallback(() => {
     if (prefersReducedMotion()) return;
+    if (arriveTimer.current) {
+      clearTimeout(arriveTimer.current);
+      arriveTimer.current = null;
+    }
     setCollapsing(true);
     slidePx.value = TASK_COMPLETE_SLIDE_PX;
     slideScale.value = TASK_COMPLETE_SLIDE_SCALE;
@@ -249,6 +353,10 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
 
   const startDelete = useCallback(() => {
     if (prefersReducedMotion()) return;
+    if (arriveTimer.current) {
+      clearTimeout(arriveTimer.current);
+      arriveTimer.current = null;
+    }
     setDeleting(true);
     setCollapsing(true);
     slidePx.value = TASK_DELETE_SLIDE_PX;
@@ -320,6 +428,8 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     collapsing,
     deleting,
     onLayout,
+    depart,
+    undepart,
     start,
     startDelete,
     cancel,

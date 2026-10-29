@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import ReanimatedSwipeable, {
@@ -25,6 +25,7 @@ import {
 } from '@/lib/use-row-exit';
 import { SWIPE_RETURN_MS, SWIPE_RETURN_SPRING, panelForSwipe } from '@/lib/swipe-actions';
 import { ROW_DRAG_HOLD_MS } from '@/lib/row-gesture';
+import { claimArrival } from '@/lib/row-arrival';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { StruckText } from '@/components/StruckText';
 import { useUndoToast } from '@/components/UndoToast';
@@ -91,7 +92,12 @@ export function ListItemRow({
   const [completed, setCompleted] = useOptimisticCompleted(
     item.status === 'done' || item.status === 'cancelled'
   );
-  const exit = useRowExit(completed);
+  // A tick moves the item to the other side of the cart, and the row is keyed
+  // by which side it is on, so it mounts fresh there. `toggleComplete` marks
+  // it, and the new row opens up instead of appearing at full height. Asked
+  // once: a row scrolled back into view was not marked.
+  const [arrive] = useState(() => claimArrival(item.id));
+  const exit = useRowExit(completed, { arrive });
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
   // A completion the swipe has asked for and the row's journey home hasn't
@@ -288,10 +294,10 @@ export function ListItemRow({
     // rows below travel up on their own. `overflow: hidden` is what makes the
     // clamped height crop rather than overlap — and it is applied only while
     // collapsing, so it can't clip the swipe panels the rest of the time.
-    <Animated.View
-      style={[exit.collapsing && styles.exitShell, exit.style]}
-      onLayout={exit.onLayout}
-    >
+    <Animated.View style={[exit.collapsing && styles.exitShell, exit.style]}>
+      {/* Measured from in here, not from the shell: an arriving shell is
+          clamped to zero when it first lays out. See `RowExit.onLayout`. */}
+      <View onLayout={exit.onLayout} collapsable={false}>
       <ReanimatedSwipeable
         ref={swipeRef}
         friction={2}
@@ -418,6 +424,7 @@ export function ListItemRow({
           </View>
         </Pressable>
       </ReanimatedSwipeable>
+      </View>
     </Animated.View>
   );
 }

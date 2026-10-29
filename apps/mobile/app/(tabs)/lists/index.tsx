@@ -259,7 +259,7 @@ export default function ListsScreen() {
         }
         ListEmptyComponent={
           loadState.showSkeleton ? (
-            <ListSkeleton rows={3} />
+            <ListSkeleton rows={3} variant="cards" />
           ) : loadState.showError ? (
             <ListError onRetry={refetch} />
           ) : (
