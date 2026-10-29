@@ -1291,6 +1291,11 @@ task.
   "Edit project" tried to open a sheet and did nothing at all. `ListActionsMenu`
   holds the action and runs it from the modal's `onDismiss`, which is iOS-only, so
   Android still runs it inline rather than waiting for a callback that never fires.
+  That rule is `useRunAfterDismiss` now; see *Bottom sheets (mobile)*.
+- **The bulk bar slides up with the mode and down when it ends**, and grows by its
+  button row when the first task is picked. Its sheets are rendered outside the bar:
+  picking an option ends selection in the same tick as it closes the sheet, and the
+  sheet has to stay mounted to slide away. Android's back button ends the mode.
 
 The cost is discoverability: nothing on the row now says it can be dragged. That is
 already true of the projects list, and the alternative was a permanent visual cost on
@@ -1566,9 +1571,44 @@ title** — autosave holds the task in React state:
   stable. `SubtasksSection` takes `parentId`/`parentDepth` rather than the parent `Task`
   for exactly this reason: a `Task` prop is a new object on every keystroke and would
   defeat the memo on the renders it exists to skip.
-- Nested pickers are mounted only while they are open. Six of them used to live
-  permanently inside every open editor, each rebuilding its option rows per keystroke and
-  holding a host view it never showed.
+- A picker's rows are mounted only while it is open, plus the length of its exit.
+  Six of them used to live permanently inside every open editor, each rebuilding its
+  option rows per keystroke and holding a host view it never showed. The pickers are
+  `BottomSheet`s now and always rendered by the editor, but `BottomSheet` renders no
+  children while closed, and each picker keeps its rows in a body component, so a
+  closed picker is one element and no host views.
+
+## Bottom sheets (mobile)
+
+**Every menu and picker is a `BottomSheet`** (`components/BottomSheet.tsx`). It rises
+from the bottom edge while the backdrop darkens, and slides back down on close. Before,
+the sheets did three different things: most faded in place, the Display sheet slid
+its dark backdrop up the screen with it, and several were removed from the tree while
+their `Modal` was visible, so they vanished in one frame.
+
+- **It is still an RN `Modal`, with `animationType="none"`.** The `Modal` is what puts a
+  picker above the task editor, which is itself a `Modal`. The motion is one shared
+  value, `translateY`, animated on the UI thread with the editor's timings from
+  `lib/sheet-motion.ts`, and the backdrop's opacity is derived from it.
+- **It stays mounted until its exit lands.** Callers pass `visible={open}` and keep it
+  rendered. It renders no children while closed, so put an expensive body in its own
+  component and it costs nothing until opened.
+- **The bottom padding includes the safe-area inset** (`sheetBottomPadding`). RN 0.81's
+  `ReactModalHostView` reports `navigationBarTranslucent` as true whenever edge-to-edge
+  is on, so a `Modal` window draws under the navigation bar, and the old fixed 28px put
+  the last row under three-button navigation.
+- **Only the grabber drags.** Several sheets hold a `ScrollView`, and sharing a drag with
+  one is the problem the editor's `dragVerdict` exists for. The release rule is the
+  editor's `shouldDismiss`.
+- **Android back closes it; Reduce Motion lands on the end state.**
+- **A row that opens another modal uses `useRunAfterDismiss`.** On iOS it holds the
+  action until the `Modal`'s `onDismiss`, which now fires after the slide. On Android it
+  runs inline. `onClosed` is the other hook: it fires once the sheet is fully gone on
+  both platforms, and quick-add uses it to hand focus back to the title field after the
+  month grid closes.
+- **`useSheetMotion` is the motion on its own**, for a sheet that cannot be a `Modal`.
+  `ProjectFormSheet` uses it.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
 
 ## The completion animation
 
@@ -3223,8 +3263,11 @@ and nothing in the sheet could react to it.
   its fields in a `ScrollView`. A transform would push a tall sheet (one with the icon
   grid open) off the top of the screen. Cancel and Create sit below the scroll, so they
   stay on screen.
-- **The sheet mounts on open and unmounts on close**, so its fields are seeded once from
-  the row. Before, they were re-seeded whenever the `project` prop changed, so a refetch
+- **The sheet mounts on open and unmounts once its exit has finished**, so its fields
+  are seeded once from the row. It rises and leaves through `useSheetMotion`, the same
+  motion as every `BottomSheet`, on an inner wrapper; the keyboard lift stays padding
+  on the frame around it. Each request gets its own key, so a sheet opened while the
+  last one is still leaving starts fresh. Before, they were re-seeded whenever the `project` prop changed, so a refetch
   while the sheet was open could replace a half-typed rename.
 - **Android's back button closes it**, through `BackHandler`. `Modal`'s `onRequestClose`
   used to do this.
