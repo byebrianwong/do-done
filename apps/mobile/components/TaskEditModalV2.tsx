@@ -17,6 +17,8 @@ import {
   AccessibilityInfo,
   Alert,
   Animated,
+  BackHandler,
+  Keyboard,
   Modal,
   View,
   Text,
@@ -87,6 +89,7 @@ import Reanimated, {
   Easing,
   type SharedValue,
   runOnJS,
+  useAnimatedKeyboard,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -94,6 +97,8 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { hapticLight } from "@/lib/haptics";
+import { revealScrollDelta } from "@/lib/keyboard-reveal";
+import { RootPortal } from "./RootOverlay";
 import {
   RETURN_SPRING,
   SHEET_CLOSE_MS,
@@ -2076,46 +2081,189 @@ export default function TaskEditModalV2({
     opacity: backdropOpacity(translateY.value, sheetHeight.value),
   }));
 
+  const shown = visible && !!task;
+
+  // Android's back button. `Modal`'s onRequestClose does this on iOS; the
+  // Android sheet is not a `Modal` (see below), so it listens itself. It is
+  // registered when the sheet opens, after the navigator's own handler, and
+  // React Native calls the newest handler first, so back closes the editor
+  // rather than the screen under it. A picker open over the editor is a
+  // `Modal` with its own window and takes the press before this sees it.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !shown) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      animatedClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [shown, animatedClose]);
+
+  // Once the keyboard has landed, make sure the focused field is above it.
+  // Android only, and normally a no-op: the body shrinks by the keyboard's
+  // height every frame (`KeyboardLift`), and a ScrollView that shrinks keeps
+  // its focused child in view by itself. This catches whatever that misses,
+  // such as a field whose height changed while the keyboard rose. iOS does the
+  // same job natively with `automaticallyAdjustKeyboardInsets` on the body.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !shown) return;
+    let frame = 0;
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      cancelAnimationFrame(frame);
+      // One frame later, so the last frame of the lift has been laid out.
+      frame = requestAnimationFrame(() => {
+        revealFocusedField(scrollRef.current, scrollOffset, reduceMotionRef.current);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      sub.remove();
+    };
+  }, [shown, scrollOffset]);
+
+  const sheetBody = (
+    <>
+      <View style={styles.grabberWrap}>
+        <View style={styles.grabber} />
+      </View>
+      {activeTask ? (
+        <Inner
+          key={activeTask.id}
+          task={activeTask}
+          onClose={animatedClose}
+          onNavigateTask={setActiveTask}
+          scrollRef={scrollRef}
+          scrollOffset={scrollOffset}
+          registerCloseGuard={registerCloseGuard}
+        />
+      ) : null}
+    </>
+  );
+
+  const sheet = (
+    <View style={styles.overlay}>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[styles.backdrop, backdropStyle]}
+      />
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={animatedClose}
+        accessibilityLabel="Close editor"
+      />
+      <GestureHandlerRootView style={styles.ghRoot}>
+        <GestureDetector gesture={dismissPan}>
+          <Reanimated.View style={[styles.sheet, sheetStyle]}>
+            {Platform.OS === "android" ? (
+              <KeyboardLift>{sheetBody}</KeyboardLift>
+            ) : (
+              sheetBody
+            )}
+          </Reanimated.View>
+        </GestureDetector>
+      </GestureHandlerRootView>
+    </View>
+  );
+
+  /**
+   * **On Android the sheet is drawn in the app's root view, not in a `Modal`.**
+   * React Native 0.81 gives a `Modal` a window of its own, and with
+   * edge-to-edge on that window ignores `adjustResize`, while
+   * `useAnimatedKeyboard` only watches the activity's window. So nothing here
+   * could see the keyboard, and Notes, the tag field and "Add subtask" were
+   * typed behind it. `RootPortal` draws the same tree in the activity's window
+   * instead (components/RootOverlay.tsx), where `KeyboardLift` can follow the
+   * keyboard every frame. Everything above this line still runs here, in the
+   * caller's tree, so the props and every call site are unchanged.
+   *
+   * iOS keeps the `Modal`. A `transparentModal` route (quick-add, a task link)
+   * is a separately presented view controller there, so the root view is
+   * behind it, and the keyboard was never hidden from an iOS `Modal` anyway.
+   */
+  if (Platform.OS === "android") {
+    return shown ? <RootPortal>{sheet}</RootPortal> : null;
+  }
+
   return (
     <Modal
-      visible={visible && !!task}
+      visible={shown}
       transparent
       animationType="none"
       statusBarTranslucent
       onRequestClose={animatedClose}
     >
-      <View style={styles.overlay}>
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.backdrop, backdropStyle]}
-        />
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={animatedClose}
-          accessibilityLabel="Close editor"
-        />
-        <GestureHandlerRootView style={styles.ghRoot}>
-          <GestureDetector gesture={dismissPan}>
-            <Reanimated.View style={[styles.sheet, sheetStyle]}>
-              <View style={styles.grabberWrap}>
-                <View style={styles.grabber} />
-              </View>
-              {activeTask ? (
-                <Inner
-                  key={activeTask.id}
-                  task={activeTask}
-                  onClose={animatedClose}
-                  onNavigateTask={setActiveTask}
-                  scrollRef={scrollRef}
-                  scrollOffset={scrollOffset}
-                  registerCloseGuard={registerCloseGuard}
-                />
-              ) : null}
-            </Reanimated.View>
-          </GestureDetector>
-        </GestureHandlerRootView>
-      </View>
+      {sheet}
     </Modal>
+  );
+}
+
+/**
+ * Shrink the sheet's contents by the keyboard's height, every frame, on the UI
+ * thread. Android only (see the root component).
+ *
+ * Padding rather than a transform: the body has to get shorter so it can
+ * scroll its lower fields up into the space that is left. Moving the whole
+ * sheet up would push its top off the screen. The bottom bar rides above the
+ * keyboard, so Close stays reachable while typing.
+ *
+ * The sheet reaches to the bottom of the screen, under the navigation bar, and
+ * so does the reported height, so the two line up with no inset to subtract.
+ *
+ * Its own component so the keyboard is only tracked while the sheet is open.
+ * Every list screen keeps an editor mounted and hidden.
+ */
+function KeyboardLift({ children }: { children: React.ReactNode }) {
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: true,
+    isNavigationBarTranslucentAndroid: true,
+  });
+  const liftStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(keyboard.height.value, 0),
+  }));
+  return (
+    <Reanimated.View style={[styles.keyboardLift, liftStyle]}>
+      {children}
+    </Reanimated.View>
+  );
+}
+
+/**
+ * Scroll the editor's body so the focused text field is on screen. A field
+ * outside the body (the location sheet's search, a picker) is left alone:
+ * `measureLayout` against the body fails for anything that is not inside it.
+ */
+function revealFocusedField(
+  scroll: React.ComponentRef<typeof Reanimated.ScrollView> | null,
+  scrollOffset: SharedValue<number>,
+  reduceMotion: boolean
+) {
+  const input = TextInput.State.currentlyFocusedInput();
+  if (!input || !scroll) return;
+  const scrollNode = (
+    scroll as unknown as { getNativeScrollRef?: () => unknown }
+  ).getNativeScrollRef?.();
+  if (!scrollNode) return;
+  const body = scrollNode as typeof input;
+  input.measureLayout(
+    body,
+    () => {
+      body.measureInWindow((_vx, viewTop, _vw, viewHeight) => {
+        input.measureInWindow((_fx, fieldTop, _fw, fieldHeight) => {
+          const delta = revealScrollDelta({
+            fieldTop,
+            fieldBottom: fieldTop + fieldHeight,
+            viewTop,
+            viewBottom: viewTop + viewHeight,
+            margin: 16,
+          });
+          if (delta === 0) return;
+          scroll.scrollTo({
+            y: Math.max(0, scrollOffset.value + delta),
+            animated: !reduceMotion,
+          });
+        });
+      });
+    },
+    () => {}
   );
 }
 
@@ -2582,6 +2730,10 @@ function Inner({
         bounces={false}
         overScrollMode="never"
         keyboardShouldPersistTaps="handled"
+        // iOS: inset the body by the keyboard and scroll the focused field
+        // into view, in step with the keyboard's own animation. Android
+        // ignores this and shrinks the sheet instead (`KeyboardLift`).
+        automaticallyAdjustKeyboardInsets
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
       >
@@ -2919,7 +3071,10 @@ function TaskMenuSheet({
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
+  // Absolute rather than `flex: 1`: in a `Modal` (iOS) either fills the
+  // window, but in the root overlay (Android) the sheet is a sibling of the
+  // navigator and has to sit over it.
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     // Opaque: the dimming is `backdropOpacity`, driven off the sheet's own
@@ -2929,6 +3084,7 @@ const styles = StyleSheet.create({
   // Kept in step with SHEET_HEIGHT_RATIO, which is what the slide is measured
   // against — a sheet taller than its travel never fully leaves the screen.
   ghRoot: { height: `${SHEET_HEIGHT_RATIO * 100}%` },
+  keyboardLift: { flex: 1 },
   sheet: {
     flex: 1,
     backgroundColor: "#fff",

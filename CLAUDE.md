@@ -1559,6 +1559,52 @@ animation lost every time.
   the ScrollView's offset in `onBegin` and stands down unless it was already at the top.
   Without that the editor lurched toward the floor instead of scrolling.
 
+### The editor's fields stay above the keyboard
+
+**On Android the editor is not a `Modal`.** It had the problem `ProjectFormSheet` had
+(see *A project's colour and its icon*): a `Modal` gets its own window, that window ignores
+`adjustResize` under edge-to-edge, and `useAnimatedKeyboard` cannot see a keyboard raised
+over it. So Notes, the tag field and "Add subtask" were typed behind the keyboard.
+
+The editor is rendered by about ten screens, so it could not move to one host the way
+`ProjectFormSheet` did without changing every call site. `RootPortal`
+(`components/RootOverlay.tsx`) moves only the drawing instead:
+
+- **The component renders `<RootPortal>` where it rendered `<Modal>`.** `RootOverlayHost`,
+  mounted once in `app/_layout.tsx` after the navigator, draws what it is handed. Every
+  hook still runs in the caller's tree, so the props and the call sites are unchanged.
+- **Context does not travel with it.** The sheet sees the providers above the host (query
+  client, undo toast, gesture handler), not the screen's. Nothing in the editor needs a
+  screen-level one. A future one that does would have to be lifted above the host.
+- **A later portal draws on top**, and an update keeps an entry's place
+  (`lib/root-overlay-store.ts`). That is how the location sheet, opened from inside the
+  editor, sits over it.
+- **`KeyboardLift` pads the sheet's contents by the keyboard's height every frame**, on
+  the UI thread. Padding, not a transform, for the reason `ProjectFormSheet` gives: the
+  body has to get shorter so it can scroll. The Close bar rides above the keyboard.
+- **A ScrollView that shrinks keeps its focused child in view by itself**
+  (Android's `ScrollView.onSizeChanged`), so the field moves up with the keyboard.
+  `revealScrollDelta` (`lib/keyboard-reveal.ts`) is a fallback that runs once the
+  keyboard has landed, and does nothing when the field is already visible. It leaves a
+  note taller than the body alone while any of it shows, since only the native text view
+  knows where the cursor is.
+- **Android's back button is a `BackHandler`**, registered while the sheet is open.
+  React Native calls the newest handler first, so back closes the editor before the
+  screen under it, and the location sheet before the editor.
+- **The pickers inside are still `Modal`s.** Their windows sit above the activity's, so
+  they draw over the editor as before.
+- **The status bar looks the same.** RN 0.81 makes a `Modal`'s window edge-to-edge and
+  copies the activity's status-bar style onto it, so both versions draw the backdrop
+  under a transparent status bar with the same icons.
+- **iOS keeps the `Modal`.** There, a `transparentModal` route (quick-add, `task/[id]`) is
+  a separately presented view controller, so anything in the root view would be behind
+  it. The body sets `automaticallyAdjustKeyboardInsets`, which insets it by the keyboard
+  and scrolls the focused field into view during the keyboard's own animation.
+- **The cost: TalkBack is no longer confined to the sheet.** A `Modal`'s window kept the
+  screen reader inside it. The root view does not, so swiping past the sheet's last
+  element can reach the screen behind the backdrop.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
+
 Two render-cost rules, both because **the editor re-renders on every keystroke in the
 title** — autosave holds the task in React state:
 
@@ -3231,6 +3277,10 @@ and nothing in the sheet could react to it.
 - **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
   pass. The keyboard behaviour can only be checked on a phone.
 
+The task editor and its location sheet have the same problem but are rendered by the
+screens, so they use a general version of this host, `RootPortal`. See *The task editor
+sheet (mobile)*. `ProjectFormHost` was left as it is.
+
 **Where it is opened from differs by screen, and the reason is the header.** A list's
 detail bar has no ⋯ menu, so editing is a pencil beside "Put away". A project's already
 spends two slots on Display and ⋯, so **Edit project** is a row in that menu instead: a
@@ -3971,9 +4021,11 @@ be dragged.
 
 The sheet tracks the IME height itself and shrinks its list to fit, because `edgeToEdgeEnabled`
 turns off Android's `adjustResize`, so nothing moves on its own and a bottom-anchored sheet is
-simply behind the keyboard. Same problem `QuickAddComposer` solves by riding
-`useAnimatedKeyboard`; this sheet needs the number rather than a transform, because it resizes its
-list instead of moving.
+simply behind the keyboard. It reads `useAnimatedKeyboard` every frame on the UI thread, as
+`QuickAddComposer` does. It used to set a margin from `Keyboard` events, which on Android are the
+"did" events: the sheet sat behind the rising keyboard and jumped up after it landed. On Android it
+is drawn through `RootPortal` rather than a `Modal`, for the reason in *The task editor sheet
+(mobile)*.
 
 **Engine** (`lib/geofencing.ts`)
 
