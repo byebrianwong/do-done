@@ -3470,6 +3470,14 @@ preview is loaded, and tapping it leads back to main.
   that case.
 - **It changes the app, not the data.** A preview talks to the same Supabase
   project as everything else.
+- **The screen lists what there is to try.** It reads the repo's open pull
+  requests from GitHub's API and shows each one's "How to try it" section, so
+  nobody needs a number. `howToTrySection` and `parsePullRequestList` in
+  `lib/pr-preview.ts` do the reading, node-tested. The repo is public, so the
+  request carries no token; GitHub allows 60 an hour per network, and past that
+  the screen says so and still takes a typed number. A PR whose description has
+  no such section is listed last, and one without a published preview reports
+  that when you try to load it.
 
 ### Installs too old to accept OTA updates
 

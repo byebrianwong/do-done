@@ -13,9 +13,40 @@
 import * as Updates from 'expo-updates';
 
 import { describeNoUpdate } from './update-check';
-import { prChannelName, prFromChannel } from './pr-preview';
+import {
+  parsePullRequestList,
+  prChannelName,
+  prFromChannel,
+  PREVIEW_REPO,
+  type PreviewablePullRequest,
+} from './pr-preview';
 
 export class PreviewUnavailableError extends Error {}
+
+/**
+ * The repository's open pull requests, newest with testing steps first.
+ *
+ * One unauthenticated request. GitHub allows 60 an hour per network and
+ * answers 403 or 429 past that, which is reported in words, since the screen
+ * still works by number without the list.
+ */
+export async function fetchOpenPullRequests(
+  signal?: AbortSignal
+): Promise<PreviewablePullRequest[]> {
+  const res = await fetch(
+    `https://api.github.com/repos/${PREVIEW_REPO}/pulls?state=open&per_page=50`,
+    { headers: { Accept: 'application/vnd.github+json' }, signal }
+  );
+  if (res.status === 403 || res.status === 429) {
+    throw new Error(
+      'GitHub has had too many requests from this network in the last hour. Try again later, or enter a number below.'
+    );
+  }
+  if (!res.ok) {
+    throw new Error(`GitHub answered ${res.status}. Try again, or enter a number below.`);
+  }
+  return parsePullRequestList(await res.json());
+}
 
 /**
  * Load pull request `n`'s published bundle and restart into it.
@@ -34,11 +65,15 @@ export async function enterPullRequestPreview(
   try {
     const result = await Updates.checkForUpdateAsync();
     if (!result.isAvailable) {
+      // Loading the PR that is already running asks for its newest push, and
+      // "nothing newer" is the answer when there is none.
       throw new PreviewUnavailableError(
-        result.reason ===
-        Updates.UpdateCheckResultNotAvailableReason.NO_UPDATE_AVAILABLE_ON_SERVER
-          ? `Nothing has been published for PR #${n} yet. The preview job runs a few minutes after each push to the PR.`
-          : describeNoUpdate(result.reason, prChannelName(n)).body
+        prFromChannel(previousChannel) === n
+          ? `This phone already has the newest build of PR #${n}.`
+          : result.reason ===
+              Updates.UpdateCheckResultNotAvailableReason.NO_UPDATE_AVAILABLE_ON_SERVER
+            ? `Nothing has been published for PR #${n} yet. The preview job runs a few minutes after each push to the PR.`
+            : describeNoUpdate(result.reason, prChannelName(n)).body
       );
     }
     await Updates.fetchUpdateAsync();

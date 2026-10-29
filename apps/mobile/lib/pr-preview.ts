@@ -15,6 +15,13 @@
 
 export const PR_CHANNEL_PREFIX = 'pr-';
 
+/**
+ * The repository the preview screen lists pull requests from. It is public, so
+ * the list is read from GitHub's API with no token: 60 requests an hour per
+ * network, and the screen makes one each time it opens or is refreshed.
+ */
+export const PREVIEW_REPO = 'byebrianwong/do-done';
+
 /** The EAS channel CI publishes pull request `n` to. */
 export function prChannelName(n: number): string {
   return `${PR_CHANNEL_PREFIX}${n}`;
@@ -45,6 +52,80 @@ function toPrNumber(digits: string): number | null {
   if (!/^\d+$/.test(digits)) return null;
   const n = Number(digits);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/** An open pull request, as the preview screen lists it. */
+export interface PreviewablePullRequest {
+  number: number;
+  title: string;
+  /**
+   * The description's "How to try it" section, without the line that explains
+   * how to load the preview (the screen does that), or null if there is none.
+   */
+  howToTry: string | null;
+  draft: boolean;
+}
+
+const HOW_TO_TRY_HEADING = /^#{1,6}[ \t]+How to try it[ \t]*#*[ \t]*$/im;
+const NEXT_SECTION = /^#{1,2}[ \t]+\S/m;
+const LOADING_LINE = /^Load this PR on the phone\b/i;
+
+/**
+ * The "How to try it" section of a pull request description.
+ *
+ * Every PR in the smoothness series has one, between "Why" and "Verification".
+ * Its first paragraph says how to load the preview, which is what the screen
+ * showing it already does, so that paragraph is dropped.
+ */
+export function howToTrySection(body: string | null | undefined): string | null {
+  if (!body) return null;
+  // A description edited in GitHub's web UI comes back with \r\n line endings.
+  const text = body.replace(/\r\n?/g, '\n');
+  const heading = HOW_TO_TRY_HEADING.exec(text);
+  if (!heading) return null;
+  let rest = text.slice(heading.index + heading[0].length);
+  const next = NEXT_SECTION.exec(rest);
+  if (next) rest = rest.slice(0, next.index);
+  const paragraphs = rest.trim().split(/\n[ \t]*\n/);
+  if (paragraphs.length > 0 && LOADING_LINE.test(paragraphs[0].trim())) {
+    paragraphs.shift();
+  }
+  const section = paragraphs.join('\n\n').trim();
+  return section === '' ? null : section;
+}
+
+/**
+ * Read GitHub's "list pull requests" response into what the screen draws.
+ *
+ * Pull requests from forks are dropped, because CI publishes no preview for
+ * them. Ones with testing steps come first, then newest first. Anything that
+ * does not look like a pull request is skipped rather than thrown on, so one
+ * odd entry cannot empty the list.
+ */
+export function parsePullRequestList(
+  json: unknown,
+  repo: string = PREVIEW_REPO
+): PreviewablePullRequest[] {
+  if (!Array.isArray(json)) return [];
+  const pulls: PreviewablePullRequest[] = [];
+  for (const item of json) {
+    if (typeof item !== 'object' || item === null) continue;
+    const pr = item as Record<string, unknown>;
+    if (typeof pr.number !== 'number' || typeof pr.title !== 'string') continue;
+    const head = pr.head as { repo?: { full_name?: unknown } | null } | undefined;
+    if (head?.repo?.full_name !== repo) continue;
+    pulls.push({
+      number: pr.number,
+      title: pr.title,
+      howToTry: howToTrySection(typeof pr.body === 'string' ? pr.body : null),
+      draft: pr.draft === true,
+    });
+  }
+  return pulls.sort(
+    (a, b) =>
+      Number(b.howToTry !== null) - Number(a.howToTry !== null) ||
+      b.number - a.number
+  );
 }
 
 export interface PreviewAvailabilityInput {

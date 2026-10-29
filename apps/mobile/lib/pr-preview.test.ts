@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   canPreviewPullRequests,
+  howToTrySection,
   parsePrNumber,
+  parsePullRequestList,
   prChannelName,
   prFromChannel,
 } from './pr-preview';
@@ -66,5 +68,93 @@ describe('canPreviewPullRequests', () => {
     expect(
       canPreviewPullRequests({ updatesEnabled: false, isDev: false, channel: 'preview' })
     ).toBe(false);
+  });
+});
+
+describe('howToTrySection', () => {
+  const body = [
+    '## What changed',
+    '',
+    'Something.',
+    '',
+    '## How to try it',
+    '',
+    'Load this PR on the phone: Settings → App version → Preview a pull request → 329, or scan the QR code.',
+    '',
+    '1. **Swipe → Tomorrow.** Main: the row jumps. This PR: it fades.',
+    '2. **Reduce Motion.** Lands on the end state.',
+    '',
+    '### A sub-heading stays in',
+    '',
+    'Detail.',
+    '',
+    '## Verification',
+    '',
+    '- tsc passes',
+  ].join('\n');
+
+  it('returns the section without the loading paragraph', () => {
+    const section = howToTrySection(body);
+    expect(section).toBe(
+      [
+        '1. **Swipe → Tomorrow.** Main: the row jumps. This PR: it fades.',
+        '2. **Reduce Motion.** Lands on the end state.',
+        '',
+        '### A sub-heading stays in',
+        '',
+        'Detail.',
+      ].join('\n')
+    );
+  });
+
+  it('reads a description with \\r\\n line endings', () => {
+    expect(howToTrySection(body.replace(/\n/g, '\r\n'))).toBe(howToTrySection(body));
+  });
+
+  it('runs to the end when it is the last section', () => {
+    expect(howToTrySection('## How to try it\n\nOpen Today.')).toBe('Open Today.');
+  });
+
+  it('is null when there is no section, or nothing in it but the loading line', () => {
+    expect(howToTrySection('## What changed\n\nStuff.')).toBeNull();
+    expect(howToTrySection(null)).toBeNull();
+    expect(
+      howToTrySection('## How to try it\n\nLoad this PR on the phone: Settings.\n\n## Verification')
+    ).toBeNull();
+  });
+});
+
+describe('parsePullRequestList', () => {
+  const pr = (number: number, body: string | null, repo: string | null = 'byebrianwong/do-done') => ({
+    number,
+    title: `PR ${number}`,
+    body,
+    draft: true,
+    head: { repo: repo === null ? null : { full_name: repo } },
+  });
+
+  it('puts PRs with testing steps first, newest first within each group', () => {
+    const list = parsePullRequestList([
+      pr(10, '## How to try it\n\nA.'),
+      pr(12, null),
+      pr(11, '## How to try it\n\nB.'),
+    ]);
+    expect(list.map((p) => p.number)).toEqual([11, 10, 12]);
+    expect(list[0]).toEqual({ number: 11, title: 'PR 11', howToTry: 'B.', draft: true });
+  });
+
+  it('drops forks and entries that are not pull requests', () => {
+    const list = parsePullRequestList([
+      pr(1, null, 'someone/do-done'),
+      pr(2, null, null),
+      { title: 'no number' },
+      null,
+      pr(3, null),
+    ]);
+    expect(list.map((p) => p.number)).toEqual([3]);
+  });
+
+  it('is empty for anything that is not a list', () => {
+    expect(parsePullRequestList({ message: 'API rate limit exceeded' })).toEqual([]);
   });
 });
