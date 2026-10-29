@@ -26,6 +26,7 @@ import {
   statusesBelow,
   sweepPromoteRange,
   TASK_TRASH_RETENTION_MS,
+  QUICK_WIN_PARTIAL_MAX_MINUTES,
 } from "@do-done/shared";
 import { AttachmentsApi } from "./attachments.js";
 
@@ -77,6 +78,23 @@ const BULK_CONCURRENCY = 8;
  * here for years isn't having last year's project layout counted as evidence.
  */
 const SUGGESTION_HISTORY_LIMIT = 800;
+
+/**
+ * How many open tasks `listOpen` reads beyond the ones it must have.
+ *
+ * These rows are the Upcoming widget's Later and Anytime groups, and the
+ * undated Focus candidates with no bonus. They are read highest priority
+ * first, so an account with more open tasks than this loses its
+ * lowest-priority undated ones from those groups. Focus is not affected; see
+ * `listOpen`.
+ */
+const OPEN_TASKS_LIMIT = 500;
+
+/**
+ * The most rows `listOpen`'s first read returns. This is Supabase's default
+ * `max-rows`, so asking for more would be capped there anyway.
+ */
+const NEEDED_TASKS_LIMIT = 1000;
 
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */
 async function mapWithLimit<T, R>(
@@ -363,6 +381,90 @@ export class TasksApi {
     } catch {
       // swallow — see above
     }
+  }
+
+  /**
+   * Open tasks for a day-based view: Today, its Focus picks, and the widgets
+   * and watch that draw the same lists.
+   *
+   * `list({ limit })` is a page by `sort_order`, so a view that picks today's
+   * rows out of that page loses every task the order puts past the limit, and
+   * finished tasks fill the page too. This asks for the rows by what they are
+   * instead, in up to three reads run together:
+   *
+   * - **Needed:** open tasks scheduled or with a deadline on or before
+   *   `datedThrough`, every task pinned into Focus, and every task with one of
+   *   Focus's bonuses (in progress, a deadline time, an estimate of
+   *   {@link QUICK_WIN_PARTIAL_MAX_MINUTES} minutes or less). With `inbox`,
+   *   every inbox task too, for the watch's Inbox list.
+   * - **Open:** other open tasks, highest priority first, up to `limit`.
+   *   Undated and later tasks are still Focus candidates, and the Upcoming
+   *   widget draws them.
+   * - **Completed:** tasks marked done at or after `completedSince`, when it is
+   *   given. The watch counts what was finished today.
+   *
+   * The first read is why Focus stays exact past the limit. A task's Focus
+   * score is its priority plus those bonuses (overdue and deadline-today are
+   * dated, so also in the first read). Every task with a bonus is in the first
+   * read, and the rest are ranked by priority alone, so the open read keeps
+   * the highest-ranked of them. Ties keep `sort_order`, as Focus does.
+   *
+   * `datedThrough` is a calendar day, inclusive. Today passes tomorrow, so a
+   * page fetched just before midnight still holds the new day's tasks until
+   * the next refetch.
+   *
+   * Rows are returned once each, in `sort_order`. Any read failing fails the
+   * whole call, so a caller never mistakes a partial answer for a full one.
+   */
+  async listOpen(opts: {
+    datedThrough: string;
+    completedSince?: string;
+    inbox?: boolean;
+    limit?: number;
+  }): Promise<{ data: Task[]; error: Error | null }> {
+    const open = () => {
+      let query = this.read().not("status", "in", "(done,cancelled,archived)");
+      if (this.userId) query = query.eq("user_id", this.userId);
+      return query;
+    };
+    const through = opts.datedThrough;
+    const needed = [
+      `scheduled_date.lte.${through}`,
+      `deadline_date.lte.${through}`,
+      "focus_override.eq.include",
+      "status.eq.in_progress",
+      "deadline_time.not.is.null",
+      `duration_minutes.lte.${QUICK_WIN_PARTIAL_MAX_MINUTES}`,
+    ];
+    if (opts.inbox) needed.push("status.eq.inbox");
+    const reads = [
+      open()
+        .or(needed.join(","))
+        .order("sort_order", { ascending: true })
+        .range(0, NEEDED_TASKS_LIMIT - 1),
+      open()
+        .order("priority", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .range(0, (opts.limit ?? OPEN_TASKS_LIMIT) - 1),
+    ];
+    if (opts.completedSince) {
+      let done = this.read()
+        .eq("status", "done")
+        .gte("completed_at", opts.completedSince);
+      if (this.userId) done = done.eq("user_id", this.userId);
+      reads.push(done.order("sort_order", { ascending: true }));
+    }
+
+    const results = await Promise.all(reads);
+    const failed = results.find((r) => r.error);
+    if (failed) return { data: [], error: failed.error as Error };
+
+    const byId = new Map<string, Task>();
+    for (const r of results) {
+      for (const t of (r.data as Task[] | null) ?? []) byId.set(t.id, t);
+    }
+    const rows = [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+    return { data: normalizeTasks(rows), error: null };
   }
 
   async list(filters?: TaskFilterInput): Promise<{ data: Task[]; error: Error | null }> {

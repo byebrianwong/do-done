@@ -8,7 +8,9 @@
  */
 
 import type { Project, Task } from '@do-done/shared';
+import { addDaysLocalISO } from '@do-done/shared';
 import { supabase, getTasksApi, getProjectsApi } from '@/lib/supabase';
+import { UPCOMING_HORIZON_DAYS } from './widget-layout';
 
 /** Either a signed-out marker or the fetched active tasks and projects. */
 export type WidgetTasks =
@@ -39,9 +41,34 @@ export async function loadWidgetTasks(): Promise<WidgetTasks> {
   }
 }
 
+/**
+ * The rows every task widget and the watch draw from, asked for by what they
+ * are rather than as a page by sort order.
+ *
+ * This used to be the first 200 tasks by `sort_order`, finished ones included,
+ * so an account past 200 tasks lost whatever the order put after that, even if
+ * it was scheduled today. `listOpen` reads every open task dated through the
+ * end of the Upcoming widget's horizon, plus one day so the watch's view of
+ * tomorrow is complete too, and every inbox task for the watch's Inbox list.
+ * Its undated and later rows are read highest priority first, and the tasks
+ * finished since local midnight come along for the watch's progress count.
+ */
+export function widgetTaskQuery(now: Date = new Date()): {
+  datedThrough: string;
+  completedSince: string;
+  inbox: true;
+} {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return {
+    datedThrough: addDaysLocalISO(UPCOMING_HORIZON_DAYS + 1, now),
+    completedSince: midnight.toISOString(),
+    inbox: true,
+  };
+}
+
 async function loadTasks(): Promise<Task[]> {
   const api = await getTasksApi();
-  const { data, error } = await api.list({ limit: 200, offset: 0 });
+  const { data, error } = await api.listOpen(widgetTaskQuery());
   if (error) return [];
   return data;
 }

@@ -40,7 +40,11 @@ import type {
   TasksApi,
   UserPrefsApi,
 } from "@do-done/api-client";
-import { TASK_COMPLETE_EXIT_MS, TASK_DELETE_EXIT_MS } from "@do-done/shared";
+import {
+  QUICK_WIN_PARTIAL_MAX_MINUTES,
+  TASK_COMPLETE_EXIT_MS,
+  TASK_DELETE_EXIT_MS,
+} from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
 import { demoPantryFor } from "./seed";
 import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
@@ -211,6 +215,38 @@ class DemoTasksApiImpl {
     rows.sort(bySortOrder);
     const offset = filters?.offset ?? 0;
     return ok(rows.slice(offset, offset + (filters?.limit ?? 50)));
+  }
+
+  /** Mirrors `TasksApi.listOpen`: the dated and pinned rows, then the rest. */
+  async listOpen(opts: {
+    datedThrough: string;
+    completedSince?: string;
+    inbox?: boolean;
+    limit?: number;
+  }) {
+    const open = this.tasks.filter(isOpen);
+    const dated = open.filter(
+      (t) =>
+        t.focus_override === "include" ||
+        t.status === "in_progress" ||
+        !!t.deadline_time ||
+        (t.duration_minutes != null &&
+          t.duration_minutes <= QUICK_WIN_PARTIAL_MAX_MINUTES) ||
+        (!!opts.inbox && t.status === "inbox") ||
+        datesOf(t).some((d) => d <= opts.datedThrough)
+    );
+    const rest = [...open].sort(byPriorityThenSort).slice(0, opts.limit ?? 500);
+    const done = opts.completedSince
+      ? this.tasks.filter(
+          (t) =>
+            t.status === "done" &&
+            !!t.completed_at &&
+            t.completed_at >= opts.completedSince!
+        )
+      : [];
+    const byId = new Map<string, Task>();
+    for (const t of [...dated, ...rest, ...done]) byId.set(t.id, t);
+    return ok([...byId.values()].sort(bySortOrder));
   }
 
   async listTags() {
