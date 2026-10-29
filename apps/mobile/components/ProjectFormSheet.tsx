@@ -19,6 +19,12 @@
  * navigator. It draws over the tab bar the way `BulkActionBar` does, it is in
  * the activity's window, and it lifts the sheet by the keyboard's height every
  * frame, like `QuickAddComposer`. Screens open it with `openProjectForm`.
+ *
+ * The motion is the shared `useSheetMotion`, the same one every `BottomSheet`
+ * uses: the sheet rises on its own wrapper while the backdrop darkens with it,
+ * and slides back down before the host unmounts it. The keyboard lift stays
+ * padding on the frame around that wrapper, so the two never touch the same
+ * property.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -36,8 +42,6 @@ import {
   View,
 } from 'react-native';
 import Animated, {
-  FadeIn,
-  FadeOut,
   useAnimatedKeyboard,
   useAnimatedStyle,
 } from 'react-native-reanimated';
@@ -54,9 +58,7 @@ import { invalidateLists } from '@/lib/list-queries';
 import { pinListShortcut } from '@/lib/list-shortcuts';
 import type { Project, ProjectKind } from '@do-done/shared';
 import { ProjectIconPicker } from '@/components/ProjectIconPicker';
-
-/** How long the overlay takes to fade in and out. */
-const FADE_MS = 180;
+import { useSheetMotion } from '@/components/BottomSheet';
 
 export interface ProjectFormRequest {
   // A shopping list is the same row with a different `kind`, so this is the
@@ -88,10 +90,22 @@ export function openProjectForm(request: ProjectFormRequest = {}): void {
 
 /** The one place the form is drawn. Mounted once, after the root navigator. */
 export function ProjectFormHost() {
-  const [request, setRequest] = useState<ProjectFormRequest | null>(null);
+  const [request, setRequest] = useState<
+    (ProjectFormRequest & { key: number }) | null
+  >(null);
+  // Separate from `request`: closing slides the sheet away first, and the
+  // request is cleared only once it has gone.
+  const [visible, setVisible] = useState(false);
+  const nextKey = useRef(0);
 
   useEffect(() => {
-    const open: Opener = (next) => setRequest(next);
+    // A new key per request, so a sheet opened while the last one is still
+    // leaving is a fresh form rather than the old one's draft.
+    const open: Opener = (next) => {
+      nextKey.current += 1;
+      setRequest({ ...next, key: nextKey.current });
+      setVisible(true);
+    };
     opener = open;
     return () => {
       // Only clear if it is still ours: a remount can install the new one
@@ -100,18 +114,34 @@ export function ProjectFormHost() {
     };
   }, []);
 
-  const close = useCallback(() => setRequest(null), []);
+  const close = useCallback(() => setVisible(false), []);
+  const exited = useCallback(() => setRequest(null), []);
 
   if (!request) return null;
-  return <ProjectFormSheet {...request} onClose={close} />;
+  const { key, ...rest } = request;
+  return (
+    <ProjectFormSheet
+      key={key}
+      {...rest}
+      visible={visible}
+      onClose={close}
+      onExited={exited}
+    />
+  );
 }
 
 function ProjectFormSheet({
   kind = 'tasks',
   project,
   onDeleted,
+  visible,
   onClose,
-}: ProjectFormRequest & { onClose: () => void }) {
+  onExited,
+}: ProjectFormRequest & {
+  visible: boolean;
+  onClose: () => void;
+  onExited: () => void;
+}) {
   // In edit mode the row already knows what it is; `kind` describes what is
   // being created and is ignored.
   const effectiveKind: ProjectKind = project ? projectKind(project) : kind;
@@ -156,14 +186,21 @@ function ProjectFormSheet({
     onClose();
   }, [onClose]);
 
+  // The keyboard is going down while the sheet is, so the sheet travels its
+  // own height plus the lift it had when the exit began.
+  const motion = useSheetMotion(visible, onExited, () =>
+    Math.max(keyboard.height.value - insets.bottom, 0)
+  );
+
   // Android's back button closes the sheet. `Modal`'s onRequestClose used to.
   useEffect(() => {
+    if (!visible) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       close();
       return true;
     });
     return () => sub.remove();
-  }, [close]);
+  }, [visible, close]);
 
   const submit = async () => {
     const trimmed = name.trim();
@@ -286,14 +323,19 @@ function ProjectFormSheet({
   const disabled = !name.trim() || saving;
 
   return (
-    <Animated.View
-      entering={FadeIn.duration(FADE_MS)}
-      exiting={FadeOut.duration(FADE_MS)}
+    // A sheet on its way out takes no more taps, so the screen under it is
+    // live again as soon as the slide starts.
+    <View
+      pointerEvents={visible ? 'auto' : 'none'}
       style={StyleSheet.absoluteFill}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.backdrop, motion.backdropStyle]}
+      />
       <Pressable
         onPress={close}
-        style={styles.backdrop}
+        style={StyleSheet.absoluteFill}
         accessibilityRole="button"
         accessibilityLabel="Close"
       />
@@ -301,7 +343,14 @@ function ProjectFormSheet({
         pointerEvents="box-none"
         style={[styles.frame, { paddingTop: insets.top + 12 }, liftStyle]}
       >
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+        <Animated.View
+          onLayout={motion.onLayout}
+          style={[
+            styles.sheet,
+            { paddingBottom: insets.bottom + 16 },
+            motion.sheetStyle,
+          ]}
+        >
           <Text style={styles.title}>
             {project ? `Edit ${noun}` : `New ${noun}`}
           </Text>
@@ -433,16 +482,18 @@ function ProjectFormSheet({
               </Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </Animated.View>
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(17,24,39,0.45)',
+    // Opaque: the dimming is the shared `backdropOpacity`. An alpha here would
+    // multiply.
+    backgroundColor: '#111827',
   },
   // Fills the screen and holds the sheet at its bottom. Its padding is the
   // status bar above and the keyboard below, so the sheet is always sized to

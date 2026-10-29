@@ -1,16 +1,10 @@
-import React, { useCallback, useRef, useState } from 'react';
-import {
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { hapticLight } from '@/lib/haptics';
 import { useTaskSelection } from '@/lib/task-selection';
+import { BottomSheet, useRunAfterDismiss } from './BottomSheet';
 
 export interface ListAction {
   key: string;
@@ -59,15 +53,9 @@ export function ListActionsMenu({ actions = [], color = '#6366f1' }: Props) {
    *
    * `onDismiss` is iOS-only, which is also where the problem is, so Android
    * keeps running the action inline rather than waiting for a callback that
-   * will never fire.
+   * will never fire. `useRunAfterDismiss` holds that rule.
    */
-  const pending = useRef<(() => void) | null>(null);
-
-  const runPending = useCallback(() => {
-    const run = pending.current;
-    pending.current = null;
-    run?.();
-  }, []);
+  const { runAfterDismiss, onDismiss } = useRunAfterDismiss();
 
   const rows: ListAction[] = [
     {
@@ -91,60 +79,43 @@ export function ListActionsMenu({ actions = [], color = '#6366f1' }: Props) {
         <Ionicons name="ellipsis-horizontal" size={22} color={color} />
       </Pressable>
 
-      <Modal
+      <BottomSheet
         visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onClose={() => setOpen(false)}
         // Nothing is queued when the sheet is dismissed by its backdrop, so
         // this is a no-op on the ordinary way out.
-        onDismiss={runPending}
+        onDismiss={onDismiss}
+        style={styles.sheet}
       >
-        <Pressable onPress={() => setOpen(false)} style={styles.backdrop}>
-          <Pressable onPress={() => {}} style={styles.sheet}>
-            {rows.map((a) => (
-              <Pressable
-                key={a.key}
-                onPress={() => {
-                  // Dismiss first: arming selection mounts the bulk bar, and a
-                  // modal still on screen would sit over the rows it wants
-                  // tapped.
-                  setOpen(false);
-                  hapticLight();
-                  if (Platform.OS === 'ios') pending.current = a.onPress;
-                  else a.onPress();
-                }}
-                style={({ pressed }) => [
-                  styles.row,
-                  pressed && styles.rowPressed,
-                ]}
-              >
-                <Ionicons name={a.icon} size={20} color="#4b5563" />
-                <Text style={styles.rowLabel}>{a.label}</Text>
-              </Pressable>
-            ))}
+        {rows.map((a) => (
+          <Pressable
+            key={a.key}
+            onPress={() => {
+              // Dismiss first: arming selection mounts the bulk bar, and a
+              // modal still on screen would sit over the rows it wants
+              // tapped.
+              setOpen(false);
+              hapticLight();
+              runAfterDismiss(a.onPress);
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              pressed && styles.rowPressed,
+            ]}
+          >
+            <Ionicons name={a.icon} size={20} color="#4b5563" />
+            <Text style={styles.rowLabel}>{a.label}</Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+        ))}
+      </BottomSheet>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   iconBtn: { padding: 4 },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(17,24,39,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 10,
-    paddingBottom: 28,
-    paddingHorizontal: 8,
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  sheet: { paddingHorizontal: 8 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

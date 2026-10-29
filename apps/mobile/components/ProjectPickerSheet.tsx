@@ -4,13 +4,13 @@
  * project" clear option, and an inline create flow (name + color) that
  * provisions a project and selects it in one step.
  *
- * Presentation mirrors PickerSheet in TaskEditModalV2.tsx, but the stateful
- * create flow is why this is a separate component.
+ * Presentation is the shared BottomSheet, like PickerSheet in
+ * TaskEditModalV2.tsx; the stateful create flow is why this is a separate
+ * component.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,15 +21,9 @@ import {
 import { COMPACT_PROJECT_COLORS } from '@do-done/shared';
 import type { Project } from '@do-done/shared';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import { BottomSheet } from '@/components/BottomSheet';
 
-export function ProjectPickerSheet({
-  visible,
-  projects,
-  selectedId,
-  onSelect,
-  onClose,
-  onCreate,
-}: {
+interface Props {
   visible: boolean;
   projects: Project[];
   selectedId: string | null;
@@ -37,22 +31,32 @@ export function ProjectPickerSheet({
   onClose: () => void;
   /** Provision a project; returns it on success, null on failure. */
   onCreate: (name: string, color: string) => Promise<Project | null>;
-}) {
+}
+
+export function ProjectPickerSheet({ visible, onClose, ...rest }: Props) {
+  return (
+    <BottomSheet visible={visible} onClose={onClose} style={styles.sheet}>
+      <ProjectPickerBody {...rest} onClose={onClose} />
+    </BottomSheet>
+  );
+}
+
+/**
+ * The sheet's content. It mounts when the sheet opens and unmounts once the
+ * sheet has slid away, which is also what resets the create sub-form.
+ */
+function ProjectPickerBody({
+  projects,
+  selectedId,
+  onSelect,
+  onClose,
+  onCreate,
+}: Omit<Props, 'visible'>) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState<string>(COMPACT_PROJECT_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput | null>(null);
-
-  // Reset the create sub-form whenever the sheet closes.
-  useEffect(() => {
-    if (!visible) {
-      setCreating(false);
-      setName('');
-      setColor(COMPACT_PROJECT_COLORS[0]);
-      setSaving(false);
-    }
-  }, [visible]);
 
   useEffect(() => {
     if (creating) inputRef.current?.focus();
@@ -71,129 +75,109 @@ export function ProjectPickerSheet({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable onPress={() => {}} style={styles.sheet}>
-          <Text style={styles.title}>Project</Text>
-          <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+    <>
+      <Text style={styles.title}>Project</Text>
+      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+        <Pressable
+          onPress={() => {
+            onSelect(null);
+            onClose();
+          }}
+          style={[styles.row, selectedId === null && styles.rowSelected]}
+        >
+          <View style={[styles.dot, styles.dotNone]} />
+          <Text style={[styles.label, styles.labelMuted]}>No project</Text>
+          {selectedId === null && <Text style={styles.check}>✓</Text>}
+        </Pressable>
+        {projects.map((p) => {
+          const selected = p.id === selectedId;
+          return (
             <Pressable
+              key={p.id}
               onPress={() => {
-                onSelect(null);
+                onSelect(p.id);
                 onClose();
               }}
-              style={[styles.row, selectedId === null && styles.rowSelected]}
+              style={[styles.row, selected && styles.rowSelected]}
             >
-              <View style={[styles.dot, styles.dotNone]} />
-              <Text style={[styles.label, styles.labelMuted]}>No project</Text>
-              {selectedId === null && <Text style={styles.check}>✓</Text>}
+              {p.icon ? (
+                <ProjectIcon icon={p.icon} size={15} color={p.color} />
+              ) : (
+                <View style={[styles.dot, { backgroundColor: p.color }]} />
+              )}
+              <Text style={styles.label} numberOfLines={1}>
+                {p.name}
+              </Text>
+              {selected && <Text style={styles.check}>✓</Text>}
             </Pressable>
-            {projects.map((p) => {
-              const selected = p.id === selectedId;
-              return (
-                <Pressable
-                  key={p.id}
-                  onPress={() => {
-                    onSelect(p.id);
-                    onClose();
-                  }}
-                  style={[styles.row, selected && styles.rowSelected]}
-                >
-                  {p.icon ? (
-                    <ProjectIcon icon={p.icon} size={15} color={p.color} />
-                  ) : (
-                    <View style={[styles.dot, { backgroundColor: p.color }]} />
-                  )}
-                  <Text style={styles.label} numberOfLines={1}>
-                    {p.name}
-                  </Text>
-                  {selected && <Text style={styles.check}>✓</Text>}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          );
+        })}
+      </ScrollView>
 
-          {creating ? (
-            <View style={styles.createWrap}>
-              <TextInput
-                ref={inputRef}
-                value={name}
-                onChangeText={setName}
-                onSubmitEditing={submit}
-                placeholder="Project name…"
-                placeholderTextColor="#9ca3af"
-                maxLength={100}
-                style={styles.input}
+      {creating ? (
+        <View style={styles.createWrap}>
+          <TextInput
+            ref={inputRef}
+            value={name}
+            onChangeText={setName}
+            onSubmitEditing={submit}
+            placeholder="Project name…"
+            placeholderTextColor="#9ca3af"
+            maxLength={100}
+            style={styles.input}
+          />
+          <View style={styles.swatchRow}>
+            {COMPACT_PROJECT_COLORS.map((c) => (
+              <Pressable
+                key={c}
+                onPress={() => setColor(c)}
+                style={[
+                  styles.swatch,
+                  { backgroundColor: c },
+                  color === c && styles.swatchActive,
+                ]}
               />
-              <View style={styles.swatchRow}>
-                {COMPACT_PROJECT_COLORS.map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => setColor(c)}
-                    style={[
-                      styles.swatch,
-                      { backgroundColor: c },
-                      color === c && styles.swatchActive,
-                    ]}
-                  />
-                ))}
-              </View>
-              <View style={styles.createActions}>
-                <Pressable
-                  onPress={() => {
-                    setCreating(false);
-                    setName('');
-                  }}
-                  style={styles.createCancel}
-                >
-                  <Text style={styles.createCancelText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={submit}
-                  disabled={!name.trim() || saving}
-                  style={[
-                    styles.createBtn,
-                    (!name.trim() || saving) && styles.createBtnDisabled,
-                  ]}
-                >
-                  <Text style={styles.createBtnText}>
-                    {saving ? 'Creating…' : 'Create'}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : (
-            <Pressable onPress={() => setCreating(true)} style={styles.newRow}>
-              <View style={styles.newPlus}>
-                <Text style={styles.newPlusText}>+</Text>
-              </View>
-              <Text style={styles.newLabel}>New project</Text>
+            ))}
+          </View>
+          <View style={styles.createActions}>
+            <Pressable
+              onPress={() => {
+                setCreating(false);
+                setName('');
+              }}
+              style={styles.createCancel}
+            >
+              <Text style={styles.createCancelText}>Cancel</Text>
             </Pressable>
-          )}
+            <Pressable
+              onPress={submit}
+              disabled={!name.trim() || saving}
+              style={[
+                styles.createBtn,
+                (!name.trim() || saving) && styles.createBtnDisabled,
+              ]}
+            >
+              <Text style={styles.createBtnText}>
+                {saving ? 'Creating…' : 'Create'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <Pressable onPress={() => setCreating(true)} style={styles.newRow}>
+          <View style={styles.newPlus}>
+            <Text style={styles.newPlusText}>+</Text>
+          </View>
+          <Text style={styles.newLabel}>New project</Text>
         </Pressable>
-      </Pressable>
-    </Modal>
+      )}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(17,24,39,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    paddingHorizontal: 16,
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  sheet: { paddingHorizontal: 16 },
   title: {
     fontSize: 11,
     fontWeight: '700',

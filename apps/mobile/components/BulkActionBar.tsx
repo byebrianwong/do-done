@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
+  BackHandler,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  SlideInDown,
+  SlideOutDown,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -32,6 +39,7 @@ import {
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
 import { ProjectPickerSheet } from './ProjectPickerSheet';
+import { BottomSheet } from './BottomSheet';
 import { QuickScheduleIcon } from './PhosphorIcon';
 
 type Sheet = 'schedule' | 'priority' | 'move' | null;
@@ -67,36 +75,32 @@ function OptionSheet({
   onClose: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable onPress={() => {}} style={styles.sheet}>
-          <Text style={styles.sheetTitle}>{title}</Text>
-          <ScrollView style={styles.sheetList}>
-            {options.map((o) => (
-              <Pressable
-                key={o.key}
-                onPress={() => onPick(o.key)}
-                style={styles.optionRow}
-              >
-                {o.icon ? (
-                  <QuickScheduleIcon icon={o.icon} />
-                ) : o.color ? (
-                  <View style={[styles.optionDot, { backgroundColor: o.color }]} />
-                ) : null}
-                <Text
-                  style={[
-                    styles.optionLabel,
-                    o.destructive && styles.optionDestructive,
-                  ]}
-                >
-                  {o.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <BottomSheet visible={visible} onClose={onClose} style={styles.sheet}>
+      <Text style={styles.sheetTitle}>{title}</Text>
+      <ScrollView style={styles.sheetList}>
+        {options.map((o) => (
+          <Pressable
+            key={o.key}
+            onPress={() => onPick(o.key)}
+            style={styles.optionRow}
+          >
+            {o.icon ? (
+              <QuickScheduleIcon icon={o.icon} />
+            ) : o.color ? (
+              <View style={[styles.optionDot, { backgroundColor: o.color }]} />
+            ) : null}
+            <Text
+              style={[
+                styles.optionLabel,
+                o.destructive && styles.optionDestructive,
+              ]}
+            >
+              {o.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </BottomSheet>
   );
 }
 
@@ -134,6 +138,12 @@ function BarButton({
  * and it is also the only thing on screen that can end it. Its buttons are
  * withheld until something is picked: five controls that would do nothing to
  * nothing invite the tap that proves it.
+ *
+ * The bar slides up from the bottom edge and back down, and grows by the
+ * button row when the first task is picked. Its sheets are rendered outside
+ * the bar, and outside the early return that hides it: picking an option ends
+ * selection in the same tick as it closes the sheet, and the sheet has to stay
+ * mounted to slide away.
  */
 export function BulkActionBar() {
   const selection = useTaskSelection();
@@ -142,7 +152,25 @@ export function BulkActionBar() {
   const [sheet, setSheet] = useState<Sheet>(null);
 
   const count = selection.count;
-  if (!selection.isActive) return null;
+  const active = selection.isActive;
+  const { end } = selection;
+
+  // A sheet left open when selection ends some other way must not come back
+  // with the next selection.
+  useEffect(() => {
+    if (!active) setSheet(null);
+  }, [active]);
+
+  // Android's back button ends selection mode. An open sheet is a `Modal`, so
+  // back reaches its own `onRequestClose` first and closes only the sheet.
+  useEffect(() => {
+    if (!active) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      end();
+      return true;
+    });
+    return () => sub.remove();
+  }, [active, end]);
 
   const ids = () => [...selection.selectedIds];
 
@@ -229,63 +257,76 @@ export function BulkActionBar() {
 
   return (
     <>
-      <View style={[styles.bar, { paddingBottom: insets.bottom + 6 }]}>
-        <View style={styles.header}>
-          <Text style={count > 0 ? styles.count : styles.prompt}>
-            {count > 0 ? `${count} selected` : 'Tap tasks to select'}
-          </Text>
-          <Pressable onPress={() => selection.end()} hitSlop={8}>
-            <Text style={styles.cancel}>Done</Text>
-          </Pressable>
-        </View>
-        {count > 0 ? (
-          <View style={styles.actions}>
-            <BarButton
-              icon="calendar-outline"
-              label="Schedule"
-              onPress={() => setSheet('schedule')}
-            />
-            <BarButton
-              icon="folder-outline"
-              label="Move"
-              onPress={() => setSheet('move')}
-            />
-            <BarButton
-              icon="flag-outline"
-              label="Priority"
-              onPress={() => setSheet('priority')}
-            />
-            <BarButton
-              icon="checkmark-done-outline"
-              label="Complete"
-              onPress={complete}
-            />
-            <BarButton
-              icon="trash-outline"
-              label="Delete"
-              danger
-              onPress={confirmDelete}
-            />
+      {active ? (
+        <Animated.View
+          // Reanimated's layout animations follow the system Reduce Motion
+          // setting by default, so with it on the bar simply appears and goes.
+          entering={SlideInDown.duration(220)}
+          exiting={SlideOutDown.duration(180)}
+          layout={LinearTransition.duration(180)}
+          style={[styles.bar, { paddingBottom: insets.bottom + 6 }]}
+        >
+          <View style={styles.header}>
+            <Text style={count > 0 ? styles.count : styles.prompt}>
+              {count > 0 ? `${count} selected` : 'Tap tasks to select'}
+            </Text>
+            <Pressable onPress={() => selection.end()} hitSlop={8}>
+              <Text style={styles.cancel}>Done</Text>
+            </Pressable>
           </View>
-        ) : null}
-      </View>
+          {count > 0 ? (
+            <Animated.View
+              entering={FadeIn.duration(160)}
+              exiting={FadeOut.duration(120)}
+              style={styles.actions}
+            >
+              <BarButton
+                icon="calendar-outline"
+                label="Schedule"
+                onPress={() => setSheet('schedule')}
+              />
+              <BarButton
+                icon="folder-outline"
+                label="Move"
+                onPress={() => setSheet('move')}
+              />
+              <BarButton
+                icon="flag-outline"
+                label="Priority"
+                onPress={() => setSheet('priority')}
+              />
+              <BarButton
+                icon="checkmark-done-outline"
+                label="Complete"
+                onPress={complete}
+              />
+              <BarButton
+                icon="trash-outline"
+                label="Delete"
+                danger
+                onPress={confirmDelete}
+              />
+            </Animated.View>
+          ) : null}
+        </Animated.View>
+      ) : null}
 
       <OptionSheet
-        visible={sheet === 'schedule'}
+        visible={active && sheet === 'schedule'}
         title="Schedule"
         options={scheduleOptions}
         onPick={pickSchedule}
         onClose={() => setSheet(null)}
       />
       <OptionSheet
-        visible={sheet === 'priority'}
+        visible={active && sheet === 'priority'}
         title="Priority"
         options={priorityOptions}
         onPick={(key) => apply({ priority: key as TaskPriority }, 'reprioritize')}
         onClose={() => setSheet(null)}
       />
       <ProjectPickerSheet
-        visible={sheet === 'move'}
+        visible={active && sheet === 'move'}
         projects={projects ?? []}
         selectedId={null}
         onSelect={(projectId) => apply({ project_id: projectId }, 'move')}
@@ -346,19 +387,8 @@ const styles = StyleSheet.create({
   barBtnPressed: { backgroundColor: '#f3f4f6' },
   barBtnLabel: { fontSize: 11, fontWeight: '600' },
 
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(17,24,39,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    paddingHorizontal: 16,
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  sheet: { paddingHorizontal: 16 },
   sheetTitle: {
     fontSize: 11,
     fontWeight: '700',

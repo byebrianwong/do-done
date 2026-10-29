@@ -993,11 +993,12 @@ export function QuickAddPickers({
     return true;
   };
 
+  // The month grid is a Modal, so it took the keyboard with it. Focus goes
+  // back once the sheet has slid away (`onClosed` below). The sheet's window
+  // now stays up for its exit, and a field behind a window that holds focus is
+  // not where the keyboard goes. Untested on a device.
   const closeCalendar = () => {
     fields.setCalendarOpen(false);
-    // The month grid is a Modal, so it took the keyboard with it. Hand focus
-    // back so the user carries on typing where they left off.
-    onReturnFocus?.();
   };
 
   const anchorLeft = (chip: ChipKey) =>
@@ -1059,6 +1060,7 @@ export function QuickAddPickers({
         selectedKey=""
         onSelect={() => {}}
         onClose={closeCalendar}
+        onClosed={onReturnFocus}
         header={
           <ScheduleCalendar
             scheduledDate={fields.scheduledDate}
