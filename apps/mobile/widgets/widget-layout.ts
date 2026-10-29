@@ -40,7 +40,7 @@ import {
 import { todayUniverse } from '@do-done/task-engine';
 
 /** How many days ahead the Upcoming widget lists individual day sections. */
-const UPCOMING_HORIZON_DAYS = 7;
+export const UPCOMING_HORIZON_DAYS = 7;
 
 export interface WidgetGroup {
   key: string;

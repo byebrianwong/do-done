@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted; list items through `readItems()`: listItems, listItemsIn, listCounts, clearGot, clearGotIn
+- `src/tasks.ts` — TasksApi: list, listOpen, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted; list items through `readItems()`: listItems, listItemsIn, listCounts, clearGot, clearGotIn
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, listAll, create, update, remove, linkTask, unlinkTask, getTaskLocations, listTaskLinks, save, listWithPendingTasks
 
@@ -12,6 +12,12 @@ Supabase client wrapper and typed API classes.
 - `getToday`/`getUpcoming` derive "today" from the **process** clock, which is
   UTC on a deployed host. Server-side callers should use `getDatedBetween` /
   `getOverdue` and pass the day they resolved from the user's timezone instead.
+- **`listOpen()` is for day-based views, `list()` is a page.** `list({ limit })`
+  orders by `sort_order` and cuts at the limit, finished tasks included, so a
+  view that picks today's rows out of it loses whatever sorts past the cutoff.
+  `listOpen` reads every open task dated through the day it is given, plus
+  Focus pins, as one read, and the other open tasks highest-priority first as a
+  second. Mobile's Today, the task widgets and the watch use it.
 - **`completed_at` is owned by `update()`, in both directions.** It stamps on
   the transition into `done` and clears on any status change out of it, so a
   task taken out of done by the editor or an autosave undo does not keep a

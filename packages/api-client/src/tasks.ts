@@ -78,6 +78,25 @@ const BULK_CONCURRENCY = 8;
  */
 const SUGGESTION_HISTORY_LIMIT = 800;
 
+/**
+ * How many open tasks `listOpen` reads beyond the dated and pinned ones.
+ *
+ * Those extra rows are what Focus ranks undated and future work from, and what
+ * the Upcoming widget's Later and Anytime groups draw. They are read
+ * highest-priority first, so if an account has more open tasks than this, the
+ * rows left out are the lowest-priority ones, which are the least likely to
+ * reach Focus. The dated and pinned rows have their own read and never compete
+ * for these slots.
+ */
+const OPEN_TASKS_LIMIT = 500;
+
+/**
+ * The most rows `listOpen`'s dated read returns. This is Supabase's default
+ * `max-rows`, so asking for more would be capped there anyway. It counts only
+ * open tasks scheduled or with a deadline on or before the requested day.
+ */
+const DATED_TASKS_LIMIT = 1000;
+
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */
 async function mapWithLimit<T, R>(
   items: T[],
@@ -363,6 +382,74 @@ export class TasksApi {
     } catch {
       // swallow — see above
     }
+  }
+
+  /**
+   * Open tasks for a day-based view: Today, its Focus picks, and the widgets
+   * and watch that draw the same lists.
+   *
+   * `list({ limit })` is a page by `sort_order`, so a view that picks today's
+   * rows out of that page loses every task the order puts past the limit, and
+   * finished tasks fill the page too. This asks for the rows by what they are
+   * instead, in up to three reads run together:
+   *
+   * - **Dated:** open tasks scheduled or with a deadline on or before
+   *   `datedThrough`, plus every task pinned into Focus. These are the rows
+   *   Today must show, so they are never cut off by the sort order.
+   * - **Open:** other open tasks, highest priority first, up to `limit`. Focus
+   *   ranks undated and future work too, and the Upcoming widget draws it.
+   * - **Completed:** tasks marked done at or after `completedSince`, when it is
+   *   given. The watch counts what was finished today.
+   *
+   * `datedThrough` is a calendar day, inclusive. Callers pass at least the day
+   * after the last one they show, so a device clock and a stored timezone that
+   * disagree by a day still get every row; the view filters the extra rows out
+   * itself.
+   *
+   * Rows are returned once each, in `sort_order`. Any read failing fails the
+   * whole call, so a caller never mistakes a partial answer for a full one.
+   */
+  async listOpen(opts: {
+    datedThrough: string;
+    completedSince?: string;
+    limit?: number;
+  }): Promise<{ data: Task[]; error: Error | null }> {
+    const open = () => {
+      let query = this.read().not("status", "in", "(done,cancelled,archived)");
+      if (this.userId) query = query.eq("user_id", this.userId);
+      return query;
+    };
+    const through = opts.datedThrough;
+    const reads = [
+      open()
+        .or(
+          `scheduled_date.lte.${through},deadline_date.lte.${through},focus_override.eq.include`
+        )
+        .order("sort_order", { ascending: true })
+        .range(0, DATED_TASKS_LIMIT - 1),
+      open()
+        .order("priority", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .range(0, (opts.limit ?? OPEN_TASKS_LIMIT) - 1),
+    ];
+    if (opts.completedSince) {
+      let done = this.read()
+        .eq("status", "done")
+        .gte("completed_at", opts.completedSince);
+      if (this.userId) done = done.eq("user_id", this.userId);
+      reads.push(done.order("sort_order", { ascending: true }));
+    }
+
+    const results = await Promise.all(reads);
+    const failed = results.find((r) => r.error);
+    if (failed) return { data: [], error: failed.error as Error };
+
+    const byId = new Map<string, Task>();
+    for (const r of results) {
+      for (const t of (r.data as Task[] | null) ?? []) byId.set(t.id, t);
+    }
+    const rows = [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+    return { data: normalizeTasks(rows), error: null };
   }
 
   async list(filters?: TaskFilterInput): Promise<{ data: Task[]; error: Error | null }> {

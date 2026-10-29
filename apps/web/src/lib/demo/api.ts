@@ -213,6 +213,32 @@ class DemoTasksApiImpl {
     return ok(rows.slice(offset, offset + (filters?.limit ?? 50)));
   }
 
+  /** Mirrors `TasksApi.listOpen`: the dated and pinned rows, then the rest. */
+  async listOpen(opts: {
+    datedThrough: string;
+    completedSince?: string;
+    limit?: number;
+  }) {
+    const open = this.tasks.filter(isOpen);
+    const dated = open.filter(
+      (t) =>
+        t.focus_override === "include" ||
+        datesOf(t).some((d) => d <= opts.datedThrough)
+    );
+    const rest = [...open].sort(byPriorityThenSort).slice(0, opts.limit ?? 500);
+    const done = opts.completedSince
+      ? this.tasks.filter(
+          (t) =>
+            t.status === "done" &&
+            !!t.completed_at &&
+            t.completed_at >= opts.completedSince!
+        )
+      : [];
+    const byId = new Map<string, Task>();
+    for (const t of [...dated, ...rest, ...done]) byId.set(t.id, t);
+    return ok([...byId.values()].sort(bySortOrder));
+  }
+
   async listTags() {
     return ok(summarizeTags(this.tasks));
   }
