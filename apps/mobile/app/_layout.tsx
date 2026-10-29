@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
+import PrPreviewBanner from '@/components/PrPreviewBanner';
 import { LoginScreen } from '@/components/LoginScreen';
 import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
@@ -327,6 +328,10 @@ function RootLayoutNav() {
         />
         <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         <Stack.Screen name="search" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="preview-pr"
+          options={{ title: 'Preview a pull request' }}
+        />
         <Stack.Screen name="today" options={{ headerShown: false }} />
         <Stack.Screen name="upcoming" options={{ headerShown: false }} />
         <Stack.Screen
@@ -347,6 +352,9 @@ function RootLayoutNav() {
         />
       </Stack>
       <DevBanner />
+      {/* Says which pull request this install is running, while one is. See
+          app/preview-pr.tsx. */}
+      <PrPreviewBanner />
       {/* Global overlay: docks over the tab bar whenever rows are multi-selected. */}
       <BulkActionBar />
       {/* The new / edit project and list form. Drawn here rather than in a
