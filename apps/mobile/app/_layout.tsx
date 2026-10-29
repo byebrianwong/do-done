@@ -3,7 +3,7 @@ import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
@@ -133,16 +133,12 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const { session, loading } = useAuth();
   const router = useRouter();
-  // Point `lib/`'s automatic-change notices at the live toast. Kept in a ref
-  // and installed once: the toast context's value is a fresh object on every
-  // provider render, and the provider re-renders whenever any toast goes up,
-  // so naming it as a dependency would re-install on every toast.
-  const toast = useUndoToast();
-  const showToast = useRef(toast.show);
-  showToast.current = toast.show;
+  // Point `lib/`'s automatic-change notices at the live toast. `show` is
+  // stable (see `UndoToastProvider`), so this installs once.
+  const { show: showToast } = useUndoToast();
   useEffect(
-    () => setAutoSyncNotifier((message) => showToast.current({ message })),
-    []
+    () => setAutoSyncNotifier((message) => showToast({ message })),
+    [showToast]
   );
 
   // Re-register geofences whenever the user signs in. Silent by design: this
