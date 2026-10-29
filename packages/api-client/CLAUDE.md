@@ -16,8 +16,9 @@ Supabase client wrapper and typed API classes.
   orders by `sort_order` and cuts at the limit, finished tasks included, so a
   view that picks today's rows out of it loses whatever sorts past the cutoff.
   `listOpen` reads every open task dated through the day it is given, plus
-  Focus pins, as one read, and the other open tasks highest-priority first as a
-  second. Mobile's Today, the task widgets and the watch use it.
+  Focus pins and every task with a Focus bonus, as one read, and the other open
+  tasks highest-priority first as a second. That split keeps Focus exact unless the
+  first read passes Supabase's 1000-row cap. Mobile's Today, the task widgets and the watch use it.
 - **`completed_at` is owned by `update()`, in both directions.** It stamps on
   the transition into `done` and clears on any status change out of it, so a
   task taken out of done by the editor or an autosave undo does not keep a

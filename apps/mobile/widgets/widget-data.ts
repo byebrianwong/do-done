@@ -49,18 +49,20 @@ export async function loadWidgetTasks(): Promise<WidgetTasks> {
  * so an account past 200 tasks lost whatever the order put after that, even if
  * it was scheduled today. `listOpen` reads every open task dated through the
  * end of the Upcoming widget's horizon, plus one day so the watch's view of
- * tomorrow is complete too. Its undated and later rows are read highest
- * priority first, and the tasks finished since local midnight come along for
- * the watch's progress count.
+ * tomorrow is complete too, and every inbox task for the watch's Inbox list.
+ * Its undated and later rows are read highest priority first, and the tasks
+ * finished since local midnight come along for the watch's progress count.
  */
 export function widgetTaskQuery(now: Date = new Date()): {
   datedThrough: string;
   completedSince: string;
+  inbox: true;
 } {
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return {
     datedThrough: addDaysLocalISO(UPCOMING_HORIZON_DAYS + 1, now),
     completedSince: midnight.toISOString(),
+    inbox: true,
   };
 }
 

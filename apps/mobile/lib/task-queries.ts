@@ -136,10 +136,9 @@ async function fetchTasks(filters?: TaskFilterInput): Promise<Task[]> {
  * and Today picked its rows out of that page. Past 100 tasks, a task scheduled
  * today could sort after the cutoff and silently drop out of Today.
  *
- * The dated read runs through tomorrow, not today. The screen picks today's
- * rows by the device's day, and a day of slack keeps a task that is "today"
- * there from being left out by any one-day disagreement. The extra rows are
- * filtered out by `todayUniverse`.
+ * The dated read runs through tomorrow, not today, so a page fetched just
+ * before midnight still holds the new day's tasks until the next refetch.
+ * `todayUniverse` filters the extra rows out.
  */
 export function todayTaskQuery(now: Date = new Date()): { datedThrough: string } {
   return { datedThrough: addDaysLocalISO(1, now) };

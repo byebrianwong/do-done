@@ -40,7 +40,11 @@ import type {
   TasksApi,
   UserPrefsApi,
 } from "@do-done/api-client";
-import { TASK_COMPLETE_EXIT_MS, TASK_DELETE_EXIT_MS } from "@do-done/shared";
+import {
+  QUICK_WIN_PARTIAL_MAX_MINUTES,
+  TASK_COMPLETE_EXIT_MS,
+  TASK_DELETE_EXIT_MS,
+} from "@do-done/shared";
 import { DEMO_USER_ID } from "./mode";
 import { demoPantryFor } from "./seed";
 import { getDemoState, holdDemoNotifications, setDemoState } from "./store";
@@ -217,12 +221,18 @@ class DemoTasksApiImpl {
   async listOpen(opts: {
     datedThrough: string;
     completedSince?: string;
+    inbox?: boolean;
     limit?: number;
   }) {
     const open = this.tasks.filter(isOpen);
     const dated = open.filter(
       (t) =>
         t.focus_override === "include" ||
+        t.status === "in_progress" ||
+        !!t.deadline_time ||
+        (t.duration_minutes != null &&
+          t.duration_minutes <= QUICK_WIN_PARTIAL_MAX_MINUTES) ||
+        (!!opts.inbox && t.status === "inbox") ||
         datesOf(t).some((d) => d <= opts.datedThrough)
     );
     const rest = [...open].sort(byPriorityThenSort).slice(0, opts.limit ?? 500);

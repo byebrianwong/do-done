@@ -65,7 +65,13 @@ function makeTable(rows: Row[]) {
         const [col, op, ...rest] = c.split(".");
         return { col: col!, op: op!, arg: rest.join(".") };
       });
-      preds.push((r) => clauses.some((c) => compare(c.op, r[c.col], c.arg)));
+      preds.push((r) =>
+        clauses.some((c) =>
+          c.op === "not" && c.arg === "is.null"
+            ? r[c.col] !== null && r[c.col] !== undefined
+            : compare(c.op, r[c.col], c.arg)
+        )
+      );
       return b;
     };
     b.order = (col: string, opts?: { ascending?: boolean }) => {
@@ -109,6 +115,7 @@ function task(over: Partial<Task>): Row {
     scheduled_time: null,
     deadline_date: null,
     deadline_time: null,
+    duration_minutes: null,
     focus_override: null,
     completed_at: null,
     deleted_at: null,
@@ -193,6 +200,33 @@ describe("TasksApi.listOpen", () => {
     const { data } = await api.listOpen({ datedThrough: TOMORROW, limit: 5 });
     expect(data.map((t) => t.id)).toContain("urgent");
     expect(data).toHaveLength(5);
+  });
+
+  it("reads every task with a Focus bonus, however low its priority", async () => {
+    const rows: Row[] = [];
+    for (let i = 0; i < 20; i++) rows.push(task({ priority: "p1" }));
+    rows.push(task({ id: "started", status: "in_progress" }));
+    rows.push(task({ id: "quick", duration_minutes: 10 }));
+    rows.push(task({ id: "timed", deadline_time: "15:00" }));
+    rows.push(task({ id: "plain" }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(makeTable(rows) as any);
+    const { data } = await api.listOpen({ datedThrough: TOMORROW, limit: 5 });
+    const ids = data.map((t) => t.id);
+    expect(ids).toEqual(expect.arrayContaining(["started", "quick", "timed"]));
+    expect(ids).not.toContain("plain");
+  });
+
+  it("reads every inbox task only when asked", async () => {
+    const rows: Row[] = [];
+    for (let i = 0; i < 20; i++) rows.push(task({ priority: "p1" }));
+    rows.push(task({ id: "untriaged", status: "inbox" }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(makeTable(rows) as any);
+    const without = await api.listOpen({ datedThrough: TOMORROW, limit: 5 });
+    expect(without.data.map((t) => t.id)).not.toContain("untriaged");
+    const withInbox = await api.listOpen({ datedThrough: TOMORROW, limit: 5, inbox: true });
+    expect(withInbox.data.map((t) => t.id)).toContain("untriaged");
   });
 
   it("returns each row once, in sort order", async () => {
