@@ -86,7 +86,7 @@ import {
 } from '@/lib/geofencing';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { MapPreview } from './MapPreview';
-import { RootPortal } from './RootOverlay';
+import { OVERLAY_Z_INDEX, RootPortal } from './RootOverlay';
 
 /**
  * Short enough to feel live, long enough that a typed word is one request
@@ -749,7 +749,7 @@ export function LocationReminderSheet({
         <Reanimated.View
           entering={FadeIn.duration(FADE_MS)}
           exiting={FadeOut.duration(FADE_MS)}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { zIndex: OVERLAY_Z_INDEX }]}
         >
           {content}
         </Reanimated.View>

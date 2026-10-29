@@ -98,7 +98,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { hapticLight } from "@/lib/haptics";
 import { revealScrollDelta } from "@/lib/keyboard-reveal";
-import { RootPortal } from "./RootOverlay";
+import { OVERLAY_Z_INDEX, RootPortal } from "./RootOverlay";
 import {
   RETURN_SPRING,
   SHEET_CLOSE_MS,
@@ -2089,14 +2089,21 @@ export default function TaskEditModalV2({
   // React Native calls the newest handler first, so back closes the editor
   // rather than the screen under it. A picker open over the editor is a
   // `Modal` with its own window and takes the press before this sees it.
+  //
+  // The close is read through a ref so the handler is registered once per
+  // open. `animatedClose` changes with Reduce Motion, and re-registering then
+  // would make the editor's handler the newest, so back would skip over a
+  // location sheet open above it.
+  const animatedCloseRef = useRef(animatedClose);
+  animatedCloseRef.current = animatedClose;
   useEffect(() => {
     if (Platform.OS !== "android" || !shown) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      animatedClose();
+      animatedCloseRef.current();
       return true;
     });
     return () => sub.remove();
-  }, [shown, animatedClose]);
+  }, [shown]);
 
   // Once the keyboard has landed, make sure the focused field is above it.
   // Android only, and normally a no-op: the body shrinks by the keyboard's
@@ -3074,7 +3081,14 @@ const styles = StyleSheet.create({
   // Absolute rather than `flex: 1`: in a `Modal` (iOS) either fills the
   // window, but in the root overlay (Android) the sheet is a sibling of the
   // navigator and has to sit over it.
-  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" },
+  // zIndex: the dev banner and the PR preview pill are siblings of the root
+  // overlay with zIndex 9999, and would otherwise draw over the editor and
+  // take taps meant for its Close bar.
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    zIndex: OVERLAY_Z_INDEX,
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     // Opaque: the dimming is `backdropOpacity`, driven off the sheet's own

@@ -1593,6 +1593,13 @@ The editor is rendered by about ten screens, so it could not move to one host th
   screen under it, and the location sheet before the editor.
 - **The pickers inside are still `Modal`s.** Their windows sit above the activity's, so
   they draw over the editor as before.
+- **An entry sets `OVERLAY_Z_INDEX` on its root.** The dev banner and the PR preview pill
+  are siblings of the host with zIndex 9999. Without it the pill drew over the Close bar
+  and took its taps. Android `elevation` still outranks zIndex, so the undo toast now
+  draws over the editor, where the `Modal` used to hide it.
+- **The back handler reads the close through a ref.** Re-registering it when Reduce
+  Motion changes would make it the newest handler, and back would skip the location
+  sheet above it.
 - **The status bar looks the same.** RN 0.81 makes a `Modal`'s window edge-to-edge and
   copies the activity's status-bar style onto it, so both versions draw the backdrop
   under a transparent status bar with the same icons.

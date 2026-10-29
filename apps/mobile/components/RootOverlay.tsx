@@ -34,6 +34,14 @@ import React, { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { createOverlayStore } from '@/lib/root-overlay-store';
 
+/**
+ * What an entry's root sets as its zIndex. `DevBanner` and `PrPreviewBanner`
+ * are siblings of the host with zIndex 9999, and a sheet has to cover them,
+ * as a `Modal`'s window did. Android `elevation` still beats zIndex, so the
+ * undo toast (elevation 8) draws over a sheet here, where a `Modal` hid it.
+ */
+export const OVERLAY_Z_INDEX = 10000;
+
 const store = createOverlayStore<ReactNode>();
 let nextId = 1;
 
