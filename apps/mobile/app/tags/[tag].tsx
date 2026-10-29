@@ -48,7 +48,7 @@ export default function TagDetailScreen() {
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tasksQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const [editing, setEditing] = useState<Task | null>(null);

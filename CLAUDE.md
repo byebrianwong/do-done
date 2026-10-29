@@ -1197,19 +1197,33 @@ Three pieces, all under `apps/mobile`:
   `useListCounts` caches a Map: restored from a snapshot it arrived as a plain
   object, the first row of the Lists screen called `.get` on it, and the whole
   app went to the error boundary — on every cold start, for anyone with a list.
-  `survivesJsonRoundTrip` keeps such a query out of the snapshot entirely, so it
-  refetches on launch and draws a skeleton, which is what the screens are built
-  for. `useAisleMemory` caches a Map too. **Caching a Map is still allowed; it
-  just will not be persisted.** `CACHE_KEY` is `v2` because the old snapshots
-  already hold the broken shape and cannot be repaired by a reader.
+  `UNPERSISTED_KEY_PREFIXES` keeps such a query out of the snapshot entirely, so
+  it refetches on launch and draws a skeleton, which is what the screens are
+  built for. `useAisleMemory` and `useSuggestionIndex` cache Maps too. **Caching
+  a Map is still allowed; it just will not be persisted, and its key must be in
+  that list.** The filter goes by key rather than by walking the data, because
+  `dehydrate` asks it of every query on every save, and a walk was a pass over
+  every cached task. `query-persist-keys.test.ts` scans `lib/` and fails when a
+  Map-holding query is missing from the list; `holdsMapOrSet` is a shallow
+  backstop that never walks an array. `CACHE_KEY` is `v2` because the old
+  snapshots already hold the broken shape and cannot be repaired by a reader.
+- **The snapshot is saved once the cache goes quiet**, not on every cache event.
+  TanStack's `PersistQueryClientProvider` dehydrates the whole cache on each
+  event, and one write produces dozens; the persister's throttle only spaced out
+  the write. `lib/query-persist-provider.tsx` is that provider with the save
+  swapped for `subscribeDebouncedPersist` (`lib/persist-scheduler.ts`): 1.5s of
+  quiet, never more than 10s behind, and flushed when the app goes to the
+  background, since a backgrounded app can be killed without warning. The
+  restore, `IsRestoringProvider` and the owner check are TanStack's and
+  unchanged.
 - **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for every
   list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a restored
   empty list is a real answer and gets the empty state, while a cache that has never
   held one gets the skeleton. It is a plain function over a plain input because
   `apps/mobile` has no renderer to test a hook with.
 - **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an `UpdatingBar`
-  that delays itself ~350ms (`useRefreshOnFocus` refires every query on every tab
-  switch, so a bar bound straight to `isFetching` strobes), and `ListError`, without
+  that delays itself ~350ms (focus and invalidation refetch often, so a bar
+  bound straight to `isFetching` strobes), and `ListError`, without
   which an offline first launch pulses a skeleton forever.
 - **`lib/section-rows.ts`** answers the last question in that chain: is this list
   empty? That is a question about tasks, not about rows. Every section flattens to a
@@ -1227,10 +1241,29 @@ Three pieces, all under `apps/mobile`:
 **That bar is the only signal a background refresh gets.** `RefreshControl`'s
 spinner belongs to the *gesture*, so every list drives it from `usePullToRefresh`
 (`lib/query-client.ts`) rather than from the query's `isRefetching`. The
-obvious-looking `refreshing={isRefetching}` hits the same `useRefreshOnFocus` trap:
-a refetch fires on every tab switch, so the platform drew its pull-to-refresh circle
-— a control the user is meant to have *dragged* into view — unprompted at the top of
-every list on every tap of the tab bar.
+obvious-looking `refreshing={isRefetching}` hits the same trap: when
+`useRefreshOnFocus` still refetched on every tab switch, the platform drew its
+pull-to-refresh circle — a control the user is meant to have *dragged* into view —
+unprompted at the top of every list on every tap of the tab bar.
+
+**A focus refetches only a list older than ten seconds**, and never on the mount's
+own focus. `useRefreshOnFocus` used to call `refetch()` on every focus, and
+`refetch()` cancels a fetch in flight by default, so it cancelled the mount fetch
+(two requests per list on a cold start) and the fetch `app/quick-add.tsx` starts
+before closing (the new task arrived a round trip late). The rule is
+`shouldRefetchOnFocus` in `lib/focus-refresh.ts`, and the refetch passes
+`cancelRefetch: false`.
+
+**A screen off view does not refetch.** Tab screens and screens under the top of a
+stack stay mounted, so a tick on Today used to refetch and re-render All, Inbox,
+Lists and any open project. Their list queries pass `subscribed: useScreenActive()`
+(`lib/screen-activity.ts`): off view they go inactive, an invalidate marks them
+stale, and they refetch when the screen comes back. Their caches still take every
+optimistic patch and are still persisted. A screen under the quick-add composer or
+the deep-linked task editor counts as on view, because both are transparent modals
+drawn over the list, and the composer relies on the list beneath it refetching
+while it is up. Callers that are not screens, like the Tasks tab badge, pass
+nothing and stay subscribed.
 
 **The cache is restored only for the account that wrote it**, and that check lives
 *inside* `restoreClient`, not in the auth listener. Restore and the auth event
@@ -3508,6 +3541,12 @@ what hid the problem, so an unrecognised reason deliberately does not claim curr
   `@do-done/api-client`, and the task engine are behind `await import(...)` on the branch
   that needs them.
 - Widgets read the Supabase session from AsyncStorage, shared with the main app.
+- **The in-app refresh asks the launcher what is placed before reading anything.**
+  `refreshTaskWidgets()` runs after every write, and its task read used to run
+  whether or not a widget existed. `widgetRefreshPlan` (`lib/widget-refresh-plan.ts`)
+  skips the shared read when no Today, Upcoming or Next up widget is placed, and
+  skips the List widgets when none is. It runs 800ms after a write and the watch
+  sync 2s after, so the two reads do not land on the JS thread together.
 
 ### The task widgets draw the app's row
 
@@ -4153,7 +4192,13 @@ when it is spent, so two clients holding the same one sign each other out — th
 watch would take the phone down with it, silently, an hour after pairing.
 
 So the phone pushes a fresh token on three triggers, and they are not
-interchangeable:
+interchangeable. **None of them runs until a watch has been seen from this
+phone**: `hasWatchApp()` once, or the watch asking, and then a stored flag. A
+phone with no watch used to read the task list and build a snapshot after every
+write for nobody. The flag is stored rather than checked live, because the live
+check sees only connected watches, and a watch out of range still needs the
+snapshot the Data Layer will hand it when it is back. The signed-out clear is
+not gated: it reads nothing, and it is the one put that must not be missed.
 
 - **Every task write**, debounced, through `invalidateTasks()` — the same
   chokepoint the widget refresh and the geofence sync hang off.

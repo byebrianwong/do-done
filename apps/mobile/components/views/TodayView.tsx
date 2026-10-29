@@ -43,6 +43,7 @@ import {
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
@@ -100,15 +101,18 @@ function openCount(tasks: Task[]): number {
 }
 
 export function TodayView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const todayQuery = useTodayTasks();
+  const todayQuery = useTodayTasks({ subscribed: active });
   const { data: allTasks = [], refetch } = todayQuery;
   // Whether we have an answer at all — "Nothing scheduled today" is only ever
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.
   const loadState = useListLoadState(todayQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  const { data: projectsWithCounts = [] } = useProjectsWithCounts({ subscribed: active });
   // Today only, in the device's local day (the fetch passes the device
   // timezone so the server resolves the same day the user is looking at;
   // useLocalDay rolls the window over when the app foregrounds on a new day).
@@ -120,7 +124,7 @@ export function TodayView() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(todayQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);

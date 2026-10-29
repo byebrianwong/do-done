@@ -22,9 +22,11 @@
 
 import { AppState, Platform } from 'react-native';
 import { IS_EXPO_GO } from '@/lib/runtime';
-import { clearWatch, syncToWatch } from '@/modules/dodone-wear';
+import { clearWatch, hasWatchApp, syncToWatch } from '@/modules/dodone-wear';
 
-const DEBOUNCE_MS = 800;
+// Longer than the widget refresh's 800ms (`lib/widgets.ts`), so the two task
+// reads a write triggers do not land on the JS thread at the same moment.
+const DEBOUNCE_MS = 2_000;
 let pending: ReturnType<typeof setTimeout> | null = null;
 
 /**
@@ -110,6 +112,9 @@ async function runSync(): Promise<boolean> {
  */
 export async function runWearTask(data?: { write?: string }): Promise<boolean> {
   if (!enabled()) return false;
+  // The watch is talking to us, so there is one. Recorded before the sync
+  // below, which would otherwise ask the Data Layer to confirm it.
+  await markWatchSeen();
   try {
     const { parseWearWrite } = await import('@/lib/wear-write');
     const write = parseWearWrite(data?.write);
@@ -183,6 +188,60 @@ export async function clearWatchData(): Promise<void> {
   await clearWatch();
 }
 
+/**
+ * Whether a DoDone watch app has ever been seen from this phone.
+ *
+ * Every sync reads the task list and builds a snapshot, and it runs after every
+ * write and on every foreground. Most phones have no watch, so that work used
+ * to run for nobody. A sync now goes ahead only once a watch has been seen.
+ *
+ * "Ever seen", stored, rather than `hasWatchApp()` on each sync, because that
+ * native check only sees *connected* watches. A watch out of range is still
+ * paired, and the Data Layer holds a put until it reconnects. Gating on the
+ * live check would hand a watch coming back into range the snapshot from
+ * before it left, with an expired token. Once seen, the phone syncs exactly as
+ * it did before this check existed. The signed-out clear is not gated at all:
+it reads nothing, and a watch never seen since this check shipped may still be
+holding the previous account's list.
+ *
+ * Until then a sync asks `hasWatchApp()`, which is a native capability query
+ * with no task read. The watch asking for a snapshot (`runWearTask`) also marks
+ * it seen, which covers a watch paired while out of range of the phone.
+ */
+const WATCH_SEEN_KEY = 'dodone.wear.seen';
+/** null until read from storage. */
+let watchSeen: boolean | null = null;
+
+async function watchMayBeListening(): Promise<boolean> {
+  if (watchSeen === null) {
+    try {
+      const { default: AsyncStorage } = await import(
+        '@react-native-async-storage/async-storage'
+      );
+      watchSeen = (await AsyncStorage.getItem(WATCH_SEEN_KEY)) === '1';
+    } catch {
+      watchSeen = false;
+    }
+  }
+  if (watchSeen) return true;
+  if (!(await hasWatchApp())) return false;
+  await markWatchSeen();
+  return true;
+}
+
+async function markWatchSeen(): Promise<void> {
+  if (watchSeen === true) return;
+  watchSeen = true;
+  try {
+    const { default: AsyncStorage } = await import(
+      '@react-native-async-storage/async-storage'
+    );
+    await AsyncStorage.setItem(WATCH_SEEN_KEY, '1');
+  } catch {
+    // Kept in memory for this run; the next launch asks the Data Layer again.
+  }
+}
+
 function enabled(): boolean {
   return Platform.OS === 'android' && !IS_EXPO_GO;
 }
@@ -213,6 +272,10 @@ async function doSync(): Promise<boolean> {
     await clearWatch();
     return false;
   }
+
+  // Below the signed-out clear on purpose: that put reads no tasks, and a watch
+  // out of range still has to receive it when it reconnects.
+  if (!(await watchMayBeListening())) return false;
 
   const tasks = await loadWidgetTasks();
   if (tasks.signedOut) {

@@ -170,62 +170,55 @@ describe('persistOptions', () => {
     const { persistOptions } = await loadPersist();
     const should = persistOptions.dehydrateOptions.shouldDehydrateQuery;
     const query = (queryKey: readonly unknown[], status: string) =>
-      ({ queryKey, state: { status } }) as never;
+      ({ queryKey, state: { status, data: [] } }) as never;
 
     expect(should(query(['tasks', 'list', 'today'], 'success'))).toBe(true);
     expect(should(query(['projects', 'withCounts'], 'success'))).toBe(true);
     expect(should(query(['tasks', 'search', 'milk'], 'success'))).toBe(false);
     expect(should(query(['tasks', 'list', 'today'], 'error'))).toBe(false);
   });
+
+  it('keeps the Map-holding queries out by key, whatever their data', async () => {
+    const { persistOptions } = await loadPersist();
+    const should = persistOptions.dehydrateOptions.shouldDehydrateQuery;
+    const query = (queryKey: readonly unknown[]) =>
+      ({ queryKey, state: { status: 'success', data: {} } }) as never;
+    // A Map restored from JSON arrives as `{}`, so the data alone cannot say.
+    expect(should(query(['lists', 'counts']))).toBe(false);
+    expect(should(query(['aisle-terms']))).toBe(false);
+    expect(should(query(['suggestions', 'index']))).toBe(false);
+  });
 });
 
-describe('survivesJsonRoundTrip', () => {
-  it('rejects a Map, which JSON.stringify turns into {}', async () => {
-    // `useListCounts` caches one. Restored from a snapshot it arrived as a
-    // plain object, and the first row of the Lists screen threw calling `.get`
-    // on it — taking the whole app to the error boundary on every cold start.
-    const { survivesJsonRoundTrip } = await loadPersist();
-    expect(survivesJsonRoundTrip(new Map([['a', 1]]))).toBe(false);
+describe('holdsMapOrSet', () => {
+  // The backstop behind the key filter. Cheap enough for every save because it
+  // never walks an array; query-persist-keys.test.ts covers the filter itself.
+  it('finds a Map or a Set as the data', async () => {
+    const { holdsMapOrSet } = await loadPersist();
+    expect(holdsMapOrSet(new Map([['a', 1]]))).toBe(true);
+    expect(holdsMapOrSet(new Set([1]))).toBe(true);
   });
 
-  it('rejects a Set for the same reason', async () => {
-    const { survivesJsonRoundTrip } = await loadPersist();
-    expect(survivesJsonRoundTrip(new Set([1, 2]))).toBe(false);
+  it('finds one held directly by a plain object, like SuggestionIndex', async () => {
+    const { holdsMapOrSet } = await loadPersist();
+    expect(holdsMapOrSet({ projectByToken: new Map(), rowCount: 3 })).toBe(true);
   });
 
-  it('rejects a Map nested inside the data', async () => {
-    const { survivesJsonRoundTrip } = await loadPersist();
-    expect(survivesJsonRoundTrip({ counts: new Map() })).toBe(false);
-    expect(survivesJsonRoundTrip([{ counts: new Map() }])).toBe(false);
+  it('does not walk arrays, so a task list costs nothing', async () => {
+    const { holdsMapOrSet } = await loadPersist();
+    expect(holdsMapOrSet([{ id: 'a', tags: ['x'] }])).toBe(false);
+    expect(holdsMapOrSet([new Map()])).toBe(false);
+    expect(holdsMapOrSet(null)).toBe(false);
+    expect(holdsMapOrSet(undefined)).toBe(false);
   });
 
-  it('accepts the shapes the app actually caches', async () => {
-    const { survivesJsonRoundTrip } = await loadPersist();
-    expect(survivesJsonRoundTrip([])).toBe(true);
-    expect(
-      survivesJsonRoundTrip([{ id: 'a', tags: ['x'], done: false }])
-    ).toBe(true);
-    expect(survivesJsonRoundTrip({ a: { open: 1, got: 0 } })).toBe(true);
-    expect(survivesJsonRoundTrip(null)).toBe(true);
-    expect(survivesJsonRoundTrip(undefined)).toBe(true);
-  });
-
-  it('keeps a Map-holding query out of the snapshot', async () => {
+  it('keeps a Map-holding query out of the snapshot even under an unknown key', async () => {
     const { persistOptions } = await loadPersist();
     const should = persistOptions.dehydrateOptions.shouldDehydrateQuery;
     const query = {
-      queryKey: ['lists', 'counts'],
-      state: { status: 'success', data: new Map([['id', { open: 1, got: 0 }]]) },
+      queryKey: ['something', 'new'],
+      state: { status: 'success', data: new Map([['id', 1]]) },
     };
     expect(should(query as never)).toBe(false);
-  });
-
-  it('stops walking at the depth cap rather than scanning a whole task list', async () => {
-    // Deeper than anything cached here; the cap is a cost guard, and erring
-    // toward persisting is the conservative direction.
-    const { survivesJsonRoundTrip } = await loadPersist();
-    let deep: unknown = new Map();
-    for (let i = 0; i < 8; i++) deep = { next: deep };
-    expect(survivesJsonRoundTrip(deep)).toBe(true);
   });
 });

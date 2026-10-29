@@ -24,6 +24,7 @@ import {
 import { queryClient } from './query-client';
 import { scheduleListShortcutSync } from './list-shortcuts';
 import { invalidateTasks, listKeys, projectKeys } from './task-queries';
+import type { ScreenQueryOptions } from './task-queries';
 
 /**
  * Shopping lists, on mobile.
@@ -36,8 +37,9 @@ import { invalidateTasks, listKeys, projectKeys } from './task-queries';
 export { listKeys };
 
 /** The user's shopping lists — projects with `kind = 'list'`. */
-export function useLists() {
+export function useLists(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.index(),
     queryFn: async (): Promise<Project[]> => {
       const api = await getProjectsApi();
@@ -49,8 +51,9 @@ export function useLists() {
 }
 
 /** Open/bought counts per list, for the index rows. */
-export function useListCounts() {
+export function useListCounts(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.counts(),
     queryFn: async (): Promise<Map<string, { open: number; got: number }>> => {
       const api = await getTasksApi();
@@ -71,8 +74,9 @@ export function useListCounts() {
  * is what lets the optimistic sweeps in `task-queries.ts` tick a row off here
  * without knowing this view exists.
  */
-export function useListItems(listId: string) {
+export function useListItems(listId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.itemsFor(listId),
     queryFn: async (): Promise<Task[]> => {
       const api = await getTasksApi();
@@ -98,8 +102,9 @@ export function useListItems(listId: string) {
 }
 
 /** A single list, for the screen's title bar. */
-export function useList(listId: string) {
+export function useList(listId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: [...projectKeys.all, 'detail', listId] as const,
     queryFn: async () => {
       const api = await getProjectsApi();
@@ -116,15 +121,15 @@ export function useList(listId: string) {
 /**
  * Invalidate everything a list write can move.
  *
- * `invalidateTasks()` on top, because the same write feeds the widgets and the
- * geofence sweep — and because a list *item* is still a task row, so the caches
- * that count rows have to hear about it even though no task view will show it.
+ * `invalidateTasks()` is the whole of it. It invalidates `listKeys.all`, which
+ * covers every list's items and the counts, and it feeds the widgets and the
+ * geofence sweep, since a list *item* is still a task row. This used to
+ * invalidate `listKeys.all` itself and `itemsFor(listId)` as well before
+ * calling it. Each invalidate cancels a fetch in flight and starts it again,
+ * so the open list's items were requested three times per write, two of them
+ * cancelled. `listId` is kept so callers need not change; the prefix covers it.
  */
-export function invalidateLists(listId?: string) {
-  queryClient.invalidateQueries({ queryKey: listKeys.all });
-  if (listId) {
-    queryClient.invalidateQueries({ queryKey: listKeys.itemsFor(listId) });
-  }
+export function invalidateLists(_listId?: string) {
   invalidateTasks();
   // A list created, renamed or deleted has to reach the launcher: its quick
   // action is labelled with the list's name, and a pinned icon outlives the

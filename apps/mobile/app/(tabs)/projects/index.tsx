@@ -12,6 +12,7 @@ import { splitProjects } from '@do-done/shared';
 
 import { useProjectsWithCounts, reorderProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useListLoadState } from '@/lib/list-load-state';
 import { openProjectForm } from '@/components/ProjectFormSheet';
 import QuickAddButton from '@/components/QuickAddButton';
@@ -33,12 +34,15 @@ import {
 type ProjectRow = Project & { task_count: number; open_count: number };
 
 export default function ProjectsScreen() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const projectsQuery = useProjectsWithCounts();
+  const projectsQuery = useProjectsWithCounts({ subscribed: active });
   const { data: projects = [], refetch } = projectsQuery;
   const loadState = useListLoadState(projectsQuery);
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(projectsQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
   // This is the one tab that doesn't go through `SectionedDraggableList`, so
   // it drives the minimizing tab bar itself.
