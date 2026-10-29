@@ -98,6 +98,9 @@ function OverdueCard({ tasks }: { tasks: Task[] }) {
     })
       .catch(() => {
         exit.cancel();
+        // A later tap may have closed the whole card on the assumption that
+        // this row was going. It is staying, so the card has to open again.
+        card.cancel();
         warn(1);
       })
       .finally(() => leaving.current.delete(task.id));
@@ -169,7 +172,14 @@ function OverdueCard({ tasks }: { tasks: Task[] }) {
         </View>
         {!collapsed &&
           tasks.map((t) => (
-            <OverdueRow key={t.id} task={t} onApply={applyOne} />
+            <OverdueRow
+              key={t.id}
+              task={t}
+              onApply={applyOne}
+              // A row chip during "Reschedule all" would send a second write
+              // for the same task.
+              disabled={bulkPending}
+            />
           ))}
       </View>
     </Animated.View>
@@ -179,11 +189,16 @@ function OverdueCard({ tasks }: { tasks: Task[] }) {
 function OverdueRow({
   task: t,
   onApply,
+  disabled,
 }: {
   task: Task;
   onApply: (task: Task, target: Target, row: RowExit) => void;
+  disabled: boolean;
 }) {
   const exit = useRowExit(false);
+  const apply = (target: Target) => {
+    if (!disabled) onApply(t, target, exit);
+  };
   return (
     <Animated.View
       style={[exit.collapsing && styles.exitShell, exit.style]}
@@ -207,27 +222,19 @@ function OverdueRow({
           <Chip
             label="Today"
             emphasis
-            onPress={() =>
-              onApply(t, { kind: 'date', date: todayLocalISO() }, exit)
-            }
+            onPress={() => apply({ kind: 'date', date: todayLocalISO() })}
           />
           <Chip
             label="Tomorrow"
-            onPress={() =>
-              onApply(t, { kind: 'date', date: addDaysLocalISO(1) }, exit)
-            }
+            onPress={() => apply({ kind: 'date', date: addDaysLocalISO(1) })}
           />
           <Chip
             label="This week"
             onPress={() =>
-              onApply(
-                t,
-                { kind: 'date', date: resolveQuickSchedule('this_week') },
-                exit
-              )
+              apply({ kind: 'date', date: resolveQuickSchedule('this_week') })
             }
           />
-          <Chip label="×" onPress={() => onApply(t, { kind: 'remove' }, exit)} />
+          <Chip label="×" onPress={() => apply({ kind: 'remove' })} />
         </ScrollView>
       </View>
     </Animated.View>

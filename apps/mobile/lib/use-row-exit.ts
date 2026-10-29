@@ -117,6 +117,15 @@ export interface RowExit {
   startMove: () => void;
   /** Snap back to full height — for a write that failed. */
   cancel: () => void;
+  /**
+   * Back to full height on this frame, with no animation.
+   *
+   * For a move exit whose row is still mounted once the cache has moved it:
+   * the task changed section within the same list, and the list reused this
+   * row instance there (it is keyed by id). Without this it would sit in its
+   * new section at zero height, the row-key trap in CLAUDE.md.
+   */
+  reset: () => void;
   /** Scale for the check mark; 0 when open, springs to 1 when completed. */
   checkStyle: AnimatedStyle<TextStyle>;
   /** Drive the check from the row's (optimistic) completed state. */
@@ -318,6 +327,14 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     setSparking(false);
   }, [progress, dim, fade, halo, ringScale, sparkProgress]);
 
+  const reset = useCallback(() => {
+    setCollapsing(false);
+    setDeleting(false);
+    progress.value = 0;
+    dim.value = 0;
+    fade.value = 0;
+  }, [progress, dim, fade]);
+
   const spark = useCallback(() => {
     if (prefersReducedMotion()) return;
     if (sparkTimer.current) clearTimeout(sparkTimer.current);
@@ -362,6 +379,7 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     startDelete,
     startMove,
     cancel,
+    reset,
     checkStyle,
     setChecked,
     ringStyle,

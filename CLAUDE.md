@@ -2538,6 +2538,12 @@ rows below jumped up a row height.
   (`lib/row-leave.ts`): Today's universe, Upcoming's `upcomingSectionKey`, or
   `applyDisplay` for `GroupedTaskList`. A row whose section does not change gets
   no exit. Moving between Focus and Other on Today is a move within the list.
+- **A row that moves to another section of the same list snaps back to full
+  height when the patch lands.** The list keys rows by id, so it reuses the
+  collapsed instance in the new section. Left alone, that is the row-key trap
+  in *The item row*: a row drawn at zero height. `TaskItem` calls
+  `useRowExit().reset()` in a layout effect when the task it was moving
+  changes, so the reset lands before that frame is painted.
 - **The Overdue card goes through the cache now.** It called the API directly,
   with no optimistic patch and no auto-sync notice, and showed a spinner for a
   round trip. Every action on it takes a task off the card, so every action

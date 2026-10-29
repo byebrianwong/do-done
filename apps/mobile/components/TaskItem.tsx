@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -210,6 +210,20 @@ function TaskItem({
     },
     []
   );
+
+  // The task as it stood when a move exit started. Once the held patch lands
+  // the row gets a new task object. If the row is still mounted then, the task
+  // moved to another section of this same list and the list reused this
+  // instance there, so it has to come back to full height. A layout effect, so
+  // the reset lands before the row is painted in its new place.
+  const movingFrom = useRef<Task | null>(null);
+  const resetExit = exit.reset;
+  useLayoutEffect(() => {
+    if (movingFrom.current && movingFrom.current !== task) {
+      movingFrom.current = null;
+      resetExit();
+    }
+  }, [task, resetExit]);
 
   // Multi-select is an explicit mode, armed from the list's ⋯ menu rather than
   // by holding a row. While it is armed a tap toggles the row (instead of
@@ -434,10 +448,14 @@ function TaskItem({
     const leaving =
       !prefersReducedMotion() &&
       !!leavesSection?.(task, patchedTask(task, input));
-    if (leaving) exit.startMove();
+    if (leaving) {
+      movingFrom.current = task;
+      exit.startMove();
+    }
     void updateTask(task.id, input, {
       holdMs: leaving ? TASK_MOVE_EXIT_MS : 0,
     }).catch(() => {
+      movingFrom.current = null;
       if (leaving) exit.cancel();
       toast.show({ message: `Couldn't reschedule “${task.title}”` });
     });
