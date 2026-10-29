@@ -4197,7 +4197,8 @@ phone**: `hasWatchApp()` once, or the watch asking, and then a stored flag. A
 phone with no watch used to read the task list and build a snapshot after every
 write for nobody. The flag is stored rather than checked live, because the live
 check sees only connected watches, and a watch out of range still needs the
-snapshot the Data Layer will hand it when it is back.
+snapshot the Data Layer will hand it when it is back. The signed-out clear is
+not gated: it reads nothing, and it is the one put that must not be missed.
 
 - **Every task write**, debounced, through `invalidateTasks()` — the same
   chokepoint the widget refresh and the geofence sync hang off.

@@ -94,7 +94,6 @@ export function syncWatchNow(): Promise<boolean> {
 
 async function runSync(): Promise<boolean> {
   try {
-    if (!(await watchMayBeListening())) return false;
     return await doSync();
   } catch {
     // The watch keeps the snapshot it has, which says how old it is.
@@ -201,7 +200,9 @@ export async function clearWatchData(): Promise<void> {
  * paired, and the Data Layer holds a put until it reconnects. Gating on the
  * live check would hand a watch coming back into range the snapshot from
  * before it left, with an expired token. Once seen, the phone syncs exactly as
- * it did before this check existed, signed-out clears included.
+ * it did before this check existed. The signed-out clear is not gated at all:
+it reads nothing, and a watch never seen since this check shipped may still be
+holding the previous account's list.
  *
  * Until then a sync asks `hasWatchApp()`, which is a native capability query
  * with no task read. The watch asking for a snapshot (`runWearTask`) also marks
@@ -271,6 +272,10 @@ async function doSync(): Promise<boolean> {
     await clearWatch();
     return false;
   }
+
+  // Below the signed-out clear on purpose: that put reads no tasks, and a watch
+  // out of range still has to receive it when it reconnects.
+  if (!(await watchMayBeListening())) return false;
 
   const tasks = await loadWidgetTasks();
   if (tasks.signedOut) {

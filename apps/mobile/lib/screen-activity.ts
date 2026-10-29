@@ -71,6 +71,10 @@ export function isRouteVisible(
  * every moment the answer can change. Only when it reports a blur is the root
  * state read, to tell an overlay from a real departure. That read does not
  * subscribe, so a hidden screen is not re-rendered by navigation elsewhere.
+ *
+ * The cost of not subscribing: if an overlay then replaces itself with a full
+ * screen, the screen under it gets no focus event and stays subscribed until
+ * its next one. That costs refetches, never stale data.
  */
 export function useScreenActive(): boolean {
   const focused = useIsFocused();

@@ -35,12 +35,12 @@ const loadWidgetTasks = vi.fn(async () => ({
   projects: [],
 }));
 vi.mock('@/widgets/widget-data', () => ({ loadWidgetTasks }));
+const SESSION = { access_token: 'a', expires_at: 1, user: { id: 'u1' } };
+let session: typeof SESSION | null = SESSION;
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     auth: {
-      getSession: async () => ({
-        data: { session: { access_token: 'a', expires_at: 1, user: { id: 'u1' } } },
-      }),
+      getSession: async () => ({ data: { session } }),
     },
   },
   getTasksApi: async () => ({ complete: vi.fn(async () => ({})) }),
@@ -56,6 +56,7 @@ beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
   hasWatchApp.mockResolvedValue(false);
+  session = SESSION;
 });
 
 describe('the watch gate', () => {
@@ -87,5 +88,15 @@ describe('the watch gate', () => {
     expect(hasWatchApp).not.toHaveBeenCalled();
     await syncWatchNow();
     expect(syncToWatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still clears the watch on sign-out when no watch has been seen', async () => {
+    // A watch synced before the gate shipped, out of range at sign-out: the
+    // clear has to go out for the Data Layer to deliver when it reconnects.
+    session = null;
+    const { syncWatchNow } = await loadWear();
+    await syncWatchNow();
+    expect(clearWatch).toHaveBeenCalledTimes(1);
+    expect(loadWidgetTasks).not.toHaveBeenCalled();
   });
 });
