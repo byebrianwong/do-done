@@ -2607,9 +2607,12 @@ Three mobile rules, in `components/UndoToast.tsx` with the decisions in
   and moves down by what the bar sheds as it minimizes, off the same shared
   value, as a transform. The toast is mounted in the root layout, above the tab
   navigator, so `TabBarMinimizeProvider` publishes its progress through
-  `useVisibleTabBarProgress()` while the tabs are the focused route. Off the
-  tabs it is centred above the safe area. Reduce Motion lands on the end state;
-  the draining bar still drains, because it is information.
+  `useVisibleTabBarProgress()` while the tab bar is on screen. That includes a
+  transparent modal over the tabs (quick-add, a task), which unfocuses them but
+  still draws the bar (`tabsShowing`). Off the tabs it sits above the safe
+  area, and a toast that is up when the bar comes or goes slides to its new
+  height. Reduce Motion lands on the end state; the draining bar still drains,
+  because it is information.
 
 ## Swiping a task row (mobile)
 

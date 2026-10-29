@@ -1,9 +1,9 @@
 /**
  * Motion and placement rules for the undo toast (`components/UndoToast.tsx`).
  *
- * Pure so the node suite covers them: `apps/mobile` has no renderer. The two
- * placement functions are worklets, read inside `useAnimatedStyle` on the UI
- * thread. Under vitest the `'worklet'` directive is an inert string.
+ * Pure so the node suite covers them: `apps/mobile` has no renderer.
+ * `toastLift` is a worklet, read inside `useAnimatedStyle` on the UI thread.
+ * Under vitest the `'worklet'` directive is an inert string.
  */
 
 /** Fade in and fade out. */
@@ -78,14 +78,35 @@ export function shouldUnmountAfterFade(
 }
 
 /**
- * The toast's `bottom`, as a translateY-free distance from the screen's
- * bottom edge.
- *
- * On a tab screen it sits beside the add button, which rests above the tab
- * bar and moves down as the bar minimizes, so it follows the same row height.
- * Off a tab (`rowHeight` null) it sits above the safe area.
+ * The toast's resting `bottom`: just above the safe area. Everything above
+ * that is {@link toastLift}, a transform.
  */
-export function toastBottom(insetBottom: number, rowHeight: number | null): number {
+export function toastBottom(insetBottom: number): number {
+  return insetBottom + TOAST_GAP;
+}
+
+/**
+ * How far the toast is raised above {@link toastBottom}, in pt.
+ *
+ * `onTab` runs 0 → 1 as a tab bar comes on screen, so moving between a tab
+ * and a screen without one is a slide rather than a jump. `rowHeight` is the
+ * bar's current row height, so on a tab the toast stays level with the add
+ * button as the bar minimizes. Both are read on the UI thread.
+ */
+export function toastLift(onTab: number, rowHeight: number): number {
   'worklet';
-  return insetBottom + (rowHeight ?? 0) + TOAST_GAP;
+  return onTab * rowHeight;
+}
+
+/**
+ * Root-stack routes drawn *over* the tabs without hiding them. While one is on
+ * top the tabs are not focused, but their bar is still on screen, so a toast
+ * should stay where it is rather than drop onto the bar.
+ */
+const TRANSPARENT_OVER_TABS = new Set(['quick-add', 'task/[id]']);
+
+/** Whether the tab bar is on screen, given the root stack's top route name. */
+export function tabsShowing(topRoute: string | undefined): boolean {
+  if (topRoute === undefined) return false;
+  return topRoute === '(tabs)' || TRANSPARENT_OVER_TABS.has(topRoute);
 }

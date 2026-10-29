@@ -33,7 +33,7 @@ import React, {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { useIsFocused } from '@react-navigation/native';
+import { useNavigationState } from '@react-navigation/native';
 import { AccessibilityInfo, type LayoutChangeEvent } from 'react-native';
 import {
   type SharedValue,
@@ -42,6 +42,7 @@ import {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { tabsShowing } from './undo-toast-motion';
 import { prefersReducedMotion } from './use-row-exit';
 import {
   MINIMIZE_AT_REST,
@@ -116,8 +117,10 @@ const Ctx = createContext<TabBarMinimize | null>(null);
  * The undo toast is one: it lives in the root layout so a toast survives a
  * navigation, which puts it outside this provider. It still has to sit above
  * the bar and follow it as it minimizes. So the provider publishes its shared
- * value here while the tab group is the focused route, and withdraws it when a
- * root-stack screen (Settings, a task, Completed) covers the tabs.
+ * value here while the tab bar is on screen, and withdraws it when a
+ * root-stack screen (Settings, Completed) covers the tabs. A transparent modal
+ * over the tabs (quick-add, a task) does not count as covering them: the bar
+ * is still drawn underneath. See `tabsShowing`.
  */
 let visibleProgress: SharedValue<number> | null = null;
 const visibleListeners = new Set<() => void>();
@@ -188,11 +191,12 @@ export function TabBarMinimizeProvider({
   }, [progress]);
 
   // The provider is rendered by the tab layout, which is a screen of the root
-  // stack, so this says whether the tabs are what is showing.
-  const focused = useIsFocused();
+  // stack, so this reads the root stack's top route.
+  const topRoute = useNavigationState((s) => s?.routes[s.index]?.name);
+  const showing = tabsShowing(topRoute);
   useEffect(() => {
-    publishVisibleProgress(focused ? progress : null);
-  }, [focused, progress]);
+    publishVisibleProgress(showing ? progress : null);
+  }, [showing, progress]);
   useEffect(() => () => publishVisibleProgress(null), []);
 
   const value = useMemo<TabBarMinimize>(

@@ -8,7 +8,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -23,7 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UNDO_TOAST_TTL_MS } from '@do-done/shared';
 
 import { useVisibleTabBarProgress } from '@/lib/tab-bar-minimize';
-import { TAB_BAR_ROW_HEIGHT, tabRowHeight } from '@/lib/tab-bar-motion';
+import { tabRowHeight } from '@/lib/tab-bar-motion';
 import {
   TOAST_FADE_MS,
   TOAST_FAB_CLEARANCE,
@@ -32,6 +39,7 @@ import {
   riseStart,
   shouldUnmountAfterFade,
   toastBottom,
+  toastLift,
   toastShowMode,
 } from '@/lib/undo-toast-motion';
 import { prefersReducedMotion } from '@/lib/use-row-exit';
@@ -113,6 +121,17 @@ function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
   const noBar = useSharedValue(0);
   const progress = tabProgress ?? noBar;
   const onTab = tabProgress !== null;
+  /**
+   * 0 off a tab, 1 on one. Animated, so a toast that is up while the tab bar
+   * comes or goes slides to its new height instead of jumping 50pt.
+   */
+  const onTabProgress = useSharedValue(onTab ? 1 : 0);
+  useEffect(() => {
+    const target = onTab ? 1 : 0;
+    onTabProgress.value = prefersReducedMotion()
+      ? target
+      : withTiming(target, { duration: TOAST_FADE_MS * 2 });
+  }, [onTab, onTabProgress]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -158,6 +177,11 @@ function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
       currentId.current = id;
       fadingId.current = null;
       setToast({ ...t, id });
+      // Android reads the toast through its live region. iOS has none, and
+      // announcing here also covers a replacement, which does not remount.
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(t.message);
+      }
 
       if (mode === 'instant') {
         opacity.value = 1;
@@ -205,8 +229,8 @@ function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
 
   useEffect(() => clearTimer, [clearTimer]);
 
-  // On a tab screen the toast rests above the *expanded* bar and moves down by
-  // what the bar sheds, the same way the add button does: a transform rather
+  // On a tab screen the toast is raised by the bar's current row height, so it
+  // stays level with the add button as the bar minimizes. A transform rather
   // than an animated `bottom`, so following the bar costs no layout.
   const wrapStyle = useAnimatedStyle(
     () => ({
@@ -214,12 +238,12 @@ function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
       transform: [
         {
           translateY:
-            (onTab ? TAB_BAR_ROW_HEIGHT - tabRowHeight(progress.value) : 0) +
-            rise.value * TOAST_RISE_PX,
+            rise.value * TOAST_RISE_PX -
+            toastLift(onTabProgress.value, tabRowHeight(progress.value)),
         },
       ],
     }),
-    [onTab, progress]
+    [progress]
   );
 
   const countdownStyle = useAnimatedStyle(() => ({
@@ -237,11 +261,12 @@ function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
       style={[
         styles.wrap,
         {
-          bottom: toastBottom(insets.bottom, onTab ? TAB_BAR_ROW_HEIGHT : null),
+          bottom: toastBottom(insets.bottom),
           // Every tab screen has the add button in the bottom-right corner, at
-          // the same height. Beside it rather than on top of it.
+          // the same height. Beside it rather than on top of it. Left-aligned
+          // everywhere, so this inset only caps the width and a toast that
+          // is up when the bar comes or goes does not jump sideways.
           right: onTab ? TOAST_FAB_CLEARANCE : TOAST_GAP,
-          alignItems: onTab ? 'flex-start' : 'center',
         },
         wrapStyle,
       ]}
@@ -299,6 +324,7 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: TOAST_GAP,
+    alignItems: 'flex-start',
   },
   toast: {
     maxWidth: '100%',
