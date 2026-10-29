@@ -1224,6 +1224,14 @@ Three pieces, all under `apps/mobile`:
   caller that passes none keeps its headers, which is why All, Today's grouped branch
   and Upcoming's grouped branch now pass one.
 
+**The bar stays down for the refetch that follows a local write.** The
+optimistic patch already drew the change, so a bar over it said "something might
+change" about a list that just had. `invalidateTasks()` stamps the time
+(`lib/local-write.ts`), and a fetch starting within 5s of it is a reconcile.
+Pull-to-refresh and the focus refetch go through `refetch()`, so they still get
+the bar. It fades out rather than vanishing mid-sweep. The skeleton is drawn in
+the real list's shape and fades out over the rows that replace it.
+
 **That bar is the only signal a background refresh gets.** `RefreshControl`'s
 spinner belongs to the *gesture*, so every list drives it from `usePullToRefresh`
 (`lib/query-client.ts`) rather than from the query's `isRefetching`. The
@@ -1236,6 +1244,58 @@ every list on every tap of the tab bar.
 *inside* `restoreClient`, not in the auth listener. Restore and the auth event
 resolve independently, so clearing after the fact is a race the previous user's rows
 can win.
+
+## Rows that arrive (mobile)
+
+**A row that appears because of something the user did opens up; it does not
+appear at full height.** Rows already animated on the way out. On the way in
+they popped in a round trip later and pushed the list down in one frame: an
+undone completion, a task from quick-add, the next task promoted into Focus, a
+shopping item moving into or out of Got it, a section opened.
+
+- **`useRowExit` has an arrive mode.** The row mounts clamped to zero height
+  and opens over `ROW_ARRIVE_MS`, which is the completion's own collapse time.
+  `depart()` is the same fold without the hold or the sideways travel, for a
+  row leaving without anything having happened to the task.
+- **The row's height is read from a view inside the shell**, not from the
+  shell. An arriving shell is zero high when it first lays out; the content
+  inside it still lays out at its natural height.
+- **Only rows a write marked arrive** (`lib/row-arrival.ts`). A row cannot tell
+  a write from a virtualized remount, so the write paths mark the ids and a row
+  asks once as it mounts. The mark lasts 8s until the first mount (a quick-add
+  waits on a refetch), then 600ms, so two mounted lists showing the same task
+  both open and scrolling back to it later does nothing.
+- **Undoing a completion or a delete puts the row back in the cache.**
+  `toggleComplete` and `deleteTask` remember the lists a task was dropped from,
+  for twice the undo window, and the undo reinserts it where it was before the
+  write goes out. The row it was undone from had already unmounted, so before
+  this nothing could animate it.
+- **Section changes keep ghosts** (`lib/section-transitions.ts`). A row that
+  leaves the data is gone on the next render, so folding it shut means drawing
+  it for the length of the fold. That covers a section collapsing, a task moving
+  between Today's Focus and Other tasks, and the header of a group whose last
+  task left on a list with `hideEmptyGroups`. Any other config change (a
+  regroup, a filter) snaps.
+- **Today keys Focus rows apart** (`rowKey` takes the section now), so a task
+  promoted into Focus mounts fresh and opens there while its old row folds
+  below the header. The two heights add up to one row throughout, so the rows
+  under both stay still. A task the user dragged across is left alone.
+- **Today's list stays mounted when the day empties.** It used to be swapped for
+  a separate empty view, which cut off the last row's exit. The empty message is
+  its `ListEmptyComponent`, passed only when the day is really empty, and fades
+  in.
+- **`draggable-flatlist`'s own layout animations are not used.**
+  `enableLayoutAnimationExperimental` reads `global.LayoutAnimationRepository`,
+  which Reanimated 4 does not have, so it would throw on the UI thread.
+  `itemEnteringAnimation` plays on every cell mount, scroll-backs included.
+- **A picked-up row lifts** (`RowLift`): a 2% scale and a shadow on the
+  library's spring, in place of the grey tint it swapped to in one frame.
+  Reduce motion keeps the tint.
+
+Reduce motion turns all of it off: rows arrive and leave with the data.
+
+**Not yet seen on a device.** Typecheck, the node tests and a full Metro
+bundle pass.
 
 ## Dragging a row (mobile)
 

@@ -11,6 +11,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
+import { RowLift } from '@/components/RowLift';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import { AgendaTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -187,11 +189,17 @@ export function UpcomingView() {
     [tasks, config, eventsByDay]
   );
 
-  // Collapsed days keep their header but drop their rows from the list.
-  const renderSections = useMemo(
-    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
-    [sections, config]
+  // Collapsed days keep their header but drop their rows from the list, and
+  // folding or opening one animates its rows. See lib/section-transitions.ts.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+  });
+  const renderSections = transitions.sections;
   const countByKey = useMemo(
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
@@ -262,22 +270,29 @@ export function UpcomingView() {
       drag: () => void,
       isActive: boolean,
       section: DraggableSection
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+    ) => {
+      const departing = transitions.isDeparting(section.key, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragStart={drag}
+          onDragStart={departing ? undefined : drag}
+          arriving={transitions.isArriving(section.key, task.id)}
+          departing={departing}
           keepsCompleted={keepsCompleted}
           // A day section's header is the day, so its rows keep only their
           // time. The sentinel sections (Overdue / Later / Anytime) name no
           // single day, so those rows still print their own.
           hideScheduledDay={isDayKey(section.key)}
-          openInSection={openCount(section.data)}
+          openInSection={openCount(
+            section.data.filter((t) => !transitions.isDeparting(section.key, t.id))
+          )}
         />
-      </View>
-    ),
-    [handlePress, keepsCompleted]
+      </RowLift>
+      );
+    },
+    [handlePress, keepsCompleted, transitions]
   );
 
   const refreshControl = (
@@ -383,7 +398,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#6366f1',
   },
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 96, flexGrow: 1 },
   empty: {
     flex: 1,
