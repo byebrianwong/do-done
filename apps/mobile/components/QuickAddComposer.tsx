@@ -239,6 +239,11 @@ export default function QuickAddComposer({
    * It does not clear the composer. A host that closes after a create would
    * otherwise show an emptied card while it fades out, so clearing is left to
    * the caller, and only done when nothing is about to close.
+   *
+   * On success the double-submit guard stays latched. The text is still in the
+   * field while the host closes, so a second tap or Return in that window
+   * would otherwise create the task again. The caller releases it only if the
+   * composer stays open.
    */
   async function create(): Promise<Task | null> {
     const trimmed = text.trim();
@@ -246,6 +251,7 @@ export default function QuickAddComposer({
     submittingRef.current = true;
     setSubmitting(true);
 
+    let created: Task | null = null;
     try {
       const tasks = await getTasksApi();
       const { data, error } = await tasks.create(
@@ -258,9 +264,10 @@ export default function QuickAddComposer({
       if (!error && data) await voiceQuickAdd.flush(data.id);
       if (error || !data) return null;
       hapticSuccess();
+      created = data;
       return data;
     } finally {
-      submittingRef.current = false;
+      if (!created) submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -271,14 +278,18 @@ export default function QuickAddComposer({
     // Every current host closes here. One that did not would want the
     // composer emptied for the next task.
     if (onCreated) onCreated();
-    else clear();
+    else {
+      clear();
+      submittingRef.current = false;
+    }
   }
 
   async function handleExpand() {
     // Create first, then hand the persisted task over: the full editor
     // autosaves against a real row, so there is no draft state for it to open
     // on. This is why the button needs a title — see the disabled state below.
-    // Not cleared either: both hosts take the composer off screen here.
+    // Not cleared either, and the guard stays latched: both hosts take the
+    // composer off screen here and then close.
     const created = await create();
     if (created) onExpand?.(created);
   }
@@ -295,11 +306,16 @@ export default function QuickAddComposer({
               surface. */}
           <QuickAddMenuScrim fields={fields} />
 
+          {/* `layout` here too: the stack is bottom-anchored, so when anything
+              in it grows, its top edge moves. Animating the stack's frame and
+              the card's together keeps the card's bottom still and lets its
+              top glide, instead of jumping up and then settling. */}
           <Animated.View
             style={styles.stack}
             pointerEvents="box-none"
             entering={CARD_ENTERING}
             exiting={CARD_EXITING}
+            layout={LAYOUT}
           >
             <QuickAddPickers
               fields={fields}
@@ -318,6 +334,7 @@ export default function QuickAddComposer({
                 style={styles.recorderSlot}
                 entering={ROW_ENTERING}
                 exiting={ROW_EXITING}
+                layout={LAYOUT}
               >
                 <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
               </Animated.View>
@@ -422,7 +439,8 @@ export default function QuickAddComposer({
               <QuickAddSuggestionRow fields={fields} title={text} />
 
               {/* Not wrapped: its onLayout reads its x inside the card, which
-                  is what lines a popover up with its chip. */}
+                  is what lines a popover up with its chip. It carries its own
+                  `layout` transition. */}
               <QuickAddChipRow fields={fields} />
             </Animated.View>
           </Animated.View>

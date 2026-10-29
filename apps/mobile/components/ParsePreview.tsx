@@ -8,7 +8,12 @@
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from 'react-native-reanimated';
+import { QUICK_ADD_LAYOUT_MS } from '@/lib/quick-add-motion';
 import { parseTaskInput } from '@do-done/task-engine';
 import {
   PRIORITY_CONFIG,
@@ -126,6 +131,7 @@ export default function ParsePreview({
     <Animated.View
       entering={FadeIn.duration(160)}
       exiting={FadeOut.duration(120)}
+      layout={LinearTransition.duration(QUICK_ADD_LAYOUT_MS)}
     >
       <ScrollView
         horizontal

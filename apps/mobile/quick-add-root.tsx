@@ -90,7 +90,11 @@ export default function QuickAddRoot() {
     (async () => {
       const api = await getProjectsApi();
       const { data, error } = await api.list();
-      if (!cancelled && !error) setProjects(data);
+      if (cancelled) return;
+      // A failed read still ends the loading state, so the Project chip stops
+      // being inert. It offers only "New project…" then, and every `#token`
+      // stays a tag, which is what happened before with no list at all.
+      setProjects(error ? [] : data);
     })();
     return () => {
       cancelled = true;

@@ -670,6 +670,7 @@ function Chip({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
+      accessibilityHint={disabled ? 'Loading projects' : undefined}
       hitSlop={4}
     >
       <Ionicons name={icon} size={15} color={active ? iconColor ?? tint : tint} />
@@ -742,6 +743,8 @@ export function QuickAddChipRow({
         active={!!project}
         open={menu === 'project'}
         iconColor={project?.color}
+        // Undefined means still loading. A host whose read failed passes [],
+        // so the chip never stays inert for the whole session.
         disabled={!projects}
         onPress={() => fields.toggleMenu('project')}
         onLayout={fields.anchorFor('project')}

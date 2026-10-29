@@ -6,7 +6,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import type { Task } from '@do-done/shared';
+import type { Project, Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -17,6 +17,9 @@ import {
   useSuggestionIndex,
 } from '@/lib/task-queries';
 import { prefersReducedMotion } from '@/lib/use-row-exit';
+
+/** Stable, so a failed read does not hand the composer a new array per render. */
+const NO_PROJECTS: Project[] = [];
 
 /** How long the route's dim takes to clear when the full editor opens. */
 const DIM_HANDOFF_MS = 180;
@@ -43,7 +46,10 @@ const DIM_HANDOFF_MS = 180;
  */
 export default function QuickAddModal() {
   const router = useRouter();
-  const { data: projects } = useProjects();
+  const { data: projectData, isError: projectsFailed } = useProjects();
+  // Undefined while loading keeps the Project chip inert; a failed read ends
+  // that with an empty list rather than leaving the chip dead.
+  const projects = projectData ?? (projectsFailed ? NO_PROJECTS : undefined);
   const { data: suggestionIndex } = useSuggestionIndex();
   const [expandedTask, setExpandedTask] = useState<Task | null>(null);
   const { voice, projectId, scheduledDate, status } = useLocalSearchParams<{
