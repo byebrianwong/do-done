@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { getTasksApi } from '@/lib/supabase';
-import { cachedTask, invalidateTasks } from '@/lib/task-queries';
+import { cachedTask } from '@/lib/task-queries';
 import type { Task } from '@do-done/shared';
 
 /**
@@ -23,6 +23,11 @@ import type { Task } from '@do-done/shared';
  * to rise on the first frame. A warm app nearly always has it: a widget row or
  * a notification names a task some list has already loaded. Only a miss waits
  * for the fetch.
+ *
+ * The fetch runs either way. The cache is persisted for 24 hours, so it can
+ * still hold a task deleted on another device, and a stale widget row is
+ * exactly where that link comes from. A fetch that confirms the task is gone
+ * closes the sheet, cached or not.
  */
 export default function TaskDeepLinkScreen() {
   const router = useRouter();
@@ -30,8 +35,10 @@ export default function TaskDeepLinkScreen() {
   const [task, setTask] = useState<Task | null>(() => (id ? cachedTask(id) : null));
   const [notFound, setNotFound] = useState(false);
 
+  // No refetch here: the editor refetches the lists itself when it closes,
+  // after its last save has landed (`lib/editor-reconcile.ts`). A refetch from
+  // this handler would run before that save and read the row without it.
   const close = () => {
-    invalidateTasks();
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   };
@@ -41,21 +48,22 @@ export default function TaskDeepLinkScreen() {
       setNotFound(true);
       return;
     }
-    // Seeded from the cache: the editor has already opened on that row, and it
-    // roots itself on the id, so a fetched copy would not reach it anyway.
-    if (task?.id === id) return;
     const hit = cachedTask(id);
-    if (hit) {
-      setTask(hit);
-      return;
-    }
+    if (hit && task?.id !== id) setTask(hit);
     let cancelled = false;
     (async () => {
       const api = await getTasksApi();
-      const { data } = await api.getById(id);
+      const { data, error } = await api.getById(id);
       if (cancelled) return;
-      if (data) setTask(data);
-      else setNotFound(true);
+      // With a cached row on screen, only a confirmed absence closes it. A
+      // failed read (offline, an outage) leaves the cached row open. The
+      // editor roots itself on the id, so a fetched copy of a row it already
+      // shows would not reach it; it is used only when nothing was cached.
+      if (data) {
+        if (!hit) setTask(data);
+      } else if (!hit || isNotFound(error)) {
+        setNotFound(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -74,11 +82,20 @@ export default function TaskDeepLinkScreen() {
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={close}
+        accessibilityRole="button"
         accessibilityLabel="Close"
       />
       <TaskEditModalV2 task={task} visible={!!task} onClose={close} />
     </View>
   );
+}
+
+/**
+ * `getById` reads with `.single()`, which reports "no rows" as PGRST116. That
+ * code alone means the task is gone; any other error is a failed read.
+ */
+function isNotFound(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === 'PGRST116';
 }
 
 const styles = StyleSheet.create({

@@ -505,11 +505,24 @@ function patchCachedOrder(orderedIds: string[], opts?: DropOrderOptions) {
  * cache (`taskKeys.detail`) is patched too, so a renamed parent reads right.
  */
 export function patchSavedTask(row: Task) {
-  patchTaskLists((old) =>
-    old.some((t) => t.id === row.id)
-      ? old.map((t) => (t.id === row.id ? ({ ...t, ...row } as Task) : t))
-      : old
-  );
+  // The side effects of a write still run per save. A reminder armed against
+  // this task, the widgets and the watch must not wait for the sheet to close:
+  // set 3pm at 2:40, press Home without closing, and the reminder has to exist.
+  notifyTaskWritten();
+  // Only the caches that hold the row are written. `setQueriesData` marks every
+  // query it visits as updated, even when the updater hands back the same
+  // array, which would notify every list and wake the persister on each save.
+  for (const root of TASK_LIST_ROOTS) {
+    for (const [key, list] of queryClient.getQueriesData<Task[]>({
+      queryKey: root,
+    })) {
+      if (!Array.isArray(list) || !list.some((t) => t.id === row.id)) continue;
+      queryClient.setQueryData<Task[]>(
+        key,
+        list.map((t) => (t.id === row.id ? ({ ...t, ...row } as Task) : t))
+      );
+    }
+  }
   queryClient.setQueryData<Task | null>(taskKeys.detail(row.id), (old) =>
     old ? ({ ...old, ...row } as Task) : old
   );
@@ -549,17 +562,12 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   );
 }
 
-export function invalidateTasks() {
-  queryClient.invalidateQueries({ queryKey: taskKeys.all });
-  queryClient.invalidateQueries({ queryKey: projectKeys.all });
-  // The tag summary is counts over tasks, so any write can move it — a tag
-  // added in the editor, a task completed, a task deleted. Kept out of
-  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
-  // it: its cached value is TagSummary[], not Task[].
-  queryClient.invalidateQueries({ queryKey: tagKeys.all });
-  // Same argument as tags, one root over: a list's items and its open/bought
-  // counts are a view of task rows, so any write can move them.
-  queryClient.invalidateQueries({ queryKey: listKeys.all });
+/**
+ * What every task write has to tell the world outside the query cache. Each is
+ * debounced. `invalidateTasks` calls this; so does `patchSavedTask`, which
+ * updates the cache without refetching but still has to reach these.
+ */
+function notifyTaskWritten() {
   // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
   refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and
@@ -574,6 +582,20 @@ export function invalidateTasks() {
   // off on the phone stays on the wrist until the phone says otherwise. Same
   // debounce, same fire-and-forget.
   scheduleWatchSync();
+}
+
+export function invalidateTasks() {
+  queryClient.invalidateQueries({ queryKey: taskKeys.all });
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // The tag summary is counts over tasks, so any write can move it — a tag
+  // added in the editor, a task completed, a task deleted. Kept out of
+  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
+  // it: its cached value is TagSummary[], not Task[].
+  queryClient.invalidateQueries({ queryKey: tagKeys.all });
+  // Same argument as tags, one root over: a list's items and its open/bought
+  // counts are a view of task rows, so any write can move them.
+  queryClient.invalidateQueries({ queryKey: listKeys.all });
+  notifyTaskWritten();
 }
 
 export interface ToggleCompleteOptions {

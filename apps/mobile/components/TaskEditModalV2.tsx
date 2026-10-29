@@ -1159,11 +1159,12 @@ function ScheduleCalendarImpl({
           })}
         </Reanimated.View>
 
-        <View style={styles.altRow}>
+        {/* Moves with the grid between five- and six-week months. */}
+        <Reanimated.View layout={BODY_LAYOUT} style={styles.altRow}>
           <Pressable onPress={() => setMode("strip")} style={styles.expandChip}>
             <Text style={styles.expandChipText}>⇡ Week view</Text>
           </Pressable>
-        </View>
+        </Reanimated.View>
       </Reanimated.View>
       </LayoutAnimationConfig>
     ) : (
@@ -1738,11 +1739,12 @@ function SubtasksSectionImpl({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await tasksApi.listSubtasks(parentId);
-      if (!cancelled) {
-        setSubtasks(data);
-        setLoaded(true);
-      }
+      const { data, error } = await tasksApi.listSubtasks(parentId);
+      if (cancelled) return;
+      // A failed read returns `[]`. Keep the cached rows rather than fading
+      // them out, which would read as the subtasks being deleted.
+      if (!error) setSubtasks(data);
+      setLoaded(true);
     })();
     return () => {
       cancelled = true;
@@ -1918,10 +1920,19 @@ export default function TaskEditModalV2({
 }: Props) {
   // Keep the latest close handler in a ref so the once-created PanResponder
   // always calls the current one.
+  //
+  // The host's `onSaved` is not called here any more. It is handed to the body,
+  // which calls it once the close has settled, after the last autosave has
+  // landed (see `createEditorReconciler`). Called here, it ran before that
+  // save was sent and refetched the row without it.
   const closeRef = useRef<() => void>(() => {});
+  /** True from a real close until the next open; a drill leaves it false. */
+  const closingRef = useRef(false);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
   closeRef.current = () => {
+    closingRef.current = true;
     onClose();
-    onSaved?.();
   };
 
   // Read live rather than at module scope: a rotation or an Android split
@@ -2003,6 +2014,7 @@ export default function TaskEditModalV2({
     setRootedMarker(marker);
     setOpened(false);
     setDrill(null);
+    if (visible) closingRef.current = false;
     if (visible) setActiveTask(task);
   }
   const activeIdRef = useRef(activeTask?.id);
@@ -2011,7 +2023,14 @@ export default function TaskEditModalV2({
     setDrill(next.parent_task_id === activeIdRef.current ? "in" : "out");
     setActiveTask(next);
   }, []);
-  const markOpened = useCallback(() => setOpened(true), []);
+  // Each open gets a number, and only the current open's callback may mark it
+  // finished. An open replaced mid-rise (a different task handed in while the
+  // sheet is still rising) cancels its animation, and that callback would
+  // otherwise mark the new open finished before it had started.
+  const openGenRef = useRef(0);
+  const markOpened = useCallback((gen: number) => {
+    if (gen === openGenRef.current) setOpened(true);
+  }, []);
 
   // Slide the sheet up whenever it becomes visible.
   //
@@ -2023,6 +2042,7 @@ export default function TaskEditModalV2({
   // when a *different* task is opened.
   useEffect(() => {
     if (!visible || !task) return;
+    const gen = ++openGenRef.current;
     translateY.value = sheetH;
     hapticLight();
     translateY.value = withTiming(
@@ -2037,7 +2057,7 @@ export default function TaskEditModalV2({
       // animation, and the body must still get its sections.
       () => {
         "worklet";
-        runOnJS(markOpened)();
+        runOnJS(markOpened)(gen);
       }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2266,6 +2286,8 @@ export default function TaskEditModalV2({
                     scrollRef={scrollRef}
                     scrollOffset={scrollOffset}
                     registerCloseGuard={registerCloseGuard}
+                    closingRef={closingRef}
+                    hostOnSavedRef={onSavedRef}
                   />
                 </Reanimated.View>
               ) : null}
@@ -2285,8 +2307,14 @@ function Inner({
   scrollRef,
   scrollOffset,
   registerCloseGuard,
+  closingRef,
+  hostOnSavedRef,
 }: {
   task: Task;
+  /** True once the sheet is really closing, as opposed to drilling. */
+  closingRef: React.RefObject<boolean>;
+  /** The host's post-close callback, run after the last save lands. */
+  hostOnSavedRef: React.RefObject<(() => void) | undefined>;
   /** The sheet has finished rising; mount the sections below the fold. */
   bodyReady: boolean;
   onClose: () => void;
@@ -2324,9 +2352,13 @@ function Inner({
   const [parentTask, setParentTask] = useState<Task | null>(() =>
     task.parent_task_id ? cachedTask(task.parent_task_id) : null
   );
+  // The fetch runs only when nothing was cached. After a drill, the cached copy
+  // is the fresher one: it has the parent's last save patched in, while a fetch
+  // can race that save's PATCH and return the row from before it.
+  const parentSeeded = useRef(parentTask !== null);
   useEffect(() => {
     const parentId = task.parent_task_id;
-    if (!parentId) return;
+    if (!parentId || parentSeeded.current) return;
     let cancelled = false;
     (async () => {
       const { data } = await tasksApiMemo.getById(parentId);
@@ -2350,6 +2382,16 @@ function Inner({
     reconcilerRef.current = createEditorReconciler<Task>({
       patch: patchSavedTask,
       invalidate: invalidateTasks,
+      // The host hears about a real close, not a drill. Every host today passes
+      // `invalidateTasks`, which has just run when something saved, so it is
+      // skipped then rather than refetching every list a second time.
+      afterClose: (saved) => {
+        if (!closingRef.current) return;
+        const hostOnSaved = hostOnSavedRef.current;
+        if (!hostOnSaved) return;
+        if (saved && hostOnSaved === invalidateTasks) return;
+        hostOnSaved();
+      },
     });
   }
   // The row the save sent. Read at save time, which for the flush on unmount

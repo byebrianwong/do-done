@@ -23,6 +23,10 @@ vi.mock("./wear", () => ({ scheduleWatchSync: vi.fn() }));
 
 const { taskKeys, listKeys, patchSavedTask, cachedSubtasks, cachedTask } =
   await import("./task-queries");
+const { scheduleTaskReminderSync } = await import("./task-reminders");
+const { refreshTaskWidgets } = await import("./widgets");
+const { scheduleWatchSync } = await import("./wear");
+const { scheduleGeofenceSync } = await import("./location-queries");
 
 function task(id: string, over: Partial<Task> = {}): Task {
   return {
@@ -78,6 +82,31 @@ describe("patchSavedTask", () => {
     expect(queryClient.getQueryData<Task>(taskKeys.detail("p"))!.title).toBe(
       "Parent v2"
     );
+  });
+
+  it("does not touch a list that does not hold the row", () => {
+    queryClient.setQueryData(taskKeys.today(), [task("a")]);
+    queryClient.setQueryData(taskKeys.inbox(), [task("other")]);
+    const before = queryClient.getQueryState(taskKeys.inbox())!.dataUpdatedAt;
+    vi.useFakeTimers();
+    vi.setSystemTime(before + 5000);
+    patchSavedTask(task("a", { title: "x" }));
+    vi.useRealTimers();
+    expect(queryClient.getQueryState(taskKeys.inbox())!.dataUpdatedAt).toBe(
+      before
+    );
+  });
+
+  it("still re-arms reminders and refreshes the widgets, watch and geofences", () => {
+    vi.mocked(scheduleTaskReminderSync).mockClear();
+    vi.mocked(refreshTaskWidgets).mockClear();
+    vi.mocked(scheduleWatchSync).mockClear();
+    vi.mocked(scheduleGeofenceSync).mockClear();
+    patchSavedTask(task("a", { scheduled_time: "15:00" } as Partial<Task>));
+    expect(scheduleTaskReminderSync).toHaveBeenCalledTimes(1);
+    expect(refreshTaskWidgets).toHaveBeenCalledTimes(1);
+    expect(scheduleWatchSync).toHaveBeenCalledTimes(1);
+    expect(scheduleGeofenceSync).toHaveBeenCalledTimes(1);
   });
 
   it("does not create a detail cache that was never there", () => {

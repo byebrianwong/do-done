@@ -206,9 +206,12 @@ function ImagePreview({
 }) {
   const opacity = useSharedValue(0);
   const imageStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  // The spinner goes once the image has loaded or failed. Left mounted, it
+  // showed through a transparent PNG, and spun forever behind a broken image.
+  const [settled, setSettled] = useState(false);
   return (
     <View style={styles.imageBox}>
-      <ActivityIndicator size="small" color="#9ca3af" />
+      {settled ? null : <ActivityIndicator size="small" color="#9ca3af" />}
       {url ? (
         <Pressable
           onPress={() => onExpand(url)}
@@ -222,15 +225,14 @@ function ImagePreview({
             // the part the user attached it for is worse than letterboxing.
             resizeMode="contain"
             onLoad={() => {
+              setSettled(true);
               opacity.value = withTiming(1, {
                 duration: 180,
                 reduceMotion: ReduceMotion.System,
               });
             }}
-            // A broken image still shows something rather than a spinner forever.
-            onError={() => {
-              opacity.value = 1;
-            }}
+            // A broken image leaves the grey box, not a spinner forever.
+            onError={() => setSettled(true)}
           />
         </Pressable>
       ) : null}

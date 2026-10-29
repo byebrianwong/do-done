@@ -6,10 +6,12 @@ type Row = { id: string; title: string };
 function setup() {
   const patch = vi.fn();
   const invalidate = vi.fn();
+  const afterClose = vi.fn();
   const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
   const r = createEditorReconciler<Row>({
     patch,
     invalidate,
+    afterClose,
     setTimer: (fn, ms) => {
       const t = { fn, ms, cleared: false };
       timers.push(t);
@@ -21,7 +23,7 @@ function setup() {
     fallbackMs: 4000,
   });
   const fire = () => timers.filter((t) => !t.cleared).forEach((t) => t.fn());
-  return { r, patch, invalidate, timers, fire };
+  return { r, patch, invalidate, afterClose, timers, fire };
 }
 
 const row = (title: string): Row => ({ id: "a", title });
@@ -94,5 +96,38 @@ describe("createEditorReconciler", () => {
     r.closed(false);
     r.closed(false);
     expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the host once, after the close settles, whether anything saved", () => {
+    const a = setup();
+    a.r.closed(false);
+    expect(a.afterClose).toHaveBeenCalledWith(false);
+
+    const b = setup();
+    b.r.saved(row("x"));
+    b.r.closed(false);
+    expect(b.afterClose).toHaveBeenCalledTimes(1);
+    expect(b.afterClose).toHaveBeenCalledWith(true);
+  });
+
+  it("tells the host only after a save queued at close has landed", () => {
+    const { r, afterClose, invalidate } = setup();
+    r.closed(true);
+    expect(afterClose).not.toHaveBeenCalled();
+    r.saved(row("flushed"));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(afterClose).toHaveBeenCalledTimes(1);
+    expect(afterClose).toHaveBeenCalledWith(true);
+    r.saved(row("again"));
+    expect(afterClose).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells the host after the fallback when the queued save never lands", () => {
+    const { r, afterClose, fire } = setup();
+    r.closed(true);
+    fire();
+    expect(afterClose).toHaveBeenCalledTimes(1);
+    expect(afterClose).toHaveBeenCalledWith(false);
   });
 });
