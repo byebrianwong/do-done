@@ -60,12 +60,19 @@ import {
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
 import {
+  cachedSubtasks,
+  cachedTask,
   createProject,
   deleteTask,
   invalidateTasks,
+  patchSavedTask,
   restoreTasks,
   useProjects,
 } from "@/lib/task-queries";
+import {
+  createEditorReconciler,
+  type EditorReconciler,
+} from "@/lib/editor-reconcile";
 import { useUndoToast } from "./UndoToast";
 import {
   useTaskLocations,
@@ -85,6 +92,13 @@ import {
 // because nothing about them is under a finger. The sheet itself does not.
 import Reanimated, {
   Easing,
+  FadeIn,
+  FadeInLeft,
+  FadeInRight,
+  FadeOut,
+  LayoutAnimationConfig,
+  LinearTransition,
+  ReduceMotion,
   type SharedValue,
   runOnJS,
   useAnimatedScrollHandler,
@@ -108,6 +122,24 @@ import {
 import { ProjectIcon } from '@/components/ProjectIcon';
 
 // ─── Constants ──────────────────────────────────────────────
+
+/**
+ * Motion inside the sheet's body. When a section changes height, the sections
+ * below it glide to their new place (`BODY_LAYOUT`) instead of jumping there,
+ * and content that arrives after the sheet has opened fades in. Both are short,
+ * because each one answers a tap.
+ *
+ * `ReduceMotion.System` is Reanimated's default, stated here so it is not lost:
+ * with Reduce Motion on, every one of these lands on its end state at once.
+ */
+const BODY_LAYOUT = LinearTransition.duration(200).reduceMotion(
+  ReduceMotion.System
+);
+const BODY_FADE_IN = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
+const BODY_FADE_OUT = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
+/** Drilling into a subtask slides the new body in from the right; climbing back to the parent, from the left. */
+const DRILL_IN = FadeInRight.duration(220).reduceMotion(ReduceMotion.System);
+const DRILL_OUT = FadeInLeft.duration(220).reduceMotion(ReduceMotion.System);
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -314,31 +346,23 @@ function coverBlobs(projectId: string | null): {
   });
 }
 
-function TaskCover({
+/**
+ * The banner's colour bands, discs, watermark and scrim. Split out and memoised
+ * because the editor re-renders on every keystroke in the title, and this is
+ * twelve bands, three discs and an SVG icon that only change with the project.
+ * `project` is the same object across those renders (it is found in a memoised
+ * list), so the memo holds.
+ */
+const CoverArt = React.memo(function CoverArt({
   project,
-  priority,
-  onPressProject,
-  onPressPriority,
-  children,
 }: {
   project: Project | null;
-  priority: TaskPriority;
-  onPressProject: () => void;
-  onPressPriority: () => void;
-  /** The save dot, undo and menu, laid over the banner's top row. */
-  children: React.ReactNode;
 }) {
   const base = project?.color ?? NO_PROJECT_COLOR;
   const bands = coverBands(base);
   const blobs = coverBlobs(project?.id ?? null);
-  // Urgent and High wear their own colour; Medium and Low wear the pill the
-  // project name wears, with the rank's colour as a dot. Those two sit on the
-  // project's colour, which can be anything — a solid slate or grey chip
-  // vanishes into half the palette.
-  const loudPriority = priority === "p1" || priority === "p2";
-
   return (
-    <View style={styles.cover}>
+    <>
       {/* Faux gradient */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={styles.coverBandRow}>
@@ -379,6 +403,33 @@ function TaskCover({
           a pale project colour — amber and lime are the ones that would
           otherwise wash out. */}
       <View style={styles.coverScrim} pointerEvents="none" />
+    </>
+  );
+});
+
+function TaskCover({
+  project,
+  priority,
+  onPressProject,
+  onPressPriority,
+  children,
+}: {
+  project: Project | null;
+  priority: TaskPriority;
+  onPressProject: () => void;
+  onPressPriority: () => void;
+  /** The save dot, undo and menu, laid over the banner's top row. */
+  children: React.ReactNode;
+}) {
+  // Urgent and High wear their own colour; Medium and Low wear the pill the
+  // project name wears, with the rank's colour as a dot. Those two sit on the
+  // project's colour, which can be anything — a solid slate or grey chip
+  // vanishes into half the palette.
+  const loudPriority = priority === "p1" || priority === "p2";
+
+  return (
+    <View style={styles.cover}>
+      <CoverArt project={project} />
 
       <View style={styles.coverTopRow}>{children}</View>
 
@@ -451,7 +502,7 @@ function TaskCover({
  * The banner keeps what colour is genuinely good at — project identity — and
  * these say what they are.
  */
-function MetaField({
+function MetaFieldImpl({
   label,
   value,
   dotColor,
@@ -486,6 +537,12 @@ function MetaField({
     </View>
   );
 }
+
+/**
+ * Memoised against the per-keystroke re-render of the editor. Its props are
+ * strings plus an `onPress` the editor keeps stable.
+ */
+const MetaField = React.memo(MetaFieldImpl);
 
 // ── Mobile bottom-sheet pickers ─────────────────────────
 
@@ -1005,9 +1062,18 @@ function ScheduleCalendarImpl({
     setMode("month");
   };
 
-  if (mode === "month") {
-    return (
-      <View>
+  // One return for both modes, inside a config that skips entering animations
+  // for whatever is on screen when the calendar first mounts. After that, a
+  // switch between the strip and the month grid fades the new one in, the grid
+  // crossfades from one month to the next, and the second week fades in when
+  // "+ next week" adds it. Each used to swap in a single frame, and the
+  // sections below the calendar jumped by the difference in height.
+  const content =
+    mode === "month" ? (
+      // `skipExiting`: leaving month mode must not leave a fading copy of the
+      // grid over the strip that replaces it.
+      <LayoutAnimationConfig key="month" skipExiting>
+      <Reanimated.View entering={BODY_FADE_IN}>
         <View style={styles.monthNav}>
           <Pressable
             onPress={() => setViewMonth((m) => addMonths(m, -1))}
@@ -1042,7 +1108,15 @@ function ScheduleCalendarImpl({
             </Text>
           ))}
         </View>
-        <View style={styles.calGrid}>
+        {/* Keyed by month, so navigating replaces the grid rather than
+            rewriting its digits in place: the old month fades out where it
+            stood while the new one fades in over it. */}
+        <Reanimated.View
+          key={monthLabel}
+          style={styles.calGrid}
+          entering={BODY_FADE_IN}
+          exiting={BODY_FADE_OUT}
+        >
           {monthRows.map((week, wi) => {
             const run = monthWave?.runs.find((r) => r.rowIndex === wi);
             return (
@@ -1083,19 +1157,21 @@ function ScheduleCalendarImpl({
             </View>
             );
           })}
-        </View>
+        </Reanimated.View>
 
         <View style={styles.altRow}>
           <Pressable onPress={() => setMode("strip")} style={styles.expandChip}>
             <Text style={styles.expandChipText}>⇡ Week view</Text>
           </Pressable>
         </View>
-      </View>
-    );
-  }
-
-  return (
-    <View>
+      </Reanimated.View>
+      </LayoutAnimationConfig>
+    ) : (
+    <Reanimated.View key="strip" entering={BODY_FADE_IN}>
+      {/* The strip fades in as a whole when it replaces the month grid, so its
+          rows skip their own entering animation on that mount. Only the second
+          week, added later by "+ next week", fades in on its own. */}
+      <LayoutAnimationConfig skipEntering>
       <View style={styles.calHeader}>
         {WEEKDAYS.map((w, i) => (
           <Text
@@ -1113,8 +1189,9 @@ function ScheduleCalendarImpl({
         {weekRows.map((week, wi) => {
           const run = weekWave?.runs.find((r) => r.rowIndex === wi);
           return (
-            <View
+            <Reanimated.View
               key={wi}
+              entering={BODY_FADE_IN}
               style={styles.calWeekRow}
               onLayout={(e) => {
                 const { width, height } = e.nativeEvent.layout;
@@ -1147,7 +1224,7 @@ function ScheduleCalendarImpl({
                   onPickDate={onPickDate}
                 />
               ))}
-            </View>
+            </Reanimated.View>
           );
         })}
       </View>
@@ -1178,8 +1255,11 @@ function ScheduleCalendarImpl({
           />
         ) : null}
       </View>
-    </View>
-  );
+      </LayoutAnimationConfig>
+    </Reanimated.View>
+    );
+
+  return <LayoutAnimationConfig skipEntering>{content}</LayoutAnimationConfig>;
 }
 
 /**
@@ -1226,22 +1306,25 @@ export function ScheduledTimeField({
   onChange: (t: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const scrollRef = useRef<ScrollView | null>(null);
 
   const anchorSlot =
     value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
   const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
 
-  // Center the anchor row as soon as the sheet's list lays out.
-  const centerOnAnchor = () => {
-    scrollRef.current?.scrollTo({
+  // The list opens already centred on the anchor row. It used to scroll there
+  // from `onContentSizeChange`, which runs after the first layout, so the list
+  // drew 12 AM for a frame before jumping to the anchor. Memoised because a
+  // changed `contentOffset` scrolls the list again.
+  const anchorOffset = useMemo(
+    () => ({
+      x: 0,
       y: Math.max(
         0,
         anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
       ),
-      animated: false,
-    });
-  };
+    }),
+    [anchorIdx]
+  );
 
   return (
     // A chip in the row under the calendar, sized like the ones beside it. It
@@ -1287,8 +1370,7 @@ export function ScheduledTimeField({
             <Text style={styles.pickerTitle}>Time</Text>
             <View style={{ height: TIME_LIST_H }}>
               <ScrollView
-                ref={scrollRef}
-                onContentSizeChange={centerOnAnchor}
+                contentOffset={anchorOffset}
                 showsVerticalScrollIndicator
               >
                 {TIME_SLOTS.map((slot) => {
@@ -1341,7 +1423,7 @@ export function ScheduledTimeField({
   );
 }
 
-export function TagRow({
+function TagRowImpl({
   tags,
   onAdd,
   onRemove,
@@ -1410,6 +1492,13 @@ export function TagRow({
     </View>
   );
 }
+
+/**
+ * Memoised because the editor re-renders on every keystroke in the title, and
+ * this row holds a chip per tag. `tags` is the same array until a tag changes,
+ * and the editor keeps `onAdd` and `onRemove` stable until then too.
+ */
+export const TagRow = React.memo(TagRowImpl);
 
 // ── Recurrence ──────────────────────────────────────────
 
@@ -1507,6 +1596,13 @@ function NotesField({
     </>
   );
 }
+
+/**
+ * `NotesField` behind a memo, for the same per-keystroke reason as `TagRow`.
+ * The read view's `LinkifiedText` re-parses every URL in the notes when it
+ * renders, so typing in the title used to re-parse the notes on each letter.
+ */
+const MemoNotesField = React.memo(NotesField);
 
 function RepeatRow({
   value,
@@ -1626,7 +1722,14 @@ function SubtasksSectionImpl({
   /** Drill the sheet into a subtask's own editor. */
   onOpenSubtask: (task: Task) => void;
 }) {
-  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  // Seeded from the rows the lists have already cached, so a task's subtasks
+  // are on screen in the first frame instead of arriving with the fetch and
+  // pushing Notes down. The seed can be short (a list caches only what its
+  // view shows), so the fetch below still runs and fills in the rest, and the
+  // rows it adds glide in rather than jump.
+  const [subtasks, setSubtasks] = useState<Task[]>(() =>
+    cachedSubtasks(parentId)
+  );
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -1702,16 +1805,27 @@ function SubtasksSectionImpl({
           </Text>
         ) : null}
       </View>
-      <View style={styles.subtaskCard}>
-        {subtasks.map((st) => (
-          <SubtaskRow
-            key={st.id}
-            task={st}
-            onToggle={() => handleToggle(st)}
-            onOpen={() => onOpenSubtask(st)}
-            onDelete={() => handleDelete(st.id)}
-          />
-        ))}
+      <Reanimated.View layout={BODY_LAYOUT} style={styles.subtaskCard}>
+        {/* Rows present when the section mounts skip their fade; rows the
+            fetch or an add brings later fade in, and a deleted row fades out
+            while the rows below it close the gap. */}
+        <LayoutAnimationConfig skipEntering>
+          {subtasks.map((st) => (
+            <Reanimated.View
+              key={st.id}
+              layout={BODY_LAYOUT}
+              entering={BODY_FADE_IN}
+              exiting={BODY_FADE_OUT}
+            >
+              <SubtaskRow
+                task={st}
+                onToggle={() => handleToggle(st)}
+                onOpen={() => onOpenSubtask(st)}
+                onDelete={() => handleDelete(st.id)}
+              />
+            </Reanimated.View>
+          ))}
+        </LayoutAnimationConfig>
         {canAdd ? (
           adding ? (
             <View style={styles.subtaskRow}>
@@ -1743,7 +1857,7 @@ function SubtasksSectionImpl({
             </Pressable>
           )
         ) : null}
-      </View>
+      </Reanimated.View>
     </View>
   );
 }
@@ -1874,10 +1988,30 @@ export default function TaskEditModalV2({
   const [activeTask, setActiveTask] = useState<Task | null>(task);
   const marker = `${task?.id ?? "none"}:${visible}`;
   const [rootedMarker, setRootedMarker] = useState(marker);
+  /**
+   * Whether the open animation has finished. The body mounts its sections
+   * below the fold (places, subtasks, notes, attachments, repeat) only then, so
+   * the frames the sheet rises in are not also the frames those mount in.
+   */
+  const [opened, setOpened] = useState(false);
+  /**
+   * Which way the last drill went, so the new body can slide in from the side
+   * it came from. Null on a fresh open, which has the sheet's rise instead.
+   */
+  const [drill, setDrill] = useState<"in" | "out" | null>(null);
   if (marker !== rootedMarker) {
     setRootedMarker(marker);
+    setOpened(false);
+    setDrill(null);
     if (visible) setActiveTask(task);
   }
+  const activeIdRef = useRef(activeTask?.id);
+  activeIdRef.current = activeTask?.id;
+  const navigateTask = useCallback((next: Task) => {
+    setDrill(next.parent_task_id === activeIdRef.current ? "in" : "out");
+    setActiveTask(next);
+  }, []);
+  const markOpened = useCallback(() => setOpened(true), []);
 
   // Slide the sheet up whenever it becomes visible.
   //
@@ -1891,12 +2025,21 @@ export default function TaskEditModalV2({
     if (!visible || !task) return;
     translateY.value = sheetH;
     hapticLight();
-    translateY.value = withTiming(0, {
-      duration: reduceMotionRef.current ? 0 : SHEET_OPEN_MS,
-      // Fast off the mark, easing into place: the sheet answers the tap on the
-      // first frame and settles rather than arriving at full speed.
-      easing: Easing.out(Easing.cubic),
-    });
+    translateY.value = withTiming(
+      0,
+      {
+        duration: reduceMotionRef.current ? 0 : SHEET_OPEN_MS,
+        // Fast off the mark, easing into place: the sheet answers the tap on
+        // the first frame and settles rather than arriving at full speed.
+        easing: Easing.out(Easing.cubic),
+      },
+      // Finished or not: a drag that catches the sheet mid-rise cancels this
+      // animation, and the body must still get its sections.
+      () => {
+        "worklet";
+        runOnJS(markOpened)();
+      }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marker]);
 
@@ -2101,15 +2244,30 @@ export default function TaskEditModalV2({
                 <View style={styles.grabber} />
               </View>
               {activeTask ? (
-                <Inner
+                // Keyed on the task, so a drill remounts the body. The slide
+                // is on this wrapper rather than on the sheet, whose transform
+                // belongs to the open and the drag.
+                <Reanimated.View
                   key={activeTask.id}
-                  task={activeTask}
-                  onClose={animatedClose}
-                  onNavigateTask={setActiveTask}
-                  scrollRef={scrollRef}
-                  scrollOffset={scrollOffset}
-                  registerCloseGuard={registerCloseGuard}
-                />
+                  style={styles.drillLayer}
+                  entering={
+                    drill === "in"
+                      ? DRILL_IN
+                      : drill === "out"
+                        ? DRILL_OUT
+                        : undefined
+                  }
+                >
+                  <Inner
+                    task={activeTask}
+                    bodyReady={opened}
+                    onClose={animatedClose}
+                    onNavigateTask={navigateTask}
+                    scrollRef={scrollRef}
+                    scrollOffset={scrollOffset}
+                    registerCloseGuard={registerCloseGuard}
+                  />
+                </Reanimated.View>
               ) : null}
             </Reanimated.View>
           </GestureDetector>
@@ -2121,6 +2279,7 @@ export default function TaskEditModalV2({
 
 function Inner({
   task,
+  bodyReady,
   onClose,
   onNavigateTask,
   scrollRef,
@@ -2128,6 +2287,8 @@ function Inner({
   registerCloseGuard,
 }: {
   task: Task;
+  /** The sheet has finished rising; mount the sections below the fold. */
+  bodyReady: boolean;
   onClose: () => void;
   /** Drill the sheet to another task (a subtask, or this task's parent). */
   onNavigateTask: (task: Task) => void;
@@ -2158,19 +2319,45 @@ function Inner({
   // offer a way back up. Doubles as the navigation target (no extra fetch on tap).
   // Starts null every mount; the sheet body is keyed on the task id, so
   // navigating remounts this fresh rather than needing a reset here.
-  const [parentTask, setParentTask] = useState<Task | null>(null);
+  // Seeded from the cache so the crumb names the parent in the first frame
+  // rather than reading "Parent task" until the fetch lands.
+  const [parentTask, setParentTask] = useState<Task | null>(() =>
+    task.parent_task_id ? cachedTask(task.parent_task_id) : null
+  );
   useEffect(() => {
     const parentId = task.parent_task_id;
     if (!parentId) return;
     let cancelled = false;
     (async () => {
       const { data } = await tasksApiMemo.getById(parentId);
-      if (!cancelled) setParentTask(data);
+      // Keep the cached copy if the fetch fails, rather than blanking the crumb.
+      if (!cancelled && data) setParentTask(data);
     })();
     return () => {
       cancelled = true;
     };
   }, [task.parent_task_id, tasksApiMemo]);
+
+  // Each save patches the row into the cached lists; the full refetch waits
+  // until this body unmounts. Refetching on every save meant a pause between
+  // words refetched every list under the sheet, on the JS thread the title
+  // field was using. The unmount is what every close path has in common
+  // (swipe, backdrop, back button, Close, and a drill to another task), and a
+  // save still queued then is waited for, so the refetch reads the row after
+  // it. See `lib/editor-reconcile.ts`.
+  const reconcilerRef = useRef<EditorReconciler<Task> | null>(null);
+  if (!reconcilerRef.current) {
+    reconcilerRef.current = createEditorReconciler<Task>({
+      patch: patchSavedTask,
+      invalidate: invalidateTasks,
+    });
+  }
+  // The row the save sent. Read at save time, which for the flush on unmount
+  // is after the last render: the ref still holds what that render showed.
+  const currentRef = useRef(task);
+  const onSaved = useCallback(() => {
+    reconcilerRef.current?.saved(currentRef.current);
+  }, []);
 
   const {
     task: current,
@@ -2182,14 +2369,21 @@ function Inner({
     fieldErrors,
     hasUnsavedWork,
     retry,
-  } = useAutoSaveTask(task, tasksApiMemo, {
-    // Reconcile the TanStack Query lists after each commit. Doing it here (not
-    // on modal close) means the refetch reads the row *after* the PATCH lands,
-    // so the lists stop showing the pre-edit value — and it covers every close
-    // path (swipe, backdrop, back button, ×) since it no longer depends on the
-    // close handler firing.
-    onSaved: invalidateTasks,
-  });
+  } = useAutoSaveTask(task, tasksApiMemo, { onSaved });
+  currentRef.current = current;
+
+  // Declared after `useAutoSaveTask`, so on unmount its cleanup runs after the
+  // hook's own, which is where a queued save is flushed. `saveStatus` from the
+  // last render says whether one was queued or in flight.
+  const saveStatusRef = useRef(saveStatus);
+  saveStatusRef.current = saveStatus;
+  useEffect(
+    () => () => {
+      const s = saveStatusRef.current;
+      reconcilerRef.current?.closed(s === "pending" || s === "saving");
+    },
+    []
+  );
 
   // Where a voice note's words land. The task already has a title by the time
   // the editor is open, so a dictation is an addition to Notes rather than a
@@ -2361,7 +2555,10 @@ function Inner({
    * title would — so `personal` here files the task into the Personal project
    * rather than minting a tag that happens to spell its name.
    */
-  const handleAddTag = (token: string) => {
+  // `useCallback`ed so the memoised `TagRow` sits out title keystrokes. Both
+  // change when the tags do, which is when the row has something new to draw.
+  const tags = current.tags;
+  const handleAddTag = useCallback((token: string) => {
     const classified = classifyShortcutToken(token, allProjects);
     switch (classified.kind) {
       case "estimate":
@@ -2374,17 +2571,20 @@ function Inner({
         setField("project_id", classified.projectId);
         return;
       default:
-        if (current.tags.includes(classified.tag)) return;
-        setField("tags", [...current.tags, classified.tag]);
+        if (tags.includes(classified.tag)) return;
+        setField("tags", [...tags, classified.tag]);
     }
-  };
+  }, [allProjects, tags, setField]);
 
-  const handleRemoveTag = (tag: string) => {
-    setField(
-      "tags",
-      current.tags.filter((t) => t !== tag)
-    );
-  };
+  const handleRemoveTag = useCallback(
+    (tag: string) => {
+      setField(
+        "tags",
+        tags.filter((t) => t !== tag)
+      );
+    },
+    [tags, setField]
+  );
 
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
@@ -2392,6 +2592,14 @@ function Inner({
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [locationSheetOpen, setLocationSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Stable handlers for the memoised fields below.
+  const openEstimatePicker = useCallback(() => setEstPickerOpen(true), []);
+  const openStatusPicker = useCallback(() => setStatusPickerOpen(true), []);
+  const onChangeNotes = useCallback(
+    (v: string | null) => setField("description", v),
+    [setField]
+  );
 
   // Delete lives in the top-bar overflow menu now, not loose in the bottom bar
   // next to the dismiss control.
@@ -2632,7 +2840,7 @@ function Inner({
             />
           </View>
           <TagRow
-            tags={current.tags}
+            tags={tags}
             onAdd={handleAddTag}
             onRemove={handleRemoveTag}
           />
@@ -2640,8 +2848,13 @@ function Inner({
 
         {/* DATE. Relative reading first and large: on a personal list
             "tomorrow" is the answer and "Tuesday, August 5th" is the receipt,
-            so the receipt is the one set small. */}
-        <View style={{ marginTop: 16 }}>
+            so the receipt is the one set small.
+
+            This section and every one below it carry `layout={BODY_LAYOUT}`,
+            so when one changes height (the calendar growing a week or a month,
+            the title wrapping, a tag added, Repeat opening) the rest glide to
+            their new place instead of jumping. */}
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 16 }}>
           <View style={styles.rowHead}>
             <Text style={[styles.whenBig, { color: accentInk }]}>
               {current.scheduled_date
@@ -2667,7 +2880,7 @@ function Inner({
             onChangeScheduledTime={onChangeScheduledTime}
             onRangeChange={fetchRange}
           />
-        </View>
+        </Reanimated.View>
 
         {/* Estimate and status, side by side and equally wide. Priority left
             this row for the cover, where it now names itself at every rank —
@@ -2675,35 +2888,46 @@ function Inner({
             the banner's old marks were removed for. Status arrives from a
             labelled row of its own below the pickers, which is a lot of
             furniture for one word. */}
-        <View style={styles.metaFieldsRow}>
+        <Reanimated.View layout={BODY_LAYOUT} style={styles.metaFieldsRow}>
           <MetaField
             label="Estimate"
             value={estimateLabel(current.duration_minutes)}
             dotColor={current.duration_minutes ? "#6366f1" : "#d1d5db"}
             muted={!current.duration_minutes}
-            onPress={() => setEstPickerOpen(true)}
+            onPress={openEstimatePicker}
           />
           <MetaField
             label="Status"
             value={STATUS_CONFIG[current.status].label}
             dotColor={STATUS_CONFIG[current.status].color}
-            onPress={() => setStatusPickerOpen(true)}
+            onPress={openStatusPicker}
           />
-        </View>
+        </Reanimated.View>
 
+        {/* Below the fold: mounted once the sheet has finished rising, then
+            faded in. They used to mount in the same frame the rise started,
+            which is when the sheet could least afford the work. Nothing above
+            them moves when they arrive, because they are added below
+            everything already on screen. */}
         {/* Location reminders — folded like Repeat, since most tasks have none */}
-        <View style={{ marginTop: 14 }}>
-          <Pressable
-            onPress={() => setLocationSheetOpen(true)}
-            hitSlop={6}
-            style={styles.repeatToggle}
+        {bodyReady ? (
+          <Reanimated.View
+            layout={BODY_LAYOUT}
+            entering={BODY_FADE_IN}
+            style={{ marginTop: 14 }}
           >
-            <Text style={styles.repeatToggleText} numberOfLines={1}>
-              📍 {locationReminderLabel(taskLocations)}
-            </Text>
-            <Text style={styles.repeatToggleChevron}>▸</Text>
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={() => setLocationSheetOpen(true)}
+              hitSlop={6}
+              style={styles.repeatToggle}
+            >
+              <Text style={styles.repeatToggleText} numberOfLines={1}>
+                📍 {locationReminderLabel(taskLocations)}
+              </Text>
+              <Text style={styles.repeatToggleChevron}>▸</Text>
+            </Pressable>
+          </Reanimated.View>
+        ) : null}
 
         {locationSheetOpen ? (
           <LocationReminderSheet
@@ -2794,36 +3018,42 @@ function Inner({
           />
         ) : null}
 
+        {bodyReady ? (
+        <Reanimated.View layout={BODY_LAYOUT} entering={BODY_FADE_IN}>
         {/* Subtasks */}
-        <SubtasksSection
-          parentId={current.id}
-          parentDepth={current.depth}
-          tasksApi={tasksApiMemo}
-          onOpenSubtask={onNavigateTask}
-        />
+        <Reanimated.View layout={BODY_LAYOUT}>
+          <SubtasksSection
+            parentId={current.id}
+            parentDepth={current.depth}
+            tasksApi={tasksApiMemo}
+            onOpenSubtask={onNavigateTask}
+          />
+        </Reanimated.View>
 
         {/* Notes */}
-        <View style={{ marginTop: 18 }}>
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 18 }}>
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Notes</Text>
           </View>
-          <NotesField
+          <MemoNotesField
             value={current.description}
-            onChange={(v) => setField("description", v)}
+            onChange={onChangeNotes}
             error={fieldErrors.description}
           />
-        </View>
+        </Reanimated.View>
 
         {/* Attachments — including the mic, since a recording lands here as a
             file and only its transcript belongs to Notes above. */}
-        <AttachmentsSection
-          taskId={current.id}
-          api={attachmentsApiMemo}
-          onTranscript={appendVoiceTranscript}
-        />
+        <Reanimated.View layout={BODY_LAYOUT}>
+          <AttachmentsSection
+            taskId={current.id}
+            api={attachmentsApiMemo}
+            onTranscript={appendVoiceTranscript}
+          />
+        </Reanimated.View>
 
         {/* Repeat — rare, so it stays folded behind a one-line toggle */}
-        <View style={{ marginTop: 14 }}>
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 14 }}>
           <Pressable
             onPress={() => setRepeatOpen((o) => !o)}
             hitSlop={6}
@@ -2840,14 +3070,20 @@ function Inner({
             </Text>
           </Pressable>
           {repeatOpen ? (
-            <View style={{ marginTop: 8 }}>
+            <Reanimated.View
+              entering={BODY_FADE_IN}
+              exiting={BODY_FADE_OUT}
+              style={{ marginTop: 8 }}
+            >
               <RepeatRow
                 value={current.recurrence_rule}
                 onChange={(rule) => setField("recurrence_rule", rule)}
               />
-            </View>
+            </Reanimated.View>
           ) : null}
-        </View>
+        </Reanimated.View>
+        </Reanimated.View>
+        ) : null}
       </Reanimated.ScrollView>
 
       {/* Dismisses the editor. Deliberately quiet: everything auto-saves, so
@@ -2944,6 +3180,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#d1d5db",
   },
   sheetContent: { flex: 1, backgroundColor: "#fff" },
+  drillLayer: { flex: 1 },
 
   menuBtn: {
     width: 30,

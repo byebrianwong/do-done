@@ -1,4 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Reanimated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import {
   ActivityIndicator,
   Image,
@@ -180,6 +189,55 @@ function AudioPlayerCard({ url }: { url: string | undefined }) {
   );
 }
 
+/**
+ * An image attachment's preview. The box is the image's own height from the
+ * start, with the spinner inside it, and the image fades in over the spinner
+ * once it has decoded. The placeholder used to be 120px against a 200px image,
+ * so everything below the card jumped by 80px when the picture arrived.
+ */
+function ImagePreview({
+  url,
+  fileName,
+  onExpand,
+}: {
+  url: string | undefined;
+  fileName: string;
+  onExpand: (src: string) => void;
+}) {
+  const opacity = useSharedValue(0);
+  const imageStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <View style={styles.imageBox}>
+      <ActivityIndicator size="small" color="#9ca3af" />
+      {url ? (
+        <Pressable
+          onPress={() => onExpand(url)}
+          accessibilityLabel={`Open ${fileName} full size`}
+          style={StyleSheet.absoluteFill}
+        >
+          <Reanimated.Image
+            source={{ uri: url }}
+            style={[styles.image, imageStyle]}
+            // `contain` rather than `cover`: a screenshot cropped through
+            // the part the user attached it for is worse than letterboxing.
+            resizeMode="contain"
+            onLoad={() => {
+              opacity.value = withTiming(1, {
+                duration: 180,
+                reduceMotion: ReduceMotion.System,
+              });
+            }}
+            // A broken image still shows something rather than a spinner forever.
+            onError={() => {
+              opacity.value = 1;
+            }}
+          />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 function AttachmentCard({
   attachment,
   url,
@@ -223,24 +281,11 @@ function AttachmentCard({
   if (kind === "image") {
     return (
       <View style={styles.card}>
-        {url ? (
-          <Pressable
-            onPress={() => onExpandImage(url)}
-            accessibilityLabel={`Open ${attachment.file_name} full size`}
-          >
-            <Image
-              source={{ uri: url }}
-              style={styles.image}
-              // `contain` rather than `cover`: a screenshot cropped through
-              // the part the user attached it for is worse than letterboxing.
-              resizeMode="contain"
-            />
-          </Pressable>
-        ) : (
-          <View style={styles.imagePlaceholder}>
-            <ActivityIndicator size="small" color="#9ca3af" />
-          </View>
-        )}
+        <ImagePreview
+          url={url}
+          fileName={attachment.file_name}
+          onExpand={onExpandImage}
+        />
         {meta}
       </View>
     );
@@ -295,6 +340,12 @@ function AttachmentsSectionImpl({
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  // The lightbox's image outlives `lightbox` by one fade. Clearing the URI in
+  // the same render that hides the Modal unmounted the image as the fade-out
+  // began, so the fade-out was an empty black screen.
+  const lastLightboxRef = useRef<string | null>(null);
+  if (lightbox) lastLightboxRef.current = lightbox;
+  const lightboxUri = lightbox ?? lastLightboxRef.current;
   const [recorderOpen, setRecorderOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
 
@@ -476,25 +527,39 @@ function AttachmentsSectionImpl({
       )}
 
       <View style={empty ? styles.containerEmpty : styles.container}>
+        {/* Cards fade in as the fetch or an upload brings them, fade out when
+            removed, and the rows around them glide rather than jump. An upload
+            row hands over to its card in place. */}
         {attachments.map((a) => (
-          <AttachmentCard
+          <Reanimated.View
             key={a.id}
-            attachment={a}
-            url={urls.get(a.id)}
-            api={api}
-            onRemove={() => void handleRemove(a)}
-            onExpandImage={setLightbox}
-          />
+            layout={TRAY_LAYOUT}
+            entering={TRAY_FADE_IN}
+            exiting={TRAY_FADE_OUT}
+          >
+            <AttachmentCard
+              attachment={a}
+              url={urls.get(a.id)}
+              api={api}
+              onRemove={() => void handleRemove(a)}
+              onExpandImage={setLightbox}
+            />
+          </Reanimated.View>
         ))}
 
         {pending.map((p) => (
-          <View key={p.key} style={styles.pendingRow}>
+          <Reanimated.View
+            key={p.key}
+            layout={TRAY_LAYOUT}
+            entering={TRAY_FADE_IN}
+            style={styles.pendingRow}
+          >
             <ActivityIndicator size="small" color="#9ca3af" />
             <Text style={styles.pendingName} numberOfLines={1}>
               {p.fileName}
             </Text>
             <Text style={styles.fileSize}>Uploading…</Text>
-          </View>
+          </Reanimated.View>
         ))}
 
         {savingNote ? (
@@ -514,7 +579,7 @@ function AttachmentsSectionImpl({
 
         {/* White-on-grey inside the tray; without it they'd be white on white,
             so the empty state swaps the fill for the tray's own. */}
-        <View style={styles.addRow}>
+        <Reanimated.View layout={TRAY_LAYOUT} style={styles.addRow}>
           {voice.supported ? (
             <Pressable
               style={[styles.addButton, empty && styles.addButtonBare]}
@@ -536,7 +601,7 @@ function AttachmentsSectionImpl({
           >
             <Text style={styles.addButtonText}>📎  File</Text>
           </Pressable>
-        </View>
+        </Reanimated.View>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -548,9 +613,9 @@ function AttachmentsSectionImpl({
         onRequestClose={() => setLightbox(null)}
       >
         <Pressable style={styles.lightbox} onPress={() => setLightbox(null)}>
-          {lightbox ? (
+          {lightboxUri ? (
             <Image
-              source={{ uri: lightbox }}
+              source={{ uri: lightboxUri }}
               style={styles.lightboxImage}
               resizeMode="contain"
             />
@@ -567,6 +632,16 @@ function AttachmentsSectionImpl({
  * keystroke in the title field causes.
  */
 export const AttachmentsSection = React.memo(AttachmentsSectionImpl);
+
+/** One height for the preview and the box it loads in, so nothing moves. */
+const IMAGE_PREVIEW_H = 200;
+
+/** The tray's motion; see the attachment list. Reduce Motion lands on the end state. */
+const TRAY_LAYOUT = LinearTransition.duration(200).reduceMotion(
+  ReduceMotion.System
+);
+const TRAY_FADE_IN = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
+const TRAY_FADE_OUT = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
 
 const styles = StyleSheet.create({
   rowHead: {
@@ -600,14 +675,14 @@ const styles = StyleSheet.create({
     borderColor: "#f3f4f6",
     overflow: "hidden",
   },
-  image: { width: "100%", height: 200, backgroundColor: "#f3f4f6" },
-  imagePlaceholder: {
+  imageBox: {
     width: "100%",
-    height: 120,
+    height: IMAGE_PREVIEW_H,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#f3f4f6",
   },
+  image: { width: "100%", height: IMAGE_PREVIEW_H },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
