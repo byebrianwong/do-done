@@ -1281,7 +1281,7 @@ shopping item moving into or out of Got it, a section opened.
   below the header. The two heights add up to one row throughout, so the rows
   under both stay still. A task the user dragged across is left alone.
 - **Today's list stays mounted when the day empties.** It used to be swapped for
-  a separate empty view, which cut off the last row's exit. The empty message is
+  a separate empty view in one frame, list and headers and all. The message is
   its `ListEmptyComponent`, passed only when the day is really empty, and fades
   in.
 - **`draggable-flatlist`'s own layout animations are not used.**

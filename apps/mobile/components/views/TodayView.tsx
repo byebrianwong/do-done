@@ -342,10 +342,9 @@ export function TodayView() {
       ) : loadState.showError ? (
         <ListError onRetry={refetch} />
       ) : curated ? (
-        // One list, empty or not. It used to be swapped out for a separate
-        // empty view the moment the last task left, so the row's own exit was
-        // cut off by the whole list unmounting. Kept mounted, the last row
-        // folds shut and the message fades in where it was.
+        // One list, empty or not. It used to be swapped for a separate empty
+        // view the moment the last task left, replacing the whole screen in one
+        // frame. Kept mounted, the message fades in where the rows were.
         //
         // Passed only when the day really is empty, not merely when no rows
         // are drawn: with both sections collapsed there are no rows and still
