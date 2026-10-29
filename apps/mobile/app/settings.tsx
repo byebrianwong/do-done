@@ -23,6 +23,7 @@ import { useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { calendarKeys } from '@/lib/calendar-queries';
 import { describeNoUpdate } from '@/lib/update-check';
+import { canPreviewPullRequests, prFromChannel } from '@/lib/pr-preview';
 import { hasWatchApp } from '@/modules/dodone-wear';
 
 interface SettingsRowProps {
@@ -184,6 +185,7 @@ export default function SettingsScreen() {
       })
     : '—';
   const channel = currentlyRunning.channel ?? Updates.channel ?? '—';
+  const previewingPr = prFromChannel(Updates.channel);
 
   async function checkForUpdates() {
     if (!Updates.isEnabled) {
@@ -375,6 +377,27 @@ export default function SettingsScreen() {
         them up, or tap above to check now.
       </Text>
 
+      {/* Loads a pull request's build on this phone. Hidden on a store build:
+          see `canPreviewPullRequests`. */}
+      {canPreviewPullRequests({
+        updatesEnabled: Updates.isEnabled,
+        isDev: __DEV__,
+        channel: Updates.channel,
+      }) ? (
+        <View style={[styles.section, styles.previewSection]}>
+          <SettingsRow
+            icon="git-pull-request-outline"
+            label="Preview a pull request"
+            value={
+              previewingPr === null
+                ? 'Try a change on this phone before it is merged'
+                : `PR #${previewingPr} is loaded`
+            }
+            onPress={() => router.push('/preview-pr' as never)}
+          />
+        </View>
+      ) : null}
+
       <Pressable
         style={({ pressed }) => [
           styles.signoutButton,
@@ -544,6 +567,9 @@ const styles = StyleSheet.create({
     color: '#6366f1',
     fontSize: 15,
     fontWeight: '600',
+  },
+  previewSection: {
+    marginTop: 24,
   },
   updateHint: {
     fontSize: 12,

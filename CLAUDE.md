@@ -3439,6 +3439,38 @@ to main publishes to `preview`.
 added a native module or changed `app.config.ts`, rebuild, and bump the version if it is going
 out over OTA.
 
+### Previewing a pull request on a phone
+
+**Every PR that touches `apps/mobile/**` or `packages/**` is published as its own
+OTA update**, on the EAS channel `pr-<number>`, by
+`.github/workflows/eas-update-pr.yml`. The job keeps one comment on the PR with a
+QR code and the steps to load it. Closing the PR deletes the channel and branch.
+
+An installed preview build switches onto that channel from Settings → App version
+→ **Preview a pull request** (`app/preview-pr.tsx`), or from
+`dodone://preview-pr?number=<n>`, which is what the QR code opens. A **PR #n**
+pill (`components/PrPreviewBanner.tsx`) sits in the bottom-left corner while a
+preview is loaded, and tapping it leads back to main.
+
+- **The switch is a request header override.**
+  `Updates.setUpdateRequestHeadersOverride({ 'expo-channel-name': 'pr-<n>' })`
+  persists across launches, so a preview stays loaded until it is left. It needs
+  no `disableAntiBrickingMeasures`, because it only changes a header the build
+  already sends. `lib/pr-preview-runtime.ts` holds the calls; the rules are in
+  `lib/pr-preview.ts`, node-tested.
+- **Going back works even though main may be newer or older.** expo-updates loads
+  an update regardless of age when the running one fails the new channel's
+  manifest filters, and EAS filters by branch.
+- **A preview only ever exists for code that contains this screen.** A preview
+  without it would have no way back to main short of clearing the app's data. A
+  PR branched before this feature gets the workflow from its merge commit but not
+  the screen, so the job publishes nothing for it until main is merged in.
+- **Never on a production build**, and not in a dev client, which loads its
+  bundle from Metro or a URL instead. The comment carries a dev-client link for
+  that case.
+- **It changes the app, not the data.** A preview talks to the same Supabase
+  project as everything else.
+
 ### Installs too old to accept OTA updates
 
 **A build stops accepting OTA updates the moment a published bundle imports a native module

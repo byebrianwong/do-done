@@ -1,0 +1,207 @@
+name: EAS Update (PR preview)
+
+# Publishes every pull request that touches the mobile app as an over-the-air
+# update on its own channel, `pr-<number>`, and keeps one comment on the PR
+# saying how to load it on a phone. An installed preview build switches onto
+# that channel from Settings → App version → Preview a pull request (see
+# apps/mobile/app/preview-pr.tsx), or by scanning the QR code in the comment.
+#
+# JS only, like eas-update.yml: a PR that needs native code still needs a new
+# build, and its preview will fail to launch on an old one.
+#
+# Runs for any base branch, so a PR stacked on another PR gets a preview too.
+# Skipped for PRs from forks, which do not get the EXPO_TOKEN secret.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "apps/mobile/**"
+      - "packages/**"
+      - ".github/workflows/eas-update-pr.yml"
+
+concurrency:
+  group: eas-update-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      # Via env rather than inline ${{ }}, so a title with quotes or backticks
+      # cannot break or inject into the shell.
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The PR's own head, not the merge commit: the preview should be
+          # exactly what was pushed.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # A preview without the screen that leaves it would strand the phone on
+      # this PR's channel. A PR branched before that screen existed gets this
+      # workflow from the merge commit but not the screen, so nothing is
+      # published for it until main is merged in. A notice rather than a
+      # failure, so an older PR does not turn red over something it never
+      # asked for.
+      - name: Check the preview can be left
+        id: guard
+        run: |
+          if [ -f apps/mobile/app/preview-pr.tsx ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::This branch predates the PR preview screen, so no preview was published. Merge main into it to get one."
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.ok == 'true'
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.ok == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Mobile resolves @do-done/* from their built dist (package.json `main`),
+      # so the leaf packages must be built before the update is bundled.
+      - name: Build workspace packages
+        if: steps.guard.outputs.ok == 'true'
+        run: pnpm --filter "./packages/*" build
+
+      - name: Make sure the PR's channel exists
+        if: steps.guard.outputs.ok == 'true'
+        working-directory: apps/mobile
+        # `channel:create` also creates a branch of the same name and points
+        # the channel at it, which is where the update below is published.
+        run: |
+          CHANNEL="pr-$PR_NUMBER"
+          if ! npx eas-cli@latest channel:view "$CHANNEL" --non-interactive > /dev/null 2>&1; then
+            npx eas-cli@latest channel:create "$CHANNEL" --non-interactive
+          fi
+
+      - name: Publish EAS Update
+        if: steps.guard.outputs.ok == 'true'
+        working-directory: apps/mobile
+        run: |
+          MSG="PR #$PR_NUMBER: $PR_TITLE (${HEAD_SHA:0:7})"
+          npx eas-cli@latest update \
+            --branch "pr-$PR_NUMBER" \
+            --environment preview \
+            --message "$MSG" \
+            --non-interactive \
+            --json > "$RUNNER_TEMP/update.json"
+          npx expo config --type public --json > "$RUNNER_TEMP/config.json"
+
+      - name: Comment with how to load it
+        if: steps.guard.outputs.ok == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const temp = process.env.RUNNER_TEMP;
+            const updates = JSON.parse(fs.readFileSync(`${temp}/update.json`, 'utf8'));
+            const config = JSON.parse(fs.readFileSync(`${temp}/config.json`, 'utf8'));
+            const first = Array.isArray(updates) ? updates[0] : updates;
+            const group = first && first.group;
+            const n = context.payload.pull_request.number;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+
+            const qr = (data) =>
+              `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(data)}`;
+            const previewLink = `dodone://preview-pr?number=${n}`;
+            const updatesUrl = config.updates && config.updates.url;
+            const devClientLink =
+              updatesUrl && group
+                ? `dodone://expo-development-client/?url=${encodeURIComponent(`${updatesUrl}/group/${group}`)}`
+                : null;
+
+            const marker = '<!-- eas-pr-preview -->';
+            const lines = [
+              marker,
+              '### Try this PR on your phone',
+              '',
+              `**Installed preview build:** Settings → App version → Preview a pull request → \`${n}\`. Or scan this with the phone's camera:`,
+              '',
+              `<img src="${qr(previewLink)}" width="180" height="180" alt="QR code that opens ${previewLink}" />`,
+              '',
+              `The app restarts on this PR's code and shows a **PR #${n}** pill in the bottom-left corner. Tap the pill, then **Go back to main**, to compare with what is on main.`,
+              '',
+            ];
+            if (devClientLink) {
+              lines.push(
+                '<details><summary>Development build instead</summary>',
+                '',
+                `<img src="${qr(devClientLink)}" width="180" height="180" alt="QR code for the development build" />`,
+                '',
+                '```',
+                devClientLink,
+                '```',
+                '</details>',
+                '',
+              );
+            }
+            lines.push(
+              `Published from \`${sha}\`${group ? ` as update group \`${group}\`` : ''}. Every push to this PR publishes again; the app picks the new one up on its next restart, or straight away from the Preview screen.`,
+            );
+            const body = lines.join('\n');
+
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: n, per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: n, body });
+            }
+
+  # A closed PR's channel and branch are removed so the project's channel list
+  # does not grow by one per PR forever. Best-effort: a failure here costs a
+  # stale channel, nothing else.
+  cleanup:
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # eas-cli reads the project id from app.config.ts, which needs the
+      # checkout and the installed `expo` package to evaluate.
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Delete the PR's channel and branch
+        working-directory: apps/mobile
+        run: |
+          CHANNEL="pr-$PR_NUMBER"
+          npx eas-cli@latest channel:delete "$CHANNEL" --non-interactive || true
+          npx eas-cli@latest branch:delete "$CHANNEL" --non-interactive || true
