@@ -72,6 +72,7 @@ import {
   type TaskLocationLink,
 } from "@/lib/location-queries";
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
+import { BottomSheet, useRunAfterDismiss } from "./BottomSheet";
 import { LocationReminderSheet } from "./LocationReminderSheet";
 import { LinkifiedText } from "./LinkifiedText";
 import { AttachmentsSection } from "./TaskAttachments";
@@ -489,16 +490,7 @@ function MetaField({
 
 // ── Mobile bottom-sheet pickers ─────────────────────────
 
-export function PickerSheet({
-  visible,
-  title,
-  options,
-  selectedKey,
-  onSelect,
-  onClose,
-  accentByKey,
-  header,
-}: {
+interface PickerSheetProps {
   visible: boolean;
   title: string;
   options: { key: string; code: string; label: string }[];
@@ -508,49 +500,68 @@ export function PickerSheet({
   accentByKey?: (key: string) => string;
   /** Optional content rendered between the title and the option rows. */
   header?: React.ReactNode;
-}) {
+  /** The sheet has fully gone. See `BottomSheet`'s `onClosed`. */
+  onClosed?: () => void;
+}
+
+// Always mounted by its callers: the sheet slides away before its rows
+// unmount, and `PickerBody` does not render at all while the sheet is closed,
+// so a closed picker costs one element per editor render and no host views.
+export function PickerSheet({
+  visible,
+  onClose,
+  onClosed,
+  ...body
+}: PickerSheetProps) {
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      onClosed={onClosed}
+      style={styles.pickerSheet}
     >
-      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
-        <Pressable onPress={() => {}} style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>{title}</Text>
-          {header}
-          {options.map((opt) => {
-            const selected = opt.key === selectedKey;
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => onSelect(opt.key)}
-                style={[
-                  styles.pickerRow,
-                  selected && styles.pickerRowSelected,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.pickerDot,
-                    {
-                      backgroundColor:
-                        accentByKey?.(opt.key) ?? "#6366f1",
-                    },
-                  ]}
-                />
-                {opt.code ? (
-                  <Text style={styles.pickerCode}>{opt.code}</Text>
-                ) : null}
-                <Text style={styles.pickerLabel}>{opt.label}</Text>
-                {selected && <Text style={styles.pickerCheck}>✓</Text>}
-              </Pressable>
-            );
-          })}
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <PickerBody {...body} />
+    </BottomSheet>
+  );
+}
+
+function PickerBody({
+  title,
+  options,
+  selectedKey,
+  onSelect,
+  accentByKey,
+  header,
+}: Omit<PickerSheetProps, "visible" | "onClose" | "onClosed">) {
+  return (
+    <>
+      <Text style={styles.pickerTitle}>{title}</Text>
+      {header}
+      {options.map((opt) => {
+        const selected = opt.key === selectedKey;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onSelect(opt.key)}
+            style={[styles.pickerRow, selected && styles.pickerRowSelected]}
+          >
+            <View
+              style={[
+                styles.pickerDot,
+                {
+                  backgroundColor: accentByKey?.(opt.key) ?? "#6366f1",
+                },
+              ]}
+            />
+            {opt.code ? (
+              <Text style={styles.pickerCode}>{opt.code}</Text>
+            ) : null}
+            <Text style={styles.pickerLabel}>{opt.label}</Text>
+            {selected && <Text style={styles.pickerCheck}>✓</Text>}
+          </Pressable>
+        );
+      })}
+    </>
   );
 }
 
@@ -1226,22 +1237,6 @@ export function ScheduledTimeField({
   onChange: (t: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const scrollRef = useRef<ScrollView | null>(null);
-
-  const anchorSlot =
-    value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
-  const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
-
-  // Center the anchor row as soon as the sheet's list lays out.
-  const centerOnAnchor = () => {
-    scrollRef.current?.scrollTo({
-      y: Math.max(
-        0,
-        anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
-      ),
-      animated: false,
-    });
-  };
 
   return (
     // A chip in the row under the calendar, sized like the ones beside it. It
@@ -1276,68 +1271,105 @@ export function ScheduledTimeField({
         </Pressable>
       ) : null}
 
-      <Modal
+      <BottomSheet
         visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+        style={styles.pickerSheet}
       >
-        <Pressable onPress={() => setOpen(false)} style={styles.pickerBackdrop}>
-          <Pressable onPress={() => {}} style={styles.pickerSheet}>
-            <Text style={styles.pickerTitle}>Time</Text>
-            <View style={{ height: TIME_LIST_H }}>
-              <ScrollView
-                ref={scrollRef}
-                onContentSizeChange={centerOnAnchor}
-                showsVerticalScrollIndicator
-              >
-                {TIME_SLOTS.map((slot) => {
-                  const selected = value === slot;
-                  const isAnchor = slot === anchorSlot;
-                  return (
-                    <Pressable
-                      key={slot}
-                      onPress={() => {
-                        onChange(slot);
-                        setOpen(false);
-                      }}
-                      style={[
-                        styles.timeSlotRow,
-                        isAnchor && !selected && styles.timeSlotRowAnchor,
-                        selected && styles.timeSlotRowSelected,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.timeSlotText,
-                          selected && styles.timeSlotTextSelected,
-                        ]}
-                      >
-                        {formatTimeOfDay(slot)}
-                      </Text>
-                      {isAnchor && !selected ? (
-                        <Text style={styles.timeSlotNow}>NOW</Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-            {value ? (
-              <Pressable
-                onPress={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-                style={styles.timeSheetClear}
-              >
-                <Text style={styles.timeSheetClearText}>× Clear time</Text>
-              </Pressable>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        <TimeSheetBody
+          value={value}
+          onChange={onChange}
+          onDone={() => setOpen(false)}
+        />
+      </BottomSheet>
     </View>
+  );
+}
+
+/**
+ * The time sheet's content: half-hour slots, centred on the current value or
+ * the hour nearest now. Its own component so the 48 rows are built only while
+ * the sheet is open.
+ */
+function TimeSheetBody({
+  value,
+  onChange,
+  onDone,
+}: {
+  value: string | null;
+  onChange: (t: string | null) => void;
+  onDone: () => void;
+}) {
+  const scrollRef = useRef<ScrollView | null>(null);
+
+  const anchorSlot =
+    value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
+  const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
+
+  // Center the anchor row as soon as the sheet's list lays out.
+  const centerOnAnchor = () => {
+    scrollRef.current?.scrollTo({
+      y: Math.max(
+        0,
+        anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
+      ),
+      animated: false,
+    });
+  };
+
+  return (
+    <>
+      <Text style={styles.pickerTitle}>Time</Text>
+      <View style={{ height: TIME_LIST_H }}>
+        <ScrollView
+          ref={scrollRef}
+          onContentSizeChange={centerOnAnchor}
+          showsVerticalScrollIndicator
+        >
+          {TIME_SLOTS.map((slot) => {
+            const selected = value === slot;
+            const isAnchor = slot === anchorSlot;
+            return (
+              <Pressable
+                key={slot}
+                onPress={() => {
+                  onChange(slot);
+                  onDone();
+                }}
+                style={[
+                  styles.timeSlotRow,
+                  isAnchor && !selected && styles.timeSlotRowAnchor,
+                  selected && styles.timeSlotRowSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.timeSlotText,
+                    selected && styles.timeSlotTextSelected,
+                  ]}
+                >
+                  {formatTimeOfDay(slot)}
+                </Text>
+                {isAnchor && !selected ? (
+                  <Text style={styles.timeSlotNow}>NOW</Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+      {value ? (
+        <Pressable
+          onPress={() => {
+            onChange(null);
+            onDone();
+          }}
+          style={styles.timeSheetClear}
+        >
+          <Text style={styles.timeSheetClearText}>× Clear time</Text>
+        </Pressable>
+      ) : null}
+    </>
   );
 }
 
@@ -2713,86 +2745,78 @@ function Inner({
           />
         ) : null}
 
-        {priPickerOpen ? (
-          <PickerSheet
-            visible={priPickerOpen}
-            title="Priority"
-            options={PRIORITY_PICKER_OPTIONS.map((p) => ({
-              key: p.value,
-              code: p.code,
-              label: p.label,
-            }))}
-            selectedKey={current.priority}
-            onSelect={(key) => {
-              // Re-picking the row the task already has leaves it there. It
-              // used to clear to p4, which meant confirming an Urgent task was
-              // Urgent silently demoted it to Low.
-              setField("priority", key as TaskPriority);
-              setPriPickerOpen(false);
-            }}
-            onClose={() => setPriPickerOpen(false)}
-            accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
-          />
-        ) : null}
-        {estPickerOpen ? (
-          <PickerSheet
-            visible={estPickerOpen}
-            title="Estimate"
-            options={[
-              ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
-                key: String(b.minutes),
-                code: b.code,
-                label: b.label,
-              })),
-              // The only way back to "unestimated" once a value has been set,
-              // and the only clear either picker offers: a row you can see
-              // beats re-picking the row that's already ticked, which is
-              // indistinguishable from confirming it.
-              ...(current.duration_minutes
-                ? [{ key: "none", code: "", label: "No estimate" }]
-                : []),
-            ]}
-            selectedKey={(() => {
-              const idx = estimateBarIndex(current.duration_minutes);
-              return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
-            })()}
-            onSelect={(key) => {
-              setField(
-                "duration_minutes",
-                key === "none" ? null : parseInt(key, 10)
-              );
-              setEstPickerOpen(false);
-            }}
-            accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
-            onClose={() => setEstPickerOpen(false)}
-          />
-        ) : null}
+        <PickerSheet
+          visible={priPickerOpen}
+          title="Priority"
+          options={PRIORITY_PICKER_OPTIONS.map((p) => ({
+            key: p.value,
+            code: p.code,
+            label: p.label,
+          }))}
+          selectedKey={current.priority}
+          onSelect={(key) => {
+            // Re-picking the row the task already has leaves it there. It
+            // used to clear to p4, which meant confirming an Urgent task was
+            // Urgent silently demoted it to Low.
+            setField("priority", key as TaskPriority);
+            setPriPickerOpen(false);
+          }}
+          onClose={() => setPriPickerOpen(false)}
+          accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
+        />
+        <PickerSheet
+          visible={estPickerOpen}
+          title="Estimate"
+          options={[
+            ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
+              key: String(b.minutes),
+              code: b.code,
+              label: b.label,
+            })),
+            // The only way back to "unestimated" once a value has been set,
+            // and the only clear either picker offers: a row you can see
+            // beats re-picking the row that's already ticked, which is
+            // indistinguishable from confirming it.
+            ...(current.duration_minutes
+              ? [{ key: "none", code: "", label: "No estimate" }]
+              : []),
+          ]}
+          selectedKey={(() => {
+            const idx = estimateBarIndex(current.duration_minutes);
+            return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
+          })()}
+          onSelect={(key) => {
+            setField(
+              "duration_minutes",
+              key === "none" ? null : parseInt(key, 10)
+            );
+            setEstPickerOpen(false);
+          }}
+          accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
+          onClose={() => setEstPickerOpen(false)}
+        />
 
-        {statusPickerOpen ? (
-          <PickerSheet
-            visible={statusPickerOpen}
-            title="Status"
-            options={STATUS_PICKER_OPTIONS}
-            selectedKey={current.status}
-            onSelect={(key) => {
-              setField("status", key as TaskStatus);
-              setStatusPickerOpen(false);
-            }}
-            onClose={() => setStatusPickerOpen(false)}
-            accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
-          />
-        ) : null}
+        <PickerSheet
+          visible={statusPickerOpen}
+          title="Status"
+          options={STATUS_PICKER_OPTIONS}
+          selectedKey={current.status}
+          onSelect={(key) => {
+            setField("status", key as TaskStatus);
+            setStatusPickerOpen(false);
+          }}
+          onClose={() => setStatusPickerOpen(false)}
+          accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
+        />
 
-        {projectPickerOpen ? (
-          <ProjectPickerSheet
-            visible={projectPickerOpen}
-            projects={allProjects}
-            selectedId={current.project_id}
-            onSelect={(id) => setField("project_id", id)}
-            onClose={() => setProjectPickerOpen(false)}
-            onCreate={handleProjectCreate}
-          />
-        ) : null}
+        <ProjectPickerSheet
+          visible={projectPickerOpen}
+          projects={allProjects}
+          selectedId={current.project_id}
+          onSelect={(id) => setField("project_id", id)}
+          onClose={() => setProjectPickerOpen(false)}
+          onCreate={handleProjectCreate}
+        />
 
         {/* Subtasks */}
         <SubtasksSection
@@ -2866,13 +2890,11 @@ function Inner({
         </Pressable>
       </View>
 
-      {menuOpen ? (
-        <TaskMenuSheet
-          visible={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          onDelete={confirmDelete}
-        />
-      ) : null}
+      <TaskMenuSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onDelete={confirmDelete}
+      />
     </View>
   );
 }
@@ -2889,30 +2911,29 @@ function TaskMenuSheet({
   onClose: () => void;
   onDelete: () => void;
 }) {
+  // The confirmation is an Alert. On iOS it waits for this sheet to finish
+  // leaving, for the same reason ListActionsMenu's rows do.
+  const { runAfterDismiss, onDismiss } = useRunAfterDismiss();
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      onDismiss={onDismiss}
+      style={styles.pickerSheet}
     >
-      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
-        <Pressable onPress={() => {}} style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Task actions</Text>
-          <Pressable
-            onPress={() => {
-              // Dismiss first: the confirmation is an Alert, which would
-              // otherwise stack on top of this sheet.
-              onClose();
-              onDelete();
-            }}
-            style={styles.menuRow}
-          >
-            <Text style={styles.menuRowDestructive}>Delete task</Text>
-          </Pressable>
-        </Pressable>
+      <Text style={styles.pickerTitle}>Task actions</Text>
+      <Pressable
+        onPress={() => {
+          // Dismiss first: the confirmation would otherwise stack on top of
+          // this sheet.
+          onClose();
+          runAfterDismiss(onDelete);
+        }}
+        style={styles.menuRow}
+      >
+        <Text style={styles.menuRowDestructive}>Delete task</Text>
       </Pressable>
-    </Modal>
+    </BottomSheet>
   );
 }
 
@@ -2963,11 +2984,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   projectFieldChevron: { fontSize: 12, color: "#9ca3af" },
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(17,24,39,0.45)",
-    justifyContent: "flex-end",
-  },
   // ── Project banner ────────────────────────────────────
   priorityStripe: { height: 4, width: "100%" },
   // `space-between` with both rows in flow, rather than an absolute top row
@@ -3516,14 +3532,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
-  pickerSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    paddingHorizontal: 16,
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  pickerSheet: { paddingHorizontal: 16 },
   pickerTitle: {
     fontSize: 11,
     fontWeight: "700",

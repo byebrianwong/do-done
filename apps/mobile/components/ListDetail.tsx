@@ -8,7 +8,6 @@ import {
   TextInput,
   RefreshControl,
   Keyboard,
-  Modal,
   ScrollView,
 } from 'react-native';
 import Animated, {
@@ -119,6 +118,7 @@ import {
 } from '@/components/SectionHeader';
 import { openProjectForm } from '@/components/ProjectFormSheet';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import { BottomSheet } from '@/components/BottomSheet';
 import { useUndoToast } from '@/components/UndoToast';
 import { hapticLight, hapticMedium } from '@/lib/haptics';
 
@@ -1288,7 +1288,8 @@ function PantryBandView({
  * about the words and is usually right first time; a store is a fact about
  * this week.
  *
- * A `Modal` is safe here, unlike in the quick-add composer. Nothing on this
+ * It is a `BottomSheet`, so a `Modal`, and that is safe here, unlike in the
+ * quick-add composer. Nothing on this
  * screen is keyboard-anchored when a row is long-pressed, so there is no IME
  * for a second window to drop. The new-store field opens its own keyboard
  * inside that window, which is unaffected.
@@ -1302,6 +1303,7 @@ function ItemSheet({
   onClearStores,
   onClose,
 }: {
+  /** The item being edited, or null when the sheet is closed. */
   item: Task | null;
   /** So the tick sits on the aisle the row is actually filed under. */
   memory?: AisleMemory;
@@ -1312,8 +1314,48 @@ function ItemSheet({
   onClearStores: (item: Task) => void;
   onClose: () => void;
 }) {
+  // The last item shown, so the sheet still has something to draw while it
+  // slides away after `item` goes null. It follows the live row while open,
+  // since the screen holds the item by id and every tick re-reads it.
+  const lastItem = useRef<Task | null>(item);
+  if (item) lastItem.current = item;
+  const shownItem = item ?? lastItem.current;
+  return (
+    <BottomSheet
+      visible={item !== null}
+      onClose={onClose}
+      style={styles.sheet}
+    >
+      {shownItem ? (
+        <ItemSheetBody
+          item={shownItem}
+          memory={memory}
+          stores={stores}
+          onAisle={onAisle}
+          onToggleStore={onToggleStore}
+          onClearStores={onClearStores}
+        />
+      ) : null}
+    </BottomSheet>
+  );
+}
+
+function ItemSheetBody({
+  item,
+  memory,
+  stores,
+  onAisle,
+  onToggleStore,
+  onClearStores,
+}: {
+  item: Task;
+  memory?: AisleMemory;
+  stores: string[];
+  onAisle: (item: Task, aisle: Aisle | null) => void;
+  onToggleStore: (item: Task, store: string) => void;
+  onClearStores: (item: Task) => void;
+}) {
   const [newStore, setNewStore] = useState('');
-  if (!item) return null;
   const current = itemAisle(item, memory);
   const chosen = storeHints(item);
   /*
@@ -1329,101 +1371,97 @@ function ItemSheet({
     ),
   ];
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable onPress={() => {}} style={styles.sheet}>
-          <Text style={styles.sheetTitle} numberOfLines={1}>
-            {item.title}
+    <>
+      <Text style={styles.sheetTitle} numberOfLines={1}>
+        {item.title}
+      </Text>
+      <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
+        {/* Every shop ticks on and off independently, and the sheet stays
+            open, because an item can be sold in more than one place. The
+            aisle rows below are still one-of, and still close: a thing is
+            in one aisle. */}
+        <Text style={styles.sheetSection}>Where you get it</Text>
+        {shown.map((name) => (
+          <Pressable
+            key={name}
+            onPress={() => onToggleStore(item, name)}
+            style={({ pressed }) => [
+              styles.option,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.optionText}>{name}</Text>
+            {chosen.some((s) => sameStore(s, name)) && (
+              <Ionicons name="checkmark" size={17} color="#6366f1" />
+            )}
+          </Pressable>
+        ))}
+        {/* Clears them all, rather than being a shop of its own. It is the
+            only way back to "no opinion" once two are ticked, short of
+            un-ticking each. */}
+        <Pressable
+          onPress={() => onClearStores(item)}
+          style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+        >
+          <Text style={[styles.optionText, styles.optionMuted]}>
+            Anywhere
           </Text>
-          <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
-            {/* Every shop ticks on and off independently, and the sheet stays
-                open, because an item can be sold in more than one place. The
-                aisle rows below are still one-of, and still close: a thing is
-                in one aisle. */}
-            <Text style={styles.sheetSection}>Where you get it</Text>
-            {shown.map((name) => (
-              <Pressable
-                key={name}
-                onPress={() => onToggleStore(item, name)}
-                style={({ pressed }) => [
-                  styles.option,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.optionText}>{name}</Text>
-                {chosen.some((s) => sameStore(s, name)) && (
-                  <Ionicons name="checkmark" size={17} color="#6366f1" />
-                )}
-              </Pressable>
-            ))}
-            {/* Clears them all, rather than being a shop of its own. It is the
-                only way back to "no opinion" once two are ticked, short of
-                un-ticking each. */}
-            <Pressable
-              onPress={() => onClearStores(item)}
-              style={({ pressed }) => [styles.option, pressed && styles.pressed]}
-            >
-              <Text style={[styles.optionText, styles.optionMuted]}>
-                Anywhere
-              </Text>
-              {chosen.length === 0 && (
-                <Ionicons name="checkmark" size={17} color="#6366f1" />
-              )}
-            </Pressable>
-            {/* A store the list has not seen before. The composer's `@` covers
-                this when adding; this covers realising it at the shelf. The
-                field clears on submit, so a second shop can follow the first. */}
-            <View style={styles.newStoreRow}>
-              <TextInput
-                value={newStore}
-                onChangeText={setNewStore}
-                placeholder="Another shop…"
-                placeholderTextColor="#9ca3af"
-                style={styles.newStoreInput}
-                returnKeyType="done"
-                onSubmitEditing={() => {
-                  const name = newStore.trim();
-                  if (!name) return;
-                  setNewStore('');
-                  onToggleStore(item, name);
-                }}
-              />
-            </View>
-
-            <Text style={styles.sheetSection}>Aisle</Text>
-            {aisleOptions().map((option) => (
-              <Pressable
-                key={option.value}
-                onPress={() => onAisle(item, option.value)}
-                style={({ pressed }) => [
-                  styles.option,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.optionText}>{option.label}</Text>
-                {current === option.value && (
-                  <Ionicons name="checkmark" size={17} color="#6366f1" />
-                )}
-              </Pressable>
-            ))}
-            {/* "Automatic", not "Other": clearing hands the word back to the
-                lexicon, which usually has an opinion — so the row does not
-                land in Other, so a label saying it would misdescribe it. */}
-            <Pressable
-              onPress={() => onAisle(item, null)}
-              style={({ pressed }) => [styles.option, pressed && styles.pressed]}
-            >
-              <Text style={[styles.optionText, styles.optionMuted]}>
-                Automatic
-              </Text>
-              {current === null && (
-                <Ionicons name="checkmark" size={17} color="#6366f1" />
-              )}
-            </Pressable>
-          </ScrollView>
+          {chosen.length === 0 && (
+            <Ionicons name="checkmark" size={17} color="#6366f1" />
+          )}
         </Pressable>
-      </Pressable>
-    </Modal>
+        {/* A store the list has not seen before. The composer's `@` covers
+            this when adding; this covers realising it at the shelf. The
+            field clears on submit, so a second shop can follow the first. */}
+        <View style={styles.newStoreRow}>
+          <TextInput
+            value={newStore}
+            onChangeText={setNewStore}
+            placeholder="Another shop…"
+            placeholderTextColor="#9ca3af"
+            style={styles.newStoreInput}
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              const name = newStore.trim();
+              if (!name) return;
+              setNewStore('');
+              onToggleStore(item, name);
+            }}
+          />
+        </View>
+
+        <Text style={styles.sheetSection}>Aisle</Text>
+        {aisleOptions().map((option) => (
+          <Pressable
+            key={option.value}
+            onPress={() => onAisle(item, option.value)}
+            style={({ pressed }) => [
+              styles.option,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.optionText}>{option.label}</Text>
+            {current === option.value && (
+              <Ionicons name="checkmark" size={17} color="#6366f1" />
+            )}
+          </Pressable>
+        ))}
+        {/* "Automatic", not "Other": clearing hands the word back to the
+            lexicon, which usually has an opinion — so the row does not
+            land in Other, so a label saying it would misdescribe it. */}
+        <Pressable
+          onPress={() => onAisle(item, null)}
+          style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+        >
+          <Text style={[styles.optionText, styles.optionMuted]}>
+            Automatic
+          </Text>
+          {current === null && (
+            <Ionicons name="checkmark" size={17} color="#6366f1" />
+          )}
+        </Pressable>
+      </ScrollView>
+    </>
   );
 }
 
@@ -1604,19 +1642,8 @@ const styles = StyleSheet.create({
   // The row being dragged. The same lift every task list gives a held row.
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   pressed: { opacity: 0.65 },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(17,24,39,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    maxHeight: '70%',
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  sheet: { maxHeight: '70%' },
   sheetTitle: {
     fontSize: 11,
     fontWeight: '700',
