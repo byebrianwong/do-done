@@ -18,8 +18,11 @@
  *    last reminder on it goes. "Save place" promotes it if you want it back.
  *  - **It does not hide behind the keyboard.** Android's edge-to-edge mode
  *    turns off `adjustResize`, so nothing moves on its own: the sheet tracks
- *    the IME height itself and gives the list whatever is left, for the same
- *    reason the quick-add composer rides the keyboard inset.
+ *    the IME height itself, every frame on the UI thread, and gives the list
+ *    whatever is left, for the same reason the quick-add composer rides the
+ *    keyboard inset. On Android it is drawn in the root view rather than in a
+ *    `Modal`, because a `Modal`'s window is one the keyboard tracking cannot
+ *    see. See `LiftFrame` below and components/RootOverlay.tsx.
  *
  * This sheet still owns the permission ask — it is the only place in the app
  * that prompts for location — and still primes with an explanation first, since
@@ -32,6 +35,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Keyboard,
   Linking,
   Modal,
@@ -46,6 +50,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ExpoLocation from 'expo-location';
+import Reanimated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import {
   DEFAULT_LOCATION_RADIUS_METERS,
   DEFAULT_TRIGGER,
@@ -76,6 +86,7 @@ import {
 } from '@/lib/geofencing';
 import { IS_EXPO_GO } from '@/lib/runtime';
 import { MapPreview } from './MapPreview';
+import { OVERLAY_Z_INDEX, RootPortal } from './RootOverlay';
 
 /**
  * Short enough to feel live, long enough that a typed word is one request
@@ -140,34 +151,47 @@ function explainDenial(error: GeofencePermissionError | undefined) {
   );
 }
 
+/** How long the sheet takes to fade in and out on Android, where it is not a `Modal`. */
+const FADE_MS = 180;
+
 /**
- * The keyboard's height, tracked rather than assumed.
+ * The sheet's frame, lifted by the keyboard's height every frame on the UI
+ * thread.
  *
  * `edgeToEdgeEnabled` in app.config.ts turns off Android's `adjustResize`, so
  * the window does not shrink when the IME appears and a bottom-anchored sheet
- * would simply be behind it. Same problem QuickAddComposer solves by riding
- * `useAnimatedKeyboard`; this sheet needs the number rather than a transform,
- * because it resizes its list instead of moving.
+ * would simply be behind it. This used to set a `marginBottom` from
+ * `Keyboard` events. On Android those are the "did" events, so the sheet sat
+ * behind the rising keyboard and jumped up after it had landed; and inside a
+ * `Modal`'s window they may not arrive at all. `useAnimatedKeyboard` follows
+ * the keyboard as it moves, the way QuickAddComposer does.
+ *
+ * The cap keeps room above the sheet for the backdrop to stay tappable, and
+ * never lets the content reach under the keyboard. Same numbers as before.
+ *
+ * Its own component so the keyboard is only tracked while the sheet is open.
  */
-function useKeyboardHeight(): number {
-  const [height, setHeight] = useState(0);
-
-  useEffect(() => {
-    const showEvt =
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt =
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) =>
-      setHeight(e.endCoordinates.height)
-    );
-    const hide = Keyboard.addListener(hideEvt, () => setHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
+function LiftFrame({
+  screenHeight,
+  children,
+}: {
+  screenHeight: number;
+  children: React.ReactNode;
+}) {
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: true,
+    isNavigationBarTranslucentAndroid: true,
+  });
+  const liftStyle = useAnimatedStyle(() => {
+    const kb = Math.max(keyboard.height.value, 0);
+    return {
+      marginBottom: kb,
+      maxHeight: Math.max(screenHeight - kb - 72, 260),
     };
-  }, []);
-
-  return height;
+  });
+  return (
+    <Reanimated.View style={[styles.frame, liftStyle]}>{children}</Reanimated.View>
+  );
 }
 
 interface AttachedPlace {
@@ -196,8 +220,19 @@ export function LocationReminderSheet({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [position, setPosition] = useState<Coordinates | null>(null);
 
-  const keyboardHeight = useKeyboardHeight();
   const { height: screenHeight } = useWindowDimensions();
+
+  // Android's back button closes this sheet, not the editor under it.
+  // `Modal`'s onRequestClose does this on iOS. Registered after the editor's
+  // own handler, and React Native calls the newest one first.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
   // Where the user is, if the OS already knows and we're already allowed to
   // ask. Biases search towards the Target down the road rather than the one
@@ -531,25 +566,11 @@ export function LocationReminderSheet({
   };
 
   const searchingOrTyping = query.trim().length >= MIN_QUERY_LENGTH;
-  // Leave room above the sheet for the backdrop to stay tappable, and never
-  // let the content reach under the keyboard.
-  const maxSheetHeight = Math.max(screenHeight - keyboardHeight - 72, 260);
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable
-          onPress={() => {}}
-          style={[
-            styles.sheet,
-            { marginBottom: keyboardHeight, maxHeight: maxSheetHeight },
-          ]}
-        >
+  const content = (
+    <Pressable onPress={onClose} style={styles.backdrop}>
+      <LiftFrame screenHeight={screenHeight}>
+        <Pressable onPress={() => {}} style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>Remind me at</Text>
             <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
@@ -715,7 +736,35 @@ export function LocationReminderSheet({
             )}
           </Pressable>
         </Pressable>
-      </Pressable>
+      </LiftFrame>
+    </Pressable>
+  );
+
+  // Android: drawn in the root view, over the editor, where the keyboard can
+  // be seen. The fade the `Modal` gave it is a Reanimated one here, which
+  // lands on the end state under Reduce Motion. iOS keeps the `Modal`.
+  if (Platform.OS === 'android') {
+    return visible ? (
+      <RootPortal>
+        <Reanimated.View
+          entering={FadeIn.duration(FADE_MS)}
+          exiting={FadeOut.duration(FADE_MS)}
+          style={[StyleSheet.absoluteFill, { zIndex: OVERLAY_Z_INDEX }]}
+        >
+          {content}
+        </Reanimated.View>
+      </RootPortal>
+    ) : null;
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      {content}
     </Modal>
   );
 }
@@ -955,7 +1004,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(17,24,39,0.45)',
     justifyContent: 'flex-end',
   },
+  // Carries the keyboard lift and the height cap; the sheet shrinks inside it.
+  frame: { flexShrink: 1 },
   sheet: {
+    flexShrink: 1,
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
