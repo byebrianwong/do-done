@@ -24,6 +24,7 @@ import {
 import { useLists, useListCounts } from '@/lib/list-queries';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
   hasResumeTried,
@@ -48,13 +49,16 @@ import { ProjectIcon } from '@/components/ProjectIcon';
 import QuickAddButton from '@/components/QuickAddButton';
 
 export default function ListsScreen() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const listsQuery = useLists();
+  const listsQuery = useLists({ subscribed: active });
   const { data: lists, refetch } = listsQuery;
-  const { data: counts } = useListCounts();
+  const { data: counts } = useListCounts({ subscribed: active });
   const loadState = useListLoadState(listsQuery);
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(listsQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
   // Not a `SectionedDraggableList`, so it drives the minimizing tab bar and
   // reserves its height itself.

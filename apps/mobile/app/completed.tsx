@@ -84,7 +84,7 @@ export default function CompletedScreen() {
   const { data: projectsWithCounts = [] } = useProjectsWithCounts();
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('completed');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(completedQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const projectList = useMemo(

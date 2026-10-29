@@ -94,6 +94,7 @@ import {
   itemDrop,
 } from '@/lib/list-item-drop';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useTabBarMinimize } from '@/lib/tab-bar-minimize';
 import { TAB_BAR_ROW_HEIGHT } from '@/lib/tab-bar-motion';
 import { markResumeTried, saveResume } from '@/lib/tab-resume';
@@ -170,14 +171,17 @@ type ListSection = DraggableSection & { color: string | null };
  * the cart, as a task can be dropped into another section.
  */
 export function ListDetail({ listId }: { listId: string }) {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const combined = listId === ALL_SHOPPING_ID;
   // Disabled for the combined view: there is no project row behind it.
-  const { data: fetched } = useList(combined ? '' : listId);
+  const { data: fetched } = useList(combined ? '' : listId, { subscribed: active });
   // Every list. The combined view takes its lists and its chip from here, and
   // a single list falls back to its row here while its own read is in the air.
   // The index has usually loaded it already, so the title and the mode are
   // right on the first frame.
-  const { data: allLists = [] } = useLists();
+  const { data: allLists = [] } = useLists({ subscribed: active });
   const list = combined
     ? undefined
     : fetched ?? allLists.find((l) => l.id === listId);
@@ -214,10 +218,10 @@ export function ListDetail({ listId }: { listId: string }) {
   const chosenTarget = combined
     ? defaultAllShoppingTarget({ lists: shopLists, lastId: lastTarget })
     : listId;
-  const itemsQuery = useListItems(listId);
+  const itemsQuery = useListItems(listId, { subscribed: active });
   const { data: items = [], refetch } = itemsQuery;
   const loadState = useListLoadState(itemsQuery);
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(itemsQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
   // Absent until it loads, and an empty map is the correct fallback: without a
   // memory the lexicon still guesses.

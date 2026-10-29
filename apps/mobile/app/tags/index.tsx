@@ -37,7 +37,7 @@ export default function TagsScreen() {
   const tagsQuery = useTags();
   const { data: tags = [], refetch } = tagsQuery;
   const loadState = useListLoadState(tagsQuery);
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tagsQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const [query, setQuery] = useState('');

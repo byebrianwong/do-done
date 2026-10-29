@@ -57,7 +57,10 @@ export default function QuickAddModal() {
   /**
    * The screen underneath refetches on focus, but that lands a beat after the
    * backdrop clears — long enough to watch the list not contain the task that
-   * was just typed into it. Invalidating here closes that gap.
+   * was just typed into it. Invalidating here closes that gap. It works because
+   * the list under this modal stays subscribed while the modal is up (see
+   * `lib/screen-activity.ts`), and the focus refetch after closing joins this
+   * fetch rather than restarting it (`lib/focus-refresh.ts`).
    */
   const created = () => {
     invalidateTasks();

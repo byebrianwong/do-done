@@ -37,7 +37,7 @@ export const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 // v2: a v1 snapshot can hold a query whose data was a Map, written out by
 // JSON.stringify as `{}`. Restoring one is worse than having none — see
-// `survivesJsonRoundTrip` — and the shape is not something a reader can
+// `UNPERSISTED_KEY_PREFIXES` — and the shape is not something a reader can
 // detect after the fact, so the old snapshots are abandoned rather than
 // filtered.
 const CACHE_KEY = 'dodone.query-cache.v2';
@@ -61,8 +61,10 @@ const storage = isClient
 const asyncStoragePersister = createAsyncStoragePersister({
   storage,
   key: CACHE_KEY,
-  // The cache is rewritten on every query settle; batch those into one write.
-  throttleTime: 1_000,
+  // No throttle here. Saves are already debounced upstream, before the cache is
+  // dehydrated (`subscribeDebouncedPersist`), and a throttle would hold back the
+  // flush that runs as the app goes to the background.
+  throttleTime: 0,
 });
 
 async function currentUserId(): Promise<string | null> {
@@ -99,52 +101,64 @@ export const queryPersister: Persister = {
 };
 
 /**
- * Search results are keyed by the query string, so persisting them would
- * accumulate one cache entry per thing the user has ever typed — and a search
- * is re-run on open anyway. Everything else (task lists, projects, calendar
- * events) is what the app draws on launch, and is worth carrying across.
+ * The queries that are never written to the snapshot, by key prefix.
+ *
+ * Decided by key rather than by looking at the data. `dehydrate` asks this of
+ * every cached query each time the cache is saved, and an answer that walks the
+ * data costs a pass over every cached task. A key is a few string compares.
+ *
+ * - **Search** is keyed by the query string, so persisting it would keep one
+ *   entry per thing the user has ever typed, and a search is re-run on open.
+ * - **The rest hold a Map**, which `JSON.stringify` writes as `{}`. That is not
+ *   a stale value but one of the wrong *type*. `useListCounts` caches a Map:
+ *   restored from a snapshot it arrived as `{}`, the first row of the Lists
+ *   screen called `.get` on it, and the whole app went to the error boundary on
+ *   every cold start, for anyone with a list. A query left out of the snapshot
+ *   refetches on launch and draws a skeleton, which every screen handles.
+ *
+ * Literal keys rather than imports of `listKeys` and the rest, because those
+ * modules pull in the widget, geofence and watch code. `query-persist-keys.test.ts`
+ * checks these against the real key factories, and fails when a query that
+ * caches a Map or a Set is added without a line here.
  */
-function isSearchQuery(queryKey: readonly unknown[]): boolean {
-  return queryKey[0] === 'tasks' && queryKey[1] === 'search';
+export const UNPERSISTED_KEY_PREFIXES: readonly (readonly string[])[] = [
+  // useSearchTasks: taskKeys.search(q)
+  ['tasks', 'search'],
+  // useListCounts: Map<listId, counts>
+  ['lists', 'counts'],
+  // useAisleMemory: AisleMemory, a ReadonlyMap
+  ['aisle-terms'],
+  // useSuggestionIndex: SuggestionIndex, an object holding two Maps
+  ['suggestions'],
+];
+
+function hasPrefix(queryKey: readonly unknown[], prefix: readonly string[]) {
+  return prefix.every((part, i) => queryKey[i] === part);
+}
+
+/** Whether a query with this key may be written to the snapshot. */
+export function isPersistableKey(queryKey: readonly unknown[]): boolean {
+  return !UNPERSISTED_KEY_PREFIXES.some((prefix) => hasPrefix(queryKey, prefix));
 }
 
 /**
- * Whether a query's data survives a round trip through JSON.
+ * A backstop for a Map-holding query that is missing from the list above.
  *
- * The persister writes the cache with `JSON.stringify`, which has no
- * representation for a Map or a Set: both come back as `{}`. That is not a
- * stale value, it is a *wrong-shaped* one, and the difference matters. Every
- * screen here is built to cope with data that is old or missing; none of them
- * cope with data that has quietly changed type.
- *
- * `useListCounts` caches a Map. Restored from a snapshot it arrived as `{}`,
- * so the first row of the Lists screen called `.get` on it, threw
- * `undefined is not a function`, and took the whole app to the error boundary
- * — on every cold start, for anyone with at least one list. `useAisleMemory`
- * caches one too.
- *
- * A query holding one is therefore not persisted at all. It refetches on
- * launch, which is the case every list screen already handles
- * (`list-load-state.ts` draws a skeleton), and is a far better answer than
- * restoring something that cannot work.
- *
- * Conservative by design: it excludes only when it positively finds a Map or a
- * Set. The depth cap is because the cached shapes are shallow — rows and
- * records — and an uncapped walk over a large task list on every persist would
- * cost more than the rule is worth.
+ * Shallow on purpose, so it stays cheap enough to run on every save: it looks
+ * at the data itself and, for a plain object, at its own values. An array is
+ * not walked at all, which is what keeps a 500-row task list from costing
+ * anything. It catches every shape cached today (a Map, and an object holding
+ * Maps). The key list is the rule; this only stops a missed entry from taking
+ * the app down on the next cold start.
  */
-export function survivesJsonRoundTrip(value: unknown, depth = 0): boolean {
-  if (value instanceof Map || value instanceof Set) return false;
-  if (depth >= 4) return true;
-  if (Array.isArray(value)) {
-    return value.every((v) => survivesJsonRoundTrip(v, depth + 1));
+export function holdsMapOrSet(value: unknown): boolean {
+  if (value instanceof Map || value instanceof Set) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
   }
-  if (value !== null && typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>).every((v) =>
-      survivesJsonRoundTrip(v, depth + 1)
-    );
-  }
-  return true;
+  return Object.values(value as Record<string, unknown>).some(
+    (v) => v instanceof Map || v instanceof Set
+  );
 }
 
 /**
@@ -168,8 +182,8 @@ export const persistOptions = {
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Query) =>
       query.state.status === 'success' &&
-      !isSearchQuery(query.queryKey) &&
-      survivesJsonRoundTrip(query.state.data),
+      isPersistableKey(query.queryKey) &&
+      !holdsMapOrSet(query.state.data),
   },
 };
 

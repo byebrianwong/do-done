@@ -8,7 +8,6 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
 import PrPreviewBanner from '@/components/PrPreviewBanner';
@@ -20,6 +19,7 @@ import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { dropLegacySnapshots, persistOptions } from '@/lib/query-persist';
+import { DebouncedPersistQueryClientProvider } from '@/lib/query-persist-provider';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { startDigestScheduling } from '@/lib/digests';
 import { startTaskReminderScheduling } from '@/lib/task-reminders';
@@ -93,7 +93,7 @@ export default function RootLayout() {
   }, []);
 
   // One-time cleanup of pre-v2 cache snapshots, which could hold a Map
-  // serialized to `{}`. See `survivesJsonRoundTrip`.
+  // serialized to `{}`. See `UNPERSISTED_KEY_PREFIXES`.
   useEffect(() => {
     dropLegacySnapshots();
   }, []);
@@ -113,8 +113,9 @@ export default function RootLayout() {
       {/* Restores the last-seen task lists from AsyncStorage before the first
           frame, so launch opens on yesterday's rows instead of on an empty
           screen. Anything older than a day is dropped rather than shown — see
-          lib/query-persist.ts. */}
-      <PersistQueryClientProvider
+          lib/query-persist.ts. Saved once the cache goes quiet, and on going to
+          the background — see lib/persist-scheduler.ts. */}
+      <DebouncedPersistQueryClientProvider
         client={queryClient}
         persistOptions={persistOptions}
       >
@@ -125,7 +126,7 @@ export default function RootLayout() {
             </TaskSelectionProvider>
           </UndoToastProvider>
         </AuthProvider>
-      </PersistQueryClientProvider>
+      </DebouncedPersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }
