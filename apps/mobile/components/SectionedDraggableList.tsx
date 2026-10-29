@@ -92,10 +92,10 @@ interface Props {
    */
   onHold?: (task: Task) => void;
   /**
-   * The key React reconciles a task row on. Defaults to the task's id. Every
-   * callback above is still handed ids.
+   * The key React reconciles a task row on, given the section the row is in.
+   * Defaults to the task's id. Every callback above is still handed ids.
    */
-  rowKey?: (task: Task) => string;
+  rowKey?: (task: Task, sectionKey: string) => string;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
   /** Non-draggable block rendered above all sections (e.g. Today's Overdue). */

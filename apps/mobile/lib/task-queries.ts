@@ -14,7 +14,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { buildSuggestionIndex } from '@do-done/shared';
+import { UNDO_TOAST_TTL_MS, buildSuggestionIndex } from '@do-done/shared';
 import type {
   CreateProjectInput,
   Project,
@@ -31,6 +31,8 @@ import { scheduleGeofenceSync } from './location-queries';
 import { scheduleTaskReminderSync } from './task-reminders';
 import { scheduleWatchSync } from './wear';
 import { notifyAutoSync } from './auto-sync-notice';
+import { noteLocalWrite } from './local-write';
+import { markArriving, reinsertTask } from './row-arrival';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
 
@@ -162,6 +164,12 @@ export function useSearchTasks(query: string) {
   return useQuery({
     queryKey: taskKeys.search(q),
     enabled: q.length > 0,
+    // Each refinement is a new key. Without this the list emptied to
+    // "Searching…" on every keystroke that survived the debounce, and filled
+    // back in a round trip later with mostly the same rows. Keeping the last
+    // answer up until the new one lands changes only the rows that differ.
+    // Not across a cleared field, which has no results to keep.
+    placeholderData: (prev) => (q.length > 0 ? prev : undefined),
     queryFn: async () => {
       const api = await getTasksApi();
       const { data, error } = await api.search(q);
@@ -400,6 +408,14 @@ function cancelTaskFetches(): Promise<void[]> {
   );
 }
 
+/** The cached shopping-list item lists. */
+function cachedListItems(): Task[][] {
+  return queryClient
+    .getQueriesData<Task[]>({ queryKey: listKeys.items() })
+    .map(([, list]) => list)
+    .filter((list): list is Task[] => Array.isArray(list));
+}
+
 /** Every cached task list, ignoring the caches that hold something else. */
 function cachedTaskLists(): Task[][] {
   return TASK_LIST_ROOTS.flatMap((key) =>
@@ -498,6 +514,9 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
 }
 
 export function invalidateTasks() {
+  // The refetches below confirm what the optimistic patch already drew, so the
+  // updating bar stays down for them. See lib/local-write.ts.
+  noteLocalWrite();
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   queryClient.invalidateQueries({ queryKey: projectKeys.all });
   // The tag summary is counts over tasks, so any write can move it — a tag
@@ -522,6 +541,61 @@ export function invalidateTasks() {
   // off on the phone stays on the wrist until the phone says otherwise. Same
   // debounce, same fire-and-forget.
   scheduleWatchSync();
+}
+
+/**
+ * The lists a task was dropped from, as they stood before, so undoing the
+ * drop can put the row back in the cache instead of waiting for the server.
+ *
+ * Without this an undone completion or deletion came back only with the
+ * refetch: a round trip after the tap, at full height, pushing the list down
+ * in one frame. The row it was undone from had already unmounted, so it could
+ * not animate anything. Putting it back optimistically lets it mount on the
+ * same frame as the tap and open up in place (see `lib/row-arrival.ts`).
+ *
+ * Held for twice the undo window and then forgotten, so a task completed and
+ * never undone does not keep its lists alive for the session.
+ */
+const droppedFrom = new Map<string, TaskListSnapshot>();
+
+function rememberDrop(id: string, prev: TaskListSnapshot) {
+  const lists = prev.filter(
+    ([, data]) => Array.isArray(data) && data.some((t) => t.id === id)
+  );
+  if (lists.length === 0) return;
+  droppedFrom.set(id, lists);
+  setTimeout(() => {
+    if (droppedFrom.get(id) === lists) droppedFrom.delete(id);
+  }, UNDO_TOAST_TTL_MS * 2);
+}
+
+/**
+ * Put dropped rows back where they were, and say they are arriving. Returns
+ * whether anything went back. A no-op for a list a refetch has already
+ * restored, or for a drop that never happened (an Undo tapped during the
+ * hold, while the row was still on screen).
+ */
+function restoreDrops(ids: Iterable<string>): boolean {
+  const arrived: string[] = [];
+  for (const id of ids) {
+    const lists = droppedFrom.get(id);
+    if (!lists) continue;
+    droppedFrom.delete(id);
+    let any = false;
+    for (const [key, before] of lists) {
+      if (!Array.isArray(before)) continue;
+      queryClient.setQueryData<Task[]>(key, (current) => {
+        if (!Array.isArray(current)) return current;
+        const next = reinsertTask(current, before, id);
+        if (!next) return current;
+        any = true;
+        return next;
+      });
+    }
+    if (any) arrived.push(id);
+  }
+  markArriving(arrived);
+  return arrived.length > 0;
 }
 
 export interface ToggleCompleteOptions {
@@ -604,8 +678,13 @@ async function runToggleComplete(
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
 
+  // An Undo: the row it came from is gone, so the cache has to bring it back.
+  // After the snapshot, so a failed reopen takes the reinserted row out again.
+  if (!complete) restoreDrops([id]);
+
   const dropFromLists = () => {
     if (complete) {
+      rememberDrop(id, prev);
       // Drop from active lists (today / inbox / project).
       patchTaskLists((old) => old.filter((t) => t.id !== id), taskKeys.lists());
     } else {
@@ -620,6 +699,15 @@ async function runToggleComplete(
     // patched in place rather than filtered — without it the row's only way
     // to reach the cart was the refetch, which arrives a round trip after the
     // animation has finished and reads as the item vanishing and coming back.
+    //
+    // A shopping list keys a row by which side of the cart it is on, so the
+    // moved item mounts fresh in its new section. Marked so it opens up there
+    // rather than appearing at full height.
+    if (
+      cachedListItems().some((list) => list.some((t) => t.id === id))
+    ) {
+      markArriving([id]);
+    }
     patchTaskLists(
       (old) =>
         old.map((t) =>
@@ -732,8 +820,10 @@ export async function deleteTask(
   const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  const dropFromLists = () =>
+  const dropFromLists = () => {
+    rememberDrop(id, prev);
     patchTaskLists((old) => old.filter((t) => t.id !== id));
+  };
 
   if (holdMs === 0) dropFromLists();
 
@@ -769,17 +859,24 @@ export async function deleteTask(
 /**
  * Undo a delete: the same rows, back where they were.
  *
- * No optimistic patch, deliberately. The cache dropped these rows and has no
- * copy of them to put back — the *server* is the only thing that still holds
- * the task, which is the entire point of the soft delete — so the invalidate
- * is what makes them reappear, with everything that hung off them intact.
+ * The task the delete was started from is put back in the cache straight
+ * away, from the lists `deleteTask` remembered, so its row opens up in place
+ * on the tap. Everything else the delete took (its subtasks, its files) comes
+ * back with the invalidate, because only the server still holds it, which is
+ * the point of the soft delete.
  */
 export async function restoreTasks(ids: string[]) {
   if (ids.length === 0) return;
+  await cancelTaskFetches();
+  const prev = snapshotTaskLists();
+  restoreDrops(ids);
   try {
     const api = await getTasksApi();
     const { error } = await api.restore(ids);
     if (error) throw error;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
   } finally {
     invalidateTasks();
   }

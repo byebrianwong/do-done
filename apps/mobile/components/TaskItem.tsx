@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -46,6 +46,7 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
+import { claimArrival } from '@/lib/row-arrival';
 import {
   prefersReducedMotion,
   useRowExit,
@@ -140,6 +141,20 @@ interface TaskItemProps {
   openInSection?: number | null;
   /** The same for the row's project. One means this completion finishes it. */
   openInProject?: number | null;
+  /**
+   * Open up on mount instead of appearing at full height. Read once, on mount.
+   * For a list that knows the row is new to it (a section that just expanded,
+   * a task that just moved into Focus). A row a *write* put here does not need
+   * it: it finds out from `lib/row-arrival.ts` on its own.
+   */
+  arriving?: boolean;
+  /**
+   * Fold shut: the list is about to stop drawing this row without anything
+   * having happened to the task (its section is closing, or it moved to
+   * another section). The list keeps the row for `ROW_ARRIVE_MS` and then
+   * drops it.
+   */
+  departing?: boolean;
 }
 
 function buildReschedule(
@@ -171,6 +186,8 @@ function TaskItem({
   hideScheduledDay = false,
   openInSection = null,
   openInProject = null,
+  arriving = false,
+  departing = false,
 }: TaskItemProps) {
   // Optimistic, because the list deliberately holds the row for the length of
   // the completion animation — the cache still says "not done" while the row is
@@ -178,7 +195,14 @@ function TaskItem({
   const [completed, setCompleted] = useOptimisticCompleted(
     task.status === 'done'
   );
-  const exit = useRowExit(task.status === 'done');
+  // Asked once, as the row mounts. A row drawn again after being scrolled
+  // away was not marked, so it does not open up again.
+  const [arrive] = useState(() => arriving || claimArrival(task.id));
+  const exit = useRowExit(task.status === 'done', { arrive });
+  useEffect(() => {
+    if (departing) exit.depart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departing]);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
   // A completion the swipe has asked for and the row's journey home hasn't
@@ -504,8 +528,12 @@ function TaskItem({
     // clamped height actually crop rather than just overlap.
     <Animated.View
       style={[exit.collapsing && styles.exitShell, exit.style]}
-      onLayout={exit.onLayout}
+      // A row on its way out of view is not a target any more.
+      pointerEvents={departing ? 'none' : 'auto'}
     >
+    {/* Measured from in here, not from the shell: an arriving shell is clamped
+        to zero when it first lays out. See `RowExit.onLayout`. */}
+    <View onLayout={exit.onLayout} collapsable={false}>
     <ReanimatedSwipeable
       ref={swipeRef}
       friction={2}
@@ -667,6 +695,7 @@ function TaskItem({
       {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
     </Pressable>
     </ReanimatedSwipeable>
+    </View>
     </Animated.View>
   );
 }
