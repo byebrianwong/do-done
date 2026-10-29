@@ -9,9 +9,19 @@ import React from 'react';
 
 import { AllView } from '@/components/views/AllView';
 import { InboxView } from '@/components/views/InboxView';
-import { useViewMode } from '@/lib/view-mode';
+import { SwapView } from '@/components/SwapView';
+import { useViewMode, type TasksMode } from '@/lib/view-mode';
+
+const renderTasks = (mode: TasksMode) =>
+  mode === 'inbox' ? <InboxView /> : <AllView />;
 
 export default function TasksTab() {
   const { tasks } = useViewMode();
-  return tasks === 'inbox' ? <InboxView /> : <AllView />;
+  return (
+    <SwapView
+      tab="tasks"
+      mode={tasks}
+      render={renderTasks}
+    />
+  );
 }

@@ -9,6 +9,8 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
+import { resumeScreenAnimation } from '@/lib/tab-resume';
+
 /**
  * So a launcher shortcut opening `dodone://lists/<id>` lands on a list with the
  * index underneath it, and therefore with a back button. Without this, deep
@@ -34,10 +36,26 @@ export default function ListsLayout() {
         name="index"
         options={{ headerShown: false, title: 'Lists' }}
       />
-      <Stack.Screen name="[id]" options={{ headerShown: true }} />
+      {/* A restore is pushed with no animation; see `holdIndexBlank` in
+          `lib/tab-resume.ts`. */}
+      <Stack.Screen
+        name="[id]"
+        options={({ route }) => ({
+          headerShown: true,
+          animation: resumeScreenAnimation(
+            route.params as Record<string, unknown> | undefined
+          ),
+        })}
+      />
       <Stack.Screen
         name="shopping"
-        options={{ headerShown: true, title: 'All shopping' }}
+        options={({ route }) => ({
+          headerShown: true,
+          title: 'All shopping',
+          animation: resumeScreenAnimation(
+            route.params as Record<string, unknown> | undefined
+          ),
+        })}
       />
     </Stack>
   );

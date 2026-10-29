@@ -21,6 +21,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type AgendaMode = 'today' | 'upcoming';
 export type TasksMode = 'all' | 'inbox';
 
+/**
+ * Why a mode last changed. `swap` is the user swapping (the header button or a
+ * re-tap of the tab); `set` is anything else — a deep link, a notification, or
+ * the launch-time restore. Only a swap animates; see `lib/swap-motion.ts`.
+ */
+export type ModeChangeCause = 'swap' | 'set';
+
 export interface ViewModes {
   agenda: AgendaMode;
   tasks: TasksMode;
@@ -40,6 +47,16 @@ let state: ViewModes = { agenda: 'today', tasks: 'all' };
  */
 let touched = false;
 
+const lastCause: { agenda: ModeChangeCause; tasks: ModeChangeCause } = {
+  agenda: 'set',
+  tasks: 'set',
+};
+
+/** Why the given tab's mode last changed. Read during the render it causes. */
+export function modeChangeCause(tab: 'agenda' | 'tasks'): ModeChangeCause {
+  return lastCause[tab];
+}
+
 const subscribers = new Set<() => void>();
 
 function emit(): void {
@@ -57,28 +74,36 @@ function snapshot(): ViewModes {
   return state;
 }
 
-export function setAgendaMode(mode: AgendaMode): void {
+export function setAgendaMode(
+  mode: AgendaMode,
+  cause: ModeChangeCause = 'set'
+): void {
   touched = true;
   if (state.agenda === mode) return;
+  lastCause.agenda = cause;
   state = { ...state, agenda: mode };
   emit();
   AsyncStorage.setItem(AGENDA_KEY, mode).catch(() => {});
 }
 
-export function setTasksMode(mode: TasksMode): void {
+export function setTasksMode(
+  mode: TasksMode,
+  cause: ModeChangeCause = 'set'
+): void {
   touched = true;
   if (state.tasks === mode) return;
+  lastCause.tasks = cause;
   state = { ...state, tasks: mode };
   emit();
   AsyncStorage.setItem(TASKS_KEY, mode).catch(() => {});
 }
 
 export function toggleAgendaMode(): void {
-  setAgendaMode(state.agenda === 'today' ? 'upcoming' : 'today');
+  setAgendaMode(state.agenda === 'today' ? 'upcoming' : 'today', 'swap');
 }
 
 export function toggleTasksMode(): void {
-  setTasksMode(state.tasks === 'all' ? 'inbox' : 'all');
+  setTasksMode(state.tasks === 'all' ? 'inbox' : 'all', 'swap');
 }
 
 /** Read back what the app last opened on. Called once, from the root layout. */
@@ -100,6 +125,8 @@ export async function hydrateViewModes(): Promise<void> {
     tasks: tasks === 'inbox' ? 'inbox' : 'all',
   };
   if (next.agenda === state.agenda && next.tasks === state.tasks) return;
+  lastCause.agenda = 'set';
+  lastCause.tasks = 'set';
   state = next;
   emit();
 }
@@ -108,6 +135,8 @@ export async function hydrateViewModes(): Promise<void> {
 export function resetViewModes(): void {
   state = { agenda: 'today', tasks: 'all' };
   touched = false;
+  lastCause.agenda = 'set';
+  lastCause.tasks = 'set';
   emit();
 }
 

@@ -12,7 +12,9 @@ import React from 'react';
 import { ALL_SHOPPING_ID } from '@do-done/shared';
 
 import { ListDetail } from '@/components/ListDetail';
+import { useResumeArrival } from '@/lib/use-resume-arrival';
 
 export default function AllShoppingScreen() {
+  useResumeArrival();
   return <ListDetail listId={ALL_SHOPPING_ID} />;
 }
