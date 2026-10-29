@@ -2109,6 +2109,33 @@ is a burst, not one item, which is the one place a list composer must diverge fr
 the task composer. On mobile that is `blurOnSubmit={false}` plus
 `submitBehavior="submit"`.
 
+On mobile the composer has four more rules, all in `components/ListDetail.tsx`:
+
+- **The row lands before the server answers.** `addListItem` puts a stand-in row
+  in the cache, with an id starting `pending:` (`lib/list-item-add.ts`), and
+  swaps the real row into its place when the insert returns. A failed insert
+  takes the stand-in out, takes the "N added" count back down, and names the
+  item in the toast. The stand-in ignores touches until the swap, because a
+  tick or an edit would write to an id the database does not have. A refetch
+  that lands mid-add merges the stand-ins back in (`fetchListItems`), or a
+  burst would blink each row out for a round trip.
+- **The text lives in `ListComposer`, not in the screen.** Held in the screen,
+  every keystroke re-rendered the native header, every row and the pantry
+  drawer. For the same reason the header's options, the row callbacks and the
+  list's header, footer and empty elements are memoised.
+- **The sheet moves in and out.** The scrim fades, and the card slides and
+  fades on a view inside the one the keyboard moves, so the two transforms
+  never overwrite each other. Closing keeps the card drawn until its exit has
+  played, so it leaves with the keyboard instead of vanishing ahead of it. The
+  plus button fades back in. Android's back button closes the sheet before it
+  pops the screen. Reduce Motion lands on the end state.
+- **The regroup at six items fades.** When the list splits into aisles, or
+  folds back into one group, the list dips to 35% opacity and fades back up
+  over 260ms. An opacity on a wrapper is the one thing that can animate here
+  without fighting `SectionedDraggableList`, which positions its own cells.
+  It is not a true crossfade: the old layout is gone on the frame the new one
+  draws.
+
 **Put away soft-deletes**, which is what makes a list standing rather than
 disposable: the list survives, its history does not pile up in it, and the ids it
 returns are an undo token `TasksApi.restore` takes directly. It was called "Clear
@@ -2440,7 +2467,9 @@ removed from the bands below, so nothing is offered twice on one screen.
 - **An optimistic append plus a parent re-sync is a race**, and which side wins
   differs by surface: against Supabase the append lands first, but the demo's write
   is synchronous so its re-render arrives *before* the append and the row showed
-  twice. Both composers dedupe by id.
+  twice. Both composers dedupe by id. Mobile's stand-in row is swapped for the
+  real one by the same rule: if a refetch has already brought the real row in,
+  the stand-in is dropped rather than replaced (`settlePendingItem`).
 - **`Project.kind` and `Task.is_list_item` are optional on read**, and default to
   `tasks`/`false` through `projectKind()`. A deploy that lands ahead of its migration
   must not fail to parse, and defaulting either the other way would hide a whole

@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -10,10 +17,20 @@ import {
   Keyboard,
   Modal,
   ScrollView,
+  BackHandler,
 } from 'react-native';
 import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  LayoutAnimationConfig,
+  runOnJS,
   useAnimatedKeyboard,
   useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,8 +43,10 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import type {
   Aisle,
   AisleMemory,
+  CreateTaskInput,
   PantryBand,
   PantryEntry,
+  Project,
   Task,
 } from '@do-done/shared';
 import {
@@ -121,9 +140,46 @@ import { openProjectForm } from '@/components/ProjectFormSheet';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
 import { useUndoToast } from '@/components/UndoToast';
 import { hapticLight, hapticMedium } from '@/lib/haptics';
+import { prefersReducedMotion } from '@/lib/use-row-exit';
+import { isPendingItem } from '@/lib/list-item-add';
 
 /** Space between the composer card and the keyboard or tab bar below it. */
 const COMPOSER_GAP = 8;
+
+/*
+  The composer's entrance and exit. Short, because the keyboard is moving at
+  the same time and the card should arrive with it rather than after it. The
+  slide is a nudge, not the card's full height: the keyboard carries the card
+  the rest of the way.
+*/
+const COMPOSER_IN_MS = 220;
+const COMPOSER_OUT_MS = 180;
+const COMPOSER_SLIDE_PX = 28;
+
+/*
+  The fade the list plays when it regroups, at `AISLE_GROUP_MIN_ITEMS` open
+  items, into aisles or back out of them. See `listFadeStyle`.
+*/
+const REGROUP_FROM_OPACITY = 0.35;
+const REGROUP_MS = 260;
+
+/** What an item added to a list is written with. */
+type NewItem = Omit<CreateTaskInput, 'project_id'>;
+
+/** The tags an item put back from the pantry arrives with. */
+function pantryInput(entry: PantryEntry): NewItem {
+  return {
+    title: entry.title,
+    ...(entry.stores.length > 0 ? { tags: entry.stores.map(storeTag) } : {}),
+  };
+}
+
+/*
+  The row key carries which side of the list the row is on, not just its id.
+  See the note where it is passed. Module-level so the list gets the same
+  function on every render.
+*/
+const itemRowKey = (item: Task) => `${item.id}:${isGot(item) ? 'got' : 'open'}`;
 
 /** A section of the list, with the colour its header dot is drawn in. */
 type ListSection = DraggableSection & { color: string | null };
@@ -188,7 +244,9 @@ export function ListDetail({ listId }: { listId: string }) {
     flash a flat list that regroups into aisles a moment later.
   */
   const shopping = combined || (list ? isShoppingList(list) : true);
-  const copy = listCopy(shopping);
+  // Memoised: `listCopy` builds a new object per call, and the header's
+  // options depend on it.
+  const copy = useMemo(() => listCopy(shopping), [shopping]);
   const title = combined ? ALL_SHOPPING_NAME : (list?.name ?? 'List');
   /** The list name printed on each row. Only the combined view needs one. */
   const listNames = useMemo(
@@ -254,16 +312,28 @@ export function ListDetail({ listId }: { listId: string }) {
   );
 
   const router = useRouter();
-  const [draft, setDraft] = useState('');
-  const [added, setAdded] = useState(0);
-  /** Whether the composer sheet is open. The plus button opens it. */
+  /*
+    Whether the composer sheet is open. The plus button opens it.
+
+    The typed text, the "N added" receipt and everything derived from the text
+    live in `ListComposer`, not here. Held here, every keystroke re-rendered
+    this whole screen: the native header, every row and the pantry drawer.
+  */
   const [composerOpen, setComposerOpen] = useState(false);
-  // What moves the action glyph to the trailing edge. Text counts as well
-  // as focus: a half-typed item the keyboard has been dismissed over still
-  // has something to commit.
-  const [composerFocused, setComposerFocused] = useState(false);
-  // The glyph travels the field's width, so the field has to report it.
-  const [composerWidth, setComposerWidth] = useState(0);
+  const composerOpenRef = useRef(false);
+  /**
+   * Whether the composer is drawn. Stays true for the length of the closing
+   * animation after `composerOpen` goes false, so the card can leave rather
+   * than vanish.
+   */
+  const [composerMounted, setComposerMounted] = useState(false);
+  /**
+   * Bumped on every open. It is the composer's key, so each open starts with
+   * an empty field and a zero count even when it interrupts a close.
+   */
+  const [composerSession, setComposerSession] = useState(0);
+  /** 0 closed, 1 open. Drives the scrim, the card's slide and its fade. */
+  const composerShown = useSharedValue(0);
   /*
     The long-pressed item, held by id rather than by value.
 
@@ -297,7 +367,6 @@ export function ListDetail({ listId }: { listId: string }) {
       });
     }
   }, [toast]);
-  const inputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
   /*
     With the keyboard down, the composer sits above the tab bar. The tab bar
@@ -323,64 +392,78 @@ export function ListDetail({ listId }: { listId: string }) {
     ],
   }));
 
-  /** Opens the composer and resets the "N added" count. */
+  /**
+   * Opens the composer. It slides and fades in while the keyboard rises.
+   * Reduce Motion lands on the open state at once.
+   */
   const openComposer = useCallback(() => {
-    setAdded(0);
+    composerOpenRef.current = true;
+    setComposerSession((n) => n + 1);
+    setComposerMounted(true);
     setComposerOpen(true);
+    composerShown.value = prefersReducedMotion()
+      ? 1
+      : withTiming(1, {
+          duration: COMPOSER_IN_MS,
+          easing: Easing.out(Easing.cubic),
+        });
+  }, [composerShown]);
+
+  /** Unmounts the composer once its exit has played. */
+  const finishClose = useCallback(() => {
+    // A tap on the plus in the last frame of the exit has opened it again.
+    if (!composerOpenRef.current) setComposerMounted(false);
   }, []);
 
   /*
-    Closing clears any half-typed text. Otherwise the text would be kept
-    while the sheet is hidden, with nothing on screen showing it is there.
+    Closing clears any half-typed text, because the composer unmounts once it
+    has left and the text goes with it. Otherwise the text would be kept while
+    the sheet is hidden, with nothing on screen showing it is there.
+
+    The card stays drawn while it slides and fades out, so it leaves with the
+    keyboard rather than vanishing while the keyboard is still on its way
+    down. It stops taking touches at once (`open` goes false).
   */
   const closeComposer = useCallback(() => {
+    composerOpenRef.current = false;
     Keyboard.dismiss();
-    setDraft('');
     setComposerOpen(false);
-  }, []);
+    if (prefersReducedMotion()) {
+      composerShown.value = 0;
+      setComposerMounted(false);
+      return;
+    }
+    composerShown.value = withTiming(
+      0,
+      { duration: COMPOSER_OUT_MS, easing: Easing.in(Easing.cubic) },
+      (done) => {
+        if (done) runOnJS(finishClose)();
+      }
+    );
+  }, [composerShown, finishClose]);
+
+  /*
+    Android's back button closes the composer before it leaves the screen.
+    With the keyboard up, the system takes the first press to lower it and
+    this never hears it; the next press reaches here. Without this, that
+    press popped the whole list.
+  */
+  useEffect(() => {
+    if (!composerOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeComposer();
+      return true;
+    });
+    return () => sub.remove();
+  }, [composerOpen, closeComposer]);
 
   const open = useMemo(() => openItems(items), [items]);
   const got = useMemo(() => gotItems(items), [items]);
   const summary = useMemo(() => summarizeList(items), [items]);
-  /*
-    The list a new item would go to right now. In the combined view a typed
-    `#household` beats the chip, the same precedence quick-add gives a typed
-    `#project` over the page it was typed on. The chip shows it, so the
-    pill lit up is always where Enter would send the item.
-  */
-  const routedDraft = combined
-    ? extractListToken(draft, shopLists)
-    : { text: draft, list: null };
-  const destination = routedDraft.list?.id ?? chosenTarget;
-  /** The item name `submit` would write, for the return key's armed state. */
-  const draftTitle = shopping
-    ? extractStoreTokens(routedDraft.text).title
-    : routedDraft.text.trim();
   // Every store already named on this list, most-used first. Bought items
   // count too: the cart holds last week's stores, and dropping them on a tick
   // would empty the suggestions when they are most useful.
   const stores = useMemo(() => storesOnList(items), [items]);
-  // What the composer is typing after an `@`, or null if no token is open. An
-  // empty string is a real answer: a bare `@` opens the full list.
-  //
-  // A checklist has no stores, so `@` is just a character there.
-  const storeQuery = shopping ? typingStoreToken(draft) : null;
-  const storeMatches = useMemo(
-    () =>
-      storeQuery === null
-        ? []
-        : // Shops already named on this line are left out, so a second `@`
-          // offers the ones still to pick rather than repeating the first.
-          storeSuggestions(stores, storeQuery, { exclude: storesTyped(draft) }),
-    [stores, storeQuery, draft]
-  );
-  // The composer's memory. Only runs while no `@` token is open: the two
-  // suggestion sets answer different questions and one strip cannot mean both.
-  const pantryMatches = useMemo(
-    () =>
-      storeQuery !== null ? [] : searchPantry(pantry, draft, { onList: items }),
-    [pantry, draft, items, storeQuery]
-  );
   /*
     Anything already on the list is left out of the drawer. Offering to put back
     what is on screen is noise, and excluding it makes an accidental tick
@@ -419,52 +502,21 @@ export function ListDetail({ listId }: { listId: string }) {
     [bands]
   );
 
-  const submit = useCallback(async () => {
-    const typedDraft = draft;
-    // In the combined view a `#list` token picks the list and comes out of the
-    // title. Taken out first, because the store run below reaches the end of
-    // the line and would otherwise swallow it.
-    const routed = combined
-      ? extractListToken(typedDraft, shopLists)
-      : { text: typedDraft, list: null };
-    const target = routed.list?.id ?? chosenTarget;
-    // `@` names a store, the way `#` names a project. See `extractStoreTokens`
-    // for why only the list composers parse it, not `parseTaskInput`. Only a
-    // shopping list has stores.
-    const { title, stores: typed } = shopping
-      ? extractStoreTokens(routed.text)
-      : { title: routed.text.trim(), stores: [] as string[] };
-    if (!title || !target) return;
-    // Cleared before the write, never after: the field has to be ready for the
-    // next word on the same frame, which is what a burst composer is for. `blurOnSubmit={false}` keeps the keyboard up with it.
-    setDraft('');
-    try {
-      await addListItem(
-        target,
-        {
-          title,
-          ...(typed.length > 0 ? { tags: typed.map(storeTag) } : {}),
-        },
-        combined ? { alsoInto: ALL_SHOPPING_ID } : {}
-      );
-      setAdded((n) => n + 1);
-      hapticLight();
-      if (combined) {
-        // "The list last added to" is the default for the next item, so a
-        // typed `#household` moves the chip for the rest of the burst too.
-        setLastTarget(target);
-        void saveAllShoppingTarget(target);
-      }
-    } catch {
-      // Restore exactly what they typed, every `@store` and `#list` included.
-      // Rebuilding it from the parsed parts would silently drop one of them
-      // when the network fails.
-      setDraft(typedDraft);
-      toast.show({ message: "Couldn't add that — try again" });
-    }
-  }, [draft, combined, shopLists, chosenTarget, shopping, toast]);
+  /**
+   * Writes a new item. Optimistic: the row is in the list before this
+   * resolves (see `addListItem`).
+   */
+  const addItem = useCallback(
+    (target: string, input: NewItem) =>
+      addListItem(target, input, combined ? { alsoInto: ALL_SHOPPING_ID } : {}),
+    [combined]
+  );
 
-  /** A tap on one of the combined composer's list pills. */
+  /**
+   * A list pill tap in the combined composer, and the list a combined add
+   * went to. "The list last added to" is the default for the next item, so a
+   * typed `#household` moves the pill for the rest of the burst too.
+   */
   const chooseTarget = useCallback((id: string) => {
     setLastTarget(id);
     void saveAllShoppingTarget(id);
@@ -481,25 +533,14 @@ export function ListDetail({ listId }: { listId: string }) {
     async (entry: PantryEntry) => {
       // The pantry is the target list's, so the entry goes back there.
       if (!chosenTarget) return;
-      setDraft('');
+      hapticLight();
       try {
-        await addListItem(
-          chosenTarget,
-          {
-            title: entry.title,
-            ...(entry.stores.length > 0
-              ? { tags: entry.stores.map(storeTag) }
-              : {}),
-          },
-          combined ? { alsoInto: ALL_SHOPPING_ID } : {}
-        );
-        setAdded((n) => n + 1);
-        hapticLight();
+        await addItem(chosenTarget, pantryInput(entry));
       } catch {
-        toast.show({ message: "Couldn't add that — try again" });
+        toast.show({ message: `Couldn't add ${entry.title} — try again` });
       }
     },
-    [chosenTarget, combined, toast]
+    [chosenTarget, addItem, toast]
   );
 
   /** Deletes a pantry entry. The only destructive action on this screen. */
@@ -720,6 +761,23 @@ export function ListDetail({ listId }: { listId: string }) {
     [headerColors]
   );
 
+  /*
+    The row's callbacks take the item, so every row gets the same two
+    functions and `ListItemRow`'s memo holds across renders that do not touch
+    that row.
+  */
+  const openItem = useCallback((item: Task) => setEditing(item), []);
+  // Ticking writes to the pantry, so the drawer has to reload. The write is
+  // fire-and-forget inside `TasksApi.update`, so this is a refetch rather than
+  // an optimistic patch: the client does not know what the gap arithmetic
+  // decided.
+  const onItemToggled = useCallback(
+    (item: Task) => {
+      if (shopping && item.project_id) invalidatePantry(item.project_id);
+    },
+    [shopping]
+  );
+
   const renderItem = useCallback(
     (item: Task, drag: () => void, isActive: boolean) => (
       <View style={isActive ? styles.activeRow : undefined}>
@@ -734,437 +792,351 @@ export function ListDetail({ listId }: { listId: string }) {
               ? listNames.get(item.project_id)
               : undefined
           }
-          onOpen={() => setEditing(item)}
+          onOpen={openItem}
           onDragStart={drag}
-          // Ticking writes to the pantry, so the drawer has to reload. The
-          // write is fire-and-forget inside `TasksApi.update`, so this is a
-          // refetch rather than an optimistic patch: the client does not know
-          // what the gap arithmetic decided.
-          onToggled={() => {
-            if (shopping && item.project_id) invalidatePantry(item.project_id);
-          }}
+          onToggled={onItemToggled}
+          pending={isPendingItem(item.id)}
         />
       </View>
     ),
-    [itemAisles, shopping, combined, listNames]
+    [itemAisles, shopping, combined, listNames, openItem, onItemToggled]
   );
+
+  // Only a shopping list has an aisle or a store to correct. A stand-in row
+  // has no id to correct yet.
+  const onHold = useMemo(
+    () =>
+      shopping
+        ? (item: Task) => {
+            if (!isPendingItem(item.id)) setPickingId(item.id);
+          }
+        : undefined,
+    [shopping]
+  );
+
+  /*
+    The native header's options. Memoised, because expo-router hands them to
+    `navigation.setOptions` whenever the object changes identity, and the
+    header then redraws.
+  */
+  const hasGot = got.length > 0;
+  const screenOptions = useMemo(
+    () => ({
+      title,
+      // The ring goes in the title, never in `headerLeft`: overriding that
+      // slot replaces the back button, and the only ways out left are the
+      // edge swipe and the tab, neither of which the screen says anything
+      // about. Same shape as the project screen.
+      headerTitle: () => (
+        <View style={styles.headerTitle}>
+          {combined ? (
+            // The accent rather than a list's colour: this view is every
+            // shopping list, so no one list's colour would be right.
+            <View style={[styles.ring, { backgroundColor: '#6366f1' }]}>
+              <Ionicons name="cart" size={12} color="#ffffff" />
+            </View>
+          ) : list ? (
+            <View style={[styles.ring, { backgroundColor: list.color }]}>
+              <ProjectIcon icon={list.icon} size={12} color="#ffffff" />
+            </View>
+          ) : null}
+          <Text style={styles.headerText} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
+      ),
+      headerRight: () => (
+        <View style={styles.headerRight}>
+          {hasGot && (
+            /*
+              "Put away", not "Clear bought". The write is the same — items
+              are still soft-deleted — but nothing important is lost,
+              because each was recorded in the pantry when it was ticked.
+              That is why it stays one unconfirmed tap.
+            */
+            <Pressable onPress={onClear} hitSlop={10}>
+              <Text style={styles.clear}>{copy.clear}</Text>
+            </Pressable>
+          )}
+          {combined ? (
+            /*
+              The combined view has no edit sheet, so the slot the pencil
+              takes on a list is where its "Add to Home screen" goes. On a
+              list that button lives in the edit sheet, with the other
+              once-per-list answers. Android only: an iOS app cannot put an
+              icon on the home screen.
+            */
+            Platform.OS === 'android' ? (
+              <Pressable
+                onPress={() => void pinCombined()}
+                hitSlop={10}
+                accessibilityLabel={`Add ${ALL_SHOPPING_NAME} to the home screen`}
+              >
+                <Ionicons
+                  name="phone-portrait-outline"
+                  size={20}
+                  color="#6366f1"
+                />
+              </Pressable>
+            ) : null
+          ) : (
+            /* The list's name, icon and colour were only settable at the
+               moment it was created. This is the way back to them, and the
+               only way to delete a list from the phone. */
+            <Pressable
+              onPress={() => {
+                // Not before the row has loaded: with no list the form
+                // would open as "New list".
+                if (!list) return;
+                openProjectForm({
+                  project: list,
+                  // The deleted list is this screen, so there is nothing
+                  // left to show.
+                  onDeleted: () => router.back(),
+                });
+              }}
+              hitSlop={10}
+              accessibilityLabel="Edit list"
+            >
+              <Ionicons name="create-outline" size={21} color="#6366f1" />
+            </Pressable>
+          )}
+        </View>
+      ),
+    }),
+    [title, combined, list, hasGot, onClear, copy, pinCombined, router]
+  );
+
+  /*
+    Above the list rather than inside the drawer. This is a prompt about the
+    trip you are about to make, not a record of past ones, so it has to be
+    seen before shopping rather than found afterwards.
+  */
+  const listHeader = useMemo(
+    () =>
+      due.length > 0 ? (
+        <View style={styles.due}>
+          <Text style={styles.dueHeader}>Probably due</Text>
+          <View style={styles.duePills}>
+            {due.map((entry) => (
+              <Pressable
+                key={entry.term}
+                onPress={() => void putBack(entry)}
+                style={({ pressed }) => [
+                  styles.duePill,
+                  pressed && styles.pressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${entry.title} — ${cadenceLabel(entry)}, last bought ${lastBoughtLabel(entry.last_bought_at)}`}
+              >
+                <Ionicons name="add" size={14} color="#6366f1" />
+                <Text style={styles.duePillText}>{entry.title}</Text>
+                <Text style={styles.duePillAge}>
+                  {lastBoughtLabel(entry.last_bought_at)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null,
+    [due, putBack]
+  );
+
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        tintColor="#6366f1"
+      />
+    ),
+    [refreshing, onRefresh]
+  );
+
+  const listName = list?.name;
+  const listEmpty = useMemo(
+    () =>
+      loadState.showSkeleton ? (
+        <ListSkeleton rows={5} />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : combined && shopLists.length === 0 ? (
+        // Reachable from a pinned icon after the last shopping list went.
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>No shopping lists</Text>
+          <Text style={styles.emptyHint}>
+            Turn on Shopping list in a list's settings and its items show up
+            here.
+          </Text>
+        </View>
+      ) : combined ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Nothing to buy</Text>
+          <Text style={styles.emptyHint}>
+            Tap + to add to any of your shopping lists.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Nothing on this list</Text>
+          <Text style={styles.emptyHint}>
+            Tap + to add one, or add from anywhere with #
+            {(listName ?? '').toLowerCase().replace(/\s+/g, '')}
+          </Text>
+        </View>
+      ),
+    [
+      loadState.showSkeleton,
+      loadState.showError,
+      refetch,
+      combined,
+      shopLists.length,
+      listName,
+    ]
+  );
+
+  /*
+    The pantry sits under the list as its footer. It is where the list came
+    from, so scrolling past what is left to buy to reach it is the right
+    order. A separate tab would turn putting one item back into a navigation.
+  */
+  const listFooter = useMemo(
+    () =>
+      pantryCount > 0 ? (
+        <View style={styles.pantry}>
+          <Text style={styles.pantryHeader}>Bought before · {pantryCount}</Text>
+          {bands.map((band, i) => (
+            <PantryBandView
+              key={band.key}
+              band={band}
+              defaultOpen={i === 0}
+              onAdd={putBack}
+              onForget={forget}
+            />
+          ))}
+        </View>
+      ) : null,
+    [pantryCount, bands, putBack, forget]
+  );
+
+  /*
+    The regroup at `AISLE_GROUP_MIN_ITEMS`. Below six open items the list is
+    one unlabelled group; at six it splits into aisles under headers, and
+    every row moves at once. The new layout fades up from a dim copy of
+    itself so the jump reads as a change of view rather than a glitch.
+
+    An opacity on a wrapper is the one thing that can be animated here without
+    touching the drag layer. `SectionedDraggableList` positions its cells
+    itself, and a layout transition on them would fight that. This is not a
+    true crossfade: the old layout is gone on the frame the new one draws.
+
+    Not on the first load, which is not a change, and not under Reduce Motion.
+  */
+  const grouped = sections.some((s) => s.key !== GOT_SECTION && s.title !== '');
+  const loaded = itemsQuery.data !== undefined;
+  const wasGrouped = useRef<boolean | null>(null);
+  const listOpacity = useSharedValue(1);
+  useLayoutEffect(() => {
+    if (!loaded) return;
+    const before = wasGrouped.current;
+    wasGrouped.current = grouped;
+    if (before === null || before === grouped || prefersReducedMotion()) return;
+    listOpacity.value = withSequence(
+      withTiming(REGROUP_FROM_OPACITY, { duration: 0 }),
+      withTiming(1, { duration: REGROUP_MS, easing: Easing.out(Easing.quad) })
+    );
+  }, [loaded, grouped, listOpacity]);
+  const listFadeStyle = useAnimatedStyle(() => ({
+    opacity: listOpacity.value,
+  }));
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title,
-          // The ring goes in the title, never in `headerLeft`: overriding that
-          // slot replaces the back button, and the only ways out left are the
-          // edge swipe and the tab, neither of which the screen says anything
-          // about. Same shape as the project screen.
-          headerTitle: () => (
-            <View style={styles.headerTitle}>
-              {combined ? (
-                // The accent rather than a list's colour: this view is every
-                // shopping list, so no one list's colour would be right.
-                <View style={[styles.ring, { backgroundColor: '#6366f1' }]}>
-                  <Ionicons name="cart" size={12} color="#ffffff" />
-                </View>
-              ) : list ? (
-                <View style={[styles.ring, { backgroundColor: list.color }]}>
-                  <ProjectIcon icon={list.icon} size={12} color="#ffffff" />
-                </View>
-              ) : null}
-              <Text style={styles.headerText} numberOfLines={1}>
-                {title}
-              </Text>
-            </View>
-          ),
-          headerRight: () => (
-            <View style={styles.headerRight}>
-              {got.length > 0 && (
-                /*
-                  "Put away", not "Clear bought". The write is the same — items
-                  are still soft-deleted — but nothing important is lost,
-                  because each was recorded in the pantry when it was ticked.
-                  That is why it stays one unconfirmed tap.
-                */
-                <Pressable onPress={onClear} hitSlop={10}>
-                  <Text style={styles.clear}>{copy.clear}</Text>
-                </Pressable>
-              )}
-              {combined ? (
-                /*
-                  The combined view has no edit sheet, so the slot the pencil
-                  takes on a list is where its "Add to Home screen" goes. On a
-                  list that button lives in the edit sheet, with the other
-                  once-per-list answers. Android only: an iOS app cannot put an
-                  icon on the home screen.
-                */
-                Platform.OS === 'android' ? (
-                  <Pressable
-                    onPress={() => void pinCombined()}
-                    hitSlop={10}
-                    accessibilityLabel={`Add ${ALL_SHOPPING_NAME} to the home screen`}
-                  >
-                    <Ionicons
-                      name="phone-portrait-outline"
-                      size={20}
-                      color="#6366f1"
-                    />
-                  </Pressable>
-                ) : null
-              ) : (
-                /* The list's name, icon and colour were only settable at the
-                   moment it was created. This is the way back to them, and the
-                   only way to delete a list from the phone. */
-                <Pressable
-                  onPress={() => {
-                    // Not before the row has loaded: with no list the form
-                    // would open as "New list".
-                    if (!list) return;
-                    openProjectForm({
-                      project: list,
-                      // The deleted list is this screen, so there is nothing
-                      // left to show.
-                      onDeleted: () => router.back(),
-                    });
-                  }}
-                  hitSlop={10}
-                  accessibilityLabel="Edit list"
-                >
-                  <Ionicons name="create-outline" size={21} color="#6366f1" />
-                </Pressable>
-              )}
-            </View>
-          ),
-        }}
-      />
+      <Stack.Screen options={screenOptions} />
       <UpdatingBar visible={loadState.showUpdating} />
 
       <Text style={styles.subline}>{listSubline(summary, { shopping })}</Text>
 
-      <SectionedDraggableList
-        sections={sections}
-        /*
-          The key carries which side of the list the row is on, not just its id.
+      <Animated.View style={[styles.listWrap, listFadeStyle]}>
+        <SectionedDraggableList
+          sections={sections}
+          /*
+            The key carries which side of the list the row is on, not just its
+            id.
 
-          A row plays a collapse on its way out — `ListItemRow` shrinks its own
-          height so the rows below travel up — and then the cache patch moves it
-          between the aisles and "Got it". Keyed by id alone, React reconciles
-          those as the *same* element whenever the row lands at the same index in
-          the flattened list, so the instance survives with its exit state still
-          collapsed and the row is drawn at zero height in its new section. With
-          one item on the list that is every time: a "Got it · 1" header over
-          nothing at all.
+            A row plays a collapse on its way out — `ListItemRow` shrinks its
+            own height so the rows below travel up — and then the cache patch
+            moves it between the aisles and "Got it". Keyed by id alone, React
+            reconciles those as the *same* element whenever the row lands at
+            the same index in the flattened list, so the instance survives with
+            its exit state still collapsed and the row is drawn at zero height
+            in its new section. With one item on the list that is every time:
+            a "Got it · 1" header over nothing at all.
 
-          Changing the key on the move forces a remount, which is also what the
-          row is: a fresh row, at full height, in a different place.
-        */
-        rowKey={(item) => `${item.id}:${isGot(item) ? 'got' : 'open'}`}
-        renderHeader={renderHeader}
-        renderTask={renderItem}
-        onReorder={onReorder}
-        onMove={onMove}
-        // Only a shopping list has an aisle or a store to correct.
-        onHold={shopping ? (item) => setPickingId(item.id) : undefined}
-        /*
-          Above the list rather than inside the drawer. This is a prompt about
-          the trip you are about to make, not a record of past ones, so it has
-          to be seen before shopping rather than found afterwards.
-        */
-        ListHeaderComponent={
-          due.length > 0 ? (
-            <View style={styles.due}>
-              <Text style={styles.dueHeader}>Probably due</Text>
-              <View style={styles.duePills}>
-                {due.map((entry) => (
-                  <Pressable
-                    key={entry.term}
-                    onPress={() => void putBack(entry)}
-                    style={({ pressed }) => [
-                      styles.duePill,
-                      pressed && styles.pressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Add ${entry.title} — ${cadenceLabel(entry)}, last bought ${lastBoughtLabel(entry.last_bought_at)}`}
-                  >
-                    <Ionicons name="add" size={14} color="#6366f1" />
-                    <Text style={styles.duePillText}>{entry.title}</Text>
-                    <Text style={styles.duePillAge}>
-                      {lastBoughtLabel(entry.last_bought_at)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#6366f1"
-          />
-        }
-        ListEmptyComponent={
-          loadState.showSkeleton ? (
-            <ListSkeleton rows={5} />
-          ) : loadState.showError ? (
-            <ListError onRetry={refetch} />
-          ) : combined && shopLists.length === 0 ? (
-            // Reachable from a pinned icon after the last shopping list went.
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No shopping lists</Text>
-              <Text style={styles.emptyHint}>
-                Turn on Shopping list in a list's settings and its items show
-                up here.
-              </Text>
-            </View>
-          ) : combined ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing to buy</Text>
-              <Text style={styles.emptyHint}>
-                Tap + to add to any of your shopping lists.
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing on this list</Text>
-              <Text style={styles.emptyHint}>
-                Tap + to add one, or add from anywhere with #
-                {(list?.name ?? '').toLowerCase().replace(/\s+/g, '')}
-              </Text>
-            </View>
-          )
-        }
-        // The list adds the floating tab bar's height to this itself. See
-        // `useTabBarScrollSync`.
-        contentContainerStyle={styles.listContent}
-        /*
-          The pantry sits under the list as its footer. It is where the list
-          came from, so scrolling past what is left to buy to reach it is the
-          right order. A separate tab would turn putting one item back into a
-          navigation.
-        */
-        ListFooterComponent={
-          pantryCount > 0 ? (
-            <View style={styles.pantry}>
-              <Text style={styles.pantryHeader}>
-                Bought before · {pantryCount}
-              </Text>
-              {bands.map((band, i) => (
-                <PantryBandView
-                  key={band.key}
-                  band={band}
-                  defaultOpen={i === 0}
-                  onAdd={putBack}
-                  onForget={forget}
-                />
-              ))}
-            </View>
-          ) : null
-        }
-      />
-
-      {composerOpen || !chosenTarget ? null : (
-        /*
-          The same button the task screens use. `onPress` opens this screen's
-          composer instead of the task composer; see the note at the top.
-
-          Absent when there is no list to add to: All shopping with no
-          shopping lists, whose empty state says how to get one.
-        */
-        <QuickAddButton onPress={openComposer} />
-      )}
+            Changing the key on the move forces a remount, which is also what
+            the row is: a fresh row, at full height, in a different place.
+          */
+          rowKey={itemRowKey}
+          renderHeader={renderHeader}
+          renderTask={renderItem}
+          onReorder={onReorder}
+          onMove={onMove}
+          onHold={onHold}
+          ListHeaderComponent={listHeader}
+          refreshControl={refreshControl}
+          ListEmptyComponent={listEmpty}
+          // The list adds the floating tab bar's height to this itself. See
+          // `useTabBarScrollSync`.
+          contentContainerStyle={styles.listContent}
+          ListFooterComponent={listFooter}
+        />
+      </Animated.View>
 
       {/*
-        The composer sheet, drawn over the list.
+        The same button the task screens use. `onPress` opens this screen's
+        composer instead of the task composer; see the note at the top.
 
-        Rendered inline, not in a `Modal`: on Android a Modal opens a new
-        window and closes the keyboard. Tapping the dimmed area closes the
-        sheet. The card and its suggestion strips move with the keyboard
-        together.
+        Absent when there is no list to add to: All shopping with no shopping
+        lists, whose empty state says how to get one.
 
-        The strips sit above the card, because the card sits directly on the
-        keyboard.
+        It fades out as the composer opens and back in as it closes. The fade
+        is on a full-screen wrapper because the button positions itself and
+        moves with the tab bar, and a layout animation must not sit on a view
+        whose transform something else drives. `skipEntering` keeps it from
+        fading in when the screen first opens.
       */}
-      {composerOpen ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Pressable
-            style={styles.composerScrim}
-            onPress={closeComposer}
-            accessibilityLabel="Close the composer"
-          />
+      <LayoutAnimationConfig skipEntering>
+        {composerOpen || !chosenTarget ? null : (
           <Animated.View
-            style={[
-              styles.composerDock,
-              { paddingBottom: restingGap },
-              liftStyle,
-            ]}
+            style={StyleSheet.absoluteFill}
             pointerEvents="box-none"
+            entering={FadeIn.duration(160)}
+            exiting={FadeOut.duration(120)}
           >
-            {/*
-              The composer's memory: a few keystrokes to put back something
-              bought repeatedly, with its store attached. Tapping adds it
-              directly rather than completing the field, since a confirm step
-              would undo the speed.
-            */}
-            {storeMatches.length === 0 && pantryMatches.length > 0 && (
-              <ScrollView
-                horizontal
-                keyboardShouldPersistTaps="always"
-                showsHorizontalScrollIndicator={false}
-                style={styles.storeStrip}
-                contentContainerStyle={styles.storeStripInner}
-              >
-                {pantryMatches.map((entry) => (
-                  <Pressable
-                    key={entry.term}
-                    onPress={() => {
-                      void putBack(entry);
-                      inputRef.current?.focus();
-                    }}
-                    style={({ pressed }) => [
-                      styles.pantryChip,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text style={styles.pantryChipText}>{entry.title}</Text>
-                    <Text style={styles.pantryChipAge}>
-                      {lastBoughtLabel(entry.last_bought_at)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-
-            {/*
-              The stores already on this list, offered while an `@` token is
-              open. A horizontal strip rather than a dropdown, so it sits
-              directly over the field where the thumb already is. It pushes
-              nothing around, since the row only exists while a token is open.
-            */}
-            {storeMatches.length > 0 && (
-              <ScrollView
-                horizontal
-                keyboardShouldPersistTaps="always"
-                showsHorizontalScrollIndicator={false}
-                style={styles.storeStrip}
-                contentContainerStyle={styles.storeStripInner}
-              >
-                {storeMatches.map((name) => (
-                  <Pressable
-                    key={name}
-                    onPress={() => {
-                      setDraft(applyStoreToken(draft, name));
-                      // Keep focus so the next item can be typed straight away.
-                      inputRef.current?.focus();
-                    }}
-                    style={({ pressed }) => [
-                      styles.storeChip,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text style={styles.storeChipText}>@{name}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-
-            {/*
-              Which list the item goes to, in the combined view only. One pill
-              per shopping list rather than a picker: there are usually two or
-              three, and a pill row says where the item is going before Enter
-              rather than after. A typed `#household` lights its pill, because
-              that is where the item would land.
-
-              Directly above the field, under the suggestion strips, so it does
-              not move when a strip opens.
-            */}
-            {combined && shopLists.length > 0 && (
-              <ScrollView
-                horizontal
-                keyboardShouldPersistTaps="always"
-                showsHorizontalScrollIndicator={false}
-                style={[styles.storeStrip, styles.targetStrip]}
-                contentContainerStyle={styles.storeStripInner}
-              >
-                {shopLists.map((l) => {
-                  const selected = l.id === destination;
-                  return (
-                    <Pressable
-                      key={l.id}
-                      onPress={() => {
-                        chooseTarget(l.id);
-                        inputRef.current?.focus();
-                      }}
-                      style={({ pressed }) => [
-                        styles.targetPill,
-                        selected && styles.targetPillSelected,
-                        pressed && styles.pressed,
-                      ]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}
-                      accessibilityLabel={`Add to ${l.name}`}
-                    >
-                      <View
-                        style={[styles.targetDot, { backgroundColor: l.color }]}
-                      />
-                      <Text
-                        style={[
-                          styles.targetText,
-                          selected && styles.targetTextSelected,
-                        ]}
-                      >
-                        {l.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            <View
-              style={styles.composer}
-              onLayout={(e) => setComposerWidth(e.nativeEvent.layout.width)}
-            >
-              <ComposerActionGlyph
-                width={composerWidth}
-                active={composerFocused || draft.length > 0}
-                // The same test `submit` guards on, so the return key is live
-                // exactly when pressing it would write something.
-                armed={draftTitle.length > 0 && !!destination}
-                onSubmit={() => void submit()}
-                onFocusField={() => inputRef.current?.focus()}
-                idleLabel="Add an item"
-                submitLabel="Add this item"
-              />
-              {/* The field keeps clear of both gutters at all times, so the
-                  glyph has somewhere to sit at either end and the "N added"
-                  receipt never lands under it. */}
-              <View style={styles.composerField}>
-                <TextInput
-                  ref={inputRef}
-                  value={draft}
-                  onChangeText={setDraft}
-                  onSubmitEditing={submit}
-                  onFocus={() => setComposerFocused(true)}
-                  onBlur={() => setComposerFocused(false)}
-                  // The field mounts when the sheet opens, so autoFocus
-                  // raises the keyboard as soon as the plus is tapped.
-                  autoFocus
-                  // The two props that make this a burst rather than one item:
-                  // the keyboard stays up, and return commits instead of
-                  // dismissing.
-                  blurOnSubmit={false}
-                  returnKeyType="done"
-                  submitBehavior="submit"
-                  placeholder={copy.placeholder}
-                  placeholderTextColor="#9ca3af"
-                  style={styles.input}
-                />
-                {added > 0 && <Text style={styles.added}>{added} added</Text>}
-              </View>
-            </View>
+            <QuickAddButton onPress={openComposer} />
           </Animated.View>
-        </View>
+        )}
+      </LayoutAnimationConfig>
+
+      {composerMounted ? (
+        <ListComposer
+          key={composerSession}
+          open={composerOpen}
+          shown={composerShown}
+          liftStyle={liftStyle}
+          restingGap={restingGap}
+          combined={combined}
+          shopping={shopping}
+          placeholder={copy.placeholder}
+          shopLists={shopLists}
+          chosenTarget={chosenTarget}
+          items={items}
+          stores={stores}
+          pantry={pantry}
+          onAdd={addItem}
+          onChooseTarget={chooseTarget}
+          onClose={closeComposer}
+        />
       ) : null}
 
       <ItemSheet
@@ -1187,6 +1159,362 @@ export function ListDetail({ listId }: { listId: string }) {
         onClose={() => setEditing(null)}
         onSaved={() => invalidateLists(listId)}
       />
+    </View>
+  );
+}
+
+/**
+ * The list composer: the suggestion strips, the list pills and the field.
+ *
+ * Its own component so that typing re-renders only this. The text, the
+ * "N added" receipt, and everything read off the text (the `@store`
+ * autocomplete, the pantry search, which pill is lit) live here. The screen
+ * above holds none of it, so a keystroke no longer redraws the header, the
+ * rows or the pantry drawer.
+ *
+ * Rendered inline, not in a `Modal`: on Android a Modal opens a new window
+ * and closes the keyboard. Tapping the dimmed area closes the sheet. The card
+ * and its suggestion strips move with the keyboard together. The strips sit
+ * above the card, because the card sits directly on the keyboard.
+ *
+ * Two views move the card, and they must stay separate. The outer one follows
+ * the keyboard (`liftStyle`). The inner one plays the entrance and exit off
+ * `shown`. Putting both on one transform would make each overwrite the other.
+ */
+function ListComposer({
+  open,
+  shown,
+  liftStyle,
+  restingGap,
+  combined,
+  shopping,
+  placeholder,
+  shopLists,
+  chosenTarget,
+  items,
+  stores,
+  pantry,
+  onAdd,
+  onChooseTarget,
+  onClose,
+}: {
+  /** False while the exit plays. The sheet stops taking touches at once. */
+  open: boolean;
+  /** 0 closed, 1 open. Owned by the screen, which unmounts this at 0. */
+  shown: SharedValue<number>;
+  liftStyle: ReturnType<typeof useAnimatedStyle>;
+  restingGap: number;
+  combined: boolean;
+  shopping: boolean;
+  placeholder: string;
+  shopLists: Project[];
+  chosenTarget: string | null;
+  items: Task[];
+  stores: string[];
+  pantry: PantryEntry[];
+  onAdd: (target: string, input: NewItem) => Promise<unknown>;
+  onChooseTarget: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const [added, setAdded] = useState(0);
+  // What moves the action glyph to the trailing edge. Text counts as well
+  // as focus: a half-typed item the keyboard has been dismissed over still
+  // has something to commit.
+  const [focused, setFocused] = useState(false);
+  // The glyph travels the field's width, so the field has to report it.
+  const [width, setWidth] = useState(0);
+  const inputRef = useRef<TextInput>(null);
+  const toast = useUndoToast();
+
+  /*
+    The list a new item would go to right now. In the combined view a typed
+    `#household` beats the chip, the same precedence quick-add gives a typed
+    `#project` over the page it was typed on. The chip shows it, so the
+    pill lit up is always where Enter would send the item.
+  */
+  const routedDraft = combined
+    ? extractListToken(draft, shopLists)
+    : { text: draft, list: null };
+  const destination = routedDraft.list?.id ?? chosenTarget;
+  /** The item name `submit` would write, for the return key's armed state. */
+  const draftTitle = shopping
+    ? extractStoreTokens(routedDraft.text).title
+    : routedDraft.text.trim();
+  // What the composer is typing after an `@`, or null if no token is open. An
+  // empty string is a real answer: a bare `@` opens the full list.
+  //
+  // A checklist has no stores, so `@` is just a character there.
+  const storeQuery = shopping ? typingStoreToken(draft) : null;
+  const storeMatches = useMemo(
+    () =>
+      storeQuery === null
+        ? []
+        : // Shops already named on this line are left out, so a second `@`
+          // offers the ones still to pick rather than repeating the first.
+          storeSuggestions(stores, storeQuery, { exclude: storesTyped(draft) }),
+    [stores, storeQuery, draft]
+  );
+  // The composer's memory. Only runs while no `@` token is open: the two
+  // suggestion sets answer different questions and one strip cannot mean both.
+  const pantryMatches = useMemo(
+    () =>
+      storeQuery !== null ? [] : searchPantry(pantry, draft, { onList: items }),
+    [pantry, draft, items, storeQuery]
+  );
+
+  /*
+    Commits one item. The row, the haptic and the "N added" count all land on
+    this frame, because `addListItem` is optimistic. A failed write takes the
+    count back and says which item did not go in.
+  */
+  const commit = useCallback(
+    async (target: string, input: NewItem, typed: string) => {
+      setAdded((n) => n + 1);
+      hapticLight();
+      try {
+        await onAdd(target, input);
+      } catch {
+        setAdded((n) => Math.max(0, n - 1));
+        // Restore exactly what they typed, every `@store` and `#list`
+        // included, unless they have already started the next item: the
+        // burst moved on, and overwriting it would lose that word instead.
+        // Rebuilding it from the parsed parts would silently drop one of them
+        // when the network fails.
+        if (typed) setDraft((current) => (current === '' ? typed : current));
+        toast.show({ message: `Couldn't add ${input.title} — try again` });
+      }
+    },
+    [onAdd, toast]
+  );
+
+  const submit = useCallback(() => {
+    const typedDraft = draft;
+    // In the combined view a `#list` token picks the list and comes out of the
+    // title. Taken out first, because the store run below reaches the end of
+    // the line and would otherwise swallow it.
+    const routed = combined
+      ? extractListToken(typedDraft, shopLists)
+      : { text: typedDraft, list: null };
+    const target = routed.list?.id ?? chosenTarget;
+    // `@` names a store, the way `#` names a project. See `extractStoreTokens`
+    // for why only the list composers parse it, not `parseTaskInput`. Only a
+    // shopping list has stores.
+    const { title, stores: typed } = shopping
+      ? extractStoreTokens(routed.text)
+      : { title: routed.text.trim(), stores: [] as string[] };
+    if (!title || !target) return;
+    // Cleared before the write, never after: the field has to be ready for the
+    // next word on the same frame, which is what a burst composer is for.
+    // `blurOnSubmit={false}` keeps the keyboard up with it.
+    setDraft('');
+    // The pill moves with the item, so the rest of the burst goes there too.
+    if (combined) onChooseTarget(target);
+    void commit(
+      target,
+      { title, ...(typed.length > 0 ? { tags: typed.map(storeTag) } : {}) },
+      typedDraft
+    );
+  }, [draft, combined, shopLists, chosenTarget, shopping, onChooseTarget, commit]);
+
+  /** A pantry chip: puts the item back with its stores, and clears the field. */
+  const putBack = useCallback(
+    (entry: PantryEntry) => {
+      if (!chosenTarget) return;
+      setDraft('');
+      void commit(chosenTarget, pantryInput(entry), '');
+    },
+    [chosenTarget, commit]
+  );
+
+  const scrimStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: shown.value,
+    transform: [{ translateY: (1 - shown.value) * COMPOSER_SLIDE_PX }],
+  }));
+
+  return (
+    <View
+      style={StyleSheet.absoluteFill}
+      pointerEvents={open ? 'box-none' : 'none'}
+    >
+      <Animated.View style={[styles.composerScrim, scrimStyle]}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityLabel="Close the composer"
+        />
+      </Animated.View>
+      <Animated.View
+        style={[styles.composerDock, { paddingBottom: restingGap }, liftStyle]}
+        pointerEvents="box-none"
+      >
+        <Animated.View style={cardStyle} pointerEvents="box-none">
+          {/*
+            The composer's memory: a few keystrokes to put back something
+            bought repeatedly, with its store attached. Tapping adds it
+            directly rather than completing the field, since a confirm step
+            would undo the speed.
+          */}
+          {storeMatches.length === 0 && pantryMatches.length > 0 && (
+            <ScrollView
+              horizontal
+              keyboardShouldPersistTaps="always"
+              showsHorizontalScrollIndicator={false}
+              style={styles.storeStrip}
+              contentContainerStyle={styles.storeStripInner}
+            >
+              {pantryMatches.map((entry) => (
+                <Pressable
+                  key={entry.term}
+                  onPress={() => {
+                    putBack(entry);
+                    inputRef.current?.focus();
+                  }}
+                  style={({ pressed }) => [
+                    styles.pantryChip,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.pantryChipText}>{entry.title}</Text>
+                  <Text style={styles.pantryChipAge}>
+                    {lastBoughtLabel(entry.last_bought_at)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {/*
+            The stores already on this list, offered while an `@` token is
+            open. A horizontal strip rather than a dropdown, so it sits
+            directly over the field where the thumb already is. It pushes
+            nothing around, since the row only exists while a token is open.
+          */}
+          {storeMatches.length > 0 && (
+            <ScrollView
+              horizontal
+              keyboardShouldPersistTaps="always"
+              showsHorizontalScrollIndicator={false}
+              style={styles.storeStrip}
+              contentContainerStyle={styles.storeStripInner}
+            >
+              {storeMatches.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => {
+                    setDraft((current) => applyStoreToken(current, name));
+                    // Keep focus so the next item can be typed straight away.
+                    inputRef.current?.focus();
+                  }}
+                  style={({ pressed }) => [
+                    styles.storeChip,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.storeChipText}>@{name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {/*
+            Which list the item goes to, in the combined view only. One pill
+            per shopping list rather than a picker: there are usually two or
+            three, and a pill row says where the item is going before Enter
+            rather than after. A typed `#household` lights its pill, because
+            that is where the item would land.
+
+            Directly above the field, under the suggestion strips, so it does
+            not move when a strip opens.
+          */}
+          {combined && shopLists.length > 0 && (
+            <ScrollView
+              horizontal
+              keyboardShouldPersistTaps="always"
+              showsHorizontalScrollIndicator={false}
+              style={[styles.storeStrip, styles.targetStrip]}
+              contentContainerStyle={styles.storeStripInner}
+            >
+              {shopLists.map((l) => {
+                const selected = l.id === destination;
+                return (
+                  <Pressable
+                    key={l.id}
+                    onPress={() => {
+                      onChooseTarget(l.id);
+                      inputRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.targetPill,
+                      selected && styles.targetPillSelected,
+                      pressed && styles.pressed,
+                    ]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Add to ${l.name}`}
+                  >
+                    <View
+                      style={[styles.targetDot, { backgroundColor: l.color }]}
+                    />
+                    <Text
+                      style={[
+                        styles.targetText,
+                        selected && styles.targetTextSelected,
+                      ]}
+                    >
+                      {l.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          <View
+            style={styles.composer}
+            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+          >
+            <ComposerActionGlyph
+              width={width}
+              active={focused || draft.length > 0}
+              // The same test `submit` guards on, so the return key is live
+              // exactly when pressing it would write something.
+              armed={draftTitle.length > 0 && !!destination}
+              onSubmit={submit}
+              onFocusField={() => inputRef.current?.focus()}
+              idleLabel="Add an item"
+              submitLabel="Add this item"
+            />
+            {/* The field keeps clear of both gutters at all times, so the
+                glyph has somewhere to sit at either end and the "N added"
+                receipt never lands under it. */}
+            <View style={styles.composerField}>
+              <TextInput
+                ref={inputRef}
+                value={draft}
+                onChangeText={setDraft}
+                onSubmitEditing={submit}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                // The field mounts when the sheet opens, so autoFocus
+                // raises the keyboard as soon as the plus is tapped.
+                autoFocus
+                // The two props that make this a burst rather than one item:
+                // the keyboard stays up, and return commits instead of
+                // dismissing.
+                blurOnSubmit={false}
+                returnKeyType="done"
+                submitBehavior="submit"
+                placeholder={placeholder}
+                placeholderTextColor="#9ca3af"
+                style={styles.input}
+              />
+              {added > 0 && <Text style={styles.added}>{added} added</Text>}
+            </View>
+          </View>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -1429,6 +1757,7 @@ function ItemSheet({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
+  listWrap: { flex: 1 },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerText: { fontSize: 17, fontWeight: '700', color: '#111827' },
   ring: {
