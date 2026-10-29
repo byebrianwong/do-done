@@ -239,11 +239,20 @@ export function BottomSheet({
     if (visible) setMounted(true);
   }, [visible]);
 
+  // Android has no native dismissal to report, so `onClosed` fires one frame
+  // after the `Modal` has committed hidden, rather than in the same tick as
+  // the exit landing, when its window would still hold focus.
+  const closedPending = useRef(false);
   const onExited = useCallback(() => {
+    if (Platform.OS !== 'ios') closedPending.current = true;
     setMounted(false);
-    // iOS reports this from the native dismissal instead, which comes after.
-    if (Platform.OS !== 'ios') onClosedRef.current?.();
   }, []);
+  useEffect(() => {
+    if (mounted || !closedPending.current) return;
+    closedPending.current = false;
+    const frame = requestAnimationFrame(() => onClosedRef.current?.());
+    return () => cancelAnimationFrame(frame);
+  }, [mounted]);
 
   const { translateY, sheetHeight, onLayout, releaseWith, sheetStyle, backdropStyle } =
     useSheetMotion(visible, onExited);
@@ -313,6 +322,9 @@ export function BottomSheet({
             // A sheet on its way out takes no more taps.
             pointerEvents={visible ? 'auto' : 'none'}
             accessibilityViewIsModal
+            // VoiceOver cannot reach the backdrop past a modal view, and some
+            // sheets have no row that only closes. The escape gesture does.
+            onAccessibilityEscape={onClose}
             style={[
               styles.sheet,
               style,
