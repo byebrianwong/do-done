@@ -1670,8 +1670,9 @@ the moment the project ending, not the task's size.
 counts through two contexts in `task-row-behavior.tsx`. Section and project are provided
 at different depths — a project page groups by status, so the project's last open task is
 not the last in any group — and one context would have the inner erase the outer. Mobile
-passes props, matching the split already documented on `keepsCompleted`, and the props are getters (`lib/section-counts.ts`) that read the count when
-the row is tapped. A plain number changed on every completion in the section and
+passes props, matching the split already documented on `keepsCompleted`, and the
+props are getters (`lib/section-counts.ts`) that read the count when the row is
+tapped. A plain number changed on every completion in the section and
 re-rendered every row beside the one that was ticked.
 
 **A missing count means "this surface cannot tell" and is deliberately different from

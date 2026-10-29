@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '@do-done/shared';
 
 import {
+  carryDrop,
   collectSectionTaskIds,
   flatten,
   flattenReusing,
@@ -288,5 +289,49 @@ describe('flattenReusing', () => {
     const first = flattenReusing([a], [], key);
     expect(first[1].key).toBe('1:open');
     expect(flattenReusing([a], first, key)).toBe(first);
+  });
+});
+
+/**
+ * A screen can rebuild its section objects without any task changing. The drop
+ * the user just made must survive that, or the row jumps back to where it was
+ * picked up until the write's own patch lands.
+ */
+describe('carryDrop', () => {
+  const a = section('a', ['1', '2']);
+  const b = section('b', ['3']);
+  const base = flattenReusing([a, b], []);
+  // The drop: task 1 moved under b.
+  const dropRows: Row[] = [
+    base[0],
+    base[2],
+    base[3],
+    base[4],
+    { ...(base[1] as Extract<Row, { kind: 'task' }>), sectionKey: 'b' },
+  ];
+
+  it('keeps the drop when only the headers changed', () => {
+    const next = flattenReusing([{ ...a }, { ...b }], base);
+    const carried = carryDrop(dropRows, base, next);
+    expect(carried?.map((r) => r.key)).toEqual(['h:a', '2', 'h:b', '3', '1']);
+    // The new header rows, so a header still redraws with its new section.
+    expect(carried?.[0]).toBe(next[0]);
+    expect(carried?.[2]).toBe(next[3]);
+  });
+
+  it('lets the cache win when a task changed', () => {
+    const edited = [{ ...a.data[0], title: 'x' } as Task, a.data[1]];
+    const next = flattenReusing([{ ...a, data: edited }, b], base);
+    expect(carryDrop(dropRows, base, next)).toBeNull();
+  });
+
+  it('lets the cache win when a task left', () => {
+    const next = flattenReusing([{ ...a, data: [a.data[0]] }, b], base);
+    expect(carryDrop(dropRows, base, next)).toBeNull();
+  });
+
+  it('lets the cache win when a section appeared', () => {
+    const next = flattenReusing([a, b, section('c', [])], base);
+    expect(carryDrop(dropRows, base, next)).toBeNull();
   });
 });

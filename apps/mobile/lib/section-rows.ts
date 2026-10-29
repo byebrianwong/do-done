@@ -98,6 +98,52 @@ export function flattenReusing(
 }
 
 /**
+ * Keep a drop's order across new rows that changed only their headers.
+ *
+ * `SectionedDraggableList` shows a drop from a local copy until the cache
+ * sends new rows. A screen can rebuild its section objects without any task
+ * changing (a shopping list when its aisle memory updates, Upcoming when the
+ * calendar refetches), and that gives every header a new row. Discarding the
+ * drop then would draw the row back where it was picked up until the write's
+ * own patch lands.
+ *
+ * Returns the drop's order with the new header rows swapped in, when the task
+ * rows in `next` are exactly the ones in `base` (same keys, same objects) and
+ * the set of headers is the same. Returns null otherwise: the tasks changed,
+ * so the cache's order is the newer answer.
+ */
+export function carryDrop(dropRows: Row[], base: Row[], next: Row[]): Row[] | null {
+  const baseByKey = new Map<string, Row>();
+  for (const r of base) baseByKey.set(r.key, r);
+  const nextHeaders = new Map<string, Row>();
+  let nextTasks = 0;
+  for (const r of next) {
+    if (r.kind === 'header') {
+      nextHeaders.set(r.key, r);
+      continue;
+    }
+    if (baseByKey.get(r.key) !== r) return null;
+    nextTasks++;
+  }
+  let baseTasks = 0;
+  for (const r of base) if (r.kind === 'task') baseTasks++;
+  if (baseTasks !== nextTasks) return null;
+  const out: Row[] = [];
+  let headers = 0;
+  for (const r of dropRows) {
+    if (r.kind !== 'header') {
+      out.push(r);
+      continue;
+    }
+    const h = nextHeaders.get(r.key);
+    if (!h) return null;
+    headers++;
+    out.push(h);
+  }
+  return headers === nextHeaders.size ? out : null;
+}
+
+/**
  * Is there a task in these rows? The list is empty when there isn't, however
  * many headers it happens to be carrying.
  */

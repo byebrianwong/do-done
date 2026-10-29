@@ -105,7 +105,7 @@ export function TodayView() {
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.
   const loadState = useListLoadState(todayQuery);
-  // Names, colours and icons only. The counts query changes on every tick,
+  // Names and colours only. The counts query changes on every tick,
   // which would hand `applyDisplay` a new project list each time.
   const { data: projects } = useProjects();
   // Today only, in the device's local day (the fetch passes the device

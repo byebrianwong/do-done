@@ -37,6 +37,7 @@ import DraggableFlatList, {
 import type { Task } from '@do-done/shared';
 
 import {
+  carryDrop,
   flattenReusing,
   hasTaskRows,
   resolveDrop,
@@ -218,14 +219,20 @@ function SectionedDraggableList({
   );
   seededRef.current = seeded;
 
-  // A drop's result, shown until the next `seeded` replaces it. Without it the
+  // A drop's result, shown until new task rows replace it. Without it the
   // row would snap back to where it was picked up for the round trip the
   // write takes. Tagged with the `seeded` it was made from, so new data from
   // the cache always wins over a stale drop.
   const [dropped, setDropped] = useState<{ base: Row[]; rows: Row[] } | null>(
     null
   );
-  const rows = dropped && dropped.base === seeded ? dropped.rows : seeded;
+  // A drop also survives new rows whose only change is their headers, since a
+  // screen can rebuild its sections without any task changing. See `carryDrop`.
+  const rows = useMemo(() => {
+    if (!dropped) return seeded;
+    if (dropped.base === seeded) return dropped.rows;
+    return carryDrop(dropped.rows, dropped.base, seeded) ?? seeded;
+  }, [dropped, seeded]);
 
   // New row order mid-drag means the drag is over. The library cancels a drag
   // when its data's keys change, and does not call `onDragEnd` when it does,
@@ -271,8 +278,9 @@ function SectionedDraggableList({
             result.orderedIds
           ) === false
         ) {
-          // A fresh array in the original order, so the list re-renders and
-          // the library lets go of the order the finger left it in.
+          // A fresh array in the original order, so the list re-renders with
+          // the row back where it was picked up. The same as before this
+          // change; not yet checked on a device.
           setDropped({ base: seededRef.current, rows: [...seededRef.current] });
         }
         return;

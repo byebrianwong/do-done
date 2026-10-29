@@ -149,7 +149,7 @@ export function UpcomingView() {
   const tasksQuery = useAllTasks();
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
-  // Names, colours and icons only. The counts query changes on every tick,
+  // Names and colours only. The counts query changes on every tick,
   // which would hand `applyDisplay` a new project list each time.
   const { data: projects } = useProjects();
   const [editing, setEditing] = useState<Task | null>(null);
