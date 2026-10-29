@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -33,6 +33,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useListLoadState } from '@/lib/list-load-state';
+import { leavesBySection } from '@/lib/row-leave';
 import {
   invalidateTasks,
   moveTask,
@@ -88,6 +89,20 @@ function sectionTarget(key: string): UpdateTaskInput {
   return { scheduled_date: key }; // a YYYY-MM-DD day
 }
 
+/**
+ * Which section the curated layout puts a task in: 'overdue', a YYYY-MM-DD
+ * day, 'later' or 'anytime'. Null for a finished task, which this layout never
+ * shows. `buildSections` places rows with this, and the reschedule exit asks it
+ * where a row would go, so the two cannot disagree.
+ */
+function upcomingSectionKey(t: Task, horizonEnd: string): string | null {
+  if (t.status === 'done' || t.status === 'cancelled') return null;
+  if (isOverdue(t)) return 'overdue';
+  const d = effectiveDate(t);
+  if (!d) return 'anytime';
+  return d <= horizonEnd ? d : 'later';
+}
+
 // Build ordered date sections: Overdue → Today → Tomorrow → each dated day in
 // the horizon → Later (beyond the horizon) → Anytime (undated). Days that only
 // have calendar events (no tasks) still get a section so the events show.
@@ -114,18 +129,12 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   };
 
   for (const t of tasks) {
-    if (t.status === 'done' || t.status === 'cancelled') continue;
-    if (isOverdue(t)) {
-      overdue.push(t);
-      continue;
-    }
-    const d = effectiveDate(t);
-    if (d) {
-      if (d <= horizonEnd) push(d, t);
-      else later.push(t);
-    } else {
-      anytime.push(t);
-    }
+    const key = upcomingSectionKey(t, horizonEnd);
+    if (key === null) continue;
+    if (key === 'overdue') overdue.push(t);
+    else if (key === 'later') later.push(t);
+    else if (key === 'anytime') anytime.push(t);
+    else push(key, t);
   }
 
   const out: DraggableSection[] = [];
@@ -253,9 +262,24 @@ export function UpcomingView() {
     [config, setConfig, countByKey, eventsByDay]
   );
 
-  // With "show completed" on, a ticked-off task stays in this list, so its row
-  // must not play the collapse-and-vanish completion exit.
-  const keepsCompleted = config.showCompleted;
+  // This layout never shows a finished task (`upcomingSectionKey` drops it),
+  // even with "show completed" on, so a completed row always leaves. It used
+  // to read the config here, and with Show completed on the row skipped its
+  // exit and vanished on the tap.
+  //
+  // A reschedule leaves when it changes the row's day section. The filters
+  // still apply, so a row the config would now hide leaves too.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        filterByConfig([t], configRef.current).length === 0
+          ? null
+          : upcomingSectionKey(t, addDaysLocalISO(HORIZON_DAYS))
+      ),
+    []
+  );
   const renderTask = useCallback(
     (
       task: Task,
@@ -268,7 +292,7 @@ export function UpcomingView() {
           task={task}
           onPress={handlePress}
           onDragStart={drag}
-          keepsCompleted={keepsCompleted}
+          leavesSection={leavesSection}
           // A day section's header is the day, so its rows keep only their
           // time. The sentinel sections (Overdue / Later / Anytime) name no
           // single day, so those rows still print their own.
@@ -277,7 +301,7 @@ export function UpcomingView() {
         />
       </View>
     ),
-    [handlePress, keepsCompleted]
+    [handlePress, leavesSection]
   );
 
   const refreshControl = (

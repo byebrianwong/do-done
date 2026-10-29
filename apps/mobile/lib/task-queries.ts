@@ -541,7 +541,50 @@ export interface ToggleCompleteOptions {
    * `not_started`. Ignored when completing.
    */
   restoreStatus?: TaskStatus;
+  /**
+   * Completing only: the list on screen keeps done tasks ("Show completed"
+   * is on), so mark the row done in place rather than filtering it out.
+   *
+   * Filtering it took the row out of `everything` and `project` too, which do
+   * hold done tasks. The check never showed, and the row came back under Done a
+   * round trip later. Each view's own filter hides done rows unless Show
+   * completed is on, so patching in place is safe for every view that reads
+   * these caches. The inbox cache is the exception and is still filtered: its
+   * query is `status = inbox`, so the server would drop the row anyway, and the
+   * tab badge counts that cache directly.
+   */
+  keepInLists?: boolean;
 }
+
+/**
+ * The fields a completion or a reopen changes, as the write will produce them.
+ * The same guard `TasksApi.reopen` applies, so the row the user sees is the row
+ * the write is about to produce.
+ */
+export function completionPatch(
+  complete: boolean,
+  restoreStatus?: TaskStatus,
+  now: Date = new Date()
+): Pick<Task, 'status' | 'completed_at'> {
+  return {
+    status: complete
+      ? 'done'
+      : restoreStatus && restoreStatus !== 'done'
+        ? restoreStatus
+        : 'not_started',
+    completed_at: complete ? now.toISOString() : null,
+  };
+}
+
+/**
+ * The caches a completion patches in place whatever the screen, because they
+ * keep done rows: a tag list and search results. Without this a reopened row
+ * there kept its done styling until the refetch.
+ */
+const KEEPS_DONE_ROOTS: readonly (readonly unknown[])[] = [
+  [...taskKeys.all, 'tag'],
+  [...taskKeys.all, 'search'],
+];
 
 /**
  * Completion writes in flight, one chain per task id, and the sequence number
@@ -604,41 +647,34 @@ async function runToggleComplete(
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
 
+  const patch = completionPatch(complete, options.restoreStatus);
+  const inPlace = (old: Task[]) =>
+    old.map((t) => (t.id === id ? { ...t, ...patch } : t));
+  const without = (old: Task[]) => old.filter((t) => t.id !== id);
+
   const dropFromLists = () => {
     if (complete) {
-      // Drop from active lists (today / inbox / project).
-      patchTaskLists((old) => old.filter((t) => t.id !== id), taskKeys.lists());
+      if (options.keepInLists) {
+        // The list on screen keeps done rows, so the row stays and turns done.
+        patchTaskLists(inPlace, taskKeys.lists());
+        patchTaskLists(without, taskKeys.inbox());
+      } else {
+        // Drop from active lists (today / inbox / project / all).
+        patchTaskLists(without, taskKeys.lists());
+      }
     } else {
-      // Reopening removes the row from the completed list.
-      patchTaskLists(
-        (old) => old.filter((t) => t.id !== id),
-        taskKeys.completed()
-      );
+      // Reopening removes the row from the completed list, and turns it open
+      // again in any active list that still held it as done.
+      patchTaskLists(without, taskKeys.completed());
+      patchTaskLists(inPlace, taskKeys.lists());
     }
+    for (const root of KEEPS_DONE_ROOTS) patchTaskLists(inPlace, root);
     // A shopping list keeps its items either way: ticking one moves it into
     // the "Got it" section rather than out of the list. So this root is
     // patched in place rather than filtered — without it the row's only way
     // to reach the cart was the refetch, which arrives a round trip after the
     // animation has finished and reads as the item vanishing and coming back.
-    patchTaskLists(
-      (old) =>
-        old.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                // The same guard `TasksApi.reopen` applies, so the row the
-                // user sees is the row the write is about to produce.
-                status: complete
-                  ? 'done'
-                  : options.restoreStatus && options.restoreStatus !== 'done'
-                    ? options.restoreStatus
-                    : 'not_started',
-                completed_at: complete ? new Date().toISOString() : null,
-              }
-            : t
-        ),
-      listKeys.items()
-    );
+    patchTaskLists(inPlace, listKeys.items());
   };
 
   // Without a hold this is the usual optimistic patch: the row goes on the same
@@ -679,13 +715,36 @@ async function runToggleComplete(
   if (!superseded()) invalidateTasks();
 }
 
+export interface UpdateTaskOptions {
+  /**
+   * Leave the cache alone for this long so the caller's exit animation can play
+   * over the row. Same contract as {@link DeleteTaskOptions.holdMs}.
+   *
+   * A patch that moves a task out of the list on screen (a reschedule off
+   * Today) used to land on the tap, so the row vanished in one frame and the
+   * rows below jumped up. Zero, the default, is that behaviour, and is right
+   * for any write that leaves the row where it is.
+   */
+  holdMs?: number;
+}
+
 /** Patch a task in place across every cached list (reschedule, field edits). */
-export async function updateTask(id: string, input: UpdateTaskInput) {
+export async function updateTask(
+  id: string,
+  input: UpdateTaskInput,
+  options: UpdateTaskOptions = {}
+) {
+  const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  patchTaskLists((old) =>
-    old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
-  );
+  const applyPatch = () =>
+    patchTaskLists((old) =>
+      old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
+    );
+
+  if (holdMs === 0) applyPatch();
+
+  const startedAt = Date.now();
   try {
     const api = await getTasksApi();
     const { error, autoSync } = await api.update(id, input);
@@ -697,11 +756,23 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     // remember to.
     notifyAutoSync(autoSync?.notice);
   } catch (e) {
+    // A no-op when the patch was held, which is right: the caller un-collapses
+    // the row and it was never missing from the list.
     restoreTaskLists(prev);
-    throw e;
-  } finally {
     invalidateTasks();
+    throw e;
   }
+
+  if (holdMs > 0) {
+    // Measured from the tap, as `deleteTask` does: a slow write has already
+    // spent part of the animation.
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    applyPatch();
+  }
+  // Held until now on purpose: a refetch landing mid-animation would move the
+  // row out from under its own exit.
+  invalidateTasks();
 }
 
 export interface DeleteTaskOptions {
@@ -820,13 +891,18 @@ export interface BulkWriteResult {
  * failed is what made a bulk reschedule look like it silently undid itself.
  */
 async function bulkPatchTasks(
-  patches: Array<{ id: string; input: UpdateTaskInput }>
+  patches: Array<{ id: string; input: UpdateTaskInput }>,
+  options: UpdateTaskOptions = {}
 ): Promise<BulkWriteResult> {
   if (patches.length === 0) return { updated: 0, failed: 0 };
+  const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const byId = new Map(patches.map((p) => [p.id, p.input]));
   const prevById = snapshotTasksById(new Set(byId.keys()));
-  patchCachedTasks(byId);
+  // With a hold the cache is left alone until the caller's exit has played;
+  // the re-assert below then applies the rows that landed.
+  if (holdMs === 0) patchCachedTasks(byId);
+  const startedAt = Date.now();
 
   let failedIds: string[];
   try {
@@ -839,6 +915,10 @@ async function bulkPatchTasks(
   }
 
   const failed = new Set(failedIds);
+  if (holdMs > 0) {
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+  }
   // Re-assert the patch for everything that landed. A background refetch kicked
   // off mid-write (screen focus, app resume) can resolve *after* the optimistic
   // patch and overwrite it with pre-write rows — the longer the batch, the wider
@@ -868,7 +948,8 @@ export async function bulkUpdateTasks(
  */
 export async function bulkRescheduleTasks(
   ids: string[],
-  date: string
+  date: string,
+  options: UpdateTaskOptions = {}
 ): Promise<BulkWriteResult> {
   const byId = snapshotTasksById(new Set(ids));
   return bulkPatchTasks(
@@ -877,7 +958,8 @@ export async function bulkRescheduleTasks(
       const input: UpdateTaskInput = { scheduled_date: date };
       if (task?.deadline_date && task.deadline_date < date) input.deadline_date = date;
       return { id, input };
-    })
+    }),
+    options
   );
 }
 

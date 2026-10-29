@@ -2499,6 +2499,78 @@ longer, and both envelopes comfortably inside the undo window.
   afterwards is asking twice. `deleteTask` takes a `holdMs` so the optimistic cache
   patch waits for the animation, exactly as `toggleComplete` does.
 
+### A row that moves to another list (mobile)
+
+The third exit, for a task that still exists and is still open but now belongs
+somewhere else. It fades where it stands, then closes, and does not travel:
+
+```
+completion   hold reading as done, then slide RIGHT   filed
+deletion     dim where it stands, then slide LEFT     removed
+move         fade where it stands, then close         moved
+```
+
+```
+  0 → 180   the row fades out at full height    fade
+180 → 400   height closes, no slide              collapse
+```
+
+Constants are `TASK_MOVE_*` in `packages/shared/src/constants.ts`, tested beside
+the deletion's in `delete-motion.test.ts`. `useRowExit().startMove()` plays it.
+
+It plays in four places. Each used to make the row vanish in one frame, and the
+rows below jumped up a row height.
+
+| Where | What moves the row |
+| --- | --- |
+| Swipe left → Today / Tomorrow | `updateTask(id, input, { holdMs })` |
+| Reopening on the Completed screen | `toggleComplete(id, false, { holdMs })` |
+| A row's chip on Today's Overdue card | `updateTask`, as the swipe |
+| "Reschedule all" on that card, or its last row | `bulkRescheduleTasks(ids, date, { holdMs })`; the whole card closes |
+
+- **The write goes out on the tap; only the cache patch waits.** Same contract
+  as `deleteTask`'s `holdMs`. A failed write never moves the row, and the row
+  un-collapses.
+- **The list decides whether a reschedule leaves, not the row.** "Tomorrow"
+  takes a row off Today, moves it to another day on a date-grouped Upcoming, and
+  leaves it where it is on All grouped by status. Each list passes `TaskItem` a
+  `leavesSection` predicate built from the function it places rows with
+  (`lib/row-leave.ts`): Today's universe, Upcoming's `upcomingSectionKey`, or
+  `applyDisplay` for `GroupedTaskList`. A row whose section does not change gets
+  no exit. Moving between Focus and Other on Today is a move within the list.
+- **The Overdue card goes through the cache now.** It called the API directly,
+  with no optimistic patch and no auto-sync notice, and showed a spinner for a
+  round trip. Every action on it takes a task off the card, so every action
+  plays the exit.
+
+### "Show completed" marks the row done in place
+
+On a list that keeps done tasks, completing passes `keepInLists` to
+`toggleComplete`, which marks the row done in every `taskKeys.lists()` cache
+instead of filtering it out. Filtering removed it from `everything` and
+`project`, which do hold done tasks, so the check never showed and the row came
+back under Done a round trip later. Each view's own filter hides done rows when
+Show completed is off (`filterTasks`, `todayUniverse`, Upcoming's section
+builder), so the in-place patch never shows a done row where it should not.
+
+- **The inbox cache is still filtered.** Its query is `status = inbox`, and the
+  Tasks tab badge counts it directly. For the same reason the Inbox screen
+  passes `keepsCompleted={false}`, so its row plays the completion exit even
+  with Show completed on.
+- **Curated Upcoming never keeps a done row**, whatever the config says, so it
+  no longer passes `keepsCompleted`. With Show completed on, its rows used to
+  skip the exit and vanish.
+- **The patch waits `TASK_COMPLETE_HOLD_MS`** (`TASK_COMPLETE_CHECK_MS` for a
+  reopen), so the check is seen where the row is before the row moves into its
+  Done section. The row does not collapse, so the row-key trap in *The item row*
+  does not apply: an instance reused in its new section is still full height.
+- **Reopening patches the active lists in place too**, and tag and search
+  results are patched in place on both. Before, a reopened row there kept its
+  done styling until the refetch.
+
+**Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
+pass.
+
 ### Undo gives back the same task
 
 **Nothing is destroyed when you delete.** `tasks.deleted_at` is stamped, the row is
