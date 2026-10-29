@@ -199,8 +199,11 @@ function TaskItem({
   // away was not marked, so it does not open up again.
   const [arrive] = useState(() => arriving || claimArrival(task.id));
   const exit = useRowExit(task.status === 'done', { arrive });
+  const wasDeparting = useRef(false);
   useEffect(() => {
     if (departing) exit.depart();
+    else if (wasDeparting.current) exit.undepart();
+    wasDeparting.current = departing;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departing]);
   const toast = useUndoToast();
@@ -528,8 +531,11 @@ function TaskItem({
     // clamped height actually crop rather than just overlap.
     <Animated.View
       style={[exit.collapsing && styles.exitShell, exit.style]}
-      // A row on its way out of view is not a target any more.
+      // A row on its way out of view is not a target any more, and a screen
+      // reader should not announce a row the list no longer holds.
       pointerEvents={departing ? 'none' : 'auto'}
+      accessibilityElementsHidden={departing}
+      importantForAccessibility={departing ? 'no-hide-descendants' : 'auto'}
     >
     {/* Measured from in here, not from the shell: an arriving shell is clamped
         to zero when it first lays out. See `RowExit.onLayout`. */}

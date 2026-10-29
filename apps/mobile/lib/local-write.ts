@@ -17,11 +17,12 @@
  */
 
 /**
- * How long after a local write a fetch counts as its reconcile. A reconcile is
- * one round trip, which is well inside this on any connection where the bar
- * would be worth showing at all.
+ * How long after a local write a fetch counts as its reconcile. The reconcile
+ * starts on the same tick as the write's invalidate, so this only has to cover
+ * that. Kept short because a refetch starting inside it for another reason (a
+ * tab switch) loses its bar too, and that one may bring news from elsewhere.
  */
-export const LOCAL_RECONCILE_WINDOW_MS = 5_000;
+export const LOCAL_RECONCILE_WINDOW_MS = 1_500;
 
 let lastLocalWriteAt = -Infinity;
 

@@ -118,6 +118,12 @@ export interface RowExit {
    * under reduce motion, where the row simply goes with the data.
    */
   depart: () => void;
+  /**
+   * Open a departing row back up: the list kept it after all (a section
+   * reopened, or a task moved back, before the fold finished). React reuses
+   * the folding instance for the real row, so without this it stayed at zero.
+   */
+  undepart: () => void;
   /** Begin the completion's hold-then-collapse. No-op under reduce motion. */
   start: () => void;
   /**
@@ -297,6 +303,23 @@ export function useRowExit(
     });
   }, [progress, slidePx, slideScale]);
 
+  const undepart = useCallback(() => {
+    if (arriveTimer.current) clearTimeout(arriveTimer.current);
+    if (prefersReducedMotion()) {
+      progress.value = 0;
+      setCollapsing(false);
+      return;
+    }
+    progress.value = withTiming(0, {
+      duration: ROW_ARRIVE_MS,
+      easing: Easing.out(Easing.quad),
+    });
+    arriveTimer.current = setTimeout(() => {
+      arriveTimer.current = null;
+      setCollapsing(false);
+    }, ROW_ARRIVE_MS);
+  }, [progress]);
+
   const setChecked = useCallback(
     (checked: boolean) => {
       if (prefersReducedMotion()) {
@@ -406,6 +429,7 @@ export function useRowExit(
     deleting,
     onLayout,
     depart,
+    undepart,
     start,
     startDelete,
     cancel,

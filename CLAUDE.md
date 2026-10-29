@@ -1227,7 +1227,7 @@ Three pieces, all under `apps/mobile`:
 **The bar stays down for the refetch that follows a local write.** The
 optimistic patch already drew the change, so a bar over it said "something might
 change" about a list that just had. `invalidateTasks()` stamps the time
-(`lib/local-write.ts`), and a fetch starting within 5s of it is a reconcile.
+(`lib/local-write.ts`), and a fetch starting within 1.5s of it is a reconcile.
 Pull-to-refresh and the focus refetch go through `refetch()`, so they still get
 the bar. It fades out rather than vanishing mid-sweep. The skeleton is drawn in
 the real list's shape and fades out over the rows that replace it.

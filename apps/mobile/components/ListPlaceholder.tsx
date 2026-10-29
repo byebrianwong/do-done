@@ -21,7 +21,7 @@
  * an offline launch with no cache would pulse forever.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
@@ -65,12 +65,12 @@ export function UpdatingBar({ visible }: { visible: boolean }) {
   // Whether this fetch is the reconcile of a local write, decided once as it
   // starts. A write landing halfway through an unrelated refresh must not take
   // the bar down.
-  const reconcile = useRef(false);
-  const wasVisible = useRef(false);
-  if (visible && !wasVisible.current) reconcile.current = isLocalReconcile();
-  wasVisible.current = visible;
+  const [reconcile, setReconcile] = useState(false);
+  useEffect(() => {
+    if (visible) setReconcile(isLocalReconcile());
+  }, [visible]);
 
-  const show = useSettled(visible && !reconcile.current, 350);
+  const show = useSettled(visible && !reconcile, 350);
   // Kept drawn while it fades, so the sweep is not cut off where it stood.
   const [drawn, setDrawn] = useState(false);
   const { width } = useWindowDimensions();

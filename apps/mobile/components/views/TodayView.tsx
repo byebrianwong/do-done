@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -202,9 +202,15 @@ export function TodayView() {
     [sections]
   );
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    void reorderTasks(ids).catch(() => {});
-  }, []);
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes.
+  const { liveIds, liveData } = transitions;
+  const onReorder = useCallback(
+    (key: string, ids: string[]) => {
+      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    },
+    [liveIds]
+  );
 
   // Dragging across the Focus ↔ Other boundary pins the task in or forces it
   // out, then persists the destination order. A collapsed destination isn't a
@@ -219,9 +225,11 @@ export function TodayView() {
       // The drop already put the row there; the move it causes in the data is
       // not one to animate again.
       transitions.noteDragged(taskId);
-      void moveTask(taskId, { focus_override }, destIds).catch(() => {});
+      void moveTask(taskId, { focus_override }, liveIds(toKey, destIds)).catch(
+        () => {}
+      );
     },
-    [config, transitions.noteDragged]
+    [config, transitions.noteDragged, liveIds]
   );
 
   const renderHeader = useCallback(
@@ -278,14 +286,12 @@ export function TodayView() {
           // task scheduled Friday, or none at all — and "Fri, Aug 21" sitting
           // under the Today heading is exactly what those rows need to say.
           hideScheduledDay={task.scheduled_date === localDay}
-          openInSection={openCount(
-            section.data.filter((t) => !transitions.isDeparting(section.key, t.id))
-          )}
+          openInSection={openCount(liveData(section))}
         />
       </RowLift>
       );
     },
-    [handlePress, localDay, transitions]
+    [handlePress, localDay, transitions, liveData]
   );
 
   const isEmpty =

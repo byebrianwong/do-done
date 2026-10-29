@@ -26,7 +26,7 @@ describe('isLocalReconcile', () => {
 
   it('each write restarts the window', () => {
     noteLocalWrite(0);
-    noteLocalWrite(4_000);
-    expect(isLocalReconcile(4_000 + LOCAL_RECONCILE_WINDOW_MS - 1)).toBe(true);
+    noteLocalWrite(1_000);
+    expect(isLocalReconcile(1_000 + LOCAL_RECONCILE_WINDOW_MS - 1)).toBe(true);
   });
 });

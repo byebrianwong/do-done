@@ -205,9 +205,15 @@ export function UpcomingView() {
     [sections]
   );
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    void reorderTasks(ids).catch(() => {});
-  }, []);
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes.
+  const { liveIds, liveData } = transitions;
+  const onReorder = useCallback(
+    (key: string, ids: string[]) => {
+      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    },
+    [liveIds]
+  );
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
@@ -216,9 +222,11 @@ export function UpcomingView() {
         invalidateTasks();
         return;
       }
-      void moveTask(taskId, sectionTarget(toKey), destIds).catch(() => {});
+      void moveTask(taskId, sectionTarget(toKey), liveIds(toKey, destIds)).catch(
+        () => {}
+      );
     },
-    [config]
+    [config, liveIds]
   );
 
   const renderHeader = useCallback(
@@ -285,14 +293,12 @@ export function UpcomingView() {
           // time. The sentinel sections (Overdue / Later / Anytime) name no
           // single day, so those rows still print their own.
           hideScheduledDay={isDayKey(section.key)}
-          openInSection={openCount(
-            section.data.filter((t) => !transitions.isDeparting(section.key, t.id))
-          )}
+          openInSection={openCount(liveData(section))}
         />
       </RowLift>
       );
     },
-    [handlePress, keepsCompleted, transitions]
+    [handlePress, keepsCompleted, transitions, liveData]
   );
 
   const refreshControl = (

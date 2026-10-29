@@ -203,4 +203,16 @@ describe('carryGhosts', () => {
     expect(carryGhosts(earlier, NO_TRANSITIONS, [sec('a')]).ghostSections).toHaveLength(1);
     expect(carryGhosts(earlier, NO_TRANSITIONS, [sec('a'), sec('b')]).ghostSections).toEqual([]);
   });
+
+  it('drops a ghost whose task is drawn elsewhere, on a list keyed by id alone', () => {
+    const earlier = planTransitions([sec('a', '1'), sec('b')], [sec('a'), sec('b')], {
+      collapsedBefore: none,
+      collapsedAfter: new Set(['a']),
+    });
+    // A refetch moved task 1 into b while it was still folding out of a.
+    const after = [sec('a'), sec('b', '1')];
+    expect(carryGhosts(earlier, NO_TRANSITIONS, after).ghostRows).toEqual([]);
+    // Keyed per section, the two rows cannot collide, so the ghost stays.
+    expect(carryGhosts(earlier, NO_TRANSITIONS, after, true).ghostRows).toHaveLength(1);
+  });
 });

@@ -47,6 +47,10 @@ export interface SectionTransitions {
   isDepartingSection: (sectionKey: string) => boolean;
   /** Call from a drop that moved a task between sections. */
   noteDragged: (taskId: string) => void;
+  /** A section's ids without its ghosts, for the order a drop writes. */
+  liveIds: (sectionKey: string, ids: string[]) => string[];
+  /** A section's tasks without its ghosts, for counts. */
+  liveData: (section: DraggableSection) => DraggableSection['data'];
 }
 
 export function useSectionTransitions(
@@ -64,7 +68,10 @@ export function useSectionTransitions(
 
   const dragged = useRef(new Map<string, number>());
   const noteDragged = useCallback((taskId: string) => {
-    dragged.current.set(taskId, Date.now());
+    const now = Date.now();
+    for (const [id, at] of dragged.current)
+      if (now - at >= DRAGGED_MS) dragged.current.delete(id);
+    dragged.current.set(taskId, now);
   }, []);
 
   const [prev, setPrev] = useState({
@@ -96,7 +103,8 @@ export function useSectionTransitions(
           foldRemovedSections: opts.foldRemovedSections,
           dragged: recent,
         }),
-        drawn
+        drawn,
+        opts.trackMoves === true
       );
     }
     setPrev({ drawn, collapsedKey, resetKey: opts.resetKey });
@@ -144,8 +152,25 @@ export function useSectionTransitions(
     [ghostSectionKeys]
   );
 
+  const liveIds = useCallback(
+    (sectionKey: string, ids: string[]) =>
+      ghostIds.size === 0
+        ? ids
+        : ids.filter((id) => !ghostIds.has(rowId(sectionKey, id))),
+    [ghostIds]
+  );
+  const liveData = useCallback(
+    (section: DraggableSection) =>
+      ghostIds.size === 0
+        ? section.data
+        : section.data.filter((t) => !ghostIds.has(rowId(section.key, t.id))),
+    [ghostIds]
+  );
+
   return {
     sections: shown,
+    liveIds,
+    liveData,
     isArriving,
     isDeparting,
     isDepartingSection,

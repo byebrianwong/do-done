@@ -159,7 +159,11 @@ export default function GroupedTaskList({
     foldRemovedSections: hideEmptyGroups,
   });
   const renderSections = transitions.sections;
-  const { isDepartingSection } = transitions;
+  const { isDepartingSection, liveData } = transitions;
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes. Read through a ref, like the rest of the drop state.
+  const liveIdsRef = useRef(transitions.liveIds);
+  liveIdsRef.current = transitions.liveIds;
 
   const metaRef = useRef(meta);
   metaRef.current = meta;
@@ -174,7 +178,8 @@ export default function GroupedTaskList({
   const onConfigChangeRef = useRef(onConfigChange);
   onConfigChangeRef.current = onConfigChange;
 
-  const onReorder = useCallback((sectionKey: string, ids: string[]) => {
+  const onReorder = useCallback((sectionKey: string, rawIds: string[]) => {
+    const ids = liveIdsRef.current(sectionKey, rawIds);
     if (manualRef.current) {
       void reorderTasks(ids).catch(() => {});
       return;
@@ -195,7 +200,8 @@ export default function GroupedTaskList({
   }, []);
 
   const onMove = useCallback(
-    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+    (taskId: string, _from: string, toKey: string, rawDestIds: string[]) => {
+      const destIds = liveIdsRef.current(toKey, rawDestIds);
       // Collapsed sections aren't drop targets in v1 — snap back, expand to drop in.
       if (isCollapsed(configRef.current, toKey)) {
         invalidateTasks();
@@ -296,11 +302,7 @@ export default function GroupedTaskList({
           hideScheduledDay={dateGroupNamesTheDay(section.key)}
           openInSection={
             sectionCounts
-              ? openCount(
-                  section.data.filter(
-                    (t) => !transitions.isDeparting(section.key, t.id)
-                  )
-                )
+              ? openCount(liveData(section))
               : undefined
           }
           openInProject={openInProject}
@@ -310,6 +312,7 @@ export default function GroupedTaskList({
     },
     [
       transitions,
+      liveData,
       onTaskPress,
       keepsCompleted,
       hideProject,

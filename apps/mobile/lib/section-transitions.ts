@@ -169,19 +169,33 @@ export function planTransitions(
 export function carryGhosts(
   previous: TransitionPlan,
   next: TransitionPlan,
-  after: DraggableSection[]
+  after: DraggableSection[],
+  /**
+   * Whether the list keys rows per section. When it does not, a ghost of a
+   * task that is drawn anywhere else would share that row's React key, so it
+   * is dropped too.
+   */
+  keyedBySection = false
 ): TransitionPlan {
   const present = new Set<string>();
-  for (const s of after) for (const t of s.data) present.add(rowId(s.key, t.id));
+  const anywhere = new Set<string>();
+  for (const s of after)
+    for (const t of s.data) {
+      present.add(rowId(s.key, t.id));
+      anywhere.add(t.id);
+    }
+  const clashes = (g: GhostRow) => !keyedBySection && anywhere.has(g.task.id);
   const keys = new Set(after.map((s) => s.key));
   const seen = new Set(next.ghostRows.map((g) => rowId(g.sectionKey, g.task.id)));
   const seenSections = new Set(next.ghostSections.map((g) => g.section.key));
 
   const rows = [
-    ...next.ghostRows,
+    ...next.ghostRows.filter((g) => !clashes(g)),
     ...previous.ghostRows.filter((g) => {
       const id = rowId(g.sectionKey, g.task.id);
-      return !present.has(id) && !seen.has(id) && keys.has(g.sectionKey);
+      return (
+        !present.has(id) && !seen.has(id) && keys.has(g.sectionKey) && !clashes(g)
+      );
     }),
   ];
   const sections = [

@@ -33,8 +33,13 @@ export function FoldAway({
   const progress = useSharedValue(0);
 
   useEffect(() => {
-    if (!departing || prefersReducedMotion()) return;
-    progress.value = withTiming(1, {
+    if (prefersReducedMotion()) {
+      progress.value = 0;
+      return;
+    }
+    // Back to 0 as well as to 1: a header that refilled before it finished
+    // folding is reused for the real one, and must open again.
+    progress.value = withTiming(departing ? 1 : 0, {
       duration: ROW_ARRIVE_MS,
       easing: Easing.out(Easing.quad),
     });
@@ -51,7 +56,11 @@ export function FoldAway({
   };
 
   return (
-    <Animated.View style={[departing && styles.crop, style]}>
+    <Animated.View
+      style={[styles.crop, style]}
+      accessibilityElementsHidden={departing}
+      importantForAccessibility={departing ? 'no-hide-descendants' : 'auto'}
+    >
       <View onLayout={onLayout} collapsable={false}>
         {children}
       </View>
