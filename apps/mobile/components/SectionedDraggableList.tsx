@@ -7,9 +7,10 @@
  * learn the item's new section, then let the parent persist the move (e.g.
  * change a task's date or status) and the new in-section order.
  *
- * Sections drive an internal `rows` copy that updates optimistically on drop
- * (no snap-back) and re-syncs whenever the `sections` prop changes (after the
- * mutation reconciles through the query cache).
+ * The rows are derived from `sections`, keeping every row object whose task
+ * did not change, so one write re-renders one cell. A drop is shown from a
+ * local copy (no snap-back) until the next `sections` replaces it, after the
+ * mutation reconciles through the query cache.
  *
  * It is also where the minimizing tab bar is fed, because it is the one door
  * every task list on a tab goes through — Today, Upcoming and a shopping list
@@ -23,7 +24,7 @@
  * See `hasTaskRows` in `lib/section-rows.ts` for why the two differ.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   RefreshControlProps,
   StyleProp,
@@ -36,7 +37,7 @@ import DraggableFlatList, {
 import type { Task } from '@do-done/shared';
 
 import {
-  flatten,
+  flattenReusing,
   hasTaskRows,
   resolveDrop,
   stickyHeaderIndices,
@@ -49,6 +50,18 @@ export type { DraggableSection };
 
 /** Stable identity, so swapping to it can't churn the list on every render. */
 const NO_ROWS: Row[] = [];
+
+/**
+ * How many screens of rows stay mounted: the visible one and four either side.
+ *
+ * VirtualizedList's default is 21, which on All kept about 250 rows mounted,
+ * and every one of them paid for each re-render and each mount. Nine still
+ * leaves four screens of rows ready in each direction for a fast fling and for
+ * the drag library's auto-scroll.
+ */
+const WINDOW_SIZE = 9;
+/** A phone screen of task rows and headers, so the first frame is not short. */
+const INITIAL_ROWS = 16;
 
 /** The row order, which is what the drag library compares to spot new data. */
 function rowKeys(rows: Row[]): string {
@@ -63,11 +76,13 @@ interface Props {
     drag: () => void,
     isActive: boolean,
     /**
-     * The section this row is in. The row itself can't tell, and a completion
-     * that empties its section earns a celebratory burst — see `sparkReason`
-     * in `@do-done/shared`.
+     * The key of the section this row is in. The row itself can't tell, and a
+     * completion that empties its section earns a celebratory burst — see
+     * `sparkReason` in `@do-done/shared`. A key rather than the section, so a
+     * row does not have to re-render when a neighbour in its section changes:
+     * read the section's count at the tap (`lib/section-counts.ts`).
      */
-    section: DraggableSection
+    sectionKey: string
   ) => React.ReactElement;
   /** Reorder within one section: the section's new id order. */
   onReorder: (sectionKey: string, orderedIds: string[]) => void;
@@ -119,7 +134,7 @@ interface Props {
   >["ListFooterComponent"];
 }
 
-export default function SectionedDraggableList({
+function SectionedDraggableList({
   sections,
   renderHeader,
   renderTask,
@@ -133,14 +148,13 @@ export default function SectionedDraggableList({
   ListEmptyComponent,
   ListFooterComponent,
 }: Props) {
-  const [rows, setRows] = useState<Row[]>(() => flatten(sections, rowKey));
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
   const tabBar = useTabBarScrollSync();
 
   // Whether a row is being dragged. Section headers are not pinned while it is
   // true; see `stickyHeaderIndices` in lib/section-rows.ts for why.
   const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  draggingRef.current = dragging;
   // Whether the drop slot has moved during this drag, which is what tells a
   // hold from a drag that came back to where it started. See `resolveDrop`.
   const placeholderMoved = useRef(false);
@@ -181,25 +195,54 @@ export default function SectionedDraggableList({
     ];
   }, [contentContainerStyle, tabBar.contentInset]);
 
-  // Re-sync the internal `rows` copy whenever `sections` changes. The signature
-  // must cover task *content*, not just id/order: a field edit (e.g. changing a
-  // task's priority) leaves membership and order identical, so an id-only
-  // signature never fired this effect — the list kept rendering the pre-edit
-  // task objects even after the query cache reconciled. Stringifying each task
-  // makes any field change (priority, title, when, tags, …) re-seed the rows.
-  const sig = sections
-    .map((s) => `${s.key}#${s.data.map((t) => JSON.stringify(t)).join(',')}`)
-    .join('|');
+  // The rows, derived from `sections` during render rather than copied into
+  // state by an effect. The copy cost a second render on every data change,
+  // and the signature that decided when to copy ran `JSON.stringify` over
+  // every task on every render (up to 500 on All).
+  //
+  // `flattenReusing` keeps each row object whose task is the same object as
+  // last time, and hands back the previous array when nothing changed. A field
+  // edit still re-seeds the rows, because the edited task is a new object even
+  // when membership and order are unchanged; that is the case the old
+  // signature existed for. The cells are memoised on the row object, so only
+  // the rows that changed re-render.
+  //
+  // `rowKey` is read through a ref: callers pass it inline, and what it
+  // computes depends on the task, which is already part of the comparison.
+  const rowKeyRef = useRef(rowKey);
+  rowKeyRef.current = rowKey;
+  const seededRef = useRef<Row[]>(NO_ROWS);
+  const seeded = useMemo(
+    () => flattenReusing(sections, seededRef.current, rowKeyRef.current),
+    [sections]
+  );
+  seededRef.current = seeded;
+
+  // A drop's result, shown until the next `seeded` replaces it. Without it the
+  // row would snap back to where it was picked up for the round trip the
+  // write takes. Tagged with the `seeded` it was made from, so new data from
+  // the cache always wins over a stale drop.
+  const [dropped, setDropped] = useState<{ base: Row[]; rows: Row[] } | null>(
+    null
+  );
+  const rows = dropped && dropped.base === seeded ? dropped.rows : seeded;
+
+  // New row order mid-drag means the drag is over. The library cancels a drag
+  // when its data's keys change, and does not call `onDragEnd` when it does,
+  // so without this the headers would stay unpinned until the next drag ended.
+  const committedRows = useRef(rows);
   useEffect(() => {
-    const next = flatten(sections, rowKey);
-    // New row order mid-drag means the drag is over. The library cancels a
-    // drag when its data's keys change, and does not call `onDragEnd` when it
-    // does, so without this the headers would stay unpinned until the next
-    // drag ended.
-    if (rowKeys(next) !== rowKeys(rowsRef.current)) endDrag();
-    setRows(next);
+    const before = committedRows.current;
+    committedRows.current = rows;
+    if (
+      before !== rows &&
+      draggingRef.current &&
+      rowKeys(rows) !== rowKeys(before)
+    ) {
+      endDrag();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+  }, [rows]);
 
   function handleDragEnd({ data, from, to }: { data: Row[]; from: number; to: number }) {
     endDrag();
@@ -209,7 +252,7 @@ export default function SectionedDraggableList({
       to,
       placeholderMoved.current
     );
-    setRows(next);
+    setDropped({ base: seededRef.current, rows: next });
     switch (result.kind) {
       case 'hold':
         onHold?.(result.task);
@@ -228,7 +271,9 @@ export default function SectionedDraggableList({
             result.orderedIds
           ) === false
         ) {
-          setRows(flatten(sections, rowKey));
+          // A fresh array in the original order, so the list re-renders and
+          // the library lets go of the order the finger left it in.
+          setDropped({ base: seededRef.current, rows: [...seededRef.current] });
         }
         return;
     }
@@ -251,26 +296,27 @@ export default function SectionedDraggableList({
     [visibleRows, ListHeaderComponent, dragging]
   );
 
-  // The authoritative section data is the `sections` prop, not the local `rows`
-  // copy the drag mutates: `rows` tracks which section a row is *in* mid-gesture,
-  // while this is asking what is *in* the section.
-  function sectionOf(key: string): DraggableSection {
-    return (
-      sections.find((s) => s.key === key) ?? { key, title: '', data: [] }
-    );
-  }
+  // Stable while the caller's renderers are, so a parent re-render reaches
+  // only the cells whose row object changed. The library memoises each cell on
+  // `renderItem` and the item, so an inline function here re-rendered every
+  // mounted cell on every render of this list.
+  const renderItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<Row>) =>
+      item.kind === 'header'
+        ? renderHeader(item.section)
+        : renderTask(item.task, drag, isActive, item.sectionKey),
+    [renderHeader, renderTask]
+  );
 
   return (
     <DraggableFlatList
       data={visibleRows}
-      keyExtractor={(r) => r.key}
+      keyExtractor={keyExtractor}
       stickyHeaderIndices={stickyIndices}
       onDragEnd={handleDragEnd}
-      renderItem={({ item, drag, isActive }: RenderItemParams<Row>) =>
-        item.kind === 'header'
-          ? renderHeader(item.section)
-          : renderTask(item.task, drag, isActive, sectionOf(item.sectionKey))
-      }
+      renderItem={renderItem}
+      windowSize={WINDOW_SIZE}
+      initialNumToRender={INITIAL_ROWS}
       onDragBegin={beginDrag}
       onPlaceholderIndexChange={() => {
         placeholderMoved.current = true;
@@ -292,3 +338,15 @@ export default function SectionedDraggableList({
     />
   );
 }
+
+function keyExtractor(r: Row): string {
+  return r.key;
+}
+
+/**
+ * Memoised so a screen re-rendering for its own reasons (a sheet opening, a
+ * title changing) does not re-render the list. That only helps when the
+ * caller's props keep their identity, which is why the views memoise their
+ * `refreshControl`, empty state and renderers.
+ */
+export default React.memo(SectionedDraggableList);

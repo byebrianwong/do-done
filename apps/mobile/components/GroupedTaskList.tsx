@@ -13,6 +13,7 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
+import { useCountGetter, useSectionOpenCounts } from '@/lib/section-counts';
 import {
   applyDisplay,
   dateGroupNamesTheDay,
@@ -100,13 +101,7 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
  * Cross-section drag maps the target group's drop target to a task patch;
  * reorder persists only under manual sort (else the engine owns the order).
  */
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
-
-export default function GroupedTaskList({
+function GroupedTaskList({
   tasks,
   projects,
   config,
@@ -148,6 +143,11 @@ export default function GroupedTaskList({
       ),
     [sections, config]
   );
+
+  // Read at the tap, not passed as numbers: both change on every completion,
+  // and a changed prop re-renders every row it reaches. See lib/section-counts.
+  const sectionOpenCount = useSectionOpenCounts(sections);
+  const projectOpenCount = useCountGetter(openInProject);
 
   const metaRef = useRef(meta);
   metaRef.current = meta;
@@ -261,7 +261,7 @@ export default function GroupedTaskList({
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
+      sectionKey: string
     ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
@@ -274,9 +274,9 @@ export default function GroupedTaskList({
           // Under a "Today" or "Tomorrow" header the row's own day is pure
           // repetition; under "This week" or "Later" it is the only thing
           // saying which day, so it stays.
-          hideScheduledDay={dateGroupNamesTheDay(section.key)}
-          openInSection={sectionCounts ? openCount(section.data) : undefined}
-          openInProject={openInProject}
+          hideScheduledDay={dateGroupNamesTheDay(sectionKey)}
+          openInSection={sectionCounts ? sectionOpenCount(sectionKey) : undefined}
+          openInProject={projectOpenCount}
         />
       </View>
     ),
@@ -286,7 +286,8 @@ export default function GroupedTaskList({
       hideProject,
       groupedByStatus,
       sectionCounts,
-      openInProject,
+      sectionOpenCount,
+      projectOpenCount,
     ]
   );
 
@@ -303,6 +304,12 @@ export default function GroupedTaskList({
     />
   );
 }
+
+/**
+ * Memoised for the same reason as `SectionedDraggableList`: a screen that
+ * re-renders for its own reasons should not re-render its list.
+ */
+export default React.memo(GroupedTaskList);
 
 const styles = StyleSheet.create({
   activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },

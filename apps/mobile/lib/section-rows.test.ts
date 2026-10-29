@@ -5,6 +5,7 @@ import type { Task } from '@do-done/shared';
 import {
   collectSectionTaskIds,
   flatten,
+  flattenReusing,
   hasTaskRows,
   resolveDrop,
   stickyHeaderIndices,
@@ -197,5 +198,95 @@ describe('resolveDrop', () => {
       taskId: 'a2',
       orderedIds: ['b1', 'a2'],
     });
+  });
+});
+
+/**
+ * `flattenReusing` is what lets one write re-render one row. The list's cells
+ * are memoised on the row object, so a row that comes back as a new object
+ * re-renders and one that comes back as the same object does not.
+ */
+describe('flattenReusing', () => {
+  it('returns the previous array when nothing changed', () => {
+    const sections = [section('a', ['1', '2']), section('b', ['3'])];
+    const first = flattenReusing(sections, []);
+    // A new sections array holding the same section and task objects, which
+    // is what a re-run of the grouping over unchanged data produces.
+    expect(flattenReusing([...sections], first)).toBe(first);
+  });
+
+  it('replaces only the row whose task changed', () => {
+    const a = section('a', ['1', '2', '3']);
+    const first = flattenReusing([a], []);
+    const edited = { ...a.data[1], title: 'edited' } as Task;
+    const next = flattenReusing(
+      [{ ...a, data: [a.data[0], edited, a.data[2]] }],
+      first
+    );
+    expect(next).not.toBe(first);
+    expect(next[1]).toBe(first[1]);
+    expect(next[2]).not.toBe(first[2]);
+    expect(next[2]).toMatchObject({ kind: 'task', task: edited });
+    expect(next[3]).toBe(first[3]);
+  });
+
+  it('re-seeds a field edit that leaves membership and order alone', () => {
+    // The case the old JSON signature existed for: same ids, same order, one
+    // field different. The edited task is a new object, so the rows change.
+    const a = section('a', ['1']);
+    const first = flattenReusing([a], []);
+    const next = flattenReusing(
+      [{ ...a, data: [{ ...a.data[0], priority: 'p1' } as Task] }],
+      first
+    );
+    expect(next).not.toBe(first);
+    expect((next[1] as Extract<Row, { kind: 'task' }>).task.priority).toBe('p1');
+  });
+
+  it('gives a task that changed section a new row', () => {
+    const a = section('a', ['1']);
+    const b = section('b', []);
+    const first = flattenReusing([a, b], []);
+    const moved = a.data[0];
+    const next = flattenReusing(
+      [
+        { ...a, data: [] },
+        { ...b, data: [moved] },
+      ],
+      first
+    );
+    const row = next.find((r) => r.key === '1');
+    expect(row).not.toBe(first[1]);
+    expect(row).toMatchObject({ sectionKey: 'b', task: moved });
+  });
+
+  it('gives a header a new row when its section object changes', () => {
+    // Headers read their counts at render, so a new section has to redraw.
+    const a = section('a', ['1']);
+    const first = flattenReusing([a], []);
+    const next = flattenReusing([{ ...a }], first);
+    expect(next[0]).not.toBe(first[0]);
+    expect(next[1]).toBe(first[1]);
+  });
+
+  it('notices a removed row', () => {
+    const a = section('a', ['1', '2']);
+    const first = flattenReusing([a], []);
+    const next = flattenReusing([{ ...a, data: [a.data[0]] }], first);
+    expect(next).toHaveLength(2);
+    expect(next).not.toBe(first);
+  });
+
+  it('matches flatten', () => {
+    const sections = [section('a', ['1', '2']), section('b', ['3'])];
+    expect(flattenReusing(sections, [])).toEqual(flatten(sections));
+  });
+
+  it('uses the custom row key', () => {
+    const a = section('a', ['1']);
+    const key = (t: Task) => `${t.id}:open`;
+    const first = flattenReusing([a], [], key);
+    expect(first[1].key).toBe('1:open');
+    expect(flattenReusing([a], first, key)).toBe(first);
   });
 });

@@ -48,6 +48,56 @@ export function flatten(
 }
 
 /**
+ * `flatten`, keeping every row object that has not changed since `prev`.
+ *
+ * A row is kept when its key, its section and the object it points at are all
+ * the same as last time. TanStack Query's structural sharing keeps an unchanged
+ * task at the same reference across refetches and optimistic patches, so an
+ * edit to one task produces one new row and leaves every other row as it was.
+ * The list's cells are memoised on the row object, so that is what lets one
+ * write re-render one cell instead of all of them.
+ *
+ * A field edit still produces a new row: the edited task is a new object even
+ * when membership and order are unchanged. That is the case the old
+ * `JSON.stringify` signature existed for, answered by identity instead.
+ *
+ * Returns `prev` itself when nothing changed at all, so the caller can tell
+ * "same rows" from "new rows" with one `===`.
+ */
+export function flattenReusing(
+  sections: DraggableSection[],
+  prev: Row[],
+  rowKey: (task: Task) => string = (t) => t.id
+): Row[] {
+  const byKey = new Map<string, Row>();
+  for (const r of prev) byKey.set(r.key, r);
+  const rows: Row[] = [];
+  let changed = false;
+  for (const s of sections) {
+    const hk = `h:${s.key}`;
+    const oldHeader = byKey.get(hk);
+    const header: Row =
+      oldHeader?.kind === 'header' && oldHeader.section === s
+        ? oldHeader
+        : { kind: 'header', key: hk, section: s };
+    if (prev[rows.length] !== header) changed = true;
+    rows.push(header);
+    for (const t of s.data) {
+      const k = rowKey(t);
+      const old = byKey.get(k);
+      const row: Row =
+        old?.kind === 'task' && old.task === t && old.sectionKey === s.key
+          ? old
+          : { kind: 'task', key: k, task: t, sectionKey: s.key };
+      if (prev[rows.length] !== row) changed = true;
+      rows.push(row);
+    }
+  }
+  if (!changed && rows.length === prev.length) return prev;
+  return rows;
+}
+
+/**
  * Is there a task in these rows? The list is empty when there isn't, however
  * many headers it happens to be carrying.
  */
