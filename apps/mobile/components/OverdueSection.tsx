@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -8,16 +7,19 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import {
   OVERDUE_COLOR,
   PRIORITY_CONFIG,
+  TASK_MOVE_EXIT_MS,
   addDaysLocalISO,
   resolveQuickSchedule,
   todayLocalISO,
 } from '@do-done/shared';
 import type { Task, UpdateTaskInput } from '@do-done/shared';
-import { getTasksApi } from '@/lib/supabase';
 import { hapticLight } from '@/lib/haptics';
+import { bulkRescheduleTasks, updateTask } from '@/lib/task-queries';
+import { prefersReducedMotion, useRowExit, type RowExit } from '@/lib/use-row-exit';
 import { LinkifiedText } from './LinkifiedText';
 
 function buildReschedule(
@@ -38,164 +40,204 @@ function buildReschedule(
   return input;
 }
 
-export default function OverdueSection({
-  tasks,
-  onChange,
-}: {
-  tasks: Task[];
-  onChange?: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+type Target = Parameters<typeof buildReschedule>[1];
 
+function warn(failed: number) {
+  if (failed === 0) return;
+  Alert.alert(
+    `Couldn't reschedule ${failed} task${failed > 1 ? 's' : ''}`,
+    'Those tasks were left unchanged. Check your connection and try again.'
+  );
+}
+
+/**
+ * Overdue tasks on Today, each with its own reschedule chips.
+ *
+ * Every action here moves a task out of this card, since a rescheduled task is
+ * no longer overdue. So every action plays the move exit (fade, then close)
+ * and the cache moves the task once it has played: a row when one task goes,
+ * the whole card when the last one does or "Reschedule all" is used. Before,
+ * these wrote straight to the API with no optimistic patch, showed a spinner
+ * for a round trip, and then the rows vanished and reappeared elsewhere. The
+ * whole card went at once on "Reschedule all", so the list jumped up by its
+ * height and back down as the rows arrived.
+ *
+ * Writes go through `updateTask` / `bulkRescheduleTasks`, so they patch the
+ * cache, roll back on failure and report the status ↔ schedule auto-sync like
+ * every other write.
+ */
+export default function OverdueSection({ tasks }: { tasks: Task[] }) {
   if (tasks.length === 0) return null;
-  const visible = tasks.filter((t) => !hidden.has(t.id));
-  if (visible.length === 0) return null;
+  // A separate component so the card's exit state is thrown away with it. The
+  // next time something is overdue, a fresh card starts at full height.
+  return <OverdueCard tasks={tasks} />;
+}
 
-  // Rows are hidden locally the moment they're rescheduled, so only hide the
-  // ones that actually landed: hiding a failed write makes the reschedule look
-  // like it worked right up until the next refetch puts the row back.
-  function hide(ids: string[]) {
-    if (ids.length === 0) return;
-    setHidden((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  }
+function OverdueCard({ tasks }: { tasks: Task[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [bulkPending, setBulkPending] = useState(false);
+  const card = useRowExit(false);
+  // Rows already closing, so a second quick tap still knows when it is
+  // taking the last row and should close the card instead.
+  const leaving = useRef(new Set<string>());
 
-  function warn(failed: number) {
-    if (failed === 0) return;
-    Alert.alert(
-      `Couldn't reschedule ${failed} task${failed > 1 ? 's' : ''}`,
-      'Those tasks were left unchanged. Check your connection and try again.'
-    );
-  }
-
-  async function applyOne(
-    task: Task,
-    target: Parameters<typeof buildReschedule>[1]
-  ) {
+  /**
+   * Reschedule one task. When it is the last one, the card closes instead of
+   * the row: a row closing inside a card that then vanishes in one frame is
+   * the jump this exists to remove.
+   */
+  function applyOne(task: Task, target: Target, row: RowExit) {
     hapticLight();
-    setBusy(true);
-    const api = await getTasksApi();
-    const { error } = await api.update(task.id, buildReschedule(task, target));
-    setBusy(false);
-    if (error) {
-      warn(1);
-    } else {
-      hide([task.id]);
-    }
-    onChange?.();
+    const animate = !prefersReducedMotion();
+    leaving.current.add(task.id);
+    const staying = tasks.filter((t) => !leaving.current.has(t.id));
+    const exit = staying.length === 0 ? card : row;
+    if (animate) exit.startMove();
+    void updateTask(task.id, buildReschedule(task, target), {
+      holdMs: animate ? TASK_MOVE_EXIT_MS : 0,
+    })
+      .catch(() => {
+        exit.cancel();
+        // A later tap may have closed the whole card on the assumption that
+        // this row was going. It is staying, so the card has to open again.
+        card.cancel();
+        warn(1);
+      })
+      .finally(() => leaving.current.delete(task.id));
   }
 
-  async function bulkReschedule(date: string) {
+  function bulkReschedule(date: string) {
     hapticLight();
-    setBusy(true);
-    const api = await getTasksApi();
-    const target = { kind: 'date' as const, date };
-    const updates = visible.map((t) => ({
-      id: t.id,
-      input: buildReschedule(t, target),
-    }));
-    const { failedIds } = await api.bulkUpdate(updates);
-    setBusy(false);
-    const failed = new Set(failedIds);
-    hide(visible.filter((t) => !failed.has(t.id)).map((t) => t.id));
-    warn(failed.size);
-    onChange?.();
+    setBulkPending(true);
+    const animate = !prefersReducedMotion();
+    if (animate) card.startMove();
+    void bulkRescheduleTasks(
+      tasks.map((t) => t.id),
+      date,
+      { holdMs: animate ? TASK_MOVE_EXIT_MS : 0 }
+    )
+      .then(({ failed }) => {
+        // On full success the card unmounts once the cache has moved every
+        // row, so it is left closed. Rows that did not land stay, and so does
+        // the card.
+        if (failed > 0) {
+          card.cancel();
+          warn(failed);
+        }
+      })
+      .catch(() => {
+        card.cancel();
+        warn(tasks.length);
+      })
+      .finally(() => setBulkPending(false));
   }
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => setCollapsed((v) => !v)}
-          hitSlop={8}
-          style={styles.headerLeft}
-        >
-          <Text style={styles.headerCaret}>{collapsed ? '▶' : '▼'}</Text>
-          <Text style={styles.headerTitle}>Overdue</Text>
-          <View style={styles.headerCount}>
-            <Text style={styles.headerCountText}>{visible.length}</Text>
-          </View>
-        </Pressable>
-        {busy && <ActivityIndicator color={OVERDUE_COLOR} size="small" />}
-      </View>
-      <View style={styles.bulkRow}>
-        <Text style={styles.bulkRowLabel}>Reschedule all</Text>
-        <BulkBtn
-          label="Today"
-          emphasis
-          disabled={busy}
-          onPress={() => bulkReschedule(todayLocalISO())}
-        />
-        <BulkBtn
-          label="Tomorrow"
-          disabled={busy}
-          onPress={() => bulkReschedule(addDaysLocalISO(1))}
-        />
-        <BulkBtn
-          label="Next week"
-          disabled={busy}
-          onPress={() => bulkReschedule(resolveQuickSchedule('next_week'))}
-        />
-      </View>
-      {!collapsed && (
-        <View style={styles.list}>
-          {visible.map((t) => (
-            <View key={t.id} style={styles.row}>
-              <View style={styles.titleLine}>
-                <View
-                  style={[
-                    styles.dot,
-                    { backgroundColor: PRIORITY_CONFIG[t.priority].color },
-                  ]}
-                />
-                <LinkifiedText
-                  text={t.title}
-                  style={styles.title}
-                  numberOfLines={2}
-                />
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-              >
-                <Chip
-                  label="Today"
-                  emphasis
-                  onPress={() =>
-                    applyOne(t, { kind: 'date', date: todayLocalISO() })
-                  }
-                />
-                <Chip
-                  label="Tomorrow"
-                  onPress={() =>
-                    applyOne(t, { kind: 'date', date: addDaysLocalISO(1) })
-                  }
-                />
-                <Chip
-                  label="This week"
-                  onPress={() =>
-                    applyOne(t, {
-                      kind: 'date',
-                      date: resolveQuickSchedule('this_week'),
-                    })
-                  }
-                />
-                <Chip
-                  label="×"
-                  onPress={() => applyOne(t, { kind: 'remove' })}
-                />
-              </ScrollView>
+    <Animated.View
+      style={[card.collapsing && styles.exitShell, card.style]}
+      onLayout={card.onLayout}
+    >
+      <View style={styles.wrap}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => setCollapsed((v) => !v)}
+            hitSlop={8}
+            style={styles.headerLeft}
+          >
+            <Text style={styles.headerCaret}>{collapsed ? '▶' : '▼'}</Text>
+            <Text style={styles.headerTitle}>Overdue</Text>
+            <View style={styles.headerCount}>
+              <Text style={styles.headerCountText}>{tasks.length}</Text>
             </View>
-          ))}
+          </Pressable>
         </View>
-      )}
-    </View>
+        <View style={styles.bulkRow}>
+          <Text style={styles.bulkRowLabel}>Reschedule all</Text>
+          <BulkBtn
+            label="Today"
+            emphasis
+            disabled={bulkPending}
+            onPress={() => bulkReschedule(todayLocalISO())}
+          />
+          <BulkBtn
+            label="Tomorrow"
+            disabled={bulkPending}
+            onPress={() => bulkReschedule(addDaysLocalISO(1))}
+          />
+          <BulkBtn
+            label="Next week"
+            disabled={bulkPending}
+            onPress={() => bulkReschedule(resolveQuickSchedule('next_week'))}
+          />
+        </View>
+        {!collapsed &&
+          tasks.map((t) => (
+            <OverdueRow
+              key={t.id}
+              task={t}
+              onApply={applyOne}
+              // A row chip during "Reschedule all" would send a second write
+              // for the same task.
+              disabled={bulkPending}
+            />
+          ))}
+      </View>
+    </Animated.View>
+  );
+}
+
+function OverdueRow({
+  task: t,
+  onApply,
+  disabled,
+}: {
+  task: Task;
+  onApply: (task: Task, target: Target, row: RowExit) => void;
+  disabled: boolean;
+}) {
+  const exit = useRowExit(false);
+  const apply = (target: Target) => {
+    if (!disabled) onApply(t, target, exit);
+  };
+  return (
+    <Animated.View
+      style={[exit.collapsing && styles.exitShell, exit.style]}
+      onLayout={exit.onLayout}
+    >
+      <View style={styles.row}>
+        <View style={styles.titleLine}>
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: PRIORITY_CONFIG[t.priority].color },
+            ]}
+          />
+          <LinkifiedText text={t.title} style={styles.title} numberOfLines={2} />
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          <Chip
+            label="Today"
+            emphasis
+            onPress={() => apply({ kind: 'date', date: todayLocalISO() })}
+          />
+          <Chip
+            label="Tomorrow"
+            onPress={() => apply({ kind: 'date', date: addDaysLocalISO(1) })}
+          />
+          <Chip
+            label="This week"
+            onPress={() =>
+              apply({ kind: 'date', date: resolveQuickSchedule('this_week') })
+            }
+          />
+          <Chip label="×" onPress={() => apply({ kind: 'remove' })} />
+        </ScrollView>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -321,12 +363,14 @@ const styles = StyleSheet.create({
   bulkLabel: { fontSize: 12, fontWeight: '700' },
   bulkLabelEmphasis: { color: '#fff' },
   bulkLabelSoft: { color: '#b91c1c' },
-  list: { gap: 6 },
+  // The spacing between rows is padding inside each row rather than a `gap`
+  // on the list, so a row that closes takes its spacing with it.
   row: {
     flexDirection: 'column',
     gap: 6,
-    paddingVertical: 4,
+    paddingVertical: 7,
   },
+  exitShell: { overflow: 'hidden' as const },
   titleLine: {
     flexDirection: 'row',
     alignItems: 'center',

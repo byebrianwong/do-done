@@ -13,6 +13,7 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
+import { displayGroupOf, leavesBySection } from '@/lib/row-leave';
 import {
   applyDisplay,
   dateGroupNamesTheDay,
@@ -78,6 +79,20 @@ interface Props {
   contentContainerStyle?: object;
   /** Shown when the list is empty — skeleton, error, or the view's own copy. */
   ListEmptyComponent?: React.ReactElement | null;
+  /**
+   * Whether a completed row stays in this list. Defaults to the config's
+   * "Show completed". The Inbox passes false: its query is `status = inbox`,
+   * so a done task cannot stay there whatever the config says.
+   */
+  keepsCompleted?: boolean;
+  /** The Completed screen: a reopened row leaves. See `TaskItem`. */
+  dropsReopened?: boolean;
+  /**
+   * For a caller that hands this list an already-narrowed `tasks` (Today
+   * passes its universe): whether a task, as it would be after a write, is
+   * still in that narrower set. Feeds the reschedule exit, not rendering.
+   */
+  inView?: (task: Task) => boolean;
 }
 
 /** Translate a group's drop target into the task patch a cross-section drop implies. */
@@ -119,6 +134,9 @@ export default function GroupedTaskList({
   refreshControl,
   contentContainerStyle,
   ListEmptyComponent,
+  keepsCompleted: keepsCompletedProp,
+  dropsReopened = false,
+  inView,
 }: Props) {
   const { sections, meta } = useMemo(() => {
     const all = applyDisplay(tasks, config, { projects });
@@ -251,7 +269,26 @@ export default function GroupedTaskList({
 
   // With "show completed" on, a ticked-off task stays in this list, so its row
   // must not play the collapse-and-vanish completion exit.
-  const keepsCompleted = config.showCompleted;
+  const keepsCompleted = keepsCompletedProp ?? config.showCompleted;
+  // A reschedule plays the move exit only when it changes the row's group, or
+  // takes it out of the list. Same function the list places rows with.
+  // Read through refs so the predicate, and so `renderTask`, stays the same
+  // object while the data under it changes. It is only called on a tap.
+  const inViewRef = useRef(inView);
+  inViewRef.current = inView;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        inViewRef.current && !inViewRef.current(t)
+          ? null
+          : displayGroupOf(t, configRef.current, {
+              projects: projectsRef.current,
+            })
+      ),
+    []
+  );
   // A status-grouped list puts the status in the header above every row it
   // applies to, so the row saying it again is pure repetition — the same
   // reasoning web's `hideStatusBadge` has always followed.
@@ -269,6 +306,8 @@ export default function GroupedTaskList({
           onPress={onTaskPress}
           onDragStart={drag}
           keepsCompleted={keepsCompleted}
+          dropsReopened={dropsReopened}
+          leavesSection={leavesSection}
           hideProject={hideProject}
           hideStatus={groupedByStatus}
           // Under a "Today" or "Tomorrow" header the row's own day is pure
@@ -283,6 +322,8 @@ export default function GroupedTaskList({
     [
       onTaskPress,
       keepsCompleted,
+      dropsReopened,
+      leavesSection,
       hideProject,
       groupedByStatus,
       sectionCounts,

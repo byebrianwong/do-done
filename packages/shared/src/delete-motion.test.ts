@@ -10,6 +10,9 @@ import {
   TASK_DELETE_HOLD_MS,
   TASK_DELETE_SLIDE_PX,
   TASK_DELETE_SLIDE_SCALE,
+  TASK_MOVE_COLLAPSE_MS,
+  TASK_MOVE_EXIT_MS,
+  TASK_MOVE_FADE_MS,
   UNDO_TOAST_TTL_MS,
 } from "./constants.js";
 
@@ -81,5 +84,29 @@ describe("task deletion motion", () => {
     // value that drifted, and shrinking it back is a product decision someone
     // should have to make on purpose.
     expect(UNDO_TOAST_TTL_MS).toBe(9000);
+  });
+});
+
+/**
+ * The third exit: a row that moves to another list. It must not borrow either
+ * vector, and it must fit inside the same windows the other two do.
+ */
+describe("task move motion", () => {
+  it("keeps the envelope at fade + collapse", () => {
+    expect(TASK_MOVE_EXIT_MS).toBe(TASK_MOVE_FADE_MS + TASK_MOVE_COLLAPSE_MS);
+  });
+
+  it("is quicker than a completion", () => {
+    // Nothing is being celebrated or confirmed. The row only has to be seen
+    // leaving, so the list is not held up longer than that.
+    expect(TASK_MOVE_EXIT_MS).toBeLessThan(TASK_COMPLETE_EXIT_MS);
+  });
+
+  it("fades long enough to be seen", () => {
+    expect(TASK_MOVE_FADE_MS).toBeGreaterThanOrEqual(150);
+  });
+
+  it("fits well inside the undo window", () => {
+    expect(UNDO_TOAST_TTL_MS).toBeGreaterThan(TASK_MOVE_EXIT_MS * 4);
   });
 });

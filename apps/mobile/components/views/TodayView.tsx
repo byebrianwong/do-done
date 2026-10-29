@@ -34,6 +34,7 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useListLoadState } from '@/lib/list-load-state';
+import { inTodayUniverse, leavesBySection } from '@/lib/row-leave';
 import {
   invalidateTasks,
   moveTask,
@@ -221,6 +222,28 @@ export function TodayView() {
     [config, setConfig, countByKey]
   );
 
+  // A reschedule leaves Today when the task is no longer in Today's universe
+  // (scheduled after today and not a Focus pick), or the filters now hide it.
+  // Moving between Focus and Other is a move within the list, not an exit.
+  // Read through refs so the predicate, and `renderTask`, stay stable.
+  const allTasksRef = useRef(allTasks);
+  allTasksRef.current = allTasks;
+  const configRef = useRef(config);
+  configRef.current = config;
+  const inView = useCallback(
+    (t: Task) => inTodayUniverse(allTasksRef.current, t, todayLocalISO()),
+    []
+  );
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        inView(t) && filterByConfig([t], configRef.current).length > 0
+          ? 'today'
+          : null
+      ),
+    [inView]
+  );
+
   const renderTask = useCallback(
     (
       task: Task,
@@ -241,10 +264,11 @@ export function TodayView() {
           // under the Today heading is exactly what those rows need to say.
           hideScheduledDay={task.scheduled_date === localDay}
           openInSection={openCount(section.data)}
+          leavesSection={leavesSection}
         />
       </View>
     ),
-    [handlePress, localDay]
+    [handlePress, localDay, leavesSection]
   );
 
   const isEmpty =
@@ -316,7 +340,7 @@ export function TodayView() {
             ListHeaderComponent={
               <>
                 <TodaySchedule events={events} />
-                <OverdueSection tasks={overdue} onChange={invalidateTasks} />
+                <OverdueSection tasks={overdue} />
               </>
             }
             contentContainerStyle={styles.listContent}
@@ -329,6 +353,7 @@ export function TodayView() {
           config={config}
           onConfigChange={setConfig}
           onTaskPress={handlePress}
+          inView={inView}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
           }
