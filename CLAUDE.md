@@ -2588,6 +2588,29 @@ page:
   binding is advertised on the button, since one nobody is told about is one nobody
   presses.
 
+Three mobile rules, in `components/UndoToast.tsx` with the decisions in
+`lib/undo-toast-motion.ts`:
+
+- **Showing a toast re-renders nothing else.** The context carries only `show`,
+  and both it and the value object are stable. The toast's own state lives in a
+  child `ToastHost`. Every task row reads this context and context ignores
+  `React.memo`, so a new value object per toast re-rendered every row on screen
+  while the completed row was still animating out.
+- **A second toast replaces the first in place.** It keeps full opacity, swaps
+  the text, dips a few points and springs back, and restarts the bar and the
+  timer. It used to reset opacity to 0 first, so two completions in a row
+  blinked. A fade-out unmounts only if it finished and its toast is still the
+  current one (`shouldUnmountAfterFade`); otherwise a toast shown within the
+  150ms fade after tapping Undo was wiped at once.
+- **On a tab screen it sits beside the add button and follows the tab bar.** It
+  rests above the expanded bar, inset from the right by the add button's width,
+  and moves down by what the bar sheds as it minimizes, off the same shared
+  value, as a transform. The toast is mounted in the root layout, above the tab
+  navigator, so `TabBarMinimizeProvider` publishes its progress through
+  `useVisibleTabBarProgress()` while the tabs are the focused route. Off the
+  tabs it is centred above the safe area. Reduce Motion lands on the end state;
+  the draining bar still drains, because it is information.
+
 ## Swiping a task row (mobile)
 
 Swipe **right** for the single Done/Reopen action, which the row plays itself and then

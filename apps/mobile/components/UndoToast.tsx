@@ -3,18 +3,38 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from 'react';
-import {
-  Animated,
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
   Easing,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+  cancelAnimation,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UNDO_TOAST_TTL_MS } from '@do-done/shared';
+
+import { useVisibleTabBarProgress } from '@/lib/tab-bar-minimize';
+import { TAB_BAR_ROW_HEIGHT, tabRowHeight } from '@/lib/tab-bar-motion';
+import {
+  TOAST_FADE_MS,
+  TOAST_FAB_CLEARANCE,
+  TOAST_GAP,
+  TOAST_RISE_PX,
+  riseStart,
+  shouldUnmountAfterFade,
+  toastBottom,
+  toastShowMode,
+} from '@/lib/undo-toast-motion';
+import { prefersReducedMotion } from '@/lib/use-row-exit';
 
 type Toast = {
   id: number;
@@ -31,158 +51,234 @@ type Ctx = { show: (t: Omit<Toast, 'id'>) => void };
 
 const UndoToastContext = createContext<Ctx | null>(null);
 
-const FADE_MS = 150;
+const RISE_SPRING = { damping: 16, stiffness: 220 };
 
+/**
+ * The context carries only `show`, and both it and the value object are
+ * stable, so a toast going up or down re-renders no consumer.
+ *
+ * Every task row, list row and the root navigator read this context, and
+ * context ignores `React.memo`. The value used to be a new `{ show }` on every
+ * provider render, and the provider rendered on every show and every dismiss,
+ * so each toast re-rendered every row on screen twice. The completion toast
+ * goes up while the row it is about is still animating out. The toast's own
+ * state now lives in `ToastHost`, and the provider holds none.
+ */
 export function UndoToastProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const hostRef = useRef<ToastHostHandle>(null);
+  const show = useCallback<Ctx['show']>((t) => {
+    hostRef.current?.show(t);
+  }, []);
+  const value = useMemo<Ctx>(() => ({ show }), [show]);
+
+  return (
+    <UndoToastContext.Provider value={value}>
+      {children}
+      <ToastHost ref={hostRef} />
+    </UndoToastContext.Provider>
+  );
+}
+
+type ToastHostHandle = Ctx;
+
+function ToastHost({ ref }: { ref: React.Ref<ToastHostHandle> }) {
   const [toast, setToast] = useState<Toast | null>(null);
-  const opacity = useRef(new Animated.Value(0)).current;
-  const rise = useRef(new Animated.Value(0)).current;
+  /** The mounted toast's id, readable synchronously from `show`. */
+  const currentId = useRef<number | null>(null);
+  /** The id of a toast that is fading out, so Undo cannot fire twice. */
+  const fadingId = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idRef = useRef(0);
+
+  const opacity = useSharedValue(0);
+  /** 0 at rest, 1 lowered by `TOAST_RISE_PX`. */
+  const rise = useSharedValue(1);
   /**
    * 1 → 0 across the undo window, drawn as a bar under the button.
    *
    * The window is the only thing that makes the button useful, and the user
-   * cannot see a `setTimeout`. Driving both from the same mount means the bar
-   * and the timer that actually dismisses the toast can never disagree.
+   * cannot see a `setTimeout`. Both are started in the same `show()` call, so
+   * the bar and the timer that actually dismisses the toast cannot disagree.
    */
-  const countdown = useRef(new Animated.Value(1)).current;
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const idRef = useRef(0);
+  const countdown = useSharedValue(1);
 
-  const fadeOut = useCallback(
-    (after: () => void) => {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: FADE_MS,
-          useNativeDriver: true,
-        }),
-        Animated.timing(rise, {
-          toValue: 1,
-          duration: FADE_MS,
-          useNativeDriver: true,
-        }),
-      ]).start(after);
-    },
-    [opacity, rise]
-  );
+  const insets = useSafeAreaInsets();
+  const tabProgress = useVisibleTabBarProgress();
+  // A stand-in so the animated style is not conditional. It never moves,
+  // which is right where there is no tab bar.
+  const noBar = useSharedValue(0);
+  const progress = tabProgress ?? noBar;
+  const onTab = tabProgress !== null;
 
-  const dismiss = useCallback(() => {
+  const clearTimer = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    countdown.stopAnimation();
-    fadeOut(() => setToast(null));
-  }, [countdown, fadeOut]);
+  }, []);
+
+  const unmountIfCurrent = useCallback(
+    (fadedId: number, finished: boolean | undefined) => {
+      if (!shouldUnmountAfterFade(finished, fadedId, currentId.current)) return;
+      currentId.current = null;
+      fadingId.current = null;
+      setToast(null);
+    },
+    []
+  );
+
+  const fadeOut = useCallback(
+    (id: number) => {
+      clearTimer();
+      fadingId.current = id;
+      if (prefersReducedMotion()) {
+        opacity.value = 0;
+        unmountIfCurrent(id, true);
+        return;
+      }
+      rise.value = withTiming(1, { duration: TOAST_FADE_MS });
+      // The callback also runs when a new `show()` interrupts the fade, with
+      // `finished: false`. `shouldUnmountAfterFade` checks both that and the id.
+      opacity.value = withTiming(0, { duration: TOAST_FADE_MS }, (finished) => {
+        runOnJS(unmountIfCurrent)(id, finished);
+      });
+    },
+    [clearTimer, opacity, rise, unmountIfCurrent]
+  );
 
   const show = useCallback<Ctx['show']>(
     (t) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      clearTimer();
+      const mode = toastShowMode(currentId.current !== null, prefersReducedMotion());
       const id = ++idRef.current;
+      currentId.current = id;
+      fadingId.current = null;
       setToast({ ...t, id });
-      opacity.setValue(0);
-      // Rises rather than appearing: it arrives while the row it is about is
-      // still leaving, and two things fading in at once at opposite ends of the
-      // screen read as one glitch rather than as cause and receipt.
-      rise.setValue(1);
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: FADE_MS,
-          useNativeDriver: true,
-        }),
-        Animated.spring(rise, {
-          toValue: 0,
-          damping: 16,
-          stiffness: 220,
-          useNativeDriver: true,
-        }),
-      ]).start();
+
+      if (mode === 'instant') {
+        opacity.value = 1;
+        rise.value = 0;
+      } else {
+        // Back to 1 from wherever it is. On a replacement that is already 1,
+        // or partway down a fade the new toast interrupted, so the toast never
+        // leaves the screen between two receipts.
+        opacity.value = withTiming(1, { duration: TOAST_FADE_MS });
+        if (mode === 'enter') {
+          // Rises rather than appearing: it arrives while the row it is about
+          // is still leaving, and two things fading in at once at opposite
+          // ends of the screen read as one glitch rather than as cause and
+          // receipt.
+          rise.value = riseStart(mode);
+          rise.value = withSpring(0, RISE_SPRING);
+        } else {
+          // A small dip and back, so the new text reads as a new receipt.
+          rise.value = withSequence(
+            withTiming(riseStart(mode), { duration: TOAST_FADE_MS / 2 }),
+            withSpring(0, RISE_SPRING)
+          );
+        }
+      }
+
       // Linear, because this one is reporting a fact rather than expressing a
       // feeling: a window that appeared to slow down near the end would be
-      // lying about how much of it is left.
-      countdown.setValue(1);
-      Animated.timing(countdown, {
-        toValue: 0,
+      // lying about how much of it is left. Kept under Reduce Motion for the
+      // same reason: it is information, not decoration.
+      cancelAnimation(countdown);
+      countdown.value = 1;
+      countdown.value = withTiming(0, {
         duration: UNDO_TOAST_TTL_MS,
         easing: Easing.linear,
-        useNativeDriver: true,
-      }).start();
+      });
       timerRef.current = setTimeout(() => {
-        fadeOut(() => setToast((cur) => (cur?.id === id ? null : cur)));
+        timerRef.current = null;
+        if (currentId.current === id) fadeOut(id);
       }, UNDO_TOAST_TTL_MS);
     },
-    [opacity, rise, countdown, fadeOut]
+    [clearTimer, countdown, fadeOut, opacity, rise]
   );
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  useImperativeHandle(ref, () => ({ show }), [show]);
+
+  useEffect(() => clearTimer, [clearTimer]);
+
+  // On a tab screen the toast rests above the *expanded* bar and moves down by
+  // what the bar sheds, the same way the add button does: a transform rather
+  // than an animated `bottom`, so following the bar costs no layout.
+  const wrapStyle = useAnimatedStyle(
+    () => ({
+      opacity: opacity.value,
+      transform: [
+        {
+          translateY:
+            (onTab ? TAB_BAR_ROW_HEIGHT - tabRowHeight(progress.value) : 0) +
+            rise.value * TOAST_RISE_PX,
+        },
+      ],
+    }),
+    [onTab, progress]
+  );
+
+  const countdownStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: -UNDO_BTN_WIDTH / 2 },
+      { scaleX: countdown.value },
+      { translateX: UNDO_BTN_WIDTH / 2 },
+    ],
+  }));
+
+  if (!toast) return null;
 
   return (
-    <UndoToastContext.Provider value={{ show }}>
-      {children}
-      {toast && (
-        <Animated.View
-          style={[
-            styles.wrap,
-            {
-              opacity,
-              transform: [
-                { translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [0, 16] }) },
-              ],
-            },
-          ]}
-          pointerEvents="box-none"
-        >
-          <View style={styles.toast}>
-            <Text style={styles.message} numberOfLines={2}>
-              {toast.message}
-            </Text>
-            {toast.undo && (
-              <Pressable
-                onPress={async () => {
-                  const fn = toast.undo;
-                  dismiss();
-                  await fn?.();
-                }}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.undoBtn,
-                  pressed && styles.undoBtnPressed,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Undo"
-              >
-                <Text style={styles.undoLabel}>Undo</Text>
-                {/* The window, drawn draining. This is the difference between
-                    "there is an Undo" and "there is an Undo *and you have
-                    time*" — which is why the window is as long as
-                    it is. Anchored left so it shortens from the right. */}
-                <Animated.View
-                  style={[
-                    styles.countdown,
-                    {
-                      transform: [
-                        { translateX: -UNDO_BTN_WIDTH / 2 },
-                        { scaleX: countdown },
-                        { translateX: UNDO_BTN_WIDTH / 2 },
-                      ],
-                    },
-                  ]}
-                />
-              </Pressable>
-            )}
-          </View>
-        </Animated.View>
-      )}
-    </UndoToastContext.Provider>
+    <Animated.View
+      style={[
+        styles.wrap,
+        {
+          bottom: toastBottom(insets.bottom, onTab ? TAB_BAR_ROW_HEIGHT : null),
+          // Every tab screen has the add button in the bottom-right corner, at
+          // the same height. Beside it rather than on top of it.
+          right: onTab ? TOAST_FAB_CLEARANCE : TOAST_GAP,
+          alignItems: onTab ? 'flex-start' : 'center',
+        },
+        wrapStyle,
+      ]}
+      pointerEvents="box-none"
+    >
+      <View style={styles.toast} accessibilityLiveRegion="polite">
+        <Text style={styles.message} numberOfLines={2}>
+          {toast.message}
+        </Text>
+        {toast.undo && (
+          <Pressable
+            onPress={async () => {
+              // Ignore a second tap while this toast fades, which would run
+              // the undo twice.
+              if (fadingId.current === toast.id) return;
+              const fn = toast.undo;
+              fadeOut(toast.id);
+              await fn?.();
+            }}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.undoBtn,
+              pressed && styles.undoBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Undo"
+          >
+            <Text style={styles.undoLabel}>Undo</Text>
+            {/* The window, drawn draining. This is the difference between
+                "there is an Undo" and "there is an Undo *and you have
+                time*" — which is why the window is as long as
+                it is. Anchored left so it shortens from the right. */}
+            <Animated.View style={[styles.countdown, countdownStyle]} />
+          </Pressable>
+        )}
+      </View>
+    </Animated.View>
   );
 }
 
@@ -202,13 +298,10 @@ const UNDO_BTN_WIDTH = 76;
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 96,
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    left: TOAST_GAP,
   },
   toast: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -223,7 +316,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  message: { color: '#f9fafb', fontSize: 14, maxWidth: 200 },
+  message: { color: '#f9fafb', fontSize: 14, maxWidth: 200, flexShrink: 1 },
   // A filled control rather than a text label. It used to be indigo words
   // beside white ones on a dark bar — legible, but reading as a caption at
   // exactly the moment it is the only way back from a deletion.
