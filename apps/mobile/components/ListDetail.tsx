@@ -701,7 +701,10 @@ export function ListDetail({ listId }: { listId: string }) {
   */
   const onReorder = useCallback(
     (_sectionKey: string, ids: string[]) => {
-      void reorderTasks(ids, { aheadOfNew: true }).catch(() =>
+      // A stand-in still waiting on its insert has no row to rank yet.
+      void reorderTasks(ids.filter((i) => !isPendingItem(i)), {
+        aheadOfNew: true,
+      }).catch(() =>
         toast.show({ message: "Couldn't move that item" })
       );
     },
@@ -716,7 +719,12 @@ export function ListDetail({ listId }: { listId: string }) {
       if (!item || !drop) return false;
       const { patch, teach } = drop;
       if (teach !== undefined) previewAisleLesson(item.title, teach);
-      void moveTask(id, patch, ids, { aheadOfNew: true })
+      void moveTask(
+        id,
+        patch,
+        ids.filter((i) => !isPendingItem(i)),
+        { aheadOfNew: true }
+      )
         .then(async () => {
           // The same two halves as a correction made in the item sheet: the
           // tag fixes this row, the lesson fixes the same words next week.
@@ -1337,6 +1345,9 @@ function ListComposer({
     <View
       style={StyleSheet.absoluteFill}
       pointerEvents={open ? 'box-none' : 'none'}
+      // Gone for a screen reader as soon as it starts to close.
+      accessibilityElementsHidden={!open}
+      importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
     >
       <Animated.View style={[styles.composerScrim, scrimStyle]}>
         <Pressable

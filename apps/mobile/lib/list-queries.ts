@@ -152,6 +152,7 @@ export function invalidateLists(listId?: string) {
  */
 const pendingAdds = new Map<string, Task[]>();
 let pendingSeq = 0;
+const LAUNCH_STAMP = Date.now().toString(36);
 
 function pendingFor(key: string): Task[] {
   return pendingAdds.get(key) ?? [];
@@ -185,7 +186,10 @@ export async function addListItem(
   } = {}
 ): Promise<Task | null> {
   const keys = [listId, ...(options.alsoInto ? [options.alsoInto] : [])];
-  const tempId = `${PENDING_ITEM_PREFIX}${++pendingSeq}`;
+  // The launch time is in the id because the query cache is persisted: a
+  // stand-in left by a launch killed mid-add must not share an id with a new
+  // one, or `withPendingItems` would keep the old row and drop the new.
+  const tempId = `${PENDING_ITEM_PREFIX}${LAUNCH_STAMP}-${++pendingSeq}`;
   const temp = pendingListItem({ tempId, listId, input, now: new Date() });
   for (const key of keys) {
     setPending(key, [...pendingFor(key), temp]);
