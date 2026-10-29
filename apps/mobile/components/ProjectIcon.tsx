@@ -18,12 +18,16 @@
  * still looks deliberate.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { PHOSPHOR_VIEW_BOX, parseProjectIcon } from '@do-done/shared';
 
-export function ProjectIcon({
+/**
+ * Memoised because the icon picker draws hundreds of these, and its props are
+ * all primitives.
+ */
+export const ProjectIcon = memo(function ProjectIcon({
   icon,
   size = 12,
   color,
@@ -60,7 +64,7 @@ export function ProjectIcon({
       )}
     </Svg>
   );
-}
+});
 
 const styles = StyleSheet.create({
   glyph: { color: '#111827' },
