@@ -18,7 +18,7 @@ import {
 import {
   invalidateTasks,
   useAllTasks,
-  useProjectsWithCounts,
+  useProjects,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
@@ -31,7 +31,9 @@ export function AllView() {
   const tasksQuery = useAllTasks();
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick, which
+  // would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('all');
@@ -41,8 +43,8 @@ export function AllView() {
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -50,6 +52,23 @@ export function AllView() {
     for (const t of tasks) for (const tag of t.tags) set.add(tag);
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
+
+  // Memoised so the list does not see a new element on every render.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+    ),
+    [refreshing, onRefresh]
+  );
+  const emptyState = useMemo(
+    () => (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>No tasks yet</Text>
+        <Text style={styles.emptyHint}>Tap + to add one.</Text>
+      </View>
+    ),
+    []
+  );
 
   return (
     <View style={styles.container}>
@@ -92,18 +111,11 @@ export function AllView() {
           config={config}
           onConfigChange={setConfig}
           onTaskPress={handlePress}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
-          }
+          refreshControl={refreshControl}
           // Without this the screen is a stack of "(0)" status headers: the
           // grouping emits its columns as drop targets whether or not anything
           // is in them, and there is nothing to drag into them here.
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No tasks yet</Text>
-              <Text style={styles.emptyHint}>Tap + to add one.</Text>
-            </View>
-          }
+          ListEmptyComponent={emptyState}
           contentContainerStyle={styles.listContent}
         />
       )}

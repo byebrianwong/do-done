@@ -38,9 +38,10 @@ import {
   invalidateTasks,
   moveTask,
   reorderTasks,
-  useProjectsWithCounts,
+  useProjects,
   useTodayTasks,
 } from '@/lib/task-queries';
+import { useSectionOpenCounts } from '@/lib/section-counts';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
@@ -56,6 +57,8 @@ import {
 import type { CalendarEvent, Task } from '@do-done/shared';
 
 const FOCUS = 'focus';
+/** Stable while events load, so the memoised list header keeps its identity. */
+const NO_EVENTS: CalendarEvent[] = [];
 const OTHER = 'other';
 
 /** Today's Google Calendar events — the fixed skeleton of the day, shown
@@ -93,12 +96,6 @@ const scheduleStyles = StyleSheet.create({
   },
 });
 
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
-
 export function TodayView() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -108,12 +105,14 @@ export function TodayView() {
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.
   const loadState = useListLoadState(todayQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick,
+  // which would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   // Today only, in the device's local day (the fetch passes the device
   // timezone so the server resolves the same day the user is looking at;
   // useLocalDay rolls the window over when the app foregrounds on a new day).
   const localDay = useLocalDay();
-  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
+  const { data: events = NO_EVENTS, isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, 1)
   );
@@ -126,8 +125,8 @@ export function TodayView() {
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const universe = useMemo(
@@ -172,6 +171,16 @@ export function TodayView() {
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
   );
+  const sectionOpenCount = useSectionOpenCounts(sections);
+
+  // The header renderer reads these through refs so it keeps its identity
+  // across data changes; a new renderer would re-render every cell. A header
+  // still redraws when its own section object changes, which is whenever its
+  // count or its collapsed state does.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const countByKeyRef = useRef(countByKey);
+  countByKeyRef.current = countByKey;
 
   const onReorder = useCallback((_key: string, ids: string[]) => {
     void reorderTasks(ids).catch(() => {});
@@ -195,12 +204,12 @@ export function TodayView() {
   const renderHeader = useCallback(
     (section: DraggableSection) => {
       const isFocus = section.key === FOCUS;
-      const collapsed = isCollapsed(config, section.key);
-      const count = countByKey.get(section.key) ?? section.data.length;
+      const collapsed = isCollapsed(configRef.current, section.key);
+      const count = countByKeyRef.current.get(section.key) ?? section.data.length;
       return (
         <SectionHeaderButton
           collapsed={collapsed}
-          onToggle={() => setConfig(toggleCollapsed(config, section.key))}
+          onToggle={() => setConfig(toggleCollapsed(configRef.current, section.key))}
         >
           <Ionicons
             name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -218,7 +227,7 @@ export function TodayView() {
         </SectionHeaderButton>
       );
     },
-    [config, setConfig, countByKey]
+    [setConfig]
   );
 
   const renderTask = useCallback(
@@ -226,7 +235,7 @@ export function TodayView() {
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
+      sectionKey: string
     ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
@@ -240,15 +249,42 @@ export function TodayView() {
           // task scheduled Friday, or none at all — and "Fri, Aug 21" sitting
           // under the Today heading is exactly what those rows need to say.
           hideScheduledDay={task.scheduled_date === localDay}
-          openInSection={openCount(section.data)}
+          openInSection={sectionOpenCount(sectionKey)}
         />
       </View>
     ),
-    [handlePress, localDay]
+    [handlePress, localDay, sectionOpenCount]
   );
 
   const isEmpty =
     overdue.length === 0 && focus.length === 0 && other.length === 0;
+
+  // Built once per change rather than inline, so the memoised lists below do
+  // not see a new element on every render of this screen.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+    ),
+    [refreshing, onRefresh]
+  );
+  const listHeader = useMemo(
+    () => (
+      <>
+        <TodaySchedule events={events} />
+        <OverdueSection tasks={overdue} onChange={invalidateTasks} />
+      </>
+    ),
+    [events, overdue]
+  );
+  const emptyState = useMemo(
+    () => (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>Nothing scheduled today</Text>
+        <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+      </View>
+    ),
+    []
+  );
 
   return (
     <View style={styles.container}>
@@ -310,15 +346,8 @@ export function TodayView() {
             renderTask={renderTask}
             onReorder={onReorder}
             onMove={onMove}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
-            }
-            ListHeaderComponent={
-              <>
-                <TodaySchedule events={events} />
-                <OverdueSection tasks={overdue} onChange={invalidateTasks} />
-              </>
-            }
+            refreshControl={refreshControl}
+            ListHeaderComponent={listHeader}
             contentContainerStyle={styles.listContent}
           />
         )
@@ -329,18 +358,11 @@ export function TodayView() {
           config={config}
           onConfigChange={setConfig}
           onTaskPress={handlePress}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
-          }
+          refreshControl={refreshControl}
           // The same answer the curated branch gives above. Regrouping or
           // re-sorting the day does not change what there is to say about an
           // empty one.
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing scheduled today</Text>
-              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
-            </View>
-          }
+          ListEmptyComponent={emptyState}
           contentContainerStyle={styles.listContent}
         />
       )}

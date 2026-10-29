@@ -1358,6 +1358,40 @@ every bulk action stayed dead for the rest of the session.
   `lib/task-cache-shape.test.ts` is the regression, and it asserts the *write went out*,
   not just the settled cache.
 
+## One write re-renders one row (mobile)
+
+**A tick, a swipe or an edit must re-render only the rows it changed.** It used to
+re-render every row in every mounted list, on the JS thread, and with All, Today and
+Upcoming mounted at once that backlog showed up as late taps and blank cells while
+scrolling. Most of it is identity: a cell is skipped only when everything it is handed
+is the same object as last time.
+
+- **`flattenReusing` keeps unchanged rows** (`lib/section-rows.ts`). TanStack's
+  structural sharing keeps an unchanged task at the same reference, so a row is reused
+  when its task, key and section are. A field edit still makes a new row, because the
+  edited task is a new object. This replaced a `JSON.stringify` of every task on every
+  render, plus an effect that copied the rows into state and rendered twice.
+- **`renderItem` and every renderer handed to the list keep their identity.** The drag
+  library memoises each cell on `renderItem` and the row. So the views read what their
+  header renderers need (config, counts, events) through refs, and a header still
+  redraws because its section is a new object whenever its count or state changes.
+- **Counts a row reads at the tap are getters**, not numbers. See *When the sparks
+  fire*.
+- **The views use `useProjects()`**, not `useProjectsWithCounts()`, for names and
+  colours. The counts change on every tick, which handed `applyDisplay` a new project
+  list and rebuilt every section.
+- **`SectionedDraggableList` and `GroupedTaskList` are `React.memo`**, so the views
+  memoise their `refreshControl` and empty states rather than building them inline.
+- **`windowSize` is 9**, not the default 21, which kept about 250 rows mounted on All.
+- **`StruckText` keeps its line rects in a ref** until the row is struck, and reveals
+  the rule by two opposing `translateX` transforms rather than an animated `width`.
+  The reveal is the same left-to-right sweep per line. A `scaleX` would be cheaper but
+  stretches every rule from one origin, so short lines would finish late.
+- **The swipe panels still mount with every row.** `ReanimatedSwipeable` measures the
+  panel's rendered width at the start of a gesture to set the threshold and the travel,
+  so a panel rendered on demand would arrive after the finger was already moving.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
+
 ## The tab bar minimizes as you scroll (mobile)
 
 Scrolling down a list shrinks the bottom tab bar: the labels fade, the icons
@@ -1636,7 +1670,10 @@ the moment the project ending, not the task's size.
 counts through two contexts in `task-row-behavior.tsx`. Section and project are provided
 at different depths — a project page groups by status, so the project's last open task is
 not the last in any group — and one context would have the inner erase the outer. Mobile
-passes props, matching the split already documented on `keepsCompleted`.
+passes props, matching the split already documented on `keepsCompleted`, and the
+props are getters (`lib/section-counts.ts`) that read the count when the row is
+tapped. A plain number changed on every completion in the section and
+re-rendered every row beside the one that was ticked.
 
 **A missing count means "this surface cannot tell" and is deliberately different from
 zero**, so the inbox, search, and the drag overlay never fire those rules rather than
