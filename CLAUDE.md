@@ -310,11 +310,18 @@ tinted circle with two swap arrows (`components/SwapTitle.tsx`), and the glyph
 turns over when you use it, so the swap has a direction. Printing both words
 would spend the header's width on a word you are not looking at.
 
-**The swap moves.** The old view fades out sliding one way while the new one
-fades in from the other (`components/SwapView.tsx`, 180ms): forward into the
-second view of the pair, back into the first. The glyph turns 180° over 260ms.
-The title remounts with the view it sits in, so the angle it turns from is
-kept at module level in `lib/swap-motion.ts`.
+**The swap crossfades** (`components/SwapView.tsx`, 180ms), with no slide: each
+view draws its own add button in the same corner, and a slide would move it
+sideways. The glyph is what gives the swap a direction: it turns 180° over
+260ms. The title remounts with the view it sits in, so the angle it turns from
+is kept at module level in `lib/swap-motion.ts`.
+
+- **A title reads its own view's mode, not the store** (`useShownMode`). The
+  store changes on the render that prepares the outgoing view, so a title
+  subscribed to it relabelled the leaving header and spent the glyph's turn
+  inside a view that was about to be removed.
+- **The leaving layer takes no touches and is hidden from screen readers**
+  during its fade, since it may sit above the arriving one.
 
 - **Only a swap the user made animates.** `lib/view-mode.tsx` records why each
   mode last changed: `swap` for the header button and the tab re-tap, `set` for
@@ -331,12 +338,17 @@ kept at module level in `lib/swap-motion.ts`.
   the key changes in a layout effect after it. The view element is memoised per
   mode, so that first render does not re-render the outgoing tree.
 - **The list does not regroup after a swap.** `useDisplayConfig` starts a mount
-  from the config that view last used this launch (`lib/display-config-cache.ts`),
-  and `hydrateDisplayConfigs()` fills that cache from AsyncStorage at launch. It
-  used to start every mount on the defaults and then regroup once each async read
-  landed. A read that agrees with what is showing now sets no state, and the
-  database copy is no longer applied to a view the user has changed on this
-  device this launch, since the debounced write may not have landed yet.
+  from the config that view last used this launch (`lib/display-config-cache.ts`).
+  It used to start every mount on the defaults and then regroup once each async
+  read landed. A read that agrees with what is showing sets no state.
+  - `hydrateDisplayConfigs()` fills the cache from AsyncStorage at launch, which
+    covers views mounted after it lands. The first view on screen usually mounts
+    before it and can still regroup once on a cold start.
+  - While a local change's debounced database write is outstanding, the
+    database copy is not applied, or a swap inside that 500ms could read the old
+    config back and undo the change on screen.
+  - The cache is cleared on sign-out, so the next account starts from its own
+    configs.
 - **Reduce Motion lands on the end state**: the new view and the glyph's new
   angle, with no fade or turn.
 
@@ -345,10 +357,12 @@ as "pick a date" and a star beside "Upcoming" reads as "favourite", and both of
 those are real actions in this app. Arrows can only mean switch.
 
 - **The mode is a module store** (`lib/view-mode.tsx`), not a context, for the
-  same reason `lib/auto-sync-notice.ts` is one: the deep-link routes `/today`
-  and `/upcoming` — which the home-screen widgets, the launcher shortcuts and
-  the digest notifications open — sit outside the tab layout and still have to
-  say which half they mean. Both are `Redirect`s that set the mode first.
+  same reason `lib/auto-sync-notice.ts` is one: the deep links `today` and
+  `upcoming` — which the home-screen widgets, the launcher shortcuts and the
+  digest notifications open — arrive outside the tab layout and still have to
+  say which half they mean. Widget and shortcut links set it in
+  `app/+native-intent.tsx`; notification taps reach `app/today.tsx` and
+  `app/upcoming.tsx`, `Redirect`s that set the mode first.
 - **It is not in the query cache.** This is navigation, not data, and
   `invalidateTasks()` sweeps everything under `taskKeys.all`.
 - **It is persisted**, so the app reopens on whichever half you were last using.

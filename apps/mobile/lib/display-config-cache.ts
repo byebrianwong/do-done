@@ -16,7 +16,7 @@
 import type { DisplayConfig } from '@do-done/shared';
 
 const cache = new Map<string, DisplayConfig>();
-const writtenLocally = new Set<string>();
+const unsyncedWrites = new Map<string, number>();
 
 /** What a view should draw with before anything async has answered. */
 export function initialDisplayConfig(
@@ -38,21 +38,33 @@ export function rememberDisplayConfig(
 }
 
 /**
- * Record that the user changed this view's config on this device this launch.
+ * Record that the user changed this view's config and the database write has
+ * not landed yet.
  *
- * After that, the database read a remount makes can only be older than what
- * is showing: the change is written to the database 500ms later, debounced, so
- * a swap away and back inside that window could read the previous config back
- * and undo the change on screen. The write still lands; the read is what is
- * skipped.
+ * The write is debounced 500ms. Inside that window the database still holds
+ * the previous config, so a swap away and back could read it back and undo the
+ * change on screen. While a write is outstanding the database copy is skipped;
+ * `markDisplayConfigSynced` lifts that once the write has gone out.
  */
 export function markDisplayConfigWritten(viewKey: string): void {
-  writtenLocally.add(viewKey);
+  unsyncedWrites.set(viewKey, (unsyncedWrites.get(viewKey) ?? 0) + 1);
+}
+
+/** The debounced write for one change has gone out (or failed for good). */
+export function markDisplayConfigSynced(viewKey: string, changes: number): void {
+  const left = (unsyncedWrites.get(viewKey) ?? 0) - changes;
+  if (left > 0) unsyncedWrites.set(viewKey, left);
+  else unsyncedWrites.delete(viewKey);
+}
+
+/** How many local changes to this view have not reached the database yet. */
+export function unsyncedDisplayChanges(viewKey: string): number {
+  return unsyncedWrites.get(viewKey) ?? 0;
 }
 
 /** Whether the database's copy of this view's config should be applied. */
 export function shouldApplyRemoteConfig(viewKey: string): boolean {
-  return !writtenLocally.has(viewKey);
+  return !unsyncedWrites.has(viewKey);
 }
 
 /**
@@ -77,8 +89,11 @@ function stableJson(value: unknown): string {
   });
 }
 
-/** Test seam. */
+/**
+ * Forget everything. Called on sign-out, so the next account does not start
+ * from the previous one's configs. Also the test seam.
+ */
 export function resetDisplayConfigCache(): void {
   cache.clear();
-  writtenLocally.clear();
+  unsyncedWrites.clear();
 }

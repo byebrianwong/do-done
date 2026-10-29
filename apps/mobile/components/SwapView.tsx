@@ -1,6 +1,10 @@
 /**
  * The body of a swap tab: one of two views, crossfaded when it changes.
  *
+ * A plain crossfade with no slide. Each view draws its own add button in the
+ * same corner, and a slide would move it sideways on every swap. The glyph in
+ * the title is what gives the swap its direction.
+ *
  * Only the view on screen is mounted. Keeping both mounted would keep the
  * scroll position of the half you left, but it doubles the render cost of the
  * tab — both views' queries stay live and both re-render on every cache write —
@@ -11,19 +15,21 @@
  * the native views React has already let go of).
  *
  * The swap renders twice, before one paint. The outgoing view's `exiting`
- * animation is a prop, so it has to be set to this swap's direction on a
- * render *before* the one that unmounts it. The first render does that; a
+ * animation is a prop, so it has to be set for this swap on a render
+ * *before* the one that unmounts it. The first render does that; a
  * layout effect then swaps the key. The view element itself is memoised per
  * mode, so the first render does not re-render the outgoing view's tree.
  */
-import React, { useLayoutEffect, useMemo, useState, type ReactElement } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, {
-  FadeInLeft,
-  FadeInRight,
-  FadeOutLeft,
-  FadeOutRight,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { reduceMotionNow } from '@/lib/reduce-motion';
 import { SWAP_FADE_MS, swapTransition, type SwapTransition } from '@/lib/swap-motion';
@@ -32,21 +38,35 @@ import { modeChangeCause } from '@/lib/view-mode';
 interface Props<M extends string> {
   tab: 'agenda' | 'tasks';
   mode: M;
-  order: readonly M[];
   render: (mode: M) => ReactElement;
 }
 
+/**
+ * The mode of the view a component sits in, as opposed to the store's.
+ *
+ * The titles read this rather than `useViewMode()`. The store changes on the
+ * render that sets the outgoing view's `exiting`, so a title subscribed to it
+ * re-rendered inside the outgoing view: the leaving header already read
+ * "Upcoming", and its effect claimed the glyph's turn, so the arriving title
+ * found nothing left to turn. Pinned to its own view, each title says what its
+ * view is, and the arriving one does the turning.
+ */
+const ShownModeContext = createContext<string | null>(null);
+
+/** The mode of the enclosing `SwapView`'s view, or null outside one. */
+export function useShownMode(): string | null {
+  return useContext(ShownModeContext);
+}
+
 function enteringFor(t: SwapTransition | null) {
-  if (!t || !t.animate) return undefined;
-  return (t.direction === 'forward' ? FadeInRight : FadeInLeft).duration(SWAP_FADE_MS);
+  return t?.animate ? FadeIn.duration(SWAP_FADE_MS) : undefined;
 }
 
 function exitingFor(t: SwapTransition | null) {
-  if (!t || !t.animate) return undefined;
-  return (t.direction === 'forward' ? FadeOutLeft : FadeOutRight).duration(SWAP_FADE_MS);
+  return t?.animate ? FadeOut.duration(SWAP_FADE_MS) : undefined;
 }
 
-export function SwapView<M extends string>({ tab, mode, order, render }: Props<M>) {
+export function SwapView<M extends string>({ tab, mode, render }: Props<M>) {
   const [shown, setShown] = useState<{ mode: M; transition: SwapTransition | null }>({
     mode,
     // Nothing to animate from on the first mount.
@@ -59,7 +79,6 @@ export function SwapView<M extends string>({ tab, mode, order, render }: Props<M
     mode === shown.mode
       ? null
       : swapTransition({
-          order,
           from: shown.mode,
           to: mode,
           cause: modeChangeCause(tab),
@@ -80,8 +99,15 @@ export function SwapView<M extends string>({ tab, mode, order, render }: Props<M
         style={StyleSheet.absoluteFill}
         entering={enteringFor(shown.transition)}
         exiting={exitingFor(pending)}
+        // The outgoing layer stays on screen for the fade, possibly above the
+        // new one. It must not take a tap or a screen reader's focus there.
+        pointerEvents={pending ? 'none' : 'auto'}
+        accessibilityElementsHidden={pending !== null}
+        importantForAccessibility={pending ? 'no-hide-descendants' : 'auto'}
       >
-        {body}
+        <ShownModeContext.Provider value={shown.mode}>
+          {body}
+        </ShownModeContext.Provider>
       </Animated.View>
     </View>
   );

@@ -35,6 +35,7 @@ import {
   rememberGlyphAngle,
   type SwapTab,
 } from '@/lib/swap-motion';
+import { useShownMode } from '@/components/SwapView';
 import {
   toggleAgendaMode,
   toggleTasksMode,
@@ -135,7 +136,8 @@ const styles = StyleSheet.create({
  */
 export function AgendaTitle() {
   const { agenda } = useViewMode();
-  const today = agenda === 'today';
+  // The view this title sits in, not the store: see `useShownMode`.
+  const today = (useShownMode() ?? agenda) === 'today';
   return (
     <SwapTitle
       tab="agenda"
@@ -150,7 +152,7 @@ export function AgendaTitle() {
 /** The Tasks tab's title: All ⟷ Inbox. */
 export function TasksTitle() {
   const { tasks } = useViewMode();
-  const all = tasks === 'all';
+  const all = (useShownMode() ?? tasks) === 'all';
   return (
     <SwapTitle
       tab="tasks"

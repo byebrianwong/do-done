@@ -11,7 +11,6 @@ import React from 'react';
 import { TodayView } from '@/components/views/TodayView';
 import { UpcomingView } from '@/components/views/UpcomingView';
 import { SwapView } from '@/components/SwapView';
-import { SWAP_ORDER } from '@/lib/swap-motion';
 import { useViewMode, type AgendaMode } from '@/lib/view-mode';
 
 const renderAgenda = (mode: AgendaMode) =>
@@ -23,7 +22,6 @@ export default function AgendaTab() {
     <SwapView
       tab="agenda"
       mode={agenda}
-      order={SWAP_ORDER.agenda}
       render={renderAgenda}
     />
   );

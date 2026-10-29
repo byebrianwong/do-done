@@ -4,11 +4,13 @@ import { defaultDisplayFor, type DisplayConfig } from '@do-done/shared';
 import {
   hasDisplayConfig,
   initialDisplayConfig,
+  markDisplayConfigSynced,
   markDisplayConfigWritten,
   rememberDisplayConfig,
   resetDisplayConfigCache,
   sameDisplayConfig,
   shouldApplyRemoteConfig,
+  unsyncedDisplayChanges,
 } from './display-config-cache';
 
 describe('display config cache', () => {
@@ -37,10 +39,33 @@ describe('display config cache', () => {
     expect(sameDisplayConfig(a, { ...a, showCompleted: !a.showCompleted })).toBe(false);
   });
 
-  it('stops applying the database copy once the user has changed the view here', () => {
+  it('skips the database copy only while a local change has not been written', () => {
     expect(shouldApplyRemoteConfig('all')).toBe(true);
     markDisplayConfigWritten('all');
     expect(shouldApplyRemoteConfig('all')).toBe(false);
     expect(shouldApplyRemoteConfig('inbox')).toBe(true);
+    markDisplayConfigSynced('all', unsyncedDisplayChanges('all'));
+    expect(shouldApplyRemoteConfig('all')).toBe(true);
+  });
+
+  // The write is debounced: a change made after the timer captured its count
+  // belongs to the next write, and must keep the database copy out until then.
+  it('keeps skipping for a change the landed write did not carry', () => {
+    markDisplayConfigWritten('all');
+    const carried = unsyncedDisplayChanges('all');
+    markDisplayConfigWritten('all');
+    markDisplayConfigSynced('all', carried);
+    expect(shouldApplyRemoteConfig('all')).toBe(false);
+    markDisplayConfigSynced('all', 1);
+    expect(shouldApplyRemoteConfig('all')).toBe(true);
+  });
+
+  it('forgets everything on reset, as on sign-out', () => {
+    const fallback = defaultDisplayFor('all');
+    rememberDisplayConfig('all', { ...fallback, showCompleted: true });
+    markDisplayConfigWritten('all');
+    resetDisplayConfigCache();
+    expect(initialDisplayConfig('all', fallback)).toBe(fallback);
+    expect(shouldApplyRemoteConfig('all')).toBe(true);
   });
 });

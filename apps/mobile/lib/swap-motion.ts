@@ -3,13 +3,13 @@
  *
  * Today ⟷ Upcoming and All ⟷ Inbox used to swap one whole tree for another on
  * a ternary, so every pixel of the screen changed in one frame. Now the old
- * view fades out sliding one way while the new one fades in from the other,
- * and the swap glyph in the title turns over to match.
+ * view fades out while the new one fades in, and the swap glyph in the title
+ * turns over.
  *
  * Pure, so the node suite covers it. `components/SwapView.tsx` and
  * `components/SwapTitle.tsx` draw it.
  */
-import type { AgendaMode, ModeChangeCause, TasksMode } from './view-mode';
+import type { ModeChangeCause } from './view-mode';
 
 /** One full crossfade. Short: a swap is a toggle, not a journey. */
 export const SWAP_FADE_MS = 180;
@@ -22,20 +22,10 @@ export const SWAP_GLYPH_MS = 260;
 
 export type SwapTab = 'agenda' | 'tasks';
 
-/** The first view of each pair is the one the tab opens on by default. */
-export const SWAP_ORDER: { agenda: readonly AgendaMode[]; tasks: readonly TasksMode[] } = {
-  agenda: ['today', 'upcoming'],
-  tasks: ['all', 'inbox'],
-};
-
-export type SwapTransition =
-  /** Swap with no motion: the new view simply replaces the old. */
-  | { animate: false }
-  /**
-   * Crossfade with a short slide. `forward` means the new view is the second
-   * of the pair, so it comes in from the right; `back` comes in from the left.
-   */
-  | { animate: true; direction: 'forward' | 'back' };
+export interface SwapTransition {
+  /** False: the new view simply replaces the old. True: they crossfade. */
+  animate: boolean;
+}
 
 /**
  * How a change of view should look.
@@ -46,18 +36,13 @@ export type SwapTransition =
  * should show Upcoming, not Today sliding away first.
  */
 export function swapTransition<M extends string>(input: {
-  order: readonly M[];
   from: M;
   to: M;
   cause: ModeChangeCause;
   reduceMotion: boolean;
 }): SwapTransition {
-  const { order, from, to, cause, reduceMotion } = input;
-  if (from === to || cause !== 'swap' || reduceMotion) return { animate: false };
-  return {
-    animate: true,
-    direction: order.indexOf(to) > order.indexOf(from) ? 'forward' : 'back',
-  };
+  const { from, to, cause, reduceMotion } = input;
+  return { animate: from !== to && cause === 'swap' && !reduceMotion };
 }
 
 /**

@@ -10,20 +10,24 @@ import { getUserPrefsApi } from '@/lib/supabase';
 import {
   hasDisplayConfig,
   initialDisplayConfig,
+  markDisplayConfigSynced,
   markDisplayConfigWritten,
   rememberDisplayConfig,
   sameDisplayConfig,
   shouldApplyRemoteConfig,
+  unsyncedDisplayChanges,
 } from '@/lib/display-config-cache';
 
 const STORAGE_PREFIX = 'dodone.display.';
 const storageKey = (viewKey: string) => `${STORAGE_PREFIX}${viewKey}`;
 
 /**
- * Fill the in-memory cache from AsyncStorage once, at launch, so the first
- * mount of each view already has its saved config rather than drawing the
- * defaults and regrouping when its own read lands. Called from the root
- * layout. Never overwrites a view that has already answered for itself.
+ * Fill the in-memory cache from AsyncStorage once, at launch. A view mounted
+ * after this lands (the other half of a swap tab, a project page, a tag page)
+ * starts from its saved config. The first view on screen usually mounts
+ * before it lands and still starts from the defaults, then regroups when its
+ * own read arrives. Called from the root layout. Never overwrites a view that
+ * has already answered for itself.
  */
 export async function hydrateDisplayConfigs(): Promise<void> {
   try {
@@ -118,12 +122,18 @@ export function useDisplayConfig(viewKey: string) {
     (next: DisplayConfig) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
+        // Every change so far collapses into this one write.
+        const changes = unsyncedDisplayChanges(viewKey);
         void (async () => {
           try {
             const api = await getUserPrefsApi();
             await api.setDisplayPref(viewKey, next);
           } catch {
             // best-effort — AsyncStorage already holds the change
+          } finally {
+            // Landed or not, the database copy may be applied again: a failed
+            // write leaves the phone's change in AsyncStorage either way.
+            markDisplayConfigSynced(viewKey, changes);
           }
         })();
       }, 500);

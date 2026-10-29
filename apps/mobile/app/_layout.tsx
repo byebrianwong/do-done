@@ -38,6 +38,7 @@ import { startStatusSyncSweeps } from '@/lib/status-sync';
 import { startWatchSync } from '@/lib/wear';
 import { hydrateViewModes } from '@/lib/view-mode';
 import { hydrateDisplayConfigs } from '@/lib/use-display-config';
+import { resetDisplayConfigCache } from '@/lib/display-config-cache';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
@@ -91,8 +92,8 @@ export default function RootLayout() {
   // once, here, so it has landed before the tab bar draws its icons.
   useEffect(() => {
     hydrateViewModes();
-    // Each list's saved grouping, so the first mount of a view draws with it
-    // rather than drawing the defaults and regrouping a moment later.
+    // Each list's saved grouping, so a view mounted after this lands draws
+    // with it rather than drawing the defaults and regrouping a moment later.
     void hydrateDisplayConfigs();
   }, []);
 
@@ -184,6 +185,11 @@ function RootLayoutNav() {
   // belongs to the launcher and outlives the account that made it; tapping one
   // while signed out opens the app on the login screen, which is the right
   // answer, and disabling it would leave a dead icon after the next sign-in.
+  // The display configs held in memory belong to the account that used them.
+  useEffect(() => {
+    if (!loading && !session?.user) resetDisplayConfigCache();
+  }, [loading, session?.user?.id]);
+
   useEffect(() => {
     if (!session?.user) {
       void clearListShortcutMenuEntry();

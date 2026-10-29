@@ -10,7 +10,6 @@ import React from 'react';
 import { AllView } from '@/components/views/AllView';
 import { InboxView } from '@/components/views/InboxView';
 import { SwapView } from '@/components/SwapView';
-import { SWAP_ORDER } from '@/lib/swap-motion';
 import { useViewMode, type TasksMode } from '@/lib/view-mode';
 
 const renderTasks = (mode: TasksMode) =>
@@ -22,7 +21,6 @@ export default function TasksTab() {
     <SwapView
       tab="tasks"
       mode={tasks}
-      order={SWAP_ORDER.tasks}
       render={renderTasks}
     />
   );

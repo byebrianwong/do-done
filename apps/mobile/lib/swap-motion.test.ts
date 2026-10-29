@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
-  SWAP_ORDER,
   glyphTurn,
   lastGlyphAngle,
   rememberGlyphAngle,
@@ -10,26 +9,11 @@ import {
 } from './swap-motion';
 
 describe('swapTransition', () => {
-  const base = { order: SWAP_ORDER.agenda, cause: 'swap' as const, reduceMotion: false };
+  const base = { cause: 'swap' as const, reduceMotion: false };
 
-  it('slides forward into the second view of the pair', () => {
-    expect(swapTransition({ ...base, from: 'today', to: 'upcoming' })).toEqual({
-      animate: true,
-      direction: 'forward',
-    });
-  });
-
-  it('slides back into the first view', () => {
-    expect(swapTransition({ ...base, from: 'upcoming', to: 'today' })).toEqual({
-      animate: true,
-      direction: 'back',
-    });
-  });
-
-  it('uses each tab’s own order', () => {
-    expect(
-      swapTransition({ ...base, order: SWAP_ORDER.tasks, from: 'all', to: 'inbox' })
-    ).toEqual({ animate: true, direction: 'forward' });
+  it('crossfades a swap the user made', () => {
+    expect(swapTransition({ ...base, from: 'today', to: 'upcoming' })).toEqual({ animate: true });
+    expect(swapTransition({ ...base, from: 'inbox', to: 'all' })).toEqual({ animate: true });
   });
 
   it('does not animate a mode a deep link or the restore set', () => {
