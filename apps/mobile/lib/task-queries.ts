@@ -489,6 +489,71 @@ function patchCachedOrder(orderedIds: string[], opts?: DropOrderOptions) {
   );
 }
 
+/**
+ * Write a row the editor has just saved into every cached copy of it, without
+ * refetching anything.
+ *
+ * The editor autosaves 250ms after each pause in typing. Each save used to call
+ * `invalidateTasks()`, which refetched every task list under the open sheet on
+ * the JS thread the title field needs. Patching keeps the rows behind the sheet
+ * current; the editor runs the full `invalidateTasks()` once, when it closes
+ * (`createEditorReconciler` in `editor-reconcile.ts`).
+ *
+ * Rows only change in place. A row the save moved out of a list (re-dated off
+ * Today, ticked done) stays where it is until that close-time refetch, which is
+ * when the sheet is no longer covering it. The subtask breadcrumb's single-task
+ * cache (`taskKeys.detail`) is patched too, so a renamed parent reads right.
+ */
+export function patchSavedTask(row: Task) {
+  // The side effects of a write still run per save. A reminder armed against
+  // this task, the widgets and the watch must not wait for the sheet to close:
+  // set 3pm at 2:40, press Home without closing, and the reminder has to exist.
+  notifyTaskWritten();
+  // Only the caches that hold the row are written. `setQueriesData` marks every
+  // query it visits as updated, even when the updater hands back the same
+  // array, which would notify every list and wake the persister on each save.
+  for (const root of TASK_LIST_ROOTS) {
+    for (const [key, list] of queryClient.getQueriesData<Task[]>({
+      queryKey: root,
+    })) {
+      if (!Array.isArray(list) || !list.some((t) => t.id === row.id)) continue;
+      queryClient.setQueryData<Task[]>(
+        key,
+        list.map((t) => (t.id === row.id ? ({ ...t, ...row } as Task) : t))
+      );
+    }
+  }
+  queryClient.setQueryData<Task | null>(taskKeys.detail(row.id), (old) =>
+    old ? ({ ...old, ...row } as Task) : old
+  );
+}
+
+/**
+ * Cached rows whose parent is `parentId`, in list order, one copy per id.
+ *
+ * The editor seeds its subtask list from this so the rows are on screen in the
+ * first frame instead of arriving with the fetch. It can be incomplete — a list
+ * holds only what its view shows — so the fetch still runs and corrects it.
+ */
+export function cachedSubtasks(parentId: string): Task[] {
+  const byId = new Map<string, Task>();
+  for (const list of cachedTaskLists()) {
+    for (const t of list) {
+      if (t.parent_task_id === parentId && !byId.has(t.id)) byId.set(t.id, t);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** The cached copy of one task, from whichever list holds it. */
+export function cachedTask(id: string): Task | null {
+  for (const list of cachedTaskLists()) {
+    const hit = list.find((t) => t.id === id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Put the pre-write copy back for `ids` only; every other row keeps its patch. */
 function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   if (ids.size === 0) return;
@@ -497,17 +562,12 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   );
 }
 
-export function invalidateTasks() {
-  queryClient.invalidateQueries({ queryKey: taskKeys.all });
-  queryClient.invalidateQueries({ queryKey: projectKeys.all });
-  // The tag summary is counts over tasks, so any write can move it — a tag
-  // added in the editor, a task completed, a task deleted. Kept out of
-  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
-  // it: its cached value is TagSummary[], not Task[].
-  queryClient.invalidateQueries({ queryKey: tagKeys.all });
-  // Same argument as tags, one root over: a list's items and its open/bought
-  // counts are a view of task rows, so any write can move them.
-  queryClient.invalidateQueries({ queryKey: listKeys.all });
+/**
+ * What every task write has to tell the world outside the query cache. Each is
+ * debounced. `invalidateTasks` calls this; so does `patchSavedTask`, which
+ * updates the cache without refetching but still has to reach these.
+ */
+function notifyTaskWritten() {
   // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
   refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and
@@ -522,6 +582,20 @@ export function invalidateTasks() {
   // off on the phone stays on the wrist until the phone says otherwise. Same
   // debounce, same fire-and-forget.
   scheduleWatchSync();
+}
+
+export function invalidateTasks() {
+  queryClient.invalidateQueries({ queryKey: taskKeys.all });
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // The tag summary is counts over tasks, so any write can move it — a tag
+  // added in the editor, a task completed, a task deleted. Kept out of
+  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
+  // it: its cached value is TagSummary[], not Task[].
+  queryClient.invalidateQueries({ queryKey: tagKeys.all });
+  // Same argument as tags, one root over: a list's items and its open/bought
+  // counts are a view of task rows, so any write can move them.
+  queryClient.invalidateQueries({ queryKey: listKeys.all });
+  notifyTaskWritten();
 }
 
 export interface ToggleCompleteOptions {

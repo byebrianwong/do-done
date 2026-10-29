@@ -1569,6 +1569,56 @@ title** — autosave holds the task in React state:
 - Nested pickers are mounted only while they are open. Six of them used to live
   permanently inside every open editor, each rebuilding its option rows per keystroke and
   holding a host view it never showed.
+- `TagRow`, `MetaField`, `NotesField` (as `MemoNotesField`) and the cover's art
+  (`CoverArt`) are memoised for the same reason, with stable handlers. The notes read view
+  re-parses every URL when it renders, so before this a title keystroke re-parsed the notes.
+
+**The sheet opens in one piece.** Four rules, each of which removed a visible jump:
+
+- **Sections below the fold mount after the rise.** Places, subtasks, notes, attachments
+  and Repeat mount when the open animation ends (`opened`, set from the `withTiming`
+  callback whether it finished or a drag cancelled it), then fade in. They sit below
+  everything already on screen, so nothing visible moves when they arrive. A drill to
+  another task mounts them at once, because the sheet is already open.
+- **Sections glide when one above them changes height.** Every body section carries
+  `layout={BODY_LAYOUT}`, a Reanimated `LinearTransition`. The calendar fades between the
+  strip and the month grid, crossfades between months, and fades in the second week. The
+  layout animations are on views inside the body. Never put one on the sheet itself,
+  whose transform belongs to the open and the drag.
+- **What the cache already holds is drawn first.** Subtasks are seeded from cached rows
+  (`cachedSubtasks`), the parent crumb from `cachedTask`, and `app/task/[id]` opens on the
+  cached row instead of waiting for `getById`. The subtask fetch still runs and fills in a
+  short seed, and keeps the seed when it fails. The deep link's fetch also still runs,
+  because the persisted cache can hold a task deleted on another device; a `PGRST116`
+  closes the sheet. The parent crumb is the exception: it fetches only when nothing was
+  cached, because after a drill the cached copy has the parent's last save in it and a
+  fetch can race that save.
+- **The deep-link route draws no dim.** The editor's backdrop already follows the sheet;
+  the route's own 40% layer stacked to about 64%, showed alone while the task loaded, and
+  faded out as a second step after the sheet had gone.
+
+**Autosave patches the cache; it does not refetch.** Each save writes the row into the
+cached lists that hold it (`patchSavedTask`). The full refetch runs once, when the editor
+body unmounts, which every close path and every drill has in common. A save still queued
+at that moment is waited for, so the refetch reads the row after it, with a 4s fallback if
+it never lands. The rule is `createEditorReconciler` in `lib/editor-reconcile.ts`,
+node-tested. Refetching on every save meant a pause between words refetched every list
+under the sheet, on the JS thread the title field was using. The trade: a row the edit
+moves to another list (re-dated off Today, ticked done) moves when the sheet closes.
+
+- **The side effects of a write still run on every save.** `patchSavedTask` calls the
+  same `notifyTaskWritten()` that `invalidateTasks()` does: reminders, widgets, the watch
+  and geofences. A reminder set in the editor has to be armed even if the sheet is never
+  closed (set 3pm at 2:40, press Home).
+- **The host's `onSaved` runs through the reconciler**, once, after the close settles
+  (`afterClose`), and not on a drill. It used to run in the close handler, before the
+  last save was sent, so it refetched the row without it. It is skipped when something
+  saved and it is `invalidateTasks` itself, which every host passes today, so the lists
+  are refetched once rather than twice. `app/task/[id]` no longer refetches on close for
+  the same reason.
+
+Reduce Motion lands every one of these on its end state (`ReduceMotion.System`). None of
+it has been seen on a device: typecheck, the node tests and a full Metro bundle pass.
 
 ## The completion animation
 
