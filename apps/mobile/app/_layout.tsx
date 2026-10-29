@@ -37,6 +37,7 @@ import {
 import { startStatusSyncSweeps } from '@/lib/status-sync';
 import { startWatchSync } from '@/lib/wear';
 import { hydrateViewModes } from '@/lib/view-mode';
+import { hydrateDisplayConfigs } from '@/lib/use-display-config';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
@@ -90,6 +91,9 @@ export default function RootLayout() {
   // once, here, so it has landed before the tab bar draws its icons.
   useEffect(() => {
     hydrateViewModes();
+    // Each list's saved grouping, so the first mount of a view draws with it
+    // rather than drawing the defaults and regrouping a moment later.
+    void hydrateDisplayConfigs();
   }, []);
 
   // One-time cleanup of pre-v2 cache snapshots, which could hold a Map
@@ -332,8 +336,18 @@ function RootLayoutNav() {
           name="preview-pr"
           options={{ title: 'Preview a pull request' }}
         />
-        <Stack.Screen name="today" options={{ headerShown: false }} />
-        <Stack.Screen name="upcoming" options={{ headerShown: false }} />
+        {/* Both render nothing and redirect to the Agenda tab. Pushed with the
+            default animation, an open app slid a blank page in before the
+            redirect replaced it. Widgets and shortcuts no longer reach these
+            at all (`app/+native-intent.tsx`); a notification tap still does. */}
+        <Stack.Screen
+          name="today"
+          options={{ headerShown: false, animation: 'none' }}
+        />
+        <Stack.Screen
+          name="upcoming"
+          options={{ headerShown: false, animation: 'none' }}
+        />
         <Stack.Screen
           name="quick-add"
           options={{

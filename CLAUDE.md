@@ -286,6 +286,20 @@ which belongs to the *unstable native* navigator and is about blur rather than
 a press — so the one gesture this design leans on would otherwise have been an
 undocumented default we happened to be getting.
 
+**A tab switch crossfades.** `animation: 'fade'` in the tab layout's
+`screenOptions`, 150ms on the native driver. It used to be a hard cut. Fade
+rather than `shift`, because tabs are peers rather than a sequence, and every
+screen's add button sits in the same corner, so a slide would move a control
+that should look like it stays put. The bar floats outside the scenes, so it
+does not fade. Reduce Motion turns the fade off.
+
+**There is no `freezeOnBlur`.** Bottom tabs 7.15 never freezes a tab that has an
+animation: it passes `shouldFreeze={activityState === STATE_INACTIVE}`, and with
+an animation `activityState` is an Animated node, so the test is always false.
+Setting the option would do nothing now and would start freezing tabs silently
+on some later upgrade. Hidden tabs re-rendering on cache writes is for the query
+layer to stop.
+
 ### Two views, one tab
 
 Today and Upcoming answer the same question at two ranges, and so do All and
@@ -295,6 +309,36 @@ Inbox. Giving each its own tab spent a fifth of the bar on the distinction.
 tinted circle with two swap arrows (`components/SwapTitle.tsx`), and the glyph
 turns over when you use it, so the swap has a direction. Printing both words
 would spend the header's width on a word you are not looking at.
+
+**The swap moves.** The old view fades out sliding one way while the new one
+fades in from the other (`components/SwapView.tsx`, 180ms): forward into the
+second view of the pair, back into the first. The glyph turns 180° over 260ms.
+The title remounts with the view it sits in, so the angle it turns from is
+kept at module level in `lib/swap-motion.ts`.
+
+- **Only a swap the user made animates.** `lib/view-mode.tsx` records why each
+  mode last changed: `swap` for the header button and the tab re-tap, `set` for
+  a deep link, a notification or the launch-time restore. A widget tap that
+  lands on Upcoming should show Upcoming, not Today sliding away first.
+- **Only the view on screen is mounted.** Keeping both would keep the scroll
+  position of the half you left, at the cost of both views' queries staying live
+  and both re-rendering on every cache write. The position is usually near the
+  top, and the rows under it have often moved by the time you swap back. So the
+  old view leaves React when the swap commits, and Reanimated keeps its last
+  frame on screen only for the fade.
+- **The swap takes two renders before one paint.** The outgoing view's `exiting`
+  animation is a prop, so it is set to this swap's direction on one render and
+  the key changes in a layout effect after it. The view element is memoised per
+  mode, so that first render does not re-render the outgoing tree.
+- **The list does not regroup after a swap.** `useDisplayConfig` starts a mount
+  from the config that view last used this launch (`lib/display-config-cache.ts`),
+  and `hydrateDisplayConfigs()` fills that cache from AsyncStorage at launch. It
+  used to start every mount on the defaults and then regroup once each async read
+  landed. A read that agrees with what is showing now sets no state, and the
+  database copy is no longer applied to a view the user has changed on this
+  device this launch, since the debounced write may not have landed yet.
+- **Reduce Motion lands on the end state**: the new view and the glyph's new
+  angle, with no fade or turn.
 
 Two arrows rather than the other view's icon: a calendar beside "Today" reads
 as "pick a date" and a star beside "Upcoming" reads as "favourite", and both of
@@ -310,6 +354,12 @@ those are real actions in this app. Arrows can only mean switch.
 - **It is persisted**, so the app reopens on whichever half you were last using.
   `hydrateViewModes()` runs once from the root layout. A mode set by a deep link
   wins over a restore that lands later — the link is the newer instruction.
+- **Widget and shortcut links skip the redirect screens.** `app/+native-intent.tsx`
+  sets the mode and sends `dodone://today` and `dodone://upcoming` straight to
+  the tab (`agendaModeForSystemPath` in `lib/agenda-link.ts`). With the app
+  open, the redirect screens slid a blank page in before replacing it. They
+  remain for a notification tap, which is an in-app push, and are pushed with
+  `animation: 'none'`.
 - **The four view bodies are unchanged**, just moved: `components/views/`
   holds what used to be `app/(tabs)/{index,upcoming,all,inbox}.tsx`. Each lost
   its title `<Text>` and gained `<AgendaTitle />` or `<TasksTitle />`.
@@ -356,6 +406,19 @@ loop — and `apps/mobile` has no renderer.
   early would forget a good memory just because the list had not arrived.
 - **The restore runs once per launch**, tracked in module state. Without that,
   popping back to the index would bounce straight into the list you just left.
+- **A restore opens on the screen, not on the index first.** The index draws
+  nothing while the decision is pending (`holdIndexBlank`), and the restore is
+  pushed with no animation: it carries `?resume=1`, which the `[id]` screens'
+  options read through `resumeScreenAnimation`. Before, the first tap on the
+  tab each launch showed the index and then played a full push.
+- **The blank index can never be stranded.** `resumeDecision` waits forever if
+  the ids never load, so a failed read, or `RESUME_HOLD_MAX_MS` (600ms) passing,
+  draws the index regardless. A restore that lands after that is pushed with
+  the normal animation, since the user has seen the index by then.
+- **The back animation comes back.** A native stack screen's `animation` also
+  drives its pop, so `useResumeArrival` resets it to the default once the
+  screen has appeared. Otherwise the back button would cut straight to the
+  index.
 
 Two doors closed with this: the cart button on the Projects tab and the
 "Shopping lists" row in Settings. Both existed to reach a feature with no tab

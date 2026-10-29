@@ -7,8 +7,42 @@ import {
   type DisplayConfig,
 } from '@do-done/shared';
 import { getUserPrefsApi } from '@/lib/supabase';
+import {
+  hasDisplayConfig,
+  initialDisplayConfig,
+  markDisplayConfigWritten,
+  rememberDisplayConfig,
+  sameDisplayConfig,
+  shouldApplyRemoteConfig,
+} from '@/lib/display-config-cache';
 
-const storageKey = (viewKey: string) => `dodone.display.${viewKey}`;
+const STORAGE_PREFIX = 'dodone.display.';
+const storageKey = (viewKey: string) => `${STORAGE_PREFIX}${viewKey}`;
+
+/**
+ * Fill the in-memory cache from AsyncStorage once, at launch, so the first
+ * mount of each view already has its saved config rather than drawing the
+ * defaults and regrouping when its own read lands. Called from the root
+ * layout. Never overwrites a view that has already answered for itself.
+ */
+export async function hydrateDisplayConfigs(): Promise<void> {
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
+      k.startsWith(STORAGE_PREFIX)
+    );
+    if (keys.length === 0) return;
+    const pairs = await AsyncStorage.multiGet(keys);
+    for (const [key, raw] of pairs) {
+      if (!raw) continue;
+      const viewKey = key.slice(STORAGE_PREFIX.length);
+      if (hasDisplayConfig(viewKey)) continue;
+      const fallback = defaultDisplayFor(viewKey);
+      rememberDisplayConfig(viewKey, parseDisplayConfig(JSON.parse(raw), fallback));
+    }
+  } catch {
+    // Each view still reads its own config on mount.
+  }
+}
 
 /**
  * Per-view display preferences with cross-device sync — the mobile twin of the
@@ -19,10 +53,26 @@ const storageKey = (viewKey: string) => `dodone.display.${viewKey}`;
  * the user across web + mobile. On mount we paint from AsyncStorage, then
  * reconcile from the DB. Writes go to both — AsyncStorage immediately, the DB
  * debounced. Degrades to local-only if the DB is unreachable.
+ *
+ * A mount starts from the config this view last used this launch
+ * (`lib/display-config-cache.ts`), not from the defaults, and a read that
+ * agrees with what is showing changes nothing. Without that a customised list
+ * drew in the default grouping and regrouped a moment later on every mount.
  */
 export function useDisplayConfig(viewKey: string) {
   const fallback = useMemo(() => defaultDisplayFor(viewKey), [viewKey]);
-  const [config, setConfigState] = useState<DisplayConfig>(fallback);
+  const [config, setConfigState] = useState<DisplayConfig>(() =>
+    initialDisplayConfig(viewKey, fallback)
+  );
+  // Sets state only when the config would draw differently, and records it
+  // as what this view last used.
+  const show = useCallback(
+    (next: DisplayConfig) => {
+      rememberDisplayConfig(viewKey, next);
+      setConfigState((prev) => (sameDisplayConfig(prev, next) ? prev : next));
+    },
+    [viewKey]
+  );
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Once the user changes anything, the async DB read must not clobber it.
   const dirtyRef = useRef(false);
@@ -30,11 +80,16 @@ export function useDisplayConfig(viewKey: string) {
   useEffect(() => {
     let active = true;
     dirtyRef.current = false;
+    // A different view under the same hook starts from that view's config.
+    setConfigState((prev) => {
+      const start = initialDisplayConfig(viewKey, fallback);
+      return sameDisplayConfig(prev, start) ? prev : start;
+    });
     // 1. Instant: AsyncStorage cache.
     AsyncStorage.getItem(storageKey(viewKey))
       .then((raw) => {
         if (active && raw && !dirtyRef.current) {
-          setConfigState(parseDisplayConfig(JSON.parse(raw), fallback));
+          show(parseDisplayConfig(JSON.parse(raw), fallback));
         }
       })
       .catch(() => {});
@@ -44,10 +99,11 @@ export function useDisplayConfig(viewKey: string) {
         const api = await getUserPrefsApi();
         const { data, error } = await api.getDisplayPrefs();
         if (!active || error || dirtyRef.current) return;
+        if (!shouldApplyRemoteConfig(viewKey)) return;
         const dbVal = data[viewKey];
         if (dbVal === undefined) return;
         const parsed = parseDisplayConfig(dbVal, fallback);
-        setConfigState(parsed);
+        show(parsed);
         AsyncStorage.setItem(storageKey(viewKey), JSON.stringify(parsed)).catch(() => {});
       } catch {
         // DB unreachable / migration not applied — stay on the local cache.
@@ -56,7 +112,7 @@ export function useDisplayConfig(viewKey: string) {
     return () => {
       active = false;
     };
-  }, [viewKey, fallback]);
+  }, [viewKey, fallback, show]);
 
   const persistDb = useCallback(
     (next: DisplayConfig) => {
@@ -78,6 +134,8 @@ export function useDisplayConfig(viewKey: string) {
   const setConfig = useCallback(
     (next: DisplayConfig) => {
       dirtyRef.current = true;
+      markDisplayConfigWritten(viewKey);
+      rememberDisplayConfig(viewKey, next);
       setConfigState(next);
       AsyncStorage.setItem(storageKey(viewKey), JSON.stringify(next)).catch(() => {});
       persistDb(next);
@@ -87,6 +145,8 @@ export function useDisplayConfig(viewKey: string) {
 
   const reset = useCallback(() => {
     dirtyRef.current = true;
+    markDisplayConfigWritten(viewKey);
+    rememberDisplayConfig(viewKey, fallback);
     setConfigState(fallback);
     AsyncStorage.removeItem(storageKey(viewKey)).catch(() => {});
     persistDb(fallback);

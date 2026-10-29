@@ -68,6 +68,74 @@ export function resumeDecision(input: {
 }
 
 /**
+ * Whether the index should draw nothing yet, because it may be about to be
+ * covered by the screen the tab remembers.
+ *
+ * The first tap on Lists or Projects each launch used to show the index and
+ * then push the remembered screen over it with the full push animation: two
+ * screens and a slide, to arrive somewhere the user had asked to go back to.
+ * Now the index stays blank while the decision is pending and the restore is
+ * pushed with no animation (`RESUME_PARAM`), so the tab opens on the list.
+ *
+ * It must never hold the index blank for good. `resumeDecision` returns `wait`
+ * while the ids load, and an offline first launch can wait forever, so a
+ * failed read or `gaveUp` (set by a timer, `RESUME_HOLD_MAX_MS`) shows the
+ * index regardless.
+ *
+ * @param remembered the stored id, null when there is none, or undefined while
+ *   it is still being read
+ * @param known every id that currently exists, or null while they load
+ */
+export function holdIndexBlank(input: {
+  remembered: string | null | undefined;
+  known: string[] | null;
+  alreadyTried: boolean;
+  failed: boolean;
+  gaveUp: boolean;
+}): boolean {
+  const { remembered, known, alreadyTried, failed, gaveUp } = input;
+  if (alreadyTried || failed || gaveUp) return false;
+  // Storage answers within a frame or two; the index is not worth drawing for
+  // that long when it may be covered.
+  if (remembered === undefined) return true;
+  if (remembered === null) return false;
+  if (known === null) return true;
+  return known.includes(remembered);
+}
+
+/**
+ * The longest the index stays blank waiting to learn whether to restore. Past
+ * this the index draws, and a restore that lands later is pushed with the
+ * ordinary animation, since the user has by then seen the index.
+ */
+export const RESUME_HOLD_MAX_MS = 600;
+
+/**
+ * The query param a restore push carries. The `[id]` screens' options read it
+ * to push with no animation; see `resumeScreenAnimation`.
+ */
+export const RESUME_PARAM = 'resume';
+
+/**
+ * The stack animation a detail screen in these tabs is pushed with. `none` for
+ * a restore the index was held blank for, the default otherwise.
+ */
+export function resumeScreenAnimation(
+  params: Record<string, unknown> | undefined
+): 'none' | 'default' {
+  return params?.[RESUME_PARAM] === '1' ? 'none' : 'default';
+}
+
+/** The path a restore pushes, with or without the no-animation flag. */
+export function resumePath(
+  section: ResumeSection,
+  id: string,
+  quiet: boolean
+): string {
+  return quiet ? `/${section}/${id}?${RESUME_PARAM}=1` : `/${section}/${id}`;
+}
+
+/**
  * Whether the restore has run this session, per section.
  *
  * Module state rather than storage: "have we tried yet" is about this launch,
