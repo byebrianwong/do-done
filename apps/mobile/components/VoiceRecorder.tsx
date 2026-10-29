@@ -13,7 +13,7 @@
  * Hosts position it; this component only draws.
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,15 +23,26 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  useAnimatedStyle,
+  type SharedValue,
+} from "react-native-reanimated";
 import {
   formatRecordingTime,
   VOICE_MAX_DURATION_MS,
   VOICE_WARN_REMAINING_MS,
 } from "@do-done/shared";
 import type { VoiceCapture } from "@/lib/voice-capture";
-
-/** Bars in the level meter. Odd, so there is a centre one to peak. */
-const BAR_COUNT = 9;
+import {
+  METER_BAR_COUNT,
+  METER_BAR_MIN,
+  QUICK_ADD_LAYOUT_MS,
+  meterBarHeight,
+  recordingElapsed,
+} from "@/lib/quick-add-motion";
 
 /** Line height of the dictated note's text. */
 const NOTE_LINE_HEIGHT = 18;
@@ -39,36 +50,68 @@ const NOTE_LINE_HEIGHT = 18;
 /** The dictated note shows six lines, then scrolls. */
 const NOTE_MAX_HEIGHT = NOTE_LINE_HEIGHT * 6;
 
+/** How often the clock re-reads the time. Fine enough for a 0:0x readout. */
+const CLOCK_TICK_MS = 200;
+
 /**
- * A bar's height for the current input level.
- *
- * Bars away from the centre respond less, which is the shape a meter is
- * expected to have — a row of identical bars moving in lockstep reads as a
- * progress indicator rather than as sound.
+ * One bar of the level meter. Its height follows the shared level on the UI
+ * thread, so a reading moves the bar without a React render.
  */
-function barHeight(index: number, level: number): number {
-  const distance = Math.abs(index - (BAR_COUNT - 1) / 2);
-  const falloff = 1 - distance / BAR_COUNT;
-  return 4 + level * falloff * 26;
+function MeterBar({
+  index,
+  level,
+  active,
+}: {
+  index: number;
+  level: SharedValue<number>;
+  active: boolean;
+}) {
+  const style = useAnimatedStyle(() => ({
+    height: active ? meterBarHeight(index, level.value) : METER_BAR_MIN,
+  }));
+  return (
+    <Animated.View
+      style={[
+        styles.bar,
+        { backgroundColor: active ? "#6366f1" : "#d1d5db" },
+        style,
+      ]}
+    />
+  );
 }
 
-function LevelMeter({ level, active }: { level: number; active: boolean }) {
+function LevelMeter({
+  level,
+  active,
+}: {
+  level: SharedValue<number>;
+  active: boolean;
+}) {
   return (
     <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
-      {Array.from({ length: BAR_COUNT }, (_, i) => (
-        <View
-          key={i}
-          style={[
-            styles.bar,
-            {
-              height: active ? barHeight(i, level) : 4,
-              backgroundColor: active ? "#6366f1" : "#d1d5db",
-            },
-          ]}
-        />
+      {Array.from({ length: METER_BAR_COUNT }, (_, i) => (
+        <MeterBar key={i} index={i} level={level} active={active} />
       ))}
     </View>
   );
+}
+
+/**
+ * Elapsed time for the clock, ticking only while recording.
+ *
+ * The tick lives here rather than in `useVoiceCapture` so that it re-renders
+ * this card and nothing else. When recording stops the clock holds its last
+ * value, which is what it showed before.
+ */
+function useRecordingClock(startedAt: number, recording: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!recording) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(t);
+  }, [recording, startedAt]);
+  return startedAt ? recordingElapsed(startedAt, now) : 0;
 }
 
 interface VoiceRecorderProps {
@@ -84,7 +127,8 @@ export default function VoiceRecorder({
   busy = false,
   onCancel,
 }: VoiceRecorderProps) {
-  const remaining = VOICE_MAX_DURATION_MS - voice.elapsedMs;
+  const elapsedMs = useRecordingClock(voice.startedAt, voice.recording);
+  const remaining = VOICE_MAX_DURATION_MS - elapsedMs;
   const nearlyUp = remaining <= VOICE_WARN_REMAINING_MS;
 
   return (
@@ -92,7 +136,7 @@ export default function VoiceRecorder({
       <View style={styles.headRow}>
         <View style={styles.dot} />
         <Text style={[styles.clock, nearlyUp && styles.clockWarn]}>
-          {formatRecordingTime(voice.elapsedMs)}
+          {formatRecordingTime(elapsedMs)}
         </Text>
         {nearlyUp ? (
           <Text style={styles.remaining}>
@@ -166,8 +210,15 @@ export function DictatedNote({
 }) {
   if (!description && !pending && !error) return null;
 
+  // Fades rather than popping: it sits inside the quick-add card, which
+  // animates its own height around it (`layout` on the card).
   return (
-    <View style={styles.note}>
+    <Animated.View
+      style={styles.note}
+      entering={FadeIn.duration(160)}
+      exiting={FadeOut.duration(120)}
+      layout={LinearTransition.duration(QUICK_ADD_LAYOUT_MS)}
+    >
       <View style={styles.noteHead}>
         <Ionicons name="mic" size={13} color="#4f46e5" />
         <Text style={styles.noteLabel}>
@@ -197,7 +248,7 @@ export function DictatedNote({
         </ScrollView>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+    </Animated.View>
   );
 }
 

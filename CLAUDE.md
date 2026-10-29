@@ -211,6 +211,48 @@ and the deep link: `dodone://quick-add`, a transparent modal over the list.
   two tabs is 96 plus the tab bar, as on the task screens, so the button never
   covers the last row.
 
+### Quick-add moves instead of jumping
+
+The composer is the most-used capture path, so it should never jump while you type.
+None of this has been seen on a device yet. Typecheck, the node tests and a full
+Metro bundle pass.
+
+- **The in-app modal focuses while it mounts.** The route fades in and the keyboard
+  rises with the card in one step. It used to wait 150ms after mount and then jump
+  the card up. The widget's activity keeps the 150ms delay, for the reason given
+  under *Quick-add widget*, and recording waits on both hosts so a permission
+  dialog does not race the transition. `quickAddOpenAction` in
+  `lib/quick-add-motion.ts` holds the rule. The card's own arrival is a short rise on
+  an inner view; the keyboard lift stays a transform on the outer view, so the two
+  never write the same property.
+- **Rows that come and go fade, and the card resizes over 160ms.** The parse preview,
+  the recorder, the dictated note and the suggestion row each fade in and out, and the
+  card and the rows inside it carry `layout={LinearTransition}`. The card is pinned
+  to the keyboard, so a row appearing inside it moves the card's top edge. Without the
+  transition that edge jumped about 36px mid-word. The stack around the card carries
+  the same transition, because it is bottom-anchored too: when it grows, its top
+  moves. With both animating, the card's bottom stays still and its top glides. The
+  chip popovers fade as well, and stay inline in the same window.
+- **A create does not clear the composer when the host is about to close.** Clearing
+  first left an emptied card on screen while the route faded out. The input also
+  stays editable during the request. `editable={false}` on a focused field can drop
+  the keyboard on Android, and the card fell with it. A ref guards against a double
+  submit instead. It stays latched after a successful create, since the text is
+  still in the field while the host closes.
+- **Opening the full editor takes the card away.** The composer keeps its state but
+  draws nothing while the editor is open over it, and the route's dim fades out so
+  the editor's backdrop is the only one.
+- **The voice recorder's meter and clock re-render only the recorder.** The level is a
+  shared value tweened over the 150ms between readings, so the bars move on the UI
+  thread instead of stepping at about 7fps. The clock ticks inside `VoiceRecorder`
+  from `startedAt`. Both used to be React state in `useVoiceCapture`, which
+  re-rendered the whole composer about 12 times a second. The suggestion row also
+  memoises its scoring on the title. The one microphone session and the `end` +
+  `audioend` gate are unchanged.
+- **Reduce Motion lands on the end state.** Reanimated's builders skip their animation
+  under the system setting, the route's dim clears at once, and the meter jumps to
+  each reading.
+
 ### Every composer's plus does something
 
 A `+` is a button everywhere else in DoDone: the mobile add button (which is
@@ -3721,8 +3763,10 @@ home screen without launching the main app.
   from `lib/task-queries` and let it invalidate the cache, while the widget root reads
   `ProjectsApi` directly and keeps its own array. The widget used to pass neither, which is why
   its Project chip was missing and `#groceries` silently became a tag on the one surface where
-  it could not be a project. A surface that omits the list still gets that behaviour, which now
-  only describes the first frame while a list loads.
+  it could not be a project. A surface that omits the list still treats every `#token` as a tag.
+  While the list loads, the Project chip is drawn dimmed and does nothing, so it holds its place
+  in the row instead of appearing later and pushing Estimate sideways. A host whose read fails passes
+  `[]`, so the chip never stays inert for the whole session.
 - **Every quick-add surface has a door to the full editor**, because the chips will never cover
   notes, subtasks, attachments, or the month calendar, and a capture surface that dead-ends
   there is one you have to abandon. The rule is the same on both platforms: **create the task
