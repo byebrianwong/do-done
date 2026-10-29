@@ -10,6 +10,7 @@ import {
   iconGridItems,
   initialRenderCount,
   nextRenderCount,
+  renderCountAfterChange,
 } from './icon-grid';
 
 const phosphorSections = PHOSPHOR_CATALOGUE.map((g) => ({
@@ -70,6 +71,18 @@ describe('render counts', () => {
     expect(initialRenderCount(409)).toBe(ICON_GRID_FIRST_BATCH);
     expect(initialRenderCount(10)).toBe(10);
     expect(initialRenderCount(0)).toBe(0);
+  });
+
+  it('starts a new scope from the first batch', () => {
+    expect(renderCountAfterChange(420, 155, false)).toBe(ICON_GRID_FIRST_BATCH);
+  });
+
+  it('keeps what is mounted when the list changes within a scope', () => {
+    // Narrowing: everything left is already mounted.
+    expect(renderCountAfterChange(420, 30, true)).toBe(30);
+    // Widening: keep the count reached, never below the first batch.
+    expect(renderCountAfterChange(150, 420, true)).toBe(150);
+    expect(renderCountAfterChange(10, 420, true)).toBe(ICON_GRID_FIRST_BATCH);
   });
 
   it('reaches the whole list and stops there', () => {

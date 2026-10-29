@@ -48,28 +48,31 @@ import {
   iconGridItems,
   initialRenderCount,
   nextRenderCount,
+  renderCountAfterChange,
   type IconGridSection,
 } from '@/lib/icon-grid';
 
 type Tab = 'icons' | 'emoji';
 
 /**
- * How many of `total` grid items to mount. Starts at the first batch, then
- * grows a batch per frame until it reaches `total`, and starts again whenever
- * `resetKey` changes (a search, a group, a tab or a weight). The growth runs in
- * a transition, so a keystroke in the search box is never queued behind it.
+ * How many of `total` grid items to mount. Grows a batch per frame until it
+ * reaches `total`. When `scope` changes (the panel opens, or the tab switches)
+ * it starts again from the first batch; any other change to the list keeps the
+ * count already reached (`renderCountAfterChange`). The growth runs in a
+ * transition, so a keystroke in the search box is never queued behind it.
  */
-function useProgressiveCount(total: number, resetKey: string): number {
+function useProgressiveCount(total: number, scope: string): number {
   const [state, setState] = useState(() => ({
-    key: resetKey,
+    scope,
+    total,
     count: initialRenderCount(total),
   }));
   let count = state.count;
-  if (state.key !== resetKey) {
-    // Reset during render rather than in an effect, so the frame that shows
-    // the new results never mounts the whole list first.
-    count = initialRenderCount(total);
-    setState({ key: resetKey, count });
+  if (state.scope !== scope || state.total !== total) {
+    // Adjusted during render rather than in an effect, so the frame that shows
+    // the new results never mounts more than this.
+    count = renderCountAfterChange(state.count, total, state.scope === scope);
+    setState({ scope, total, count });
   }
 
   useEffect(() => {
@@ -77,14 +80,14 @@ function useProgressiveCount(total: number, resetKey: string): number {
     const frame = requestAnimationFrame(() => {
       startTransition(() => {
         setState((s) =>
-          s.key === resetKey
-            ? { key: s.key, count: nextRenderCount(s.count, total) }
+          s.scope === scope && s.total === total
+            ? { ...s, count: nextRenderCount(s.count, total) }
             : s,
         );
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [count, total, resetKey]);
+  }, [count, total, scope]);
 
   return Math.min(count, total);
 }
@@ -171,7 +174,7 @@ export const ProjectIconPicker = memo(function ProjectIconPicker({
   // Headed sections only when nothing is narrowing the list — a filtered result
   // set broken into eleven labelled boxes is harder to scan than one grid.
   const emojiItems = useMemo(() => {
-    if (tab !== 'emoji') return [];
+    if (!open || tab !== 'emoji') return [];
     let sections: IconGridSection<ProjectIconOption>[];
     if (narrowed) {
       const searched = searchProjectIcons(query);
@@ -198,10 +201,10 @@ export const ProjectIconPicker = memo(function ProjectIconPicker({
       }));
     }
     return iconGridItems(sections, (i) => i.char);
-  }, [tab, narrowed, query, group]);
+  }, [open, tab, narrowed, query, group]);
 
   const iconItems = useMemo(() => {
-    if (tab !== 'icons') return [];
+    if (!open || tab !== 'icons') return [];
     let sections: IconGridSection<PhosphorCatalogueIcon>[];
     if (narrowed) {
       const searched = searchPhosphorIcons(query);
@@ -223,16 +226,14 @@ export const ProjectIconPicker = memo(function ProjectIconPicker({
       }));
     }
     return iconGridItems(sections, (i) => i.name);
-  }, [tab, narrowed, query, group]);
+  }, [open, tab, narrowed, query, group]);
 
   const total = tab === 'emoji' ? emojiItems.length : iconItems.length;
   const empty = total === 0;
-  // `open` is in the key so that reopening starts from the first batch again.
-  // The weight is in it because changing it redraws every Phosphor cell.
-  const shown = useProgressiveCount(
-    open ? total : 0,
-    `${open}|${tab}|${group}|${query}|${tab === 'icons' ? weight : ''}`,
-  );
+  // Reopening the panel or switching tab starts from the first batch again.
+  // A weight change re-renders the mounted cells in place, keyed by name, so
+  // the grid keeps its scroll position.
+  const shown = useProgressiveCount(open ? total : 0, `${open}|${tab}`);
 
   // A stable callback, so the memoised cells skip re-rendering. The ref holds
   // the latest `onChange` in case a host ever passes a fresh one.
@@ -397,7 +398,7 @@ export const ProjectIconPicker = memo(function ProjectIconPicker({
               </Text>
             ) : (
               // One wrapping container for every section, so a cell keeps its
-              // parent (and stays mounted) when a search narrows the list.
+              // parent, and stays mounted, when a search narrows the list.
               <View style={styles.iconWrap}>
                 {tab === 'emoji'
                   ? emojiItems.slice(0, shown).map((item) =>

@@ -69,6 +69,22 @@ export function initialRenderCount(total: number): number {
   return Math.min(total, ICON_GRID_FIRST_BATCH);
 }
 
+/**
+ * How many items to mount after the list changes. A new scope (the panel
+ * opening, or a switch between the Icons and Emoji tabs) is a different set of
+ * cells, so it starts from the first batch. Within a scope (a search, a group
+ * filter) the count already reached is kept, clamped to the new list. That way
+ * narrowing remounts nothing, and the scroll position survives.
+ */
+export function renderCountAfterChange(
+  previous: number,
+  total: number,
+  sameScope: boolean,
+): number {
+  if (!sameScope) return initialRenderCount(total);
+  return Math.max(initialRenderCount(total), Math.min(previous, total));
+}
+
 /** How many items the next frame mounts, given how many are mounted now. */
 export function nextRenderCount(current: number, total: number): number {
   return Math.min(total, current + ICON_GRID_BATCH);
