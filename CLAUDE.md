@@ -3205,6 +3205,16 @@ The picker **expands in flow on both platforms and never floats.** Web's dialog 
 panel is clipped the moment it passes the footer. On mobile an Android `Modal` would open a
 second window and drop the IME. The form grows and its body scrolls instead.
 
+**On mobile the grid mounts a screenful first and the rest over the next frames.** Mounting
+all 409 icons in one render stalled the panel before it appeared. It cannot be a `FlatList`
+instead: it scrolls inside the form's vertical `ScrollView`, where a `FlatList` warns and
+renders every row anyway. `lib/icon-grid.ts` holds the batch sizes. Opening the panel or
+switching tab starts from the first batch. A search, a group filter or a weight change keeps
+the count already mounted, so narrowing remounts nothing and a weight change keeps the scroll
+position. The grid is one wrapping container with the section labels as full-width items, so
+a cell keeps its parent and stays mounted when a search narrows the list. The cells, `ProjectIcon` and the picker are memoised,
+so a keystroke in the search box or the name field re-renders only what changed.
+
 `ProjectFormSheet` is the whole of it on mobile — create, edit and delete, for a project
 and for a list alike — so the full palette and both icon tabs are reachable there.
 
