@@ -28,9 +28,12 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
 } from 'react';
+import { useNavigationState } from '@react-navigation/native';
 import { AccessibilityInfo, type LayoutChangeEvent } from 'react-native';
 import {
   type SharedValue,
@@ -39,6 +42,7 @@ import {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { tabsShowing } from './undo-toast-motion';
 import { prefersReducedMotion } from './use-row-exit';
 import {
   MINIMIZE_AT_REST,
@@ -106,6 +110,46 @@ export interface TabBarMinimize {
 
 const Ctx = createContext<TabBarMinimize | null>(null);
 
+/**
+ * The progress of the tab bar that is on screen, for things mounted *above*
+ * the tab navigator.
+ *
+ * The undo toast is one: it lives in the root layout so a toast survives a
+ * navigation, which puts it outside this provider. It still has to sit above
+ * the bar and follow it as it minimizes. So the provider publishes its shared
+ * value here while the tab bar is on screen, and withdraws it when a
+ * root-stack screen (Settings, Completed) covers the tabs. A transparent modal
+ * over the tabs (quick-add, a task) does not count as covering them: the bar
+ * is still drawn underneath. See `tabsShowing`.
+ */
+let visibleProgress: SharedValue<number> | null = null;
+const visibleListeners = new Set<() => void>();
+
+function publishVisibleProgress(next: SharedValue<number> | null): void {
+  if (visibleProgress === next) return;
+  visibleProgress = next;
+  visibleListeners.forEach((l) => l());
+}
+
+function subscribeVisibleProgress(listener: () => void): () => void {
+  visibleListeners.add(listener);
+  return () => {
+    visibleListeners.delete(listener);
+  };
+}
+
+/**
+ * The tab bar's progress while a tab screen is showing, or null when no tab
+ * bar is on screen. Re-renders only when that changes, never per frame.
+ */
+export function useVisibleTabBarProgress(): SharedValue<number> | null {
+  return useSyncExternalStore(
+    subscribeVisibleProgress,
+    () => visibleProgress,
+    () => visibleProgress
+  );
+}
+
 export function TabBarMinimizeProvider({
   children,
 }: {
@@ -145,6 +189,15 @@ export function TabBarMinimizeProvider({
     stateRef.current = MINIMIZE_AT_REST;
     if (wasMinimized) progress.value = withSpring(0, TAB_BAR_SPRING);
   }, [progress]);
+
+  // The provider is rendered by the tab layout, which is a screen of the root
+  // stack, so this reads the root stack's top route.
+  const topRoute = useNavigationState((s) => s?.routes[s.index]?.name);
+  const showing = tabsShowing(topRoute);
+  useEffect(() => {
+    publishVisibleProgress(showing ? progress : null);
+  }, [showing, progress]);
+  useEffect(() => () => publishVisibleProgress(null), []);
 
   const value = useMemo<TabBarMinimize>(
     () => ({ progress, onScrollOffset, setDragging, expand }),
