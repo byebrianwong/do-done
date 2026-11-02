@@ -153,7 +153,11 @@ export default function CompletedScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(t) => t.id}
-          renderItem={({ item }) => <TaskItem task={item} keepsCompleted />}
+          // Reopening is the one way a row leaves this list, so it plays
+          // the move exit before the cache drops it.
+          renderItem={({ item }) => (
+            <TaskItem task={item} keepsCompleted dropsReopened />
+          )}
           renderSectionHeader={({ section: { title, data } }) => (
             <View style={sectionHeaderStyles.container}>
               <Text style={sectionHeaderStyles.text} numberOfLines={1}>
@@ -172,6 +176,7 @@ export default function CompletedScreen() {
           projects={projectList}
           config={config}
           onConfigChange={setConfig}
+          dropsReopened
           refreshControl={refresh}
           ListEmptyComponent={empty}
         />

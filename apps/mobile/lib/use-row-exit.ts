@@ -31,6 +31,8 @@ import {
   TASK_DELETE_HOLD_MS,
   TASK_DELETE_SLIDE_PX,
   TASK_DELETE_SLIDE_SCALE,
+  TASK_MOVE_COLLAPSE_MS,
+  TASK_MOVE_FADE_MS,
 } from '@do-done/shared';
 
 /**
@@ -57,11 +59,12 @@ export function prefersReducedMotion(): boolean {
  * The exit a task row plays on its way out of a list — hold at full height,
  * then collapse to nothing so the rows below slide up into the gap.
  *
- * Two of them share that shape and nothing else. A **completion** holds reading
+ * Three of them share that shape and nothing else. A **completion** holds reading
  * as done and slides right, which says filed; a **deletion** dims where it
- * stands and slides left, further, which says removed. Direction is what keeps
- * them apart at a glance — see the deletion block in `@do-done/shared`'s
- * constants.
+ * stands and slides left, further, which says removed; a **move** fades where it
+ * stands and closes without travelling, which says it went to another list.
+ * Direction is what keeps them apart at a glance — see the deletion and move
+ * blocks in `@do-done/shared`'s constants.
  *
  * The row animates its own height rather than the list animating around it.
  * That matters here more than on web — these rows live inside a
@@ -104,8 +107,25 @@ export interface RowExit {
    * Drives the red wash the row paints under itself.
    */
   deleting: boolean;
+  /**
+   * Begin the move exit: fade where it stands, then close with no slide.
+   *
+   * For a row whose task still exists and is still open but now belongs to
+   * another list, such as a reschedule off Today or a reopen on Completed.
+   * It has no direction, so it reads as neither a completion nor a deletion.
+   */
+  startMove: () => void;
   /** Snap back to full height — for a write that failed. */
   cancel: () => void;
+  /**
+   * Back to full height on this frame, with no animation.
+   *
+   * For a move exit whose row is still mounted once the cache has moved it:
+   * the task changed section within the same list, and the list reused this
+   * row instance there (it is keyed by id). Without this it would sit in its
+   * new section at zero height, the row-key trap in CLAUDE.md.
+   */
+  reset: () => void;
   /** Scale for the check mark; 0 when open, springs to 1 when completed. */
   checkStyle: AnimatedStyle<TextStyle>;
   /** Drive the check from the row's (optimistic) completed state. */
@@ -150,6 +170,8 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
   // The condemned dim, on its own clock: it runs across the deletion's *hold*,
   // while `progress` is still waiting to start the collapse.
   const dim = useSharedValue(0);
+  // The move exit's fade, also on its own clock ahead of the collapse.
+  const fade = useSharedValue(0);
   // Which way the row leaves, and how hard. Held as shared values rather than
   // branched inside the worklet so the style has one expression for both exits
   // — the animation is the same, only its vector differs.
@@ -176,7 +198,12 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     // short of invisible so the row stays readable, and the collapse's, which
     // finishes the job. A completion never touches `dim`, so it is the second
     // one alone.
-    opacity: (1 - progress.value) * (1 - dim.value * (1 - TASK_DELETE_DIM_OPACITY)),
+    // The move exit's fade is a third factor, and the only one that reaches
+    // zero before the collapse starts.
+    opacity:
+      (1 - progress.value) *
+      (1 - dim.value * (1 - TASK_DELETE_DIM_OPACITY)) *
+      (1 - fade.value),
     maxHeight:
       progress.value === 0
         ? UNCLAMPED
@@ -267,18 +294,46 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     );
   }, [progress, dim, slidePx, slideScale]);
 
+  const startMove = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    setCollapsing(true);
+    // No travel: the row is not filed and not removed, only moved.
+    slidePx.value = 0;
+    slideScale.value = 1;
+    fade.value = withTiming(1, {
+      duration: TASK_MOVE_FADE_MS,
+      easing: Easing.out(Easing.quad),
+    });
+    progress.value = withDelay(
+      TASK_MOVE_FADE_MS,
+      withTiming(1, {
+        duration: TASK_MOVE_COLLAPSE_MS,
+        easing: Easing.inOut(Easing.quad),
+      })
+    );
+  }, [progress, fade, slidePx, slideScale]);
+
   const cancel = useCallback(() => {
     setCollapsing(false);
     setDeleting(false);
     progress.value = withTiming(0, { duration: 150 });
     dim.value = withTiming(0, { duration: 150 });
+    fade.value = withTiming(0, { duration: 150 });
     // A write that failed gets no celebration.
     halo.value = 0;
     ringScale.value = withTiming(1, { duration: TASK_COMPLETE_ANTICIPATE_MS });
     if (sparkTimer.current) clearTimeout(sparkTimer.current);
     sparkProgress.value = 0;
     setSparking(false);
-  }, [progress, dim, halo, ringScale, sparkProgress]);
+  }, [progress, dim, fade, halo, ringScale, sparkProgress]);
+
+  const reset = useCallback(() => {
+    setCollapsing(false);
+    setDeleting(false);
+    progress.value = 0;
+    dim.value = 0;
+    fade.value = 0;
+  }, [progress, dim, fade]);
 
   const spark = useCallback(() => {
     if (prefersReducedMotion()) return;
@@ -322,7 +377,9 @@ export function useRowExit(initiallyChecked: boolean): RowExit {
     onLayout,
     start,
     startDelete,
+    startMove,
     cancel,
+    reset,
     checkStyle,
     setChecked,
     ringStyle,

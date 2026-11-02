@@ -108,6 +108,9 @@ export function InboxView() {
       <UpdatingBar visible={loadState.showUpdating} />
 
       <GroupedTaskList
+        // The inbox query is `status = inbox`, so a done task cannot stay
+        // here whatever "Show completed" says. Its row plays the exit.
+        keepsCompleted={false}
         tasks={tasks}
         projects={projectList}
         config={config}
