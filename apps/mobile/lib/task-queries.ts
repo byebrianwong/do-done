@@ -14,7 +14,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { buildSuggestionIndex } from '@do-done/shared';
+import { addDaysLocalISO, buildSuggestionIndex } from '@do-done/shared';
 import type {
   CreateProjectInput,
   Project,
@@ -127,10 +127,32 @@ async function fetchTasks(filters?: TaskFilterInput): Promise<Task[]> {
 
 // ─── Queries ────────────────────────────────────────────────
 
+/**
+ * The rows Today is built from: every open task scheduled or with a deadline
+ * on or before today, every task pinned into Focus, and the other open tasks
+ * Focus ranks.
+ *
+ * This used to be the first 100 tasks by `sort_order`, finished ones included,
+ * and Today picked its rows out of that page. Past 100 tasks, a task scheduled
+ * today could sort after the cutoff and silently drop out of Today.
+ *
+ * The dated read runs through tomorrow, not today, so a page fetched just
+ * before midnight still holds the new day's tasks until the next refetch.
+ * `todayUniverse` filters the extra rows out.
+ */
+export function todayTaskQuery(now: Date = new Date()): { datedThrough: string } {
+  return { datedThrough: addDaysLocalISO(1, now) };
+}
+
 export function useTodayTasks() {
   return useQuery({
     queryKey: taskKeys.today(),
-    queryFn: () => fetchTasks({ limit: 100, offset: 0 }),
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.listOpen(todayTaskQuery());
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 
@@ -174,7 +196,7 @@ export function useSearchTasks(query: string) {
 /**
  * Every tag the user has, with its counts.
  *
- * Server-side rather than derived from a loaded list: the tags on the 100
+ * Server-side rather than derived from a loaded list: the tags on the
  * tasks Today happens to hold are not the user's tags, and an index that
  * silently omits some is worse than no index.
  */
