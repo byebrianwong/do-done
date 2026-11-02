@@ -6,8 +6,10 @@ import React from 'react';
 import { useLocalSearchParams } from 'expo-router';
 
 import { ListDetail } from '@/components/ListDetail';
+import { useResumeArrival } from '@/lib/use-resume-arrival';
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  useResumeArrival();
   return <ListDetail listId={String(id)} />;
 }

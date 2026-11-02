@@ -32,6 +32,7 @@ import {
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { saveResume } from '@/lib/tab-resume';
+import { useResumeArrival } from '@/lib/use-resume-arrival';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
@@ -40,6 +41,7 @@ import { openProjectForm } from '@/components/ProjectFormSheet';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  useResumeArrival();
   const projectId = id ?? '';
 
   const router = useRouter();

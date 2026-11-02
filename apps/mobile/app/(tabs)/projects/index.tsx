@@ -23,10 +23,13 @@ import {
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import {
+  RESUME_HOLD_MAX_MS,
   hasResumeTried,
+  holdIndexBlank,
   loadResume,
   markResumeTried,
   resumeDecision,
+  resumePath,
   saveResume,
 } from '@/lib/tab-resume';
 
@@ -63,6 +66,26 @@ export default function ProjectsScreen() {
   // while the ids may still be arriving, and an ungated decision would then
   // push a second detail on top of the one the user just opened.
   const [focused, setFocused] = useState(false);
+  // Set once the index has waited long enough for the restore to decide, after
+  // which it draws whatever happens. See `holdIndexBlank`.
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (hasResumeTried('projects')) return;
+    const timer = setTimeout(() => setGaveUp(true), RESUME_HOLD_MAX_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const knownIds = useMemo(
+    () => (projectsQuery.data ? workProjects.map((p) => p.id) : null),
+    [projectsQuery.data, workProjects]
+  );
+  const blank = holdIndexBlank({
+    remembered,
+    known: knownIds,
+    alreadyTried: hasResumeTried('projects'),
+    failed: loadState.showError,
+    gaveUp,
+  });
 
   // Re-read on every focus: the detail screen writes the memory, so a value
   // read at mount is stale the moment we come back.
@@ -89,13 +112,14 @@ export default function ProjectsScreen() {
     if (!focused || remembered === undefined) return;
     const decision = resumeDecision({
       remembered,
-      known: projectsQuery.data ? workProjects.map((p) => p.id) : null,
+      known: knownIds,
       alreadyTried: hasResumeTried('projects'),
     });
     if (decision.action === 'wait') return;
     markResumeTried('projects');
     if (decision.action === 'open') {
-      router.push(`/projects/${decision.id}` as never);
+      // With no animation while the index is still blank — see the Lists tab.
+      router.push(resumePath('projects', decision.id, blank) as never);
       // Unknown again until the next focus re-reads it: a refetch landing
       // while the detail is up would otherwise re-decide, see `alreadyTried`,
       // and wipe the memory that detail has just written.
@@ -104,7 +128,7 @@ export default function ProjectsScreen() {
       setRemembered(null);
       saveResume('projects', null);
     }
-  }, [focused, remembered, workProjects, projectsQuery.data, router]);
+  }, [focused, remembered, knownIds, blank, router]);
 
   const sig = workProjects.map((p) => `${p.id}:${p.sort_order}`).join(',');
   useEffect(() => {
@@ -159,6 +183,9 @@ export default function ProjectsScreen() {
       </Pressable>
     </ScaleDecorator>
   );
+
+  // Nothing yet: the remembered project may be about to cover this screen.
+  if (blank) return <View style={styles.container} />;
 
   return (
     <View style={styles.container}>

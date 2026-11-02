@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import MinimizingTabBar from '@/components/MinimizingTabBar';
 import { TabBarMinimizeProvider } from '@/lib/tab-bar-minimize';
 import { useInboxTasks } from '@/lib/task-queries';
+import { useReduceMotion } from '@/lib/reduce-motion';
 import { toggleAgendaMode, toggleTasksMode, useViewMode } from '@/lib/view-mode';
 
 const TINT_COLOR = '#6366f1';
@@ -53,6 +54,7 @@ export default function TabLayout() {
   // an exact count past that — a nudge, not an audit.
   const { data: inbox = [] } = useInboxTasks();
   const inboxCount = tasks === 'all' ? inbox.length : 0;
+  const reduceMotion = useReduceMotion();
 
   return (
     // Wraps the navigator rather than sitting inside it, because both halves
@@ -70,6 +72,18 @@ export default function TabLayout() {
           // every screen), so the native navigation header would just duplicate
           // it and waste vertical space.
           headerShown: false,
+          // A tab switch crossfades (150ms, on the native driver) instead of
+          // cutting. Fade rather than `shift`: tabs are peers, not a sequence,
+          // and every screen's add button sits in the same corner, so a slide
+          // would move a control that should look like it stays put. The bar
+          // floats outside the scenes and is not animated.
+          //
+          // No `freezeOnBlur`. Bottom tabs 7.15 never freezes an animated
+          // tab: it passes `shouldFreeze={activityState === STATE_INACTIVE}`,
+          // and with an animation `activityState` is an Animated node, so the
+          // test is always false. Hidden tabs re-rendering on cache writes is
+          // left to the query layer.
+          animation: reduceMotion ? 'none' : 'fade',
         }}
       >
         <Tabs.Screen

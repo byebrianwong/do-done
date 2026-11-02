@@ -2,6 +2,8 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
+import { resumeScreenAnimation } from '@/lib/tab-resume';
+
 export default function ProjectsLayout() {
   return (
     <Stack>
@@ -13,7 +15,17 @@ export default function ProjectsLayout() {
         name="index"
         options={{ headerShown: false, title: 'Projects' }}
       />
-      <Stack.Screen name="[id]" options={{ headerShown: true }} />
+      {/* A restore is pushed with no animation; see `holdIndexBlank` in
+          `lib/tab-resume.ts`. */}
+      <Stack.Screen
+        name="[id]"
+        options={({ route }) => ({
+          headerShown: true,
+          animation: resumeScreenAnimation(
+            route.params as Record<string, unknown> | undefined
+          ),
+        })}
+      />
     </Stack>
   );
 }
