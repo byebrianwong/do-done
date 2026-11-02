@@ -13,11 +13,17 @@ import React from 'react';
 import { Platform } from 'react-native';
 import type { WidgetInfo } from 'react-native-android-widget';
 import { IS_EXPO_GO } from '@/lib/runtime';
+import {
+  REFRESHED_WIDGET_NAMES,
+  widgetRefreshPlan,
+} from '@/lib/widget-refresh-plan';
 import type {
   TaskWidgetComponent,
   TaskWidgetName,
 } from '@/widgets/widget-render';
 
+// The watch sync waits longer (`lib/wear.ts`), so the two task reads a write
+// triggers do not land on the JS thread together.
 const DEBOUNCE_MS = 800;
 let pending: ReturnType<typeof setTimeout> | null = null;
 
@@ -71,7 +77,7 @@ export async function repaintQuickAddWidget(): Promise<void> {
 async function doRefresh(): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { requestWidgetUpdate } =
+    const { getWidgetInfo, requestWidgetUpdate } =
       require('react-native-android-widget') as typeof import('react-native-android-widget');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { loadWidgetTasks } =
@@ -90,6 +96,17 @@ async function doRefresh(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { TASK_WIDGET_NAMES, themedPair } =
       require('@/widgets/widget-render') as typeof import('@/widgets/widget-render');
+
+    // Ask the launcher which widgets exist before reading anything. Most phones
+    // have none of these on the home screen, and the task read below is the
+    // expensive part: it used to run after every write for nobody.
+    const placed = await placedWidgetNames(getWidgetInfo);
+    const plan = widgetRefreshPlan(placed);
+    if (!plan.tasks && !plan.lists) return;
+    if (!plan.tasks) {
+      await refreshListWidgets(requestWidgetUpdate).catch(() => {});
+      return;
+    }
 
     const data = await loadWidgetTasks();
     const byName: Record<TaskWidgetName, TaskWidgetComponent> = {
@@ -111,7 +128,9 @@ async function doRefresh(): Promise<void> {
       ),
       // Its own catch, not the outer one: a List widget failing must not
       // abandon the four that were already on their way.
-      refreshListWidgets(requestWidgetUpdate).catch(() => {}),
+      plan.lists
+        ? refreshListWidgets(requestWidgetUpdate).catch(() => {})
+        : Promise.resolve(),
     ]);
   } catch {
     // Native module unavailable (Expo Go) or the update failed — ignore.
@@ -157,4 +176,28 @@ async function refreshListWidgets(
       // No List widgets on the home screen — nothing to do.
     },
   });
+}
+
+/**
+ * The widget names with at least one instance on the home screen.
+ *
+ * One `getWidgetInfo` per name. Those are native reads of the launcher's
+ * widget ids, with no network and no task data. A name whose lookup fails is
+ * counted as placed, so a failed lookup costs a wasted refresh rather than a
+ * stale widget.
+ */
+async function placedWidgetNames(
+  getWidgetInfo: typeof import('react-native-android-widget').getWidgetInfo
+): Promise<Set<string>> {
+  const placed = new Set<string>();
+  await Promise.all(
+    REFRESHED_WIDGET_NAMES.map(async (name) => {
+      try {
+        if ((await getWidgetInfo(name)).length > 0) placed.add(name);
+      } catch {
+        placed.add(name);
+      }
+    })
+  );
+  return placed;
 }

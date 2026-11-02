@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -15,8 +15,11 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   OVERDUE_COLOR,
   PRIORITY_CONFIG,
+  TASK_COMPLETE_CHECK_MS,
   TASK_COMPLETE_EXIT_MS,
+  TASK_COMPLETE_HOLD_MS,
   TASK_DELETE_EXIT_MS,
+  TASK_MOVE_EXIT_MS,
   addDaysLocalISO,
   shouldSpark,
   rowEstimate,
@@ -46,6 +49,9 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
+import { readCount, type CountSource } from '@/lib/section-counts';
+import { patchedTask, type LeavesSection } from '@/lib/row-leave';
+import { claimArrival } from '@/lib/row-arrival';
 import {
   prefersReducedMotion,
   useRowExit,
@@ -114,6 +120,19 @@ interface TaskItemProps {
    */
   keepsCompleted?: boolean;
   /**
+   * Set on the Completed screen, the one list a *reopened* task leaves. The row
+   * plays the move exit before the cache drops it, instead of vanishing on the
+   * tap.
+   */
+  dropsReopened?: boolean;
+  /**
+   * Whether a reschedule from the swipe panel takes this row out of the section
+   * it is drawn in. The list decides, since only it knows how it places rows —
+   * see `lib/row-leave.ts`. When it says yes the row plays the move exit before
+   * the cache moves it. Omitted, a reschedule never animates the row out.
+   */
+  leavesSection?: LeavesSection;
+  /**
    * Drop the project from the subline — for a list already grouped by project,
    * where the header has just said it.
    */
@@ -136,10 +155,28 @@ interface TaskItemProps {
    * before the tap. One means completing this empties the section, which earns
    * the celebratory burst. Omitted on surfaces with no sections (the inbox,
    * search), where that rule simply can't fire.
+   *
+   * Lists pass a getter that is read at the tap (see `lib/section-counts.ts`).
+   * A plain number changes on every completion in the section and would
+   * re-render every row beside this one.
    */
-  openInSection?: number | null;
+  openInSection?: CountSource;
   /** The same for the row's project. One means this completion finishes it. */
-  openInProject?: number | null;
+  openInProject?: CountSource;
+  /**
+   * Open up on mount instead of appearing at full height. Read once, on mount.
+   * For a list that knows the row is new to it (a section that just expanded,
+   * a task that just moved into Focus). A row a *write* put here does not need
+   * it: it finds out from `lib/row-arrival.ts` on its own.
+   */
+  arriving?: boolean;
+  /**
+   * Fold shut: the list is about to stop drawing this row without anything
+   * having happened to the task (its section is closing, or it moved to
+   * another section). The list keeps the row for `ROW_ARRIVE_MS` and then
+   * drops it.
+   */
+  departing?: boolean;
 }
 
 function buildReschedule(
@@ -166,11 +203,15 @@ function TaskItem({
   onDragStart,
   focused,
   keepsCompleted = false,
+  dropsReopened = false,
+  leavesSection,
   hideProject = false,
   hideStatus = false,
   hideScheduledDay = false,
   openInSection = null,
   openInProject = null,
+  arriving = false,
+  departing = false,
 }: TaskItemProps) {
   // Optimistic, because the list deliberately holds the row for the length of
   // the completion animation — the cache still says "not done" while the row is
@@ -178,7 +219,17 @@ function TaskItem({
   const [completed, setCompleted] = useOptimisticCompleted(
     task.status === 'done'
   );
-  const exit = useRowExit(task.status === 'done');
+  // Asked once, as the row mounts. A row drawn again after being scrolled
+  // away was not marked, so it does not open up again.
+  const [arrive] = useState(() => arriving || claimArrival(task.id));
+  const exit = useRowExit(task.status === 'done', { arrive });
+  const wasDeparting = useRef(false);
+  useEffect(() => {
+    if (departing) exit.depart();
+    else if (wasDeparting.current) exit.undepart();
+    wasDeparting.current = departing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departing]);
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
   // A completion the swipe has asked for and the row's journey home hasn't
@@ -191,6 +242,20 @@ function TaskItem({
     },
     []
   );
+
+  // The task as it stood when a move exit started. Once the held patch lands
+  // the row gets a new task object. If the row is still mounted then, the task
+  // moved to another section of this same list and the list reused this
+  // instance there, so it has to come back to full height. A layout effect, so
+  // the reset lands before the row is painted in its new place.
+  const movingFrom = useRef<Task | null>(null);
+  const resetExit = exit.reset;
+  useLayoutEffect(() => {
+    if (movingFrom.current && movingFrom.current !== task) {
+      movingFrom.current = null;
+      resetExit();
+    }
+  }, [task, resetExit]);
 
   // Multi-select is an explicit mode, armed from the list's ⋯ menu rather than
   // by holding a row. While it is armed a tap toggles the row (instead of
@@ -316,21 +381,47 @@ function TaskItem({
       // …and the burst on top, for the completions that earned one. Read now,
       // not at render time: by the time the write lands the row has already
       // told its list it is done.
-      if (shouldSpark(task, { openInSection, openInProject, streakDay })) {
+      if (
+        shouldSpark(task, {
+          openInSection: readCount(openInSection),
+          openInProject: readCount(openInProject),
+          streakDay,
+        })
+      ) {
         exit.spark();
       }
     }
 
-    // In a list that keeps completed tasks there is nothing to leave: the row
-    // stays put, with its completed styling, and the cache can drop it (from
-    // whatever list it *is* leaving) immediately.
-    const leaving = !keepsCompleted && !prefersReducedMotion();
-    if (leaving) exit.start();
+    // A completed row leaves unless this list keeps completed tasks. A reopened
+    // row leaves only the Completed screen; everywhere else it stays, or moves
+    // within the list.
+    const reduced = prefersReducedMotion();
+    const leaving = !reduced && (nextCompleted ? !keepsCompleted : dropsReopened);
+    if (leaving) {
+      if (nextCompleted) exit.start();
+      else exit.startMove();
+    }
 
-    // The write goes out now regardless; only the row's disappearance waits for
-    // the animation.
-    const holdMs = leaving ? TASK_COMPLETE_EXIT_MS : 0;
-    void toggleComplete(task.id, nextCompleted, { holdMs })
+    // The write goes out now regardless; only the cache patch waits.
+    //
+    // A row that stays still waits a little: long enough for the check (or
+    // its removal) to be seen where the row is, before the patch can move it
+    // into its Done section or back out of it.
+    const holdMs = reduced
+      ? 0
+      : leaving
+        ? nextCompleted
+          ? TASK_COMPLETE_EXIT_MS
+          : TASK_MOVE_EXIT_MS
+        : nextCompleted
+          ? TASK_COMPLETE_HOLD_MS
+          : TASK_COMPLETE_CHECK_MS;
+    void toggleComplete(task.id, nextCompleted, {
+      holdMs,
+      // Mark it done in place rather than filtering it out of lists that keep
+      // done rows, or it vanishes and comes back under Done a round trip later.
+      keepInLists: nextCompleted && keepsCompleted,
+    })
       .then(() => {
         // The toast is the row's receipt, so it waits for the write to land.
         // Announcing the completion up front meant an offline tap put
@@ -377,16 +468,33 @@ function TaskItem({
   /**
    * Reschedule from the swipe panel's Today / Tomorrow buttons.
    *
-   * A failure has to say so. The row leaves the list the instant the button is
-   * tapped — that is the whole feedback the gesture gives — so a write that
-   * doesn't land looks exactly like one that did until the list is next looked
-   * at from somewhere else. `.catch(() => {})` was doing that silently, which
-   * is what let a reschedule that never sent anything at all pass for working;
-   * `updateTask` puts the row back, and this says why it came back.
+   * When the new date takes the row out of its section, the row fades and
+   * closes first and the cache moves it afterwards (`holdMs`). Before, the
+   * patch landed on the tap: the row vanished in one frame and the rows below
+   * jumped up a row height. The list says whether it leaves (`leavesSection`).
+   *
+   * A failure has to say so. The row leaving is the whole feedback the
+   * gesture gives, so a write that doesn't land looks exactly like one that
+   * did until the list is next looked at from somewhere else.
+   * `.catch(() => {})` was doing that silently, which is what let a reschedule
+   * that never sent anything at all pass for working; `updateTask` puts the
+   * row back, and this says why it came back.
    */
   function applyTarget(target: Parameters<typeof buildReschedule>[1]) {
     hapticLight();
-    void updateTask(task.id, buildReschedule(task, target)).catch(() => {
+    const input = buildReschedule(task, target);
+    const leaving =
+      !prefersReducedMotion() &&
+      !!leavesSection?.(task, patchedTask(task, input));
+    if (leaving) {
+      movingFrom.current = task;
+      exit.startMove();
+    }
+    void updateTask(task.id, input, {
+      holdMs: leaving ? TASK_MOVE_EXIT_MS : 0,
+    }).catch(() => {
+      movingFrom.current = null;
+      if (leaving) exit.cancel();
       toast.show({ message: `Couldn't reschedule “${task.title}”` });
     });
   }
@@ -504,8 +612,15 @@ function TaskItem({
     // clamped height actually crop rather than just overlap.
     <Animated.View
       style={[exit.collapsing && styles.exitShell, exit.style]}
-      onLayout={exit.onLayout}
+      // A row on its way out of view is not a target any more, and a screen
+      // reader should not announce a row the list no longer holds.
+      pointerEvents={departing ? 'none' : 'auto'}
+      accessibilityElementsHidden={departing}
+      importantForAccessibility={departing ? 'no-hide-descendants' : 'auto'}
     >
+    {/* Measured from in here, not from the shell: an arriving shell is clamped
+        to zero when it first lays out. See `RowExit.onLayout`. */}
+    <View onLayout={exit.onLayout} collapsable={false}>
     <ReanimatedSwipeable
       ref={swipeRef}
       friction={2}
@@ -667,6 +782,7 @@ function TaskItem({
       {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
     </Pressable>
     </ReanimatedSwipeable>
+    </View>
     </Animated.View>
   );
 }

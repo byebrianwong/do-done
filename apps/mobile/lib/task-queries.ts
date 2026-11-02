@@ -14,7 +14,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { buildSuggestionIndex } from '@do-done/shared';
+import { UNDO_TOAST_TTL_MS, addDaysLocalISO, buildSuggestionIndex } from '@do-done/shared';
 import type {
   CreateProjectInput,
   Project,
@@ -31,6 +31,8 @@ import { scheduleGeofenceSync } from './location-queries';
 import { scheduleTaskReminderSync } from './task-reminders';
 import { scheduleWatchSync } from './wear';
 import { notifyAutoSync } from './auto-sync-notice';
+import { noteLocalWrite } from './local-write';
+import { markArriving, reinsertTask } from './row-arrival';
 
 type ProjectWithCounts = Project & { task_count: number; open_count: number };
 
@@ -127,30 +129,69 @@ async function fetchTasks(filters?: TaskFilterInput): Promise<Task[]> {
 
 // ─── Queries ────────────────────────────────────────────────
 
-export function useTodayTasks() {
+/**
+ * Options a screen passes to the queries it draws its list from.
+ *
+ * `subscribed: false` while the screen is off view, from `useScreenActive()`.
+ * The query keeps its cache and goes inactive, so a write elsewhere marks it
+ * stale instead of refetching it, and it refetches when the screen comes back.
+ * See `lib/screen-activity.ts`. Omitted, the query is subscribed as before,
+ * which is what a caller that is not a screen (the Tasks tab badge) wants.
+ */
+export interface ScreenQueryOptions {
+  subscribed?: boolean;
+}
+
+/**
+ * The rows Today is built from: every open task scheduled or with a deadline
+ * on or before today, every task pinned into Focus, and the other open tasks
+ * Focus ranks.
+ *
+ * This used to be the first 100 tasks by `sort_order`, finished ones included,
+ * and Today picked its rows out of that page. Past 100 tasks, a task scheduled
+ * today could sort after the cutoff and silently drop out of Today.
+ *
+ * The dated read runs through tomorrow, not today, so a page fetched just
+ * before midnight still holds the new day's tasks until the next refetch.
+ * `todayUniverse` filters the extra rows out.
+ */
+export function todayTaskQuery(now: Date = new Date()): { datedThrough: string } {
+  return { datedThrough: addDaysLocalISO(1, now) };
+}
+
+export function useTodayTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.today(),
-    queryFn: () => fetchTasks({ limit: 100, offset: 0 }),
+    queryFn: async () => {
+      const api = await getTasksApi();
+      const { data, error } = await api.listOpen(todayTaskQuery());
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 
-export function useInboxTasks() {
+export function useInboxTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.inbox(),
     queryFn: () => fetchTasks({ status: 'inbox', limit: 50, offset: 0 }),
   });
 }
 
-export function useProjectTasks(projectId: string) {
+export function useProjectTasks(projectId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.project(projectId),
     queryFn: () => fetchTasks({ project_id: projectId, limit: 200, offset: 0 }),
   });
 }
 
 /** Every task (active + done) — the "All" browse view groups these by status. */
-export function useAllTasks() {
+export function useAllTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.everything(),
     queryFn: () => fetchTasks({ limit: 500, offset: 0 }),
   });
@@ -162,6 +203,12 @@ export function useSearchTasks(query: string) {
   return useQuery({
     queryKey: taskKeys.search(q),
     enabled: q.length > 0,
+    // Each refinement is a new key. Without this the list emptied to
+    // "Searching…" on every keystroke that survived the debounce, and filled
+    // back in a round trip later with mostly the same rows. Keeping the last
+    // answer up until the new one lands changes only the rows that differ.
+    // Not across a cleared field, which has no results to keep.
+    placeholderData: (prev) => (q.length > 0 ? prev : undefined),
     queryFn: async () => {
       const api = await getTasksApi();
       const { data, error } = await api.search(q);
@@ -174,7 +221,7 @@ export function useSearchTasks(query: string) {
 /**
  * Every tag the user has, with its counts.
  *
- * Server-side rather than derived from a loaded list: the tags on the 100
+ * Server-side rather than derived from a loaded list: the tags on the
  * tasks Today happens to hold are not the user's tags, and an index that
  * silently omits some is worse than no index.
  */
@@ -241,8 +288,9 @@ export function useCompletedTasks() {
   });
 }
 
-export function useProject(projectId: string) {
+export function useProject(projectId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: [...projectKeys.all, 'detail', projectId] as const,
     queryFn: async () => {
       const api = await getProjectsApi();
@@ -290,8 +338,9 @@ export function useProjects() {
   });
 }
 
-export function useProjectsWithCounts() {
+export function useProjectsWithCounts(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: projectKeys.withCounts(),
     queryFn: async () => {
       const api = await getProjectsApi();
@@ -400,6 +449,14 @@ function cancelTaskFetches(): Promise<void[]> {
   );
 }
 
+/** The cached shopping-list item lists. */
+function cachedListItems(): Task[][] {
+  return queryClient
+    .getQueriesData<Task[]>({ queryKey: listKeys.items() })
+    .map(([, list]) => list)
+    .filter((list): list is Task[] => Array.isArray(list));
+}
+
 /** Every cached task list, ignoring the caches that hold something else. */
 function cachedTaskLists(): Task[][] {
   return TASK_LIST_ROOTS.flatMap((key) =>
@@ -489,6 +546,71 @@ function patchCachedOrder(orderedIds: string[], opts?: DropOrderOptions) {
   );
 }
 
+/**
+ * Write a row the editor has just saved into every cached copy of it, without
+ * refetching anything.
+ *
+ * The editor autosaves 250ms after each pause in typing. Each save used to call
+ * `invalidateTasks()`, which refetched every task list under the open sheet on
+ * the JS thread the title field needs. Patching keeps the rows behind the sheet
+ * current; the editor runs the full `invalidateTasks()` once, when it closes
+ * (`createEditorReconciler` in `editor-reconcile.ts`).
+ *
+ * Rows only change in place. A row the save moved out of a list (re-dated off
+ * Today, ticked done) stays where it is until that close-time refetch, which is
+ * when the sheet is no longer covering it. The subtask breadcrumb's single-task
+ * cache (`taskKeys.detail`) is patched too, so a renamed parent reads right.
+ */
+export function patchSavedTask(row: Task) {
+  // The side effects of a write still run per save. A reminder armed against
+  // this task, the widgets and the watch must not wait for the sheet to close:
+  // set 3pm at 2:40, press Home without closing, and the reminder has to exist.
+  notifyTaskWritten();
+  // Only the caches that hold the row are written. `setQueriesData` marks every
+  // query it visits as updated, even when the updater hands back the same
+  // array, which would notify every list and wake the persister on each save.
+  for (const root of TASK_LIST_ROOTS) {
+    for (const [key, list] of queryClient.getQueriesData<Task[]>({
+      queryKey: root,
+    })) {
+      if (!Array.isArray(list) || !list.some((t) => t.id === row.id)) continue;
+      queryClient.setQueryData<Task[]>(
+        key,
+        list.map((t) => (t.id === row.id ? ({ ...t, ...row } as Task) : t))
+      );
+    }
+  }
+  queryClient.setQueryData<Task | null>(taskKeys.detail(row.id), (old) =>
+    old ? ({ ...old, ...row } as Task) : old
+  );
+}
+
+/**
+ * Cached rows whose parent is `parentId`, in list order, one copy per id.
+ *
+ * The editor seeds its subtask list from this so the rows are on screen in the
+ * first frame instead of arriving with the fetch. It can be incomplete — a list
+ * holds only what its view shows — so the fetch still runs and corrects it.
+ */
+export function cachedSubtasks(parentId: string): Task[] {
+  const byId = new Map<string, Task>();
+  for (const list of cachedTaskLists()) {
+    for (const t of list) {
+      if (t.parent_task_id === parentId && !byId.has(t.id)) byId.set(t.id, t);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** The cached copy of one task, from whichever list holds it. */
+export function cachedTask(id: string): Task | null {
+  for (const list of cachedTaskLists()) {
+    const hit = list.find((t) => t.id === id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Put the pre-write copy back for `ids` only; every other row keeps its patch. */
 function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   if (ids.size === 0) return;
@@ -497,17 +619,12 @@ function restoreCachedTasks(prevById: Map<string, Task>, ids: Set<string>) {
   );
 }
 
-export function invalidateTasks() {
-  queryClient.invalidateQueries({ queryKey: taskKeys.all });
-  queryClient.invalidateQueries({ queryKey: projectKeys.all });
-  // The tag summary is counts over tasks, so any write can move it — a tag
-  // added in the editor, a task completed, a task deleted. Kept out of
-  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
-  // it: its cached value is TagSummary[], not Task[].
-  queryClient.invalidateQueries({ queryKey: tagKeys.all });
-  // Same argument as tags, one root over: a list's items and its open/bought
-  // counts are a view of task rows, so any write can move them.
-  queryClient.invalidateQueries({ queryKey: listKeys.all });
+/**
+ * What every task write has to tell the world outside the query cache. Each is
+ * debounced. `invalidateTasks` calls this; so does `patchSavedTask`, which
+ * updates the cache without refetching but still has to reach these.
+ */
+function notifyTaskWritten() {
   // Keep home-screen widgets in sync with in-app changes (debounced, Android-only).
   refreshTaskWidgets();
   // Completing the last task at a place should retire its geofence, and
@@ -522,6 +639,78 @@ export function invalidateTasks() {
   // off on the phone stays on the wrist until the phone says otherwise. Same
   // debounce, same fire-and-forget.
   scheduleWatchSync();
+}
+
+export function invalidateTasks() {
+  // The refetches below confirm what the optimistic patch already drew, so the
+  // updating bar stays down for them. See lib/local-write.ts.
+  noteLocalWrite();
+  queryClient.invalidateQueries({ queryKey: taskKeys.all });
+  queryClient.invalidateQueries({ queryKey: projectKeys.all });
+  // The tag summary is counts over tasks, so any write can move it — a tag
+  // added in the editor, a task completed, a task deleted. Kept out of
+  // taskKeys so the optimistic `setQueriesData<Task[]>` sweeps never reach
+  // it: its cached value is TagSummary[], not Task[].
+  queryClient.invalidateQueries({ queryKey: tagKeys.all });
+  // Same argument as tags, one root over: a list's items and its open/bought
+  // counts are a view of task rows, so any write can move them.
+  queryClient.invalidateQueries({ queryKey: listKeys.all });
+  notifyTaskWritten();
+}
+
+/**
+ * The lists a task was dropped from, as they stood before, so undoing the
+ * drop can put the row back in the cache instead of waiting for the server.
+ *
+ * Without this an undone completion or deletion came back only with the
+ * refetch: a round trip after the tap, at full height, pushing the list down
+ * in one frame. The row it was undone from had already unmounted, so it could
+ * not animate anything. Putting it back optimistically lets it mount on the
+ * same frame as the tap and open up in place (see `lib/row-arrival.ts`).
+ *
+ * Held for twice the undo window and then forgotten, so a task completed and
+ * never undone does not keep its lists alive for the session.
+ */
+const droppedFrom = new Map<string, TaskListSnapshot>();
+
+function rememberDrop(id: string, prev: TaskListSnapshot) {
+  const lists = prev.filter(
+    ([, data]) => Array.isArray(data) && data.some((t) => t.id === id)
+  );
+  if (lists.length === 0) return;
+  droppedFrom.set(id, lists);
+  setTimeout(() => {
+    if (droppedFrom.get(id) === lists) droppedFrom.delete(id);
+  }, UNDO_TOAST_TTL_MS * 2);
+}
+
+/**
+ * Put dropped rows back where they were, and say they are arriving. Returns
+ * whether anything went back. A no-op for a list a refetch has already
+ * restored, or for a drop that never happened (an Undo tapped during the
+ * hold, while the row was still on screen).
+ */
+function restoreDrops(ids: Iterable<string>): boolean {
+  const arrived: string[] = [];
+  for (const id of ids) {
+    const lists = droppedFrom.get(id);
+    if (!lists) continue;
+    droppedFrom.delete(id);
+    let any = false;
+    for (const [key, before] of lists) {
+      if (!Array.isArray(before)) continue;
+      queryClient.setQueryData<Task[]>(key, (current) => {
+        if (!Array.isArray(current)) return current;
+        const next = reinsertTask(current, before, id);
+        if (!next) return current;
+        any = true;
+        return next;
+      });
+    }
+    if (any) arrived.push(id);
+  }
+  markArriving(arrived);
+  return arrived.length > 0;
 }
 
 export interface ToggleCompleteOptions {
@@ -541,7 +730,50 @@ export interface ToggleCompleteOptions {
    * `not_started`. Ignored when completing.
    */
   restoreStatus?: TaskStatus;
+  /**
+   * Completing only: the list on screen keeps done tasks ("Show completed"
+   * is on), so mark the row done in place rather than filtering it out.
+   *
+   * Filtering it took the row out of `everything` and `project` too, which do
+   * hold done tasks. The check never showed, and the row came back under Done a
+   * round trip later. Each view's own filter hides done rows unless Show
+   * completed is on, so patching in place is safe for every view that reads
+   * these caches. The inbox cache is the exception and is still filtered: its
+   * query is `status = inbox`, so the server would drop the row anyway, and the
+   * tab badge counts that cache directly.
+   */
+  keepInLists?: boolean;
 }
+
+/**
+ * The fields a completion or a reopen changes, as the write will produce them.
+ * The same guard `TasksApi.reopen` applies, so the row the user sees is the row
+ * the write is about to produce.
+ */
+export function completionPatch(
+  complete: boolean,
+  restoreStatus?: TaskStatus,
+  now: Date = new Date()
+): Pick<Task, 'status' | 'completed_at'> {
+  return {
+    status: complete
+      ? 'done'
+      : restoreStatus && restoreStatus !== 'done'
+        ? restoreStatus
+        : 'not_started',
+    completed_at: complete ? now.toISOString() : null,
+  };
+}
+
+/**
+ * The caches a completion patches in place whatever the screen, because they
+ * keep done rows: a tag list and search results. Without this a reopened row
+ * there kept its done styling until the refetch.
+ */
+const KEEPS_DONE_ROOTS: readonly (readonly unknown[])[] = [
+  [...taskKeys.all, 'tag'],
+  [...taskKeys.all, 'search'],
+];
 
 /**
  * Completion writes in flight, one chain per task id, and the sequence number
@@ -604,41 +836,48 @@ async function runToggleComplete(
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
 
+  const patch = completionPatch(complete, options.restoreStatus);
+  const inPlace = (old: Task[]) =>
+    old.map((t) => (t.id === id ? { ...t, ...patch } : t));
+  const without = (old: Task[]) => old.filter((t) => t.id !== id);
+
+  // An Undo: the row it came from is gone, so the cache has to bring it back.
+  // After the snapshot, so a failed reopen takes the reinserted row out again.
+  if (!complete) restoreDrops([id]);
+
   const dropFromLists = () => {
     if (complete) {
-      // Drop from active lists (today / inbox / project).
-      patchTaskLists((old) => old.filter((t) => t.id !== id), taskKeys.lists());
+      rememberDrop(id, prev);
+      if (options.keepInLists) {
+        // The list on screen keeps done rows, so the row stays and turns done.
+        patchTaskLists(inPlace, taskKeys.lists());
+        patchTaskLists(without, taskKeys.inbox());
+      } else {
+        // Drop from active lists (today / inbox / project / all).
+        patchTaskLists(without, taskKeys.lists());
+      }
     } else {
-      // Reopening removes the row from the completed list.
-      patchTaskLists(
-        (old) => old.filter((t) => t.id !== id),
-        taskKeys.completed()
-      );
+      // Reopening removes the row from the completed list, and turns it open
+      // again in any active list that still held it as done.
+      patchTaskLists(without, taskKeys.completed());
+      patchTaskLists(inPlace, taskKeys.lists());
     }
+    for (const root of KEEPS_DONE_ROOTS) patchTaskLists(inPlace, root);
     // A shopping list keeps its items either way: ticking one moves it into
     // the "Got it" section rather than out of the list. So this root is
     // patched in place rather than filtered — without it the row's only way
     // to reach the cart was the refetch, which arrives a round trip after the
     // animation has finished and reads as the item vanishing and coming back.
-    patchTaskLists(
-      (old) =>
-        old.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                // The same guard `TasksApi.reopen` applies, so the row the
-                // user sees is the row the write is about to produce.
-                status: complete
-                  ? 'done'
-                  : options.restoreStatus && options.restoreStatus !== 'done'
-                    ? options.restoreStatus
-                    : 'not_started',
-                completed_at: complete ? new Date().toISOString() : null,
-              }
-            : t
-        ),
-      listKeys.items()
-    );
+    //
+    // A shopping list keys a row by which side of the cart it is on, so the
+    // moved item mounts fresh in its new section. Marked so it opens up there
+    // rather than appearing at full height.
+    if (
+      cachedListItems().some((list) => list.some((t) => t.id === id))
+    ) {
+      markArriving([id]);
+    }
+    patchTaskLists(inPlace, listKeys.items());
   };
 
   // Without a hold this is the usual optimistic patch: the row goes on the same
@@ -679,13 +918,36 @@ async function runToggleComplete(
   if (!superseded()) invalidateTasks();
 }
 
+export interface UpdateTaskOptions {
+  /**
+   * Leave the cache alone for this long so the caller's exit animation can play
+   * over the row. Same contract as {@link DeleteTaskOptions.holdMs}.
+   *
+   * A patch that moves a task out of the list on screen (a reschedule off
+   * Today) used to land on the tap, so the row vanished in one frame and the
+   * rows below jumped up. Zero, the default, is that behaviour, and is right
+   * for any write that leaves the row where it is.
+   */
+  holdMs?: number;
+}
+
 /** Patch a task in place across every cached list (reschedule, field edits). */
-export async function updateTask(id: string, input: UpdateTaskInput) {
+export async function updateTask(
+  id: string,
+  input: UpdateTaskInput,
+  options: UpdateTaskOptions = {}
+) {
+  const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  patchTaskLists((old) =>
-    old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
-  );
+  const applyPatch = () =>
+    patchTaskLists((old) =>
+      old.map((t) => (t.id === id ? ({ ...t, ...input } as Task) : t))
+    );
+
+  if (holdMs === 0) applyPatch();
+
+  const startedAt = Date.now();
   try {
     const api = await getTasksApi();
     const { error, autoSync } = await api.update(id, input);
@@ -697,11 +959,23 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     // remember to.
     notifyAutoSync(autoSync?.notice);
   } catch (e) {
+    // A no-op when the patch was held, which is right: the caller un-collapses
+    // the row and it was never missing from the list.
     restoreTaskLists(prev);
-    throw e;
-  } finally {
     invalidateTasks();
+    throw e;
   }
+
+  if (holdMs > 0) {
+    // Measured from the tap, as `deleteTask` does: a slow write has already
+    // spent part of the animation.
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    applyPatch();
+  }
+  // Held until now on purpose: a refetch landing mid-animation would move the
+  // row out from under its own exit.
+  invalidateTasks();
 }
 
 export interface DeleteTaskOptions {
@@ -732,8 +1006,10 @@ export async function deleteTask(
   const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  const dropFromLists = () =>
+  const dropFromLists = () => {
+    rememberDrop(id, prev);
     patchTaskLists((old) => old.filter((t) => t.id !== id));
+  };
 
   if (holdMs === 0) dropFromLists();
 
@@ -769,17 +1045,24 @@ export async function deleteTask(
 /**
  * Undo a delete: the same rows, back where they were.
  *
- * No optimistic patch, deliberately. The cache dropped these rows and has no
- * copy of them to put back — the *server* is the only thing that still holds
- * the task, which is the entire point of the soft delete — so the invalidate
- * is what makes them reappear, with everything that hung off them intact.
+ * The task the delete was started from is put back in the cache straight
+ * away, from the lists `deleteTask` remembered, so its row opens up in place
+ * on the tap. Everything else the delete took (its subtasks, its files) comes
+ * back with the invalidate, because only the server still holds it, which is
+ * the point of the soft delete.
  */
 export async function restoreTasks(ids: string[]) {
   if (ids.length === 0) return;
+  await cancelTaskFetches();
+  const prev = snapshotTaskLists();
+  restoreDrops(ids);
   try {
     const api = await getTasksApi();
     const { error } = await api.restore(ids);
     if (error) throw error;
+  } catch (e) {
+    restoreTaskLists(prev);
+    throw e;
   } finally {
     invalidateTasks();
   }
@@ -820,13 +1103,18 @@ export interface BulkWriteResult {
  * failed is what made a bulk reschedule look like it silently undid itself.
  */
 async function bulkPatchTasks(
-  patches: Array<{ id: string; input: UpdateTaskInput }>
+  patches: Array<{ id: string; input: UpdateTaskInput }>,
+  options: UpdateTaskOptions = {}
 ): Promise<BulkWriteResult> {
   if (patches.length === 0) return { updated: 0, failed: 0 };
+  const holdMs = options.holdMs ?? 0;
   await cancelTaskFetches();
   const byId = new Map(patches.map((p) => [p.id, p.input]));
   const prevById = snapshotTasksById(new Set(byId.keys()));
-  patchCachedTasks(byId);
+  // With a hold the cache is left alone until the caller's exit has played;
+  // the re-assert below then applies the rows that landed.
+  if (holdMs === 0) patchCachedTasks(byId);
+  const startedAt = Date.now();
 
   let failedIds: string[];
   try {
@@ -839,6 +1127,10 @@ async function bulkPatchTasks(
   }
 
   const failed = new Set(failedIds);
+  if (holdMs > 0) {
+    const remaining = holdMs - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+  }
   // Re-assert the patch for everything that landed. A background refetch kicked
   // off mid-write (screen focus, app resume) can resolve *after* the optimistic
   // patch and overwrite it with pre-write rows — the longer the batch, the wider
@@ -868,7 +1160,8 @@ export async function bulkUpdateTasks(
  */
 export async function bulkRescheduleTasks(
   ids: string[],
-  date: string
+  date: string,
+  options: UpdateTaskOptions = {}
 ): Promise<BulkWriteResult> {
   const byId = snapshotTasksById(new Set(ids));
   return bulkPatchTasks(
@@ -877,7 +1170,8 @@ export async function bulkRescheduleTasks(
       const input: UpdateTaskInput = { scheduled_date: date };
       if (task?.deadline_date && task.deadline_date < date) input.deadline_date = date;
       return { id, input };
-    })
+    }),
+    options
   );
 }
 

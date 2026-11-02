@@ -10,7 +10,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import Animated, { FadeIn } from 'react-native-reanimated';
+
 import TaskItem from '@/components/TaskItem';
+import { RowLift } from '@/components/RowLift';
 import OverdueSection from '@/components/OverdueSection';
 import { AgendaTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
@@ -34,16 +37,20 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useListLoadState } from '@/lib/list-load-state';
+import { inTodayUniverse, leavesBySection } from '@/lib/row-leave';
 import {
   invalidateTasks,
   moveTask,
   reorderTasks,
-  useProjectsWithCounts,
+  useProjects,
   useTodayTasks,
 } from '@/lib/task-queries';
+import { useSectionOpenCounts } from '@/lib/section-counts';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
   calendarEventsOnDay,
@@ -56,7 +63,28 @@ import {
 import type { CalendarEvent, Task } from '@do-done/shared';
 
 const FOCUS = 'focus';
+/** Stable while events load, so the memoised list header keeps its identity. */
+const NO_EVENTS: CalendarEvent[] = [];
 const OTHER = 'other';
+
+/**
+ * Focus rows are keyed apart from Other rows, so a task that moves between the
+ * two mounts fresh where it lands. That is what lets it open up there while
+ * its old row folds shut below the header, rather than the two swapping places
+ * in one frame. Every id the list hands back is still the task's own.
+ */
+const rowKey = (task: Task, sectionKey: string) =>
+  sectionKey === FOCUS ? `focus:${task.id}` : task.id;
+
+/** What Today says when there is nothing on it. Fades in rather than cutting. */
+function TodayEmpty() {
+  return (
+    <Animated.View entering={FadeIn.duration(220)} style={styles.empty}>
+      <Text style={styles.emptyText}>Nothing scheduled today</Text>
+      <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+    </Animated.View>
+  );
+}
 
 /** Today's Google Calendar events — the fixed skeleton of the day, shown
  *  above the task list so tasks can be planned around them. */
@@ -93,41 +121,40 @@ const scheduleStyles = StyleSheet.create({
   },
 });
 
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
-
 export function TodayView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const todayQuery = useTodayTasks();
+  const todayQuery = useTodayTasks({ subscribed: active });
   const { data: allTasks = [], refetch } = todayQuery;
   // Whether we have an answer at all — "Nothing scheduled today" is only ever
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.
   const loadState = useListLoadState(todayQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick,
+  // which would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   // Today only, in the device's local day (the fetch passes the device
   // timezone so the server resolves the same day the user is looking at;
   // useLocalDay rolls the window over when the app foregrounds on a new day).
   const localDay = useLocalDay();
-  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
+  const { data: events = NO_EVENTS, isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, 1)
   );
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(todayQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const universe = useMemo(
@@ -151,9 +178,6 @@ export function TodayView() {
     [filtered]
   );
 
-  // Focus membership drives the ⭐ marker on rows in the Focus section.
-  const focusIdsRef = useRef<Set<string>>(new Set());
-  focusIdsRef.current = useMemo(() => new Set(focus.map((t) => t.id)), [focus]);
 
   const sections = useMemo<DraggableSection[]>(
     () => [
@@ -164,18 +188,43 @@ export function TodayView() {
   );
 
   // Collapsed sections keep their header but drop their rows from the list.
-  const renderSections = useMemo<DraggableSection[]>(
-    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
-    [sections, config]
+  // Folding one, opening one, and a task moving between Focus and Other all
+  // animate; see lib/section-transitions.ts. The sections never change here,
+  // so only a change of sort or filter resets.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+    trackMoves: true,
+  });
+  const renderSections = transitions.sections;
   const countByKey = useMemo(
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
   );
+  const sectionOpenCount = useSectionOpenCounts(sections);
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    void reorderTasks(ids).catch(() => {});
-  }, []);
+  // The header renderer reads these through refs so it keeps its identity
+  // across data changes; a new renderer would re-render every cell. A header
+  // still redraws when its own section object changes, which is whenever its
+  // count or its collapsed state does.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const countByKeyRef = useRef(countByKey);
+  countByKeyRef.current = countByKey;
+
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes.
+  const { liveIds, isArriving, isDeparting } = transitions;
+  const onReorder = useCallback(
+    (key: string, ids: string[]) => {
+      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    },
+    [liveIds]
+  );
 
   // Dragging across the Focus ↔ Other boundary pins the task in or forces it
   // out, then persists the destination order. A collapsed destination isn't a
@@ -187,20 +236,25 @@ export function TodayView() {
         return;
       }
       const focus_override = toKey === FOCUS ? 'include' : 'exclude';
-      void moveTask(taskId, { focus_override }, destIds).catch(() => {});
+      // The drop already put the row there; the move it causes in the data is
+      // not one to animate again.
+      transitions.noteDragged(taskId);
+      void moveTask(taskId, { focus_override }, liveIds(toKey, destIds)).catch(
+        () => {}
+      );
     },
-    [config]
+    [config, transitions.noteDragged, liveIds]
   );
 
   const renderHeader = useCallback(
     (section: DraggableSection) => {
       const isFocus = section.key === FOCUS;
-      const collapsed = isCollapsed(config, section.key);
-      const count = countByKey.get(section.key) ?? section.data.length;
+      const collapsed = isCollapsed(configRef.current, section.key);
+      const count = countByKeyRef.current.get(section.key) ?? section.data.length;
       return (
         <SectionHeaderButton
           collapsed={collapsed}
-          onToggle={() => setConfig(toggleCollapsed(config, section.key))}
+          onToggle={() => setConfig(toggleCollapsed(configRef.current, section.key))}
         >
           <Ionicons
             name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -218,7 +272,27 @@ export function TodayView() {
         </SectionHeaderButton>
       );
     },
-    [config, setConfig, countByKey]
+    [setConfig]
+  );
+
+  // A reschedule leaves Today when the task is no longer in Today's universe
+  // (scheduled after today and not a Focus pick), or the filters now hide it.
+  // Moving between Focus and Other is a move within the list, not an exit.
+  // Read through refs so the predicate, and `renderTask`, stay stable.
+  const allTasksRef = useRef(allTasks);
+  allTasksRef.current = allTasks;
+  const inView = useCallback(
+    (t: Task) => inTodayUniverse(allTasksRef.current, t, todayLocalISO()),
+    []
+  );
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        inView(t) && filterByConfig([t], configRef.current).length > 0
+          ? 'today'
+          : null
+      ),
+    [inView]
   );
 
   const renderTask = useCallback(
@@ -226,29 +300,56 @@ export function TodayView() {
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+      sectionKey: string
+    ) => {
+      const departing = isDeparting(sectionKey, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragStart={drag}
-          focused={focusIdsRef.current.has(task.id)}
+          onDragStart={departing ? undefined : drag}
+          arriving={isArriving(sectionKey, task.id)}
+          departing={departing}
+          // By section rather than by the Focus set: a task folding out of
+          // Focus is no longer in it, and its star should not blink off first.
+          focused={sectionKey === FOCUS}
           // This screen *is* today, so a row scheduled for today has nothing
           // to add by saying so. It is set per row rather than for the screen
           // because the Focus section pulls in work that isn't today's — a
           // task scheduled Friday, or none at all — and "Fri, Aug 21" sitting
           // under the Today heading is exactly what those rows need to say.
           hideScheduledDay={task.scheduled_date === localDay}
-          openInSection={openCount(section.data)}
+          openInSection={sectionOpenCount(sectionKey)}
+          leavesSection={leavesSection}
         />
-      </View>
-    ),
-    [handlePress, localDay]
+      </RowLift>
+      );
+    },
+    [handlePress, localDay, leavesSection, sectionOpenCount, isArriving, isDeparting]
   );
 
   const isEmpty =
     overdue.length === 0 && focus.length === 0 && other.length === 0;
+
+  // Built once per change rather than inline, so the memoised lists below do
+  // not see a new element on every render of this screen.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+    ),
+    [refreshing, onRefresh]
+  );
+  const listHeader = useMemo(
+    () => (
+      <>
+        <TodaySchedule events={events} />
+        <OverdueSection tasks={overdue} />
+      </>
+    ),
+    [events, overdue]
+  );
+  const emptyState = useMemo(() => <TodayEmpty />, []);
 
   return (
     <View style={styles.container}>
@@ -295,33 +396,26 @@ export function TodayView() {
       ) : loadState.showError ? (
         <ListError onRetry={refetch} />
       ) : curated ? (
-        isEmpty ? (
-          <View style={styles.emptyWrap}>
-            <TodaySchedule events={events} />
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing scheduled today</Text>
-              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
-            </View>
-          </View>
-        ) : (
-          <SectionedDraggableList
-            sections={renderSections}
-            renderHeader={renderHeader}
-            renderTask={renderTask}
-            onReorder={onReorder}
-            onMove={onMove}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
-            }
-            ListHeaderComponent={
-              <>
-                <TodaySchedule events={events} />
-                <OverdueSection tasks={overdue} onChange={invalidateTasks} />
-              </>
-            }
-            contentContainerStyle={styles.listContent}
-          />
-        )
+        // One list, empty or not. It used to be swapped for a separate empty
+        // view the moment the last task left, replacing the whole screen in one
+        // frame. Kept mounted, the message fades in where the rows were.
+        //
+        // Passed only when the day really is empty, not merely when no rows
+        // are drawn: with both sections collapsed there are no rows and still
+        // work to do, and with overdue work there is something above. Both
+        // keep their headers, as before.
+        <SectionedDraggableList
+          sections={renderSections}
+          rowKey={rowKey}
+          renderHeader={renderHeader}
+          renderTask={renderTask}
+          onReorder={onReorder}
+          onMove={onMove}
+          refreshControl={refreshControl}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={isEmpty ? emptyState : undefined}
+          contentContainerStyle={styles.listContent}
+        />
       ) : (
         <GroupedTaskList
           tasks={universe}
@@ -329,18 +423,12 @@ export function TodayView() {
           config={config}
           onConfigChange={setConfig}
           onTaskPress={handlePress}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
-          }
+          inView={inView}
+          refreshControl={refreshControl}
           // The same answer the curated branch gives above. Regrouping or
           // re-sorting the day does not change what there is to say about an
           // empty one.
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing scheduled today</Text>
-              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
-            </View>
-          }
+          ListEmptyComponent={emptyState}
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -399,7 +487,6 @@ const styles = StyleSheet.create({
     paddingBottom: 96,
     flexGrow: 1,
   },
-  emptyWrap: { flex: 1 },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -416,7 +503,6 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
   },
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   // Focus keeps the accent: it is the one section that is a claim about the
   // day rather than a bucket, and the ⚡ beside it is already indigo.
   focusHeaderText: { color: '#6366f1' },

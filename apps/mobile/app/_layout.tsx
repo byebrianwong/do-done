@@ -3,12 +3,11 @@ import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import DevBanner from '@/components/DevBanner';
 import PrPreviewBanner from '@/components/PrPreviewBanner';
@@ -16,10 +15,12 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { UndoToastProvider, useUndoToast } from '@/components/UndoToast';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { ProjectFormHost } from '@/components/ProjectFormSheet';
+import { RootOverlayHost } from '@/components/RootOverlay';
 import { TaskSelectionProvider } from '@/lib/task-selection';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { queryClient } from '@/lib/query-client';
 import { dropLegacySnapshots, persistOptions } from '@/lib/query-persist';
+import { DebouncedPersistQueryClientProvider } from '@/lib/query-persist-provider';
 import { registerUserGeofences } from '@/lib/geofencing';
 import { startDigestScheduling } from '@/lib/digests';
 import { startTaskReminderScheduling } from '@/lib/task-reminders';
@@ -37,6 +38,8 @@ import {
 import { startStatusSyncSweeps } from '@/lib/status-sync';
 import { startWatchSync } from '@/lib/wear';
 import { hydrateViewModes } from '@/lib/view-mode';
+import { hydrateDisplayConfigs } from '@/lib/use-display-config';
+import { resetDisplayConfigCache } from '@/lib/display-config-cache';
 import { setAutoSyncNotifier } from '@/lib/auto-sync-notice';
 import {
   loadCompletionStreak,
@@ -90,10 +93,13 @@ export default function RootLayout() {
   // once, here, so it has landed before the tab bar draws its icons.
   useEffect(() => {
     hydrateViewModes();
+    // Each list's saved grouping, so a view mounted after this lands draws
+    // with it rather than drawing the defaults and regrouping a moment later.
+    void hydrateDisplayConfigs();
   }, []);
 
   // One-time cleanup of pre-v2 cache snapshots, which could hold a Map
-  // serialized to `{}`. See `survivesJsonRoundTrip`.
+  // serialized to `{}`. See `UNPERSISTED_KEY_PREFIXES`.
   useEffect(() => {
     dropLegacySnapshots();
   }, []);
@@ -113,8 +119,9 @@ export default function RootLayout() {
       {/* Restores the last-seen task lists from AsyncStorage before the first
           frame, so launch opens on yesterday's rows instead of on an empty
           screen. Anything older than a day is dropped rather than shown — see
-          lib/query-persist.ts. */}
-      <PersistQueryClientProvider
+          lib/query-persist.ts. Saved once the cache goes quiet, and on going to
+          the background — see lib/persist-scheduler.ts. */}
+      <DebouncedPersistQueryClientProvider
         client={queryClient}
         persistOptions={persistOptions}
       >
@@ -125,7 +132,7 @@ export default function RootLayout() {
             </TaskSelectionProvider>
           </UndoToastProvider>
         </AuthProvider>
-      </PersistQueryClientProvider>
+      </DebouncedPersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }
@@ -133,16 +140,12 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const { session, loading } = useAuth();
   const router = useRouter();
-  // Point `lib/`'s automatic-change notices at the live toast. Kept in a ref
-  // and installed once: the toast context's value is a fresh object on every
-  // provider render, and the provider re-renders whenever any toast goes up,
-  // so naming it as a dependency would re-install on every toast.
-  const toast = useUndoToast();
-  const showToast = useRef(toast.show);
-  showToast.current = toast.show;
+  // Point `lib/`'s automatic-change notices at the live toast. `show` is
+  // stable (see `UndoToastProvider`), so this installs once.
+  const { show: showToast } = useUndoToast();
   useEffect(
-    () => setAutoSyncNotifier((message) => showToast.current({ message })),
-    []
+    () => setAutoSyncNotifier((message) => showToast({ message })),
+    [showToast]
   );
 
   // Re-register geofences whenever the user signs in. Silent by design: this
@@ -180,6 +183,11 @@ function RootLayoutNav() {
   // belongs to the launcher and outlives the account that made it; tapping one
   // while signed out opens the app on the login screen, which is the right
   // answer, and disabling it would leave a dead icon after the next sign-in.
+  // The display configs held in memory belong to the account that used them.
+  useEffect(() => {
+    if (!loading && !session?.user) resetDisplayConfigCache();
+  }, [loading, session?.user?.id]);
+
   useEffect(() => {
     if (!session?.user) {
       void clearListShortcutMenuEntry();
@@ -332,8 +340,18 @@ function RootLayoutNav() {
           name="preview-pr"
           options={{ title: 'Preview a pull request' }}
         />
-        <Stack.Screen name="today" options={{ headerShown: false }} />
-        <Stack.Screen name="upcoming" options={{ headerShown: false }} />
+        {/* Both render nothing and redirect to the Agenda tab. Pushed with the
+            default animation, an open app slid a blank page in before the
+            redirect replaced it. Widgets and shortcuts no longer reach these
+            at all (`app/+native-intent.tsx`); a notification tap still does. */}
+        <Stack.Screen
+          name="today"
+          options={{ headerShown: false, animation: 'none' }}
+        />
+        <Stack.Screen
+          name="upcoming"
+          options={{ headerShown: false, animation: 'none' }}
+        />
         <Stack.Screen
           name="quick-add"
           options={{
@@ -357,6 +375,10 @@ function RootLayoutNav() {
       <PrPreviewBanner />
       {/* Global overlay: docks over the tab bar whenever rows are multi-selected. */}
       <BulkActionBar />
+      {/* Sheets that a screen renders but that have to be drawn in the
+          activity's window to see the keyboard on Android: the task editor
+          and its location sheet. See components/RootOverlay.tsx. */}
+      <RootOverlayHost />
       {/* The new / edit project and list form. Drawn here rather than in a
           Modal so it is in the window the keyboard tracking can see. See
           components/ProjectFormSheet.tsx. */}

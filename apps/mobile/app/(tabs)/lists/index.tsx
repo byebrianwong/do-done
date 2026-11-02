@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -24,12 +24,16 @@ import {
 import { useLists, useListCounts } from '@/lib/list-queries';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 import { usePullToRefresh, useRefreshOnFocus } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useListLoadState } from '@/lib/list-load-state';
 import {
+  RESUME_HOLD_MAX_MS,
   hasResumeTried,
+  holdIndexBlank,
   loadResume,
   markResumeTried,
   resumeDecision,
+  resumePath,
   saveResume,
 } from '@/lib/tab-resume';
 import {
@@ -48,13 +52,16 @@ import { ProjectIcon } from '@/components/ProjectIcon';
 import QuickAddButton from '@/components/QuickAddButton';
 
 export default function ListsScreen() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const listsQuery = useLists();
+  const listsQuery = useLists({ subscribed: active });
   const { data: lists, refetch } = listsQuery;
-  const { data: counts } = useListCounts();
+  const { data: counts } = useListCounts({ subscribed: active });
   const loadState = useListLoadState(listsQuery);
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(listsQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
   // Not a `SectionedDraggableList`, so it drives the minimizing tab bar and
   // reserves its height itself.
@@ -67,6 +74,35 @@ export default function ListsScreen() {
   // while the ids may still be arriving, and an ungated decision would then
   // push a second detail on top of the one the user just opened.
   const [focused, setFocused] = useState(false);
+  // Set once the index has waited long enough for the restore to decide, after
+  // which it draws whatever happens. See `holdIndexBlank`.
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (hasResumeTried('lists')) return;
+    const timer = setTimeout(() => setGaveUp(true), RESUME_HOLD_MAX_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Every id this tab can reopen, or null while they load. "All shopping"
+  // counts while it is offered. Below two shopping lists the row is gone, so a
+  // memory of it falls back to the index like a deleted list's would.
+  const knownIds = useMemo(
+    () =>
+      lists
+        ? [
+            ...lists.map((l) => l.id),
+            ...(offersAllShopping(lists) ? [ALL_SHOPPING_ID] : []),
+          ]
+        : null,
+    [lists]
+  );
+  const blank = holdIndexBlank({
+    remembered,
+    known: knownIds,
+    alreadyTried: hasResumeTried('lists'),
+    failed: loadState.showError,
+    gaveUp,
+  });
 
   // Re-read on every focus rather than once at mount: the detail screen writes
   // the memory, so a value read at mount is stale the moment we come back.
@@ -94,21 +130,15 @@ export default function ListsScreen() {
     if (!focused || remembered === undefined) return;
     const decision = resumeDecision({
       remembered,
-      // "All shopping" counts as a screen this tab can reopen while it is
-      // offered. Below two shopping lists the row is gone, so a memory of it
-      // falls back to the index like a deleted list's would.
-      known: lists
-        ? [
-            ...lists.map((l) => l.id),
-            ...(offersAllShopping(lists) ? [ALL_SHOPPING_ID] : []),
-          ]
-        : null,
+      known: knownIds,
       alreadyTried: hasResumeTried('lists'),
     });
     if (decision.action === 'wait') return;
     markResumeTried('lists');
     if (decision.action === 'open') {
-      router.push(`/lists/${decision.id}` as never);
+      // With no animation while the index is still blank, so the tab opens
+      // on the list rather than on the index with the list sliding over it.
+      router.push(resumePath('lists', decision.id, blank) as never);
       // Unknown again until the next focus re-reads it: a refetch landing
       // while the detail is up would otherwise re-decide, see `alreadyTried`,
       // and wipe the memory that detail has just written.
@@ -122,7 +152,7 @@ export default function ListsScreen() {
       // the reason the detail screen syncs on focus: the two must agree.
       scheduleListShortcutSync();
     }
-  }, [focused, remembered, lists, router]);
+  }, [focused, remembered, knownIds, blank, router]);
 
   /**
    * Put this list on the home screen as its own icon.
@@ -232,6 +262,9 @@ export default function ListsScreen() {
     );
   };
 
+  // Nothing yet: the remembered list may be about to cover this screen.
+  if (blank) return <View style={styles.container} />;
+
   return (
     <View style={styles.container}>
       {/* An in-content bar rather than the stack's native header: this is a
@@ -259,7 +292,7 @@ export default function ListsScreen() {
         }
         ListEmptyComponent={
           loadState.showSkeleton ? (
-            <ListSkeleton rows={3} />
+            <ListSkeleton rows={3} variant="cards" />
           ) : loadState.showError ? (
             <ListError onRetry={refetch} />
           ) : (

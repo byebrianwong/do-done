@@ -440,6 +440,36 @@ export const TASK_DELETE_SLIDE_SCALE = 0.94;
  */
 export const TASK_DELETE_DIM_OPACITY = 0.5;
 
+// ─── A row that moves elsewhere ─────────────────────────────────────────────
+//
+// The third way a row leaves a list (mobile only): the task still exists and is
+// still open, it now just belongs somewhere else. Rescheduling a task off Today
+// to tomorrow does this, and so does reopening a task on the Completed screen.
+//
+//   completion  hold reading as done, then slide RIGHT   filed
+//   deletion    dim where it stands, then slide LEFT     removed
+//   move        fade where it stands, then close          moved
+//
+// It has no direction, so it cannot be read as either of the other two. Before
+// this the row vanished in one frame and the rows below jumped up a row height.
+
+/**
+ * How long the row fades at full height before it starts to close.
+ *
+ * It overlaps the swipe panel closing (`SWIPE_RETURN_MS`, 260ms on mobile), so
+ * the row is mostly faded by the time it is back in place.
+ */
+export const TASK_MOVE_FADE_MS = 180;
+
+/** Height → 0. The rows below travel for exactly this long. */
+export const TASK_MOVE_COLLAPSE_MS = 220;
+
+/**
+ * When the row is gone and the cache may move it. Same contract as
+ * {@link TASK_COMPLETE_EXIT_MS} and {@link TASK_DELETE_EXIT_MS}.
+ */
+export const TASK_MOVE_EXIT_MS = TASK_MOVE_FADE_MS + TASK_MOVE_COLLAPSE_MS;
+
 // ─── Undo ───────────────────────────────────────────────────────────────────
 
 /**

@@ -17,6 +17,8 @@ import {
   AccessibilityInfo,
   Alert,
   Animated,
+  BackHandler,
+  Keyboard,
   Modal,
   View,
   Text,
@@ -60,18 +62,36 @@ import {
 } from "@do-done/api-client";
 import { supabase } from "@/lib/supabase";
 import {
+  cachedSubtasks,
+  cachedTask,
   createProject,
   deleteTask,
   invalidateTasks,
+  patchSavedTask,
   restoreTasks,
+  toggleComplete,
   useProjects,
 } from "@/lib/task-queries";
+import {
+  appendSubtask,
+  applySubtaskStatus,
+  draftAfterFailedAdd,
+  nextSubtaskStatus,
+  reinsertSubtask,
+  removeSubtask,
+  revertSubtaskStatus,
+} from "@/lib/subtask-edits";
+import {
+  createEditorReconciler,
+  type EditorReconciler,
+} from "@/lib/editor-reconcile";
 import { useUndoToast } from "./UndoToast";
 import {
   useTaskLocations,
   type TaskLocationLink,
 } from "@/lib/location-queries";
 import { ProjectPickerSheet } from "./ProjectPickerSheet";
+import { BottomSheet, useRunAfterDismiss } from "./BottomSheet";
 import { LocationReminderSheet } from "./LocationReminderSheet";
 import { LinkifiedText } from "./LinkifiedText";
 import { AttachmentsSection } from "./TaskAttachments";
@@ -85,15 +105,25 @@ import {
 // because nothing about them is under a finger. The sheet itself does not.
 import Reanimated, {
   Easing,
+  FadeIn,
+  FadeInLeft,
+  FadeInRight,
+  FadeOut,
+  LayoutAnimationConfig,
+  LinearTransition,
+  ReduceMotion,
   type SharedValue,
   runOnJS,
+  useAnimatedKeyboard,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { hapticLight } from "@/lib/haptics";
+import { hapticLight, hapticMedium, hapticSuccess } from "@/lib/haptics";
+import { revealScrollDelta } from "@/lib/keyboard-reveal";
+import { OVERLAY_Z_INDEX, RootPortal } from "./RootOverlay";
 import {
   RETURN_SPRING,
   SHEET_CLOSE_MS,
@@ -108,6 +138,24 @@ import {
 import { ProjectIcon } from '@/components/ProjectIcon';
 
 // ─── Constants ──────────────────────────────────────────────
+
+/**
+ * Motion inside the sheet's body. When a section changes height, the sections
+ * below it glide to their new place (`BODY_LAYOUT`) instead of jumping there,
+ * and content that arrives after the sheet has opened fades in. Both are short,
+ * because each one answers a tap.
+ *
+ * `ReduceMotion.System` is Reanimated's default, stated here so it is not lost:
+ * with Reduce Motion on, every one of these lands on its end state at once.
+ */
+const BODY_LAYOUT = LinearTransition.duration(200).reduceMotion(
+  ReduceMotion.System
+);
+const BODY_FADE_IN = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
+const BODY_FADE_OUT = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
+/** Drilling into a subtask slides the new body in from the right; climbing back to the parent, from the left. */
+const DRILL_IN = FadeInRight.duration(220).reduceMotion(ReduceMotion.System);
+const DRILL_OUT = FadeInLeft.duration(220).reduceMotion(ReduceMotion.System);
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -314,31 +362,23 @@ function coverBlobs(projectId: string | null): {
   });
 }
 
-function TaskCover({
+/**
+ * The banner's colour bands, discs, watermark and scrim. Split out and memoised
+ * because the editor re-renders on every keystroke in the title, and this is
+ * twelve bands, three discs and an SVG icon that only change with the project.
+ * `project` is the same object across those renders (it is found in a memoised
+ * list), so the memo holds.
+ */
+const CoverArt = React.memo(function CoverArt({
   project,
-  priority,
-  onPressProject,
-  onPressPriority,
-  children,
 }: {
   project: Project | null;
-  priority: TaskPriority;
-  onPressProject: () => void;
-  onPressPriority: () => void;
-  /** The save dot, undo and menu, laid over the banner's top row. */
-  children: React.ReactNode;
 }) {
   const base = project?.color ?? NO_PROJECT_COLOR;
   const bands = coverBands(base);
   const blobs = coverBlobs(project?.id ?? null);
-  // Urgent and High wear their own colour; Medium and Low wear the pill the
-  // project name wears, with the rank's colour as a dot. Those two sit on the
-  // project's colour, which can be anything — a solid slate or grey chip
-  // vanishes into half the palette.
-  const loudPriority = priority === "p1" || priority === "p2";
-
   return (
-    <View style={styles.cover}>
+    <>
       {/* Faux gradient */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={styles.coverBandRow}>
@@ -379,6 +419,33 @@ function TaskCover({
           a pale project colour — amber and lime are the ones that would
           otherwise wash out. */}
       <View style={styles.coverScrim} pointerEvents="none" />
+    </>
+  );
+});
+
+function TaskCover({
+  project,
+  priority,
+  onPressProject,
+  onPressPriority,
+  children,
+}: {
+  project: Project | null;
+  priority: TaskPriority;
+  onPressProject: () => void;
+  onPressPriority: () => void;
+  /** The save dot, undo and menu, laid over the banner's top row. */
+  children: React.ReactNode;
+}) {
+  // Urgent and High wear their own colour; Medium and Low wear the pill the
+  // project name wears, with the rank's colour as a dot. Those two sit on the
+  // project's colour, which can be anything — a solid slate or grey chip
+  // vanishes into half the palette.
+  const loudPriority = priority === "p1" || priority === "p2";
+
+  return (
+    <View style={styles.cover}>
+      <CoverArt project={project} />
 
       <View style={styles.coverTopRow}>{children}</View>
 
@@ -451,7 +518,7 @@ function TaskCover({
  * The banner keeps what colour is genuinely good at — project identity — and
  * these say what they are.
  */
-function MetaField({
+function MetaFieldImpl({
   label,
   value,
   dotColor,
@@ -487,18 +554,15 @@ function MetaField({
   );
 }
 
+/**
+ * Memoised against the per-keystroke re-render of the editor. Its props are
+ * strings plus an `onPress` the editor keeps stable.
+ */
+const MetaField = React.memo(MetaFieldImpl);
+
 // ── Mobile bottom-sheet pickers ─────────────────────────
 
-export function PickerSheet({
-  visible,
-  title,
-  options,
-  selectedKey,
-  onSelect,
-  onClose,
-  accentByKey,
-  header,
-}: {
+interface PickerSheetProps {
   visible: boolean;
   title: string;
   options: { key: string; code: string; label: string }[];
@@ -508,49 +572,68 @@ export function PickerSheet({
   accentByKey?: (key: string) => string;
   /** Optional content rendered between the title and the option rows. */
   header?: React.ReactNode;
-}) {
+  /** The sheet has fully gone. See `BottomSheet`'s `onClosed`. */
+  onClosed?: () => void;
+}
+
+// Always mounted by its callers: the sheet slides away before its rows
+// unmount, and `PickerBody` does not render at all while the sheet is closed,
+// so a closed picker costs one element per editor render and no host views.
+export function PickerSheet({
+  visible,
+  onClose,
+  onClosed,
+  ...body
+}: PickerSheetProps) {
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      onClosed={onClosed}
+      style={styles.pickerSheet}
     >
-      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
-        <Pressable onPress={() => {}} style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>{title}</Text>
-          {header}
-          {options.map((opt) => {
-            const selected = opt.key === selectedKey;
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => onSelect(opt.key)}
-                style={[
-                  styles.pickerRow,
-                  selected && styles.pickerRowSelected,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.pickerDot,
-                    {
-                      backgroundColor:
-                        accentByKey?.(opt.key) ?? "#6366f1",
-                    },
-                  ]}
-                />
-                {opt.code ? (
-                  <Text style={styles.pickerCode}>{opt.code}</Text>
-                ) : null}
-                <Text style={styles.pickerLabel}>{opt.label}</Text>
-                {selected && <Text style={styles.pickerCheck}>✓</Text>}
-              </Pressable>
-            );
-          })}
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <PickerBody {...body} />
+    </BottomSheet>
+  );
+}
+
+function PickerBody({
+  title,
+  options,
+  selectedKey,
+  onSelect,
+  accentByKey,
+  header,
+}: Omit<PickerSheetProps, "visible" | "onClose" | "onClosed">) {
+  return (
+    <>
+      <Text style={styles.pickerTitle}>{title}</Text>
+      {header}
+      {options.map((opt) => {
+        const selected = opt.key === selectedKey;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onSelect(opt.key)}
+            style={[styles.pickerRow, selected && styles.pickerRowSelected]}
+          >
+            <View
+              style={[
+                styles.pickerDot,
+                {
+                  backgroundColor: accentByKey?.(opt.key) ?? "#6366f1",
+                },
+              ]}
+            />
+            {opt.code ? (
+              <Text style={styles.pickerCode}>{opt.code}</Text>
+            ) : null}
+            <Text style={styles.pickerLabel}>{opt.label}</Text>
+            {selected && <Text style={styles.pickerCheck}>✓</Text>}
+          </Pressable>
+        );
+      })}
+    </>
   );
 }
 
@@ -1005,9 +1088,18 @@ function ScheduleCalendarImpl({
     setMode("month");
   };
 
-  if (mode === "month") {
-    return (
-      <View>
+  // One return for both modes, inside a config that skips entering animations
+  // for whatever is on screen when the calendar first mounts. After that, a
+  // switch between the strip and the month grid fades the new one in, the grid
+  // crossfades from one month to the next, and the second week fades in when
+  // "+ next week" adds it. Each used to swap in a single frame, and the
+  // sections below the calendar jumped by the difference in height.
+  const content =
+    mode === "month" ? (
+      // `skipExiting`: leaving month mode must not leave a fading copy of the
+      // grid over the strip that replaces it.
+      <LayoutAnimationConfig key="month" skipExiting>
+      <Reanimated.View entering={BODY_FADE_IN}>
         <View style={styles.monthNav}>
           <Pressable
             onPress={() => setViewMonth((m) => addMonths(m, -1))}
@@ -1042,7 +1134,15 @@ function ScheduleCalendarImpl({
             </Text>
           ))}
         </View>
-        <View style={styles.calGrid}>
+        {/* Keyed by month, so navigating replaces the grid rather than
+            rewriting its digits in place: the old month fades out where it
+            stood while the new one fades in over it. */}
+        <Reanimated.View
+          key={monthLabel}
+          style={styles.calGrid}
+          entering={BODY_FADE_IN}
+          exiting={BODY_FADE_OUT}
+        >
           {monthRows.map((week, wi) => {
             const run = monthWave?.runs.find((r) => r.rowIndex === wi);
             return (
@@ -1083,19 +1183,22 @@ function ScheduleCalendarImpl({
             </View>
             );
           })}
-        </View>
+        </Reanimated.View>
 
-        <View style={styles.altRow}>
+        {/* Moves with the grid between five- and six-week months. */}
+        <Reanimated.View layout={BODY_LAYOUT} style={styles.altRow}>
           <Pressable onPress={() => setMode("strip")} style={styles.expandChip}>
             <Text style={styles.expandChipText}>⇡ Week view</Text>
           </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View>
+        </Reanimated.View>
+      </Reanimated.View>
+      </LayoutAnimationConfig>
+    ) : (
+    <Reanimated.View key="strip" entering={BODY_FADE_IN}>
+      {/* The strip fades in as a whole when it replaces the month grid, so its
+          rows skip their own entering animation on that mount. Only the second
+          week, added later by "+ next week", fades in on its own. */}
+      <LayoutAnimationConfig skipEntering>
       <View style={styles.calHeader}>
         {WEEKDAYS.map((w, i) => (
           <Text
@@ -1113,8 +1216,9 @@ function ScheduleCalendarImpl({
         {weekRows.map((week, wi) => {
           const run = weekWave?.runs.find((r) => r.rowIndex === wi);
           return (
-            <View
+            <Reanimated.View
               key={wi}
+              entering={BODY_FADE_IN}
               style={styles.calWeekRow}
               onLayout={(e) => {
                 const { width, height } = e.nativeEvent.layout;
@@ -1147,7 +1251,7 @@ function ScheduleCalendarImpl({
                   onPickDate={onPickDate}
                 />
               ))}
-            </View>
+            </Reanimated.View>
           );
         })}
       </View>
@@ -1178,8 +1282,11 @@ function ScheduleCalendarImpl({
           />
         ) : null}
       </View>
-    </View>
-  );
+      </LayoutAnimationConfig>
+    </Reanimated.View>
+    );
+
+  return <LayoutAnimationConfig skipEntering>{content}</LayoutAnimationConfig>;
 }
 
 /**
@@ -1226,22 +1333,6 @@ export function ScheduledTimeField({
   onChange: (t: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const scrollRef = useRef<ScrollView | null>(null);
-
-  const anchorSlot =
-    value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
-  const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
-
-  // Center the anchor row as soon as the sheet's list lays out.
-  const centerOnAnchor = () => {
-    scrollRef.current?.scrollTo({
-      y: Math.max(
-        0,
-        anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
-      ),
-      animated: false,
-    });
-  };
 
   return (
     // A chip in the row under the calendar, sized like the ones beside it. It
@@ -1276,72 +1367,110 @@ export function ScheduledTimeField({
         </Pressable>
       ) : null}
 
-      <Modal
+      <BottomSheet
         visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+        style={styles.pickerSheet}
       >
-        <Pressable onPress={() => setOpen(false)} style={styles.pickerBackdrop}>
-          <Pressable onPress={() => {}} style={styles.pickerSheet}>
-            <Text style={styles.pickerTitle}>Time</Text>
-            <View style={{ height: TIME_LIST_H }}>
-              <ScrollView
-                ref={scrollRef}
-                onContentSizeChange={centerOnAnchor}
-                showsVerticalScrollIndicator
-              >
-                {TIME_SLOTS.map((slot) => {
-                  const selected = value === slot;
-                  const isAnchor = slot === anchorSlot;
-                  return (
-                    <Pressable
-                      key={slot}
-                      onPress={() => {
-                        onChange(slot);
-                        setOpen(false);
-                      }}
-                      style={[
-                        styles.timeSlotRow,
-                        isAnchor && !selected && styles.timeSlotRowAnchor,
-                        selected && styles.timeSlotRowSelected,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.timeSlotText,
-                          selected && styles.timeSlotTextSelected,
-                        ]}
-                      >
-                        {formatTimeOfDay(slot)}
-                      </Text>
-                      {isAnchor && !selected ? (
-                        <Text style={styles.timeSlotNow}>NOW</Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-            {value ? (
-              <Pressable
-                onPress={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-                style={styles.timeSheetClear}
-              >
-                <Text style={styles.timeSheetClearText}>× Clear time</Text>
-              </Pressable>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        <TimeSheetBody
+          value={value}
+          onChange={onChange}
+          onDone={() => setOpen(false)}
+        />
+      </BottomSheet>
     </View>
   );
 }
 
-export function TagRow({
+/**
+ * The time sheet's content: half-hour slots, centred on the current value or
+ * the hour nearest now. Its own component so the 48 rows are built only while
+ * the sheet is open.
+ */
+function TimeSheetBody({
+  value,
+  onChange,
+  onDone,
+}: {
+  value: string | null;
+  onChange: (t: string | null) => void;
+  onDone: () => void;
+}) {
+  const anchorSlot =
+    value && TIME_SLOTS.includes(value) ? value : nearestHourSlot(new Date());
+  const anchorIdx = TIME_SLOTS.indexOf(anchorSlot);
+
+  // The list opens already centred on the anchor row. It used to scroll there
+  // from `onContentSizeChange`, which runs after the first layout, so the list
+  // drew 12 AM for a frame before jumping to the anchor. Memoised because a
+  // changed `contentOffset` scrolls the list again.
+  const anchorOffset = useMemo(
+    () => ({
+      x: 0,
+      y: Math.max(
+        0,
+        anchorIdx * TIME_SLOT_ROW_H - TIME_LIST_H / 2 + TIME_SLOT_ROW_H / 2
+      ),
+    }),
+    [anchorIdx]
+  );
+
+  return (
+    <>
+      <Text style={styles.pickerTitle}>Time</Text>
+      <View style={{ height: TIME_LIST_H }}>
+        <ScrollView
+          contentOffset={anchorOffset}
+          showsVerticalScrollIndicator
+        >
+          {TIME_SLOTS.map((slot) => {
+            const selected = value === slot;
+            const isAnchor = slot === anchorSlot;
+            return (
+              <Pressable
+                key={slot}
+                onPress={() => {
+                  onChange(slot);
+                  onDone();
+                }}
+                style={[
+                  styles.timeSlotRow,
+                  isAnchor && !selected && styles.timeSlotRowAnchor,
+                  selected && styles.timeSlotRowSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.timeSlotText,
+                    selected && styles.timeSlotTextSelected,
+                  ]}
+                >
+                  {formatTimeOfDay(slot)}
+                </Text>
+                {isAnchor && !selected ? (
+                  <Text style={styles.timeSlotNow}>NOW</Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+      {value ? (
+        <Pressable
+          onPress={() => {
+            onChange(null);
+            onDone();
+          }}
+          style={styles.timeSheetClear}
+        >
+          <Text style={styles.timeSheetClearText}>× Clear time</Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
+function TagRowImpl({
   tags,
   onAdd,
   onRemove,
@@ -1411,6 +1540,13 @@ export function TagRow({
   );
 }
 
+/**
+ * Memoised because the editor re-renders on every keystroke in the title, and
+ * this row holds a chip per tag. `tags` is the same array until a tag changes,
+ * and the editor keeps `onAdd` and `onRemove` stable until then too.
+ */
+export const TagRow = React.memo(TagRowImpl);
+
 // ── Recurrence ──────────────────────────────────────────
 
 // The presets and their labels now live in @do-done/shared, so the row's
@@ -1425,7 +1561,8 @@ export { recurrenceShortLabel };
  * A `TextInput` can only ever hold dead text, so notes — the field a URL is
  * most likely to be pasted into — swap between a linkified read view and the
  * editor: tap the notes to edit, blur to go back to links. Empty notes go
- * straight to the input so the "add notes" affordance still takes one tap.
+ * straight to the input so the "add notes" affordance still takes one tap, and
+ * focusing that input sets `editing` so it stays mounted once text arrives.
  */
 // How close to the notes ceiling the character counter starts showing. 2,000
 // chars of warning is a few paragraphs — enough to wrap up a thought rather
@@ -1464,6 +1601,10 @@ function NotesField({
           // — so the task stops saving *at all*, not just its notes.
           maxLength={TASK_DESCRIPTION_MAX_LENGTH}
           onChangeText={(v) => onChange(v.length === 0 ? null : v)}
+          // Empty notes render this input without `editing` set. Without this,
+          // the first letter typed makes the notes non-empty, the read view
+          // replaces the input, and the keyboard closes after one character.
+          onFocus={() => setEditing(true)}
           onBlur={() => setEditing(false)}
           placeholder="Tap to add notes…"
           placeholderTextColor="#9ca3af"
@@ -1507,6 +1648,13 @@ function NotesField({
     </>
   );
 }
+
+/**
+ * `NotesField` behind a memo, for the same per-keystroke reason as `TagRow`.
+ * The read view's `LinkifiedText` re-parses every URL in the notes when it
+ * renders, so typing in the title used to re-parse the notes on each letter.
+ */
+const MemoNotesField = React.memo(NotesField);
 
 function RepeatRow({
   value,
@@ -1626,20 +1774,75 @@ function SubtasksSectionImpl({
   /** Drill the sheet into a subtask's own editor. */
   onOpenSubtask: (task: Task) => void;
 }) {
-  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  // Seeded from the rows the lists have already cached, so a task's subtasks
+  // are on screen in the first frame instead of arriving with the fetch and
+  // pushing Notes down. The seed can be short (a list caches only what its
+  // view shows), so the fetch below still runs and fills in the rest, and the
+  // rows it adds glide in rather than jump.
+  const [subtasks, setSubtasks] = useState<Task[]>(() =>
+    cachedSubtasks(parentId)
+  );
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  // The draft as of the last keystroke, read by the submit handlers. State
+  // alone is not enough: Return and the blur that follows it can both run
+  // before a re-render, and both would read the same un-cleared closure.
+  const draftRef = useRef("");
+  const setDraftText = useCallback((next: string) => {
+    draftRef.current = next;
+    setDraft(next);
+  }, []);
+  // Creates run one after another, so subtasks typed quickly land in the
+  // order they were typed rather than the order their responses arrive.
+  const addChain = useRef<Promise<void>>(Promise.resolve());
+  // Why the last subtask write failed, said inside the section. A toast would
+  // not do: the undo toast is drawn by the app root, under the editor's own
+  // window, so it cannot be seen while the editor is open.
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const toast = useUndoToast();
+  // False once the sheet has closed. A failure that lands after that cannot be
+  // shown in the section, so it goes to the root toast, which is visible again.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const reportError = useCallback(
+    (message: string) => {
+      if (!mountedRef.current) {
+        toast.show({ message });
+        return;
+      }
+      setWriteError(message);
+      // `accessibilityLiveRegion` on the line below is Android-only.
+      if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(message);
+    },
+    [toast]
+  );
+  // The list as of the last local change, mirrored so two taps that land
+  // before a re-render each read the row the previous tap left.
+  const subtasksRef = useRef<Task[]>(subtasks);
+  const updateSubtasks = useCallback((fn: (prev: Task[]) => Task[]) => {
+    subtasksRef.current = fn(subtasksRef.current);
+    setSubtasks(subtasksRef.current);
+  }, []);
+  // The latest tick per subtask id. Only the latest tap's failure reverts the
+  // row: an earlier tap's failure is already superseded by what was tapped next.
+  const tickSeq = useRef(new Map<string, number>());
   const inputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await tasksApi.listSubtasks(parentId);
-      if (!cancelled) {
-        setSubtasks(data);
-        setLoaded(true);
-      }
+      const { data, error } = await tasksApi.listSubtasks(parentId);
+      if (cancelled) return;
+      // A failed read returns `[]`. Keep the cached rows rather than fading
+      // them out, which would read as the subtasks being deleted.
+      if (!error) updateSubtasks(() => data);
+      setLoaded(true);
     })();
     return () => {
       cancelled = true;
@@ -1653,39 +1856,81 @@ function SubtasksSectionImpl({
   // DB trigger enforces depth ≤ 2, so depth 2 tasks can't have children.
   const canAdd = parentDepth < 2;
 
-  const handleAdd = async () => {
-    const title = draft.trim();
+  const handleAdd = () => {
+    const title = draftRef.current.trim();
     if (!title) {
       setAdding(false);
       return;
     }
-    const { data } = await tasksApi.create({
-      title,
-      parent_task_id: parentId,
-    });
-    if (data) {
-      setSubtasks((prev) => [...prev, data]);
-      invalidateTasks();
-    }
-    setDraft("");
+    // Cleared before the create goes out, not after it returns. Anything
+    // typed during the round trip is the next subtask, and clearing after the
+    // await wiped it. Clearing first is also the double-submit guard: a second
+    // Return, or the blur after one, now finds an empty draft.
+    setDraftText("");
+    setWriteError(null);
     // Keep the input open for rapid entry.
+    addChain.current = addChain.current.then(async () => {
+      let created: Task | null = null;
+      try {
+        const { data, error } = await tasksApi.create({
+          title,
+          parent_task_id: parentId,
+        });
+        if (!error) created = data;
+      } catch {
+        // Reported below, the same as an error result.
+      }
+      if (created) {
+        const row = created;
+        updateSubtasks((prev) => appendSubtask(prev, row));
+        invalidateTasks();
+        return;
+      }
+      // If an earlier failed title is already back in the field, this one is
+      // named in the error line only.
+      if (mountedRef.current) {
+        setDraftText(draftAfterFailedAdd(draftRef.current, title));
+      }
+      reportError(`Couldn't add “${title}”`);
+    });
   };
 
-  const handleToggle = async (st: Task) => {
-    const next = st.status === "done" ? "not_started" : "done";
-    const { data } = await tasksApi.update(st.id, { status: next });
-    if (data) {
-      setSubtasks((prev) => prev.map((s) => (s.id === data.id ? data : s)));
-      invalidateTasks();
-    }
+  // Optimistic: the ring fills on the tap, and the write follows. A failed
+  // write puts the row back and says so. `toggleComplete` is the same door the
+  // list rows use, so the row behind the sheet and every cached list move with
+  // this one, and its per-id chain orders quick re-taps.
+  const handleToggle = (id: string) => {
+    const before = subtasksRef.current.find((t) => t.id === id);
+    if (!before) return;
+    const status = nextSubtaskStatus(before);
+    const seq = (tickSeq.current.get(id) ?? 0) + 1;
+    tickSeq.current.set(id, seq);
+    if (status === "done") hapticSuccess();
+    else hapticLight();
+    setWriteError(null);
+    updateSubtasks((prev) => applySubtaskStatus(prev, id, status));
+    toggleComplete(id, status === "done").catch((e) => {
+      console.error("Subtask toggle failed:", e);
+      if (tickSeq.current.get(id) === seq) {
+        updateSubtasks((prev) => revertSubtaskStatus(prev, before, status));
+      }
+      reportError(`Couldn't update “${before.title}”`);
+    });
   };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await tasksApi.delete(id);
-    if (!error) {
-      setSubtasks((prev) => prev.filter((s) => s.id !== id));
-      invalidateTasks();
-    }
+  // Optimistic: the row goes on the tap. `deleteTask` drops it from every
+  // cached list too, and puts the lists back if the write fails.
+  const handleDelete = (id: string) => {
+    const { removed, index } = removeSubtask(subtasksRef.current, id);
+    if (!removed) return;
+    hapticMedium();
+    setWriteError(null);
+    updateSubtasks((prev) => removeSubtask(prev, id).list);
+    deleteTask(id).catch((e) => {
+      console.error("Subtask delete failed:", e);
+      updateSubtasks((prev) => reinsertSubtask(prev, removed, index));
+      reportError(`Couldn't delete “${removed.title}”`);
+    });
   };
 
   if (!canAdd && subtasks.length === 0 && loaded) return null;
@@ -1702,16 +1947,27 @@ function SubtasksSectionImpl({
           </Text>
         ) : null}
       </View>
-      <View style={styles.subtaskCard}>
-        {subtasks.map((st) => (
-          <SubtaskRow
-            key={st.id}
-            task={st}
-            onToggle={() => handleToggle(st)}
-            onOpen={() => onOpenSubtask(st)}
-            onDelete={() => handleDelete(st.id)}
-          />
-        ))}
+      <Reanimated.View layout={BODY_LAYOUT} style={styles.subtaskCard}>
+        {/* Rows present when the section mounts skip their fade; rows the
+            fetch or an add brings later fade in, and a deleted row fades out
+            while the rows below it close the gap. */}
+        <LayoutAnimationConfig skipEntering>
+          {subtasks.map((st) => (
+            <Reanimated.View
+              key={st.id}
+              layout={BODY_LAYOUT}
+              entering={BODY_FADE_IN}
+              exiting={BODY_FADE_OUT}
+            >
+              <SubtaskRow
+                task={st}
+                onToggle={() => handleToggle(st.id)}
+                onOpen={() => onOpenSubtask(st)}
+                onDelete={() => handleDelete(st.id)}
+              />
+            </Reanimated.View>
+          ))}
+        </LayoutAnimationConfig>
         {canAdd ? (
           adding ? (
             <View style={styles.subtaskRow}>
@@ -1719,11 +1975,11 @@ function SubtasksSectionImpl({
               <TextInput
                 ref={inputRef}
                 value={draft}
-                onChangeText={setDraft}
-                onSubmitEditing={() => void handleAdd()}
+                onChangeText={setDraftText}
+                onSubmitEditing={handleAdd}
                 blurOnSubmit={false}
                 onBlur={() => {
-                  if (draft.trim()) void handleAdd();
+                  if (draftRef.current.trim()) handleAdd();
                   setAdding(false);
                 }}
                 placeholder="Subtask title…"
@@ -1743,7 +1999,12 @@ function SubtasksSectionImpl({
             </Pressable>
           )
         ) : null}
-      </View>
+      </Reanimated.View>
+      {writeError ? (
+        <Text style={styles.notesError} accessibilityLiveRegion="polite">
+          {writeError}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -1804,10 +2065,19 @@ export default function TaskEditModalV2({
 }: Props) {
   // Keep the latest close handler in a ref so the once-created PanResponder
   // always calls the current one.
+  //
+  // The host's `onSaved` is not called here any more. It is handed to the body,
+  // which calls it once the close has settled, after the last autosave has
+  // landed (see `createEditorReconciler`). Called here, it ran before that
+  // save was sent and refetched the row without it.
   const closeRef = useRef<() => void>(() => {});
+  /** True from a real close until the next open; a drill leaves it false. */
+  const closingRef = useRef(false);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
   closeRef.current = () => {
+    closingRef.current = true;
     onClose();
-    onSaved?.();
   };
 
   // Read live rather than at module scope: a rotation or an Android split
@@ -1874,10 +2144,38 @@ export default function TaskEditModalV2({
   const [activeTask, setActiveTask] = useState<Task | null>(task);
   const marker = `${task?.id ?? "none"}:${visible}`;
   const [rootedMarker, setRootedMarker] = useState(marker);
+  /**
+   * Whether the open animation has finished. The body mounts its sections
+   * below the fold (places, subtasks, notes, attachments, repeat) only then, so
+   * the frames the sheet rises in are not also the frames those mount in.
+   */
+  const [opened, setOpened] = useState(false);
+  /**
+   * Which way the last drill went, so the new body can slide in from the side
+   * it came from. Null on a fresh open, which has the sheet's rise instead.
+   */
+  const [drill, setDrill] = useState<"in" | "out" | null>(null);
   if (marker !== rootedMarker) {
     setRootedMarker(marker);
+    setOpened(false);
+    setDrill(null);
+    if (visible) closingRef.current = false;
     if (visible) setActiveTask(task);
   }
+  const activeIdRef = useRef(activeTask?.id);
+  activeIdRef.current = activeTask?.id;
+  const navigateTask = useCallback((next: Task) => {
+    setDrill(next.parent_task_id === activeIdRef.current ? "in" : "out");
+    setActiveTask(next);
+  }, []);
+  // Each open gets a number, and only the current open's callback may mark it
+  // finished. An open replaced mid-rise (a different task handed in while the
+  // sheet is still rising) cancels its animation, and that callback would
+  // otherwise mark the new open finished before it had started.
+  const openGenRef = useRef(0);
+  const markOpened = useCallback((gen: number) => {
+    if (gen === openGenRef.current) setOpened(true);
+  }, []);
 
   // Slide the sheet up whenever it becomes visible.
   //
@@ -1889,14 +2187,24 @@ export default function TaskEditModalV2({
   // when a *different* task is opened.
   useEffect(() => {
     if (!visible || !task) return;
+    const gen = ++openGenRef.current;
     translateY.value = sheetH;
     hapticLight();
-    translateY.value = withTiming(0, {
-      duration: reduceMotionRef.current ? 0 : SHEET_OPEN_MS,
-      // Fast off the mark, easing into place: the sheet answers the tap on the
-      // first frame and settles rather than arriving at full speed.
-      easing: Easing.out(Easing.cubic),
-    });
+    translateY.value = withTiming(
+      0,
+      {
+        duration: reduceMotionRef.current ? 0 : SHEET_OPEN_MS,
+        // Fast off the mark, easing into place: the sheet answers the tap on
+        // the first frame and settles rather than arriving at full speed.
+        easing: Easing.out(Easing.cubic),
+      },
+      // Finished or not: a drag that catches the sheet mid-rise cancels this
+      // animation, and the body must still get its sections.
+      () => {
+        "worklet";
+        runOnJS(markOpened)(gen);
+      }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marker]);
 
@@ -2076,58 +2384,230 @@ export default function TaskEditModalV2({
     opacity: backdropOpacity(translateY.value, sheetHeight.value),
   }));
 
+  const shown = visible && !!task;
+
+  // Android's back button. `Modal`'s onRequestClose does this on iOS; the
+  // Android sheet is not a `Modal` (see below), so it listens itself. It is
+  // registered when the sheet opens, after the navigator's own handler, and
+  // React Native calls the newest handler first, so back closes the editor
+  // rather than the screen under it. A picker open over the editor is a
+  // `Modal` with its own window and takes the press before this sees it.
+  //
+  // The close is read through a ref so the handler is registered once per
+  // open. `animatedClose` changes with Reduce Motion, and re-registering then
+  // would make the editor's handler the newest, so back would skip over a
+  // location sheet open above it.
+  const animatedCloseRef = useRef(animatedClose);
+  animatedCloseRef.current = animatedClose;
+  useEffect(() => {
+    if (Platform.OS !== "android" || !shown) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      animatedCloseRef.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [shown]);
+
+  // Once the keyboard has landed, make sure the focused field is above it.
+  // Android only, and normally a no-op: the body shrinks by the keyboard's
+  // height every frame (`KeyboardLift`), and a ScrollView that shrinks keeps
+  // its focused child in view by itself. This catches whatever that misses,
+  // such as a field whose height changed while the keyboard rose. iOS does the
+  // same job natively with `automaticallyAdjustKeyboardInsets` on the body.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !shown) return;
+    let frame = 0;
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      cancelAnimationFrame(frame);
+      // One frame later, so the last frame of the lift has been laid out.
+      frame = requestAnimationFrame(() => {
+        revealFocusedField(scrollRef.current, scrollOffset, reduceMotionRef.current);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      sub.remove();
+    };
+  }, [shown, scrollOffset]);
+
+  const sheetBody = (
+    <>
+      <View style={styles.grabberWrap}>
+        <View style={styles.grabber} />
+      </View>
+      {activeTask ? (
+        // Keyed on the task, so a drill remounts the body. The slide
+        // is on this wrapper rather than on the sheet, whose transform
+        // belongs to the open and the drag.
+        <Reanimated.View
+          key={activeTask.id}
+          style={styles.drillLayer}
+          entering={
+            drill === "in" ? DRILL_IN : drill === "out" ? DRILL_OUT : undefined
+          }
+        >
+          <Inner
+            task={activeTask}
+            bodyReady={opened}
+            onClose={animatedClose}
+            onNavigateTask={navigateTask}
+            scrollRef={scrollRef}
+            scrollOffset={scrollOffset}
+            registerCloseGuard={registerCloseGuard}
+            closingRef={closingRef}
+            hostOnSavedRef={onSavedRef}
+          />
+        </Reanimated.View>
+      ) : null}
+    </>
+  );
+
+  const sheet = (
+    <View style={styles.overlay}>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[styles.backdrop, backdropStyle]}
+      />
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={animatedClose}
+        accessibilityLabel="Close editor"
+      />
+      <GestureHandlerRootView style={styles.ghRoot}>
+        <GestureDetector gesture={dismissPan}>
+          <Reanimated.View style={[styles.sheet, sheetStyle]}>
+            {Platform.OS === "android" ? (
+              <KeyboardLift>{sheetBody}</KeyboardLift>
+            ) : (
+              sheetBody
+            )}
+          </Reanimated.View>
+        </GestureDetector>
+      </GestureHandlerRootView>
+    </View>
+  );
+
+  /**
+   * **On Android the sheet is drawn in the app's root view, not in a `Modal`.**
+   * React Native 0.81 gives a `Modal` a window of its own, and with
+   * edge-to-edge on that window ignores `adjustResize`, while
+   * `useAnimatedKeyboard` only watches the activity's window. So nothing here
+   * could see the keyboard, and Notes, the tag field and "Add subtask" were
+   * typed behind it. `RootPortal` draws the same tree in the activity's window
+   * instead (components/RootOverlay.tsx), where `KeyboardLift` can follow the
+   * keyboard every frame. Everything above this line still runs here, in the
+   * caller's tree, so the props and every call site are unchanged.
+   *
+   * iOS keeps the `Modal`. A `transparentModal` route (quick-add, a task link)
+   * is a separately presented view controller there, so the root view is
+   * behind it, and the keyboard was never hidden from an iOS `Modal` anyway.
+   */
+  if (Platform.OS === "android") {
+    return shown ? <RootPortal>{sheet}</RootPortal> : null;
+  }
+
   return (
     <Modal
-      visible={visible && !!task}
+      visible={shown}
       transparent
       animationType="none"
       statusBarTranslucent
       onRequestClose={animatedClose}
     >
-      <View style={styles.overlay}>
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.backdrop, backdropStyle]}
-        />
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={animatedClose}
-          accessibilityLabel="Close editor"
-        />
-        <GestureHandlerRootView style={styles.ghRoot}>
-          <GestureDetector gesture={dismissPan}>
-            <Reanimated.View style={[styles.sheet, sheetStyle]}>
-              <View style={styles.grabberWrap}>
-                <View style={styles.grabber} />
-              </View>
-              {activeTask ? (
-                <Inner
-                  key={activeTask.id}
-                  task={activeTask}
-                  onClose={animatedClose}
-                  onNavigateTask={setActiveTask}
-                  scrollRef={scrollRef}
-                  scrollOffset={scrollOffset}
-                  registerCloseGuard={registerCloseGuard}
-                />
-              ) : null}
-            </Reanimated.View>
-          </GestureDetector>
-        </GestureHandlerRootView>
-      </View>
+      {sheet}
     </Modal>
+  );
+}
+
+/**
+ * Shrink the sheet's contents by the keyboard's height, every frame, on the UI
+ * thread. Android only (see the root component).
+ *
+ * Padding rather than a transform: the body has to get shorter so it can
+ * scroll its lower fields up into the space that is left. Moving the whole
+ * sheet up would push its top off the screen. The bottom bar rides above the
+ * keyboard, so Close stays reachable while typing.
+ *
+ * The sheet reaches to the bottom of the screen, under the navigation bar, and
+ * so does the reported height, so the two line up with no inset to subtract.
+ *
+ * Its own component so the keyboard is only tracked while the sheet is open.
+ * Every list screen keeps an editor mounted and hidden.
+ */
+function KeyboardLift({ children }: { children: React.ReactNode }) {
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: true,
+    isNavigationBarTranslucentAndroid: true,
+  });
+  const liftStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(keyboard.height.value, 0),
+  }));
+  return (
+    <Reanimated.View style={[styles.keyboardLift, liftStyle]}>
+      {children}
+    </Reanimated.View>
+  );
+}
+
+/**
+ * Scroll the editor's body so the focused text field is on screen. A field
+ * outside the body (the location sheet's search, a picker) is left alone:
+ * `measureLayout` against the body fails for anything that is not inside it.
+ */
+function revealFocusedField(
+  scroll: React.ComponentRef<typeof Reanimated.ScrollView> | null,
+  scrollOffset: SharedValue<number>,
+  reduceMotion: boolean
+) {
+  const input = TextInput.State.currentlyFocusedInput();
+  if (!input || !scroll) return;
+  const scrollNode = (
+    scroll as unknown as { getNativeScrollRef?: () => unknown }
+  ).getNativeScrollRef?.();
+  if (!scrollNode) return;
+  const body = scrollNode as typeof input;
+  input.measureLayout(
+    body,
+    () => {
+      body.measureInWindow((_vx, viewTop, _vw, viewHeight) => {
+        input.measureInWindow((_fx, fieldTop, _fw, fieldHeight) => {
+          const delta = revealScrollDelta({
+            fieldTop,
+            fieldBottom: fieldTop + fieldHeight,
+            viewTop,
+            viewBottom: viewTop + viewHeight,
+            margin: 16,
+          });
+          if (delta === 0) return;
+          scroll.scrollTo({
+            y: Math.max(0, scrollOffset.value + delta),
+            animated: !reduceMotion,
+          });
+        });
+      });
+    },
+    () => {}
   );
 }
 
 function Inner({
   task,
+  bodyReady,
   onClose,
   onNavigateTask,
   scrollRef,
   scrollOffset,
   registerCloseGuard,
+  closingRef,
+  hostOnSavedRef,
 }: {
   task: Task;
+  /** True once the sheet is really closing, as opposed to drilling. */
+  closingRef: React.RefObject<boolean>;
+  /** The host's post-close callback, run after the last save lands. */
+  hostOnSavedRef: React.RefObject<(() => void) | undefined>;
+  /** The sheet has finished rising; mount the sections below the fold. */
+  bodyReady: boolean;
   onClose: () => void;
   /** Drill the sheet to another task (a subtask, or this task's parent). */
   onNavigateTask: (task: Task) => void;
@@ -2158,19 +2638,59 @@ function Inner({
   // offer a way back up. Doubles as the navigation target (no extra fetch on tap).
   // Starts null every mount; the sheet body is keyed on the task id, so
   // navigating remounts this fresh rather than needing a reset here.
-  const [parentTask, setParentTask] = useState<Task | null>(null);
+  // Seeded from the cache so the crumb names the parent in the first frame
+  // rather than reading "Parent task" until the fetch lands.
+  const [parentTask, setParentTask] = useState<Task | null>(() =>
+    task.parent_task_id ? cachedTask(task.parent_task_id) : null
+  );
+  // The fetch runs only when nothing was cached. After a drill, the cached copy
+  // is the fresher one: it has the parent's last save patched in, while a fetch
+  // can race that save's PATCH and return the row from before it.
+  const parentSeeded = useRef(parentTask !== null);
   useEffect(() => {
     const parentId = task.parent_task_id;
-    if (!parentId) return;
+    if (!parentId || parentSeeded.current) return;
     let cancelled = false;
     (async () => {
       const { data } = await tasksApiMemo.getById(parentId);
-      if (!cancelled) setParentTask(data);
+      // Keep the cached copy if the fetch fails, rather than blanking the crumb.
+      if (!cancelled && data) setParentTask(data);
     })();
     return () => {
       cancelled = true;
     };
   }, [task.parent_task_id, tasksApiMemo]);
+
+  // Each save patches the row into the cached lists; the full refetch waits
+  // until this body unmounts. Refetching on every save meant a pause between
+  // words refetched every list under the sheet, on the JS thread the title
+  // field was using. The unmount is what every close path has in common
+  // (swipe, backdrop, back button, Close, and a drill to another task), and a
+  // save still queued then is waited for, so the refetch reads the row after
+  // it. See `lib/editor-reconcile.ts`.
+  const reconcilerRef = useRef<EditorReconciler<Task> | null>(null);
+  if (!reconcilerRef.current) {
+    reconcilerRef.current = createEditorReconciler<Task>({
+      patch: patchSavedTask,
+      invalidate: invalidateTasks,
+      // The host hears about a real close, not a drill. Every host today passes
+      // `invalidateTasks`, which has just run when something saved, so it is
+      // skipped then rather than refetching every list a second time.
+      afterClose: (saved) => {
+        if (!closingRef.current) return;
+        const hostOnSaved = hostOnSavedRef.current;
+        if (!hostOnSaved) return;
+        if (saved && hostOnSaved === invalidateTasks) return;
+        hostOnSaved();
+      },
+    });
+  }
+  // The row the save sent. Read at save time, which for the flush on unmount
+  // is after the last render: the ref still holds what that render showed.
+  const currentRef = useRef(task);
+  const onSaved = useCallback(() => {
+    reconcilerRef.current?.saved(currentRef.current);
+  }, []);
 
   const {
     task: current,
@@ -2182,14 +2702,21 @@ function Inner({
     fieldErrors,
     hasUnsavedWork,
     retry,
-  } = useAutoSaveTask(task, tasksApiMemo, {
-    // Reconcile the TanStack Query lists after each commit. Doing it here (not
-    // on modal close) means the refetch reads the row *after* the PATCH lands,
-    // so the lists stop showing the pre-edit value — and it covers every close
-    // path (swipe, backdrop, back button, ×) since it no longer depends on the
-    // close handler firing.
-    onSaved: invalidateTasks,
-  });
+  } = useAutoSaveTask(task, tasksApiMemo, { onSaved });
+  currentRef.current = current;
+
+  // Declared after `useAutoSaveTask`, so on unmount its cleanup runs after the
+  // hook's own, which is where a queued save is flushed. `saveStatus` from the
+  // last render says whether one was queued or in flight.
+  const saveStatusRef = useRef(saveStatus);
+  saveStatusRef.current = saveStatus;
+  useEffect(
+    () => () => {
+      const s = saveStatusRef.current;
+      reconcilerRef.current?.closed(s === "pending" || s === "saving");
+    },
+    []
+  );
 
   // Where a voice note's words land. The task already has a title by the time
   // the editor is open, so a dictation is an addition to Notes rather than a
@@ -2361,7 +2888,10 @@ function Inner({
    * title would — so `personal` here files the task into the Personal project
    * rather than minting a tag that happens to spell its name.
    */
-  const handleAddTag = (token: string) => {
+  // `useCallback`ed so the memoised `TagRow` sits out title keystrokes. Both
+  // change when the tags do, which is when the row has something new to draw.
+  const tags = current.tags;
+  const handleAddTag = useCallback((token: string) => {
     const classified = classifyShortcutToken(token, allProjects);
     switch (classified.kind) {
       case "estimate":
@@ -2374,17 +2904,20 @@ function Inner({
         setField("project_id", classified.projectId);
         return;
       default:
-        if (current.tags.includes(classified.tag)) return;
-        setField("tags", [...current.tags, classified.tag]);
+        if (tags.includes(classified.tag)) return;
+        setField("tags", [...tags, classified.tag]);
     }
-  };
+  }, [allProjects, tags, setField]);
 
-  const handleRemoveTag = (tag: string) => {
-    setField(
-      "tags",
-      current.tags.filter((t) => t !== tag)
-    );
-  };
+  const handleRemoveTag = useCallback(
+    (tag: string) => {
+      setField(
+        "tags",
+        tags.filter((t) => t !== tag)
+      );
+    },
+    [tags, setField]
+  );
 
   const [priPickerOpen, setPriPickerOpen] = useState(false);
   const [estPickerOpen, setEstPickerOpen] = useState(false);
@@ -2392,6 +2925,14 @@ function Inner({
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [locationSheetOpen, setLocationSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Stable handlers for the memoised fields below.
+  const openEstimatePicker = useCallback(() => setEstPickerOpen(true), []);
+  const openStatusPicker = useCallback(() => setStatusPickerOpen(true), []);
+  const onChangeNotes = useCallback(
+    (v: string | null) => setField("description", v),
+    [setField]
+  );
 
   // Delete lives in the top-bar overflow menu now, not loose in the bottom bar
   // next to the dismiss control.
@@ -2582,6 +3123,10 @@ function Inner({
         bounces={false}
         overScrollMode="never"
         keyboardShouldPersistTaps="handled"
+        // iOS: inset the body by the keyboard and scroll the focused field
+        // into view, in step with the keyboard's own animation. Android
+        // ignores this and shrinks the sheet instead (`KeyboardLift`).
+        automaticallyAdjustKeyboardInsets
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
       >
@@ -2632,7 +3177,7 @@ function Inner({
             />
           </View>
           <TagRow
-            tags={current.tags}
+            tags={tags}
             onAdd={handleAddTag}
             onRemove={handleRemoveTag}
           />
@@ -2640,8 +3185,13 @@ function Inner({
 
         {/* DATE. Relative reading first and large: on a personal list
             "tomorrow" is the answer and "Tuesday, August 5th" is the receipt,
-            so the receipt is the one set small. */}
-        <View style={{ marginTop: 16 }}>
+            so the receipt is the one set small.
+
+            This section and every one below it carry `layout={BODY_LAYOUT}`,
+            so when one changes height (the calendar growing a week or a month,
+            the title wrapping, a tag added, Repeat opening) the rest glide to
+            their new place instead of jumping. */}
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 16 }}>
           <View style={styles.rowHead}>
             <Text style={[styles.whenBig, { color: accentInk }]}>
               {current.scheduled_date
@@ -2667,7 +3217,7 @@ function Inner({
             onChangeScheduledTime={onChangeScheduledTime}
             onRangeChange={fetchRange}
           />
-        </View>
+        </Reanimated.View>
 
         {/* Estimate and status, side by side and equally wide. Priority left
             this row for the cover, where it now names itself at every rank —
@@ -2675,35 +3225,46 @@ function Inner({
             the banner's old marks were removed for. Status arrives from a
             labelled row of its own below the pickers, which is a lot of
             furniture for one word. */}
-        <View style={styles.metaFieldsRow}>
+        <Reanimated.View layout={BODY_LAYOUT} style={styles.metaFieldsRow}>
           <MetaField
             label="Estimate"
             value={estimateLabel(current.duration_minutes)}
             dotColor={current.duration_minutes ? "#6366f1" : "#d1d5db"}
             muted={!current.duration_minutes}
-            onPress={() => setEstPickerOpen(true)}
+            onPress={openEstimatePicker}
           />
           <MetaField
             label="Status"
             value={STATUS_CONFIG[current.status].label}
             dotColor={STATUS_CONFIG[current.status].color}
-            onPress={() => setStatusPickerOpen(true)}
+            onPress={openStatusPicker}
           />
-        </View>
+        </Reanimated.View>
 
+        {/* Below the fold: mounted once the sheet has finished rising, then
+            faded in. They used to mount in the same frame the rise started,
+            which is when the sheet could least afford the work. Nothing above
+            them moves when they arrive, because they are added below
+            everything already on screen. */}
         {/* Location reminders — folded like Repeat, since most tasks have none */}
-        <View style={{ marginTop: 14 }}>
-          <Pressable
-            onPress={() => setLocationSheetOpen(true)}
-            hitSlop={6}
-            style={styles.repeatToggle}
+        {bodyReady ? (
+          <Reanimated.View
+            layout={BODY_LAYOUT}
+            entering={BODY_FADE_IN}
+            style={{ marginTop: 14 }}
           >
-            <Text style={styles.repeatToggleText} numberOfLines={1}>
-              📍 {locationReminderLabel(taskLocations)}
-            </Text>
-            <Text style={styles.repeatToggleChevron}>▸</Text>
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={() => setLocationSheetOpen(true)}
+              hitSlop={6}
+              style={styles.repeatToggle}
+            >
+              <Text style={styles.repeatToggleText} numberOfLines={1}>
+                📍 {locationReminderLabel(taskLocations)}
+              </Text>
+              <Text style={styles.repeatToggleChevron}>▸</Text>
+            </Pressable>
+          </Reanimated.View>
+        ) : null}
 
         {locationSheetOpen ? (
           <LocationReminderSheet
@@ -2713,117 +3274,115 @@ function Inner({
           />
         ) : null}
 
-        {priPickerOpen ? (
-          <PickerSheet
-            visible={priPickerOpen}
-            title="Priority"
-            options={PRIORITY_PICKER_OPTIONS.map((p) => ({
-              key: p.value,
-              code: p.code,
-              label: p.label,
-            }))}
-            selectedKey={current.priority}
-            onSelect={(key) => {
-              // Re-picking the row the task already has leaves it there. It
-              // used to clear to p4, which meant confirming an Urgent task was
-              // Urgent silently demoted it to Low.
-              setField("priority", key as TaskPriority);
-              setPriPickerOpen(false);
-            }}
-            onClose={() => setPriPickerOpen(false)}
-            accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
-          />
-        ) : null}
-        {estPickerOpen ? (
-          <PickerSheet
-            visible={estPickerOpen}
-            title="Estimate"
-            options={[
-              ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
-                key: String(b.minutes),
-                code: b.code,
-                label: b.label,
-              })),
-              // The only way back to "unestimated" once a value has been set,
-              // and the only clear either picker offers: a row you can see
-              // beats re-picking the row that's already ticked, which is
-              // indistinguishable from confirming it.
-              ...(current.duration_minutes
-                ? [{ key: "none", code: "", label: "No estimate" }]
-                : []),
-            ]}
-            selectedKey={(() => {
-              const idx = estimateBarIndex(current.duration_minutes);
-              return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
-            })()}
-            onSelect={(key) => {
-              setField(
-                "duration_minutes",
-                key === "none" ? null : parseInt(key, 10)
-              );
-              setEstPickerOpen(false);
-            }}
-            accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
-            onClose={() => setEstPickerOpen(false)}
-          />
-        ) : null}
-
-        {statusPickerOpen ? (
-          <PickerSheet
-            visible={statusPickerOpen}
-            title="Status"
-            options={STATUS_PICKER_OPTIONS}
-            selectedKey={current.status}
-            onSelect={(key) => {
-              setField("status", key as TaskStatus);
-              setStatusPickerOpen(false);
-            }}
-            onClose={() => setStatusPickerOpen(false)}
-            accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
-          />
-        ) : null}
-
-        {projectPickerOpen ? (
-          <ProjectPickerSheet
-            visible={projectPickerOpen}
-            projects={allProjects}
-            selectedId={current.project_id}
-            onSelect={(id) => setField("project_id", id)}
-            onClose={() => setProjectPickerOpen(false)}
-            onCreate={handleProjectCreate}
-          />
-        ) : null}
-
-        {/* Subtasks */}
-        <SubtasksSection
-          parentId={current.id}
-          parentDepth={current.depth}
-          tasksApi={tasksApiMemo}
-          onOpenSubtask={onNavigateTask}
+        <PickerSheet
+          visible={priPickerOpen}
+          title="Priority"
+          options={PRIORITY_PICKER_OPTIONS.map((p) => ({
+            key: p.value,
+            code: p.code,
+            label: p.label,
+          }))}
+          selectedKey={current.priority}
+          onSelect={(key) => {
+            // Re-picking the row the task already has leaves it there. It
+            // used to clear to p4, which meant confirming an Urgent task was
+            // Urgent silently demoted it to Low.
+            setField("priority", key as TaskPriority);
+            setPriPickerOpen(false);
+          }}
+          onClose={() => setPriPickerOpen(false)}
+          accentByKey={(key) => PRIORITY_COLORS[key as TaskPriority]}
+        />
+        <PickerSheet
+          visible={estPickerOpen}
+          title="Estimate"
+          options={[
+            ...ESTIMATE_PICKER_OPTIONS.map((b) => ({
+              key: String(b.minutes),
+              code: b.code,
+              label: b.label,
+            })),
+            // The only way back to "unestimated" once a value has been set,
+            // and the only clear either picker offers: a row you can see
+            // beats re-picking the row that's already ticked, which is
+            // indistinguishable from confirming it.
+            ...(current.duration_minutes
+              ? [{ key: "none", code: "", label: "No estimate" }]
+              : []),
+          ]}
+          selectedKey={(() => {
+            const idx = estimateBarIndex(current.duration_minutes);
+            return idx >= 0 ? String(ESTIMATE_BUCKETS[idx]) : "";
+          })()}
+          onSelect={(key) => {
+            setField(
+              "duration_minutes",
+              key === "none" ? null : parseInt(key, 10)
+            );
+            setEstPickerOpen(false);
+          }}
+          accentByKey={(key) => (key === "none" ? "#d1d5db" : "#6366f1")}
+          onClose={() => setEstPickerOpen(false)}
         />
 
+        <PickerSheet
+          visible={statusPickerOpen}
+          title="Status"
+          options={STATUS_PICKER_OPTIONS}
+          selectedKey={current.status}
+          onSelect={(key) => {
+            setField("status", key as TaskStatus);
+            setStatusPickerOpen(false);
+          }}
+          onClose={() => setStatusPickerOpen(false)}
+          accentByKey={(key) => STATUS_CONFIG[key as TaskStatus].color}
+        />
+
+        <ProjectPickerSheet
+          visible={projectPickerOpen}
+          projects={allProjects}
+          selectedId={current.project_id}
+          onSelect={(id) => setField("project_id", id)}
+          onClose={() => setProjectPickerOpen(false)}
+          onCreate={handleProjectCreate}
+        />
+
+        {bodyReady ? (
+        <Reanimated.View layout={BODY_LAYOUT} entering={BODY_FADE_IN}>
+        {/* Subtasks */}
+        <Reanimated.View layout={BODY_LAYOUT}>
+          <SubtasksSection
+            parentId={current.id}
+            parentDepth={current.depth}
+            tasksApi={tasksApiMemo}
+            onOpenSubtask={onNavigateTask}
+          />
+        </Reanimated.View>
+
         {/* Notes */}
-        <View style={{ marginTop: 18 }}>
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 18 }}>
           <View style={styles.rowHead}>
             <Text style={styles.sectionLabel}>Notes</Text>
           </View>
-          <NotesField
+          <MemoNotesField
             value={current.description}
-            onChange={(v) => setField("description", v)}
+            onChange={onChangeNotes}
             error={fieldErrors.description}
           />
-        </View>
+        </Reanimated.View>
 
         {/* Attachments — including the mic, since a recording lands here as a
             file and only its transcript belongs to Notes above. */}
-        <AttachmentsSection
-          taskId={current.id}
-          api={attachmentsApiMemo}
-          onTranscript={appendVoiceTranscript}
-        />
+        <Reanimated.View layout={BODY_LAYOUT}>
+          <AttachmentsSection
+            taskId={current.id}
+            api={attachmentsApiMemo}
+            onTranscript={appendVoiceTranscript}
+          />
+        </Reanimated.View>
 
         {/* Repeat — rare, so it stays folded behind a one-line toggle */}
-        <View style={{ marginTop: 14 }}>
+        <Reanimated.View layout={BODY_LAYOUT} style={{ marginTop: 14 }}>
           <Pressable
             onPress={() => setRepeatOpen((o) => !o)}
             hitSlop={6}
@@ -2840,14 +3399,20 @@ function Inner({
             </Text>
           </Pressable>
           {repeatOpen ? (
-            <View style={{ marginTop: 8 }}>
+            <Reanimated.View
+              entering={BODY_FADE_IN}
+              exiting={BODY_FADE_OUT}
+              style={{ marginTop: 8 }}
+            >
               <RepeatRow
                 value={current.recurrence_rule}
                 onChange={(rule) => setField("recurrence_rule", rule)}
               />
-            </View>
+            </Reanimated.View>
           ) : null}
-        </View>
+        </Reanimated.View>
+        </Reanimated.View>
+        ) : null}
       </Reanimated.ScrollView>
 
       {/* Dismisses the editor. Deliberately quiet: everything auto-saves, so
@@ -2866,13 +3431,11 @@ function Inner({
         </Pressable>
       </View>
 
-      {menuOpen ? (
-        <TaskMenuSheet
-          visible={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          onDelete={confirmDelete}
-        />
-      ) : null}
+      <TaskMenuSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onDelete={confirmDelete}
+      />
     </View>
   );
 }
@@ -2889,37 +3452,46 @@ function TaskMenuSheet({
   onClose: () => void;
   onDelete: () => void;
 }) {
+  // The confirmation is an Alert. On iOS it waits for this sheet to finish
+  // leaving, for the same reason ListActionsMenu's rows do.
+  const { runAfterDismiss, onDismiss } = useRunAfterDismiss();
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      onDismiss={onDismiss}
+      style={styles.pickerSheet}
     >
-      <Pressable onPress={onClose} style={styles.pickerBackdrop}>
-        <Pressable onPress={() => {}} style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Task actions</Text>
-          <Pressable
-            onPress={() => {
-              // Dismiss first: the confirmation is an Alert, which would
-              // otherwise stack on top of this sheet.
-              onClose();
-              onDelete();
-            }}
-            style={styles.menuRow}
-          >
-            <Text style={styles.menuRowDestructive}>Delete task</Text>
-          </Pressable>
-        </Pressable>
+      <Text style={styles.pickerTitle}>Task actions</Text>
+      <Pressable
+        onPress={() => {
+          // Dismiss first: the confirmation would otherwise stack on top of
+          // this sheet.
+          onClose();
+          runAfterDismiss(onDelete);
+        }}
+        style={styles.menuRow}
+      >
+        <Text style={styles.menuRowDestructive}>Delete task</Text>
       </Pressable>
-    </Modal>
+    </BottomSheet>
   );
 }
 
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
+  // Absolute rather than `flex: 1`: in a `Modal` (iOS) either fills the
+  // window, but in the root overlay (Android) the sheet is a sibling of the
+  // navigator and has to sit over it.
+  // zIndex: the dev banner and the PR preview pill are siblings of the root
+  // overlay with zIndex 9999, and would otherwise draw over the editor and
+  // take taps meant for its Close bar.
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    zIndex: OVERLAY_Z_INDEX,
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     // Opaque: the dimming is `backdropOpacity`, driven off the sheet's own
@@ -2929,6 +3501,7 @@ const styles = StyleSheet.create({
   // Kept in step with SHEET_HEIGHT_RATIO, which is what the slide is measured
   // against — a sheet taller than its travel never fully leaves the screen.
   ghRoot: { height: `${SHEET_HEIGHT_RATIO * 100}%` },
+  keyboardLift: { flex: 1 },
   sheet: {
     flex: 1,
     backgroundColor: "#fff",
@@ -2944,6 +3517,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#d1d5db",
   },
   sheetContent: { flex: 1, backgroundColor: "#fff" },
+  drillLayer: { flex: 1 },
 
   menuBtn: {
     width: 30,
@@ -2963,11 +3537,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   projectFieldChevron: { fontSize: 12, color: "#9ca3af" },
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(17,24,39,0.45)",
-    justifyContent: "flex-end",
-  },
   // ── Project banner ────────────────────────────────────
   priorityStripe: { height: 4, width: "100%" },
   // `space-between` with both rows in flow, rather than an absolute top row
@@ -3516,14 +4085,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
-  pickerSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 14,
-    paddingBottom: 28,
-    paddingHorizontal: 16,
-  },
+  // BottomSheet draws the grabber, the background and the bottom padding.
+  pickerSheet: { paddingHorizontal: 16 },
   pickerTitle: {
     fontSize: 11,
     fontWeight: "700",

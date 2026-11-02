@@ -211,6 +211,48 @@ and the deep link: `dodone://quick-add`, a transparent modal over the list.
   two tabs is 96 plus the tab bar, as on the task screens, so the button never
   covers the last row.
 
+### Quick-add moves instead of jumping
+
+The composer is the most-used capture path, so it should never jump while you type.
+None of this has been seen on a device yet. Typecheck, the node tests and a full
+Metro bundle pass.
+
+- **The in-app modal focuses while it mounts.** The route fades in and the keyboard
+  rises with the card in one step. It used to wait 150ms after mount and then jump
+  the card up. The widget's activity keeps the 150ms delay, for the reason given
+  under *Quick-add widget*, and recording waits on both hosts so a permission
+  dialog does not race the transition. `quickAddOpenAction` in
+  `lib/quick-add-motion.ts` holds the rule. The card's own arrival is a short rise on
+  an inner view; the keyboard lift stays a transform on the outer view, so the two
+  never write the same property.
+- **Rows that come and go fade, and the card resizes over 160ms.** The parse preview,
+  the recorder, the dictated note and the suggestion row each fade in and out, and the
+  card and the rows inside it carry `layout={LinearTransition}`. The card is pinned
+  to the keyboard, so a row appearing inside it moves the card's top edge. Without the
+  transition that edge jumped about 36px mid-word. The stack around the card carries
+  the same transition, because it is bottom-anchored too: when it grows, its top
+  moves. With both animating, the card's bottom stays still and its top glides. The
+  chip popovers fade as well, and stay inline in the same window.
+- **A create does not clear the composer when the host is about to close.** Clearing
+  first left an emptied card on screen while the route faded out. The input also
+  stays editable during the request. `editable={false}` on a focused field can drop
+  the keyboard on Android, and the card fell with it. A ref guards against a double
+  submit instead. It stays latched after a successful create, since the text is
+  still in the field while the host closes.
+- **Opening the full editor takes the card away.** The composer keeps its state but
+  draws nothing while the editor is open over it, and the route's dim fades out so
+  the editor's backdrop is the only one.
+- **The voice recorder's meter and clock re-render only the recorder.** The level is a
+  shared value tweened over the 150ms between readings, so the bars move on the UI
+  thread instead of stepping at about 7fps. The clock ticks inside `VoiceRecorder`
+  from `startedAt`. Both used to be React state in `useVoiceCapture`, which
+  re-rendered the whole composer about 12 times a second. The suggestion row also
+  memoises its scoring on the title. The one microphone session and the `end` +
+  `audioend` gate are unchanged.
+- **Reduce Motion lands on the end state.** Reanimated's builders skip their animation
+  under the system setting, the route's dim clears at once, and the meter jumps to
+  each reading.
+
 ### Every composer's plus does something
 
 A `+` is a button everywhere else in DoDone: the mobile add button (which is
@@ -286,6 +328,20 @@ which belongs to the *unstable native* navigator and is about blur rather than
 a press — so the one gesture this design leans on would otherwise have been an
 undocumented default we happened to be getting.
 
+**A tab switch crossfades.** `animation: 'fade'` in the tab layout's
+`screenOptions`, 150ms on the native driver. It used to be a hard cut. Fade
+rather than `shift`, because tabs are peers rather than a sequence, and every
+screen's add button sits in the same corner, so a slide would move a control
+that should look like it stays put. The bar floats outside the scenes, so it
+does not fade. Reduce Motion turns the fade off.
+
+**There is no `freezeOnBlur`.** Bottom tabs 7.15 never freezes a tab that has an
+animation: it passes `shouldFreeze={activityState === STATE_INACTIVE}`, and with
+an animation `activityState` is an Animated node, so the test is always false.
+Setting the option would do nothing now and would start freezing tabs silently
+on some later upgrade. Hidden tabs re-rendering on cache writes is for the query
+layer to stop.
+
 ### Two views, one tab
 
 Today and Upcoming answer the same question at two ranges, and so do All and
@@ -296,20 +352,70 @@ tinted circle with two swap arrows (`components/SwapTitle.tsx`), and the glyph
 turns over when you use it, so the swap has a direction. Printing both words
 would spend the header's width on a word you are not looking at.
 
+**The swap crossfades** (`components/SwapView.tsx`, 180ms), with no slide: each
+view draws its own add button in the same corner, and a slide would move it
+sideways. The glyph is what gives the swap a direction: it turns 180° over
+260ms. The title remounts with the view it sits in, so the angle it turns from
+is kept at module level in `lib/swap-motion.ts`.
+
+- **A title reads its own view's mode, not the store** (`useShownMode`). The
+  store changes on the render that prepares the outgoing view, so a title
+  subscribed to it relabelled the leaving header and spent the glyph's turn
+  inside a view that was about to be removed.
+- **The leaving layer takes no touches and is hidden from screen readers**
+  during its fade, since it may sit above the arriving one.
+
+- **Only a swap the user made animates.** `lib/view-mode.tsx` records why each
+  mode last changed: `swap` for the header button and the tab re-tap, `set` for
+  a deep link, a notification or the launch-time restore. A widget tap that
+  lands on Upcoming should show Upcoming, not Today sliding away first.
+- **Only the view on screen is mounted.** Keeping both would keep the scroll
+  position of the half you left, at the cost of both views' queries staying live
+  and both re-rendering on every cache write. The position is usually near the
+  top, and the rows under it have often moved by the time you swap back. So the
+  old view leaves React when the swap commits, and Reanimated keeps its last
+  frame on screen only for the fade.
+- **The swap takes two renders before one paint.** The outgoing view's `exiting`
+  animation is a prop, so it is set to this swap's direction on one render and
+  the key changes in a layout effect after it. The view element is memoised per
+  mode, so that first render does not re-render the outgoing tree.
+- **The list does not regroup after a swap.** `useDisplayConfig` starts a mount
+  from the config that view last used this launch (`lib/display-config-cache.ts`).
+  It used to start every mount on the defaults and then regroup once each async
+  read landed. A read that agrees with what is showing sets no state.
+  - `hydrateDisplayConfigs()` fills the cache from AsyncStorage at launch, which
+    covers views mounted after it lands. The first view on screen usually mounts
+    before it and can still regroup once on a cold start.
+  - While a local change's debounced database write is outstanding, the
+    database copy is not applied, or a swap inside that 500ms could read the old
+    config back and undo the change on screen.
+  - The cache is cleared on sign-out, so the next account starts from its own
+    configs.
+- **Reduce Motion lands on the end state**: the new view and the glyph's new
+  angle, with no fade or turn.
+
 Two arrows rather than the other view's icon: a calendar beside "Today" reads
 as "pick a date" and a star beside "Upcoming" reads as "favourite", and both of
 those are real actions in this app. Arrows can only mean switch.
 
 - **The mode is a module store** (`lib/view-mode.tsx`), not a context, for the
-  same reason `lib/auto-sync-notice.ts` is one: the deep-link routes `/today`
-  and `/upcoming` — which the home-screen widgets, the launcher shortcuts and
-  the digest notifications open — sit outside the tab layout and still have to
-  say which half they mean. Both are `Redirect`s that set the mode first.
+  same reason `lib/auto-sync-notice.ts` is one: the deep links `today` and
+  `upcoming` — which the home-screen widgets, the launcher shortcuts and the
+  digest notifications open — arrive outside the tab layout and still have to
+  say which half they mean. Widget and shortcut links set it in
+  `app/+native-intent.tsx`; notification taps reach `app/today.tsx` and
+  `app/upcoming.tsx`, `Redirect`s that set the mode first.
 - **It is not in the query cache.** This is navigation, not data, and
   `invalidateTasks()` sweeps everything under `taskKeys.all`.
 - **It is persisted**, so the app reopens on whichever half you were last using.
   `hydrateViewModes()` runs once from the root layout. A mode set by a deep link
   wins over a restore that lands later — the link is the newer instruction.
+- **Widget and shortcut links skip the redirect screens.** `app/+native-intent.tsx`
+  sets the mode and sends `dodone://today` and `dodone://upcoming` straight to
+  the tab (`agendaModeForSystemPath` in `lib/agenda-link.ts`). With the app
+  open, the redirect screens slid a blank page in before replacing it. They
+  remain for a notification tap, which is an in-app push, and are pushed with
+  `animation: 'none'`.
 - **The four view bodies are unchanged**, just moved: `components/views/`
   holds what used to be `app/(tabs)/{index,upcoming,all,inbox}.tsx`. Each lost
   its title `<Text>` and gained `<AgendaTitle />` or `<TasksTitle />`.
@@ -356,6 +462,19 @@ loop — and `apps/mobile` has no renderer.
   early would forget a good memory just because the list had not arrived.
 - **The restore runs once per launch**, tracked in module state. Without that,
   popping back to the index would bounce straight into the list you just left.
+- **A restore opens on the screen, not on the index first.** The index draws
+  nothing while the decision is pending (`holdIndexBlank`), and the restore is
+  pushed with no animation: it carries `?resume=1`, which the `[id]` screens'
+  options read through `resumeScreenAnimation`. Before, the first tap on the
+  tab each launch showed the index and then played a full push.
+- **The blank index can never be stranded.** `resumeDecision` waits forever if
+  the ids never load, so a failed read, or `RESUME_HOLD_MAX_MS` (600ms) passing,
+  draws the index regardless. A restore that lands after that is pushed with
+  the normal animation, since the user has seen the index by then.
+- **The back animation comes back.** A native stack screen's `animation` also
+  drives its pop, so `useResumeArrival` resets it to the default once the
+  screen has appeared. Otherwise the back button would cut straight to the
+  index.
 
 Two doors closed with this: the cart button on the Projects tab and the
 "Shopping lists" row in Settings. Both existed to reach a feature with no tab
@@ -1197,19 +1316,33 @@ Three pieces, all under `apps/mobile`:
   `useListCounts` caches a Map: restored from a snapshot it arrived as a plain
   object, the first row of the Lists screen called `.get` on it, and the whole
   app went to the error boundary — on every cold start, for anyone with a list.
-  `survivesJsonRoundTrip` keeps such a query out of the snapshot entirely, so it
-  refetches on launch and draws a skeleton, which is what the screens are built
-  for. `useAisleMemory` caches a Map too. **Caching a Map is still allowed; it
-  just will not be persisted.** `CACHE_KEY` is `v2` because the old snapshots
-  already hold the broken shape and cannot be repaired by a reader.
+  `UNPERSISTED_KEY_PREFIXES` keeps such a query out of the snapshot entirely, so
+  it refetches on launch and draws a skeleton, which is what the screens are
+  built for. `useAisleMemory` and `useSuggestionIndex` cache Maps too. **Caching
+  a Map is still allowed; it just will not be persisted, and its key must be in
+  that list.** The filter goes by key rather than by walking the data, because
+  `dehydrate` asks it of every query on every save, and a walk was a pass over
+  every cached task. `query-persist-keys.test.ts` scans `lib/` and fails when a
+  Map-holding query is missing from the list; `holdsMapOrSet` is a shallow
+  backstop that never walks an array. `CACHE_KEY` is `v2` because the old
+  snapshots already hold the broken shape and cannot be repaired by a reader.
+- **The snapshot is saved once the cache goes quiet**, not on every cache event.
+  TanStack's `PersistQueryClientProvider` dehydrates the whole cache on each
+  event, and one write produces dozens; the persister's throttle only spaced out
+  the write. `lib/query-persist-provider.tsx` is that provider with the save
+  swapped for `subscribeDebouncedPersist` (`lib/persist-scheduler.ts`): 1.5s of
+  quiet, never more than 10s behind, and flushed when the app goes to the
+  background, since a backgrounded app can be killed without warning. The
+  restore, `IsRestoringProvider` and the owner check are TanStack's and
+  unchanged.
 - **`lib/list-load-state.ts`** decides skeleton vs. empty vs. error, once, for every
   list screen. `hasData` is `data !== undefined`, **not** `length > 0`: a restored
   empty list is a real answer and gets the empty state, while a cache that has never
   held one gets the skeleton. It is a plain function over a plain input because
   `apps/mobile` has no renderer to test a hook with.
 - **`components/ListPlaceholder.tsx`** draws it: `ListSkeleton`, an `UpdatingBar`
-  that delays itself ~350ms (`useRefreshOnFocus` refires every query on every tab
-  switch, so a bar bound straight to `isFetching` strobes), and `ListError`, without
+  that delays itself ~350ms (focus and invalidation refetch often, so a bar
+  bound straight to `isFetching` strobes), and `ListError`, without
   which an offline first launch pulses a skeleton forever.
 - **`lib/section-rows.ts`** answers the last question in that chain: is this list
   empty? That is a question about tasks, not about rows. Every section flattens to a
@@ -1224,18 +1357,97 @@ Three pieces, all under `apps/mobile`:
   caller that passes none keeps its headers, which is why All, Today's grouped branch
   and Upcoming's grouped branch now pass one.
 
+**The bar stays down for the refetch that follows a local write.** The
+optimistic patch already drew the change, so a bar over it said "something might
+change" about a list that just had. `invalidateTasks()` stamps the time
+(`lib/local-write.ts`), and a fetch starting within 1.5s of it is a reconcile.
+Pull-to-refresh and the focus refetch go through `refetch()`, so they still get
+the bar. It fades out rather than vanishing mid-sweep. The skeleton is drawn in
+the real list's shape and fades out over the rows that replace it.
+
 **That bar is the only signal a background refresh gets.** `RefreshControl`'s
 spinner belongs to the *gesture*, so every list drives it from `usePullToRefresh`
 (`lib/query-client.ts`) rather than from the query's `isRefetching`. The
-obvious-looking `refreshing={isRefetching}` hits the same `useRefreshOnFocus` trap:
-a refetch fires on every tab switch, so the platform drew its pull-to-refresh circle
-— a control the user is meant to have *dragged* into view — unprompted at the top of
-every list on every tap of the tab bar.
+obvious-looking `refreshing={isRefetching}` hits the same trap: when
+`useRefreshOnFocus` still refetched on every tab switch, the platform drew its
+pull-to-refresh circle — a control the user is meant to have *dragged* into view —
+unprompted at the top of every list on every tap of the tab bar.
+
+**A focus refetches only a list older than ten seconds**, and never on the mount's
+own focus. `useRefreshOnFocus` used to call `refetch()` on every focus, and
+`refetch()` cancels a fetch in flight by default, so it cancelled the mount fetch
+(two requests per list on a cold start) and the fetch `app/quick-add.tsx` starts
+before closing (the new task arrived a round trip late). The rule is
+`shouldRefetchOnFocus` in `lib/focus-refresh.ts`, and the refetch passes
+`cancelRefetch: false`.
+
+**A screen off view does not refetch.** Tab screens and screens under the top of a
+stack stay mounted, so a tick on Today used to refetch and re-render All, Inbox,
+Lists and any open project. Their list queries pass `subscribed: useScreenActive()`
+(`lib/screen-activity.ts`): off view they go inactive, an invalidate marks them
+stale, and they refetch when the screen comes back. Their caches still take every
+optimistic patch and are still persisted. A screen under the quick-add composer or
+the deep-linked task editor counts as on view, because both are transparent modals
+drawn over the list, and the composer relies on the list beneath it refetching
+while it is up. Callers that are not screens, like the Tasks tab badge, pass
+nothing and stay subscribed.
 
 **The cache is restored only for the account that wrote it**, and that check lives
 *inside* `restoreClient`, not in the auth listener. Restore and the auth event
 resolve independently, so clearing after the fact is a race the previous user's rows
 can win.
+
+## Rows that arrive (mobile)
+
+**A row that appears because of something the user did opens up; it does not
+appear at full height.** Rows already animated on the way out. On the way in
+they popped in a round trip later and pushed the list down in one frame: an
+undone completion, a task from quick-add, the next task promoted into Focus, a
+shopping item moving into or out of Got it, a section opened.
+
+- **`useRowExit` has an arrive mode.** The row mounts clamped to zero height
+  and opens over `ROW_ARRIVE_MS`, which is the completion's own collapse time.
+  `depart()` is the same fold without the hold or the sideways travel, for a
+  row leaving without anything having happened to the task.
+- **The row's height is read from a view inside the shell**, not from the
+  shell. An arriving shell is zero high when it first lays out; the content
+  inside it still lays out at its natural height.
+- **Only rows a write marked arrive** (`lib/row-arrival.ts`). A row cannot tell
+  a write from a virtualized remount, so the write paths mark the ids and a row
+  asks once as it mounts. The mark lasts 8s until the first mount (a quick-add
+  waits on a refetch), then 600ms, so two mounted lists showing the same task
+  both open and scrolling back to it later does nothing.
+- **Undoing a completion or a delete puts the row back in the cache.**
+  `toggleComplete` and `deleteTask` remember the lists a task was dropped from,
+  for twice the undo window, and the undo reinserts it where it was before the
+  write goes out. The row it was undone from had already unmounted, so before
+  this nothing could animate it.
+- **Section changes keep ghosts** (`lib/section-transitions.ts`). A row that
+  leaves the data is gone on the next render, so folding it shut means drawing
+  it for the length of the fold. That covers a section collapsing, a task moving
+  between Today's Focus and Other tasks, and the header of a group whose last
+  task left on a list with `hideEmptyGroups`. Any other config change (a
+  regroup, a filter) snaps.
+- **Today keys Focus rows apart** (`rowKey` takes the section now), so a task
+  promoted into Focus mounts fresh and opens there while its old row folds
+  below the header. The two heights add up to one row throughout, so the rows
+  under both stay still. A task the user dragged across is left alone.
+- **Today's list stays mounted when the day empties.** It used to be swapped for
+  a separate empty view in one frame, list and headers and all. The message is
+  its `ListEmptyComponent`, passed only when the day is really empty, and fades
+  in.
+- **`draggable-flatlist`'s own layout animations are not used.**
+  `enableLayoutAnimationExperimental` reads `global.LayoutAnimationRepository`,
+  which Reanimated 4 does not have, so it would throw on the UI thread.
+  `itemEnteringAnimation` plays on every cell mount, scroll-backs included.
+- **A picked-up row lifts** (`RowLift`): a 2% scale and a shadow on the
+  library's spring, in place of the grey tint it swapped to in one frame.
+  Reduce motion keeps the tint.
+
+Reduce motion turns all of it off: rows arrive and leave with the data.
+
+**Not yet seen on a device.** Typecheck, the node tests and a full Metro
+bundle pass.
 
 ## Dragging a row (mobile)
 
@@ -1291,6 +1503,11 @@ task.
   "Edit project" tried to open a sheet and did nothing at all. `ListActionsMenu`
   holds the action and runs it from the modal's `onDismiss`, which is iOS-only, so
   Android still runs it inline rather than waiting for a callback that never fires.
+  That rule is `useRunAfterDismiss` now; see *Bottom sheets (mobile)*.
+- **The bulk bar slides up with the mode and down when it ends**, and grows by its
+  button row when the first task is picked. Its sheets are rendered outside the bar:
+  picking an option ends selection in the same tick as it closes the sheet, and the
+  sheet has to stay mounted to slide away. Android's back button ends the mode.
 
 The cost is discoverability: nothing on the row now says it can be dragged. That is
 already true of the projects list, and the alternative was a permanent visual cost on
@@ -1357,6 +1574,40 @@ every bulk action stayed dead for the rest of the session.
   made a reschedule that sent nothing look exactly like one that worked.
   `lib/task-cache-shape.test.ts` is the regression, and it asserts the *write went out*,
   not just the settled cache.
+
+## One write re-renders one row (mobile)
+
+**A tick, a swipe or an edit must re-render only the rows it changed.** It used to
+re-render every row in every mounted list, on the JS thread, and with All, Today and
+Upcoming mounted at once that backlog showed up as late taps and blank cells while
+scrolling. Most of it is identity: a cell is skipped only when everything it is handed
+is the same object as last time.
+
+- **`flattenReusing` keeps unchanged rows** (`lib/section-rows.ts`). TanStack's
+  structural sharing keeps an unchanged task at the same reference, so a row is reused
+  when its task, key and section are. A field edit still makes a new row, because the
+  edited task is a new object. This replaced a `JSON.stringify` of every task on every
+  render, plus an effect that copied the rows into state and rendered twice.
+- **`renderItem` and every renderer handed to the list keep their identity.** The drag
+  library memoises each cell on `renderItem` and the row. So the views read what their
+  header renderers need (config, counts, events) through refs, and a header still
+  redraws because its section is a new object whenever its count or state changes.
+- **Counts a row reads at the tap are getters**, not numbers. See *When the sparks
+  fire*.
+- **The views use `useProjects()`**, not `useProjectsWithCounts()`, for names and
+  colours. The counts change on every tick, which handed `applyDisplay` a new project
+  list and rebuilt every section.
+- **`SectionedDraggableList` and `GroupedTaskList` are `React.memo`**, so the views
+  memoise their `refreshControl` and empty states rather than building them inline.
+- **`windowSize` is 9**, not the default 21, which kept about 250 rows mounted on All.
+- **`StruckText` keeps its line rects in a ref** until the row is struck, and reveals
+  the rule by two opposing `translateX` transforms rather than an animated `width`.
+  The reveal is the same left-to-right sweep per line. A `scaleX` would be cheaper but
+  stretches every rule from one origin, so short lines would finish late.
+- **The swipe panels still mount with every row.** `ReanimatedSwipeable` measures the
+  panel's rendered width at the start of a gesture to set the threshold and the travel,
+  so a panel rendered on demand would arrive after the finger was already moving.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
 
 ## The tab bar minimizes as you scroll (mobile)
 
@@ -1559,6 +1810,59 @@ animation lost every time.
   the ScrollView's offset in `onBegin` and stands down unless it was already at the top.
   Without that the editor lurched toward the floor instead of scrolling.
 
+### The editor's fields stay above the keyboard
+
+**On Android the editor is not a `Modal`.** It had the problem `ProjectFormSheet` had
+(see *A project's colour and its icon*): a `Modal` gets its own window, that window ignores
+`adjustResize` under edge-to-edge, and `useAnimatedKeyboard` cannot see a keyboard raised
+over it. So Notes, the tag field and "Add subtask" were typed behind the keyboard.
+
+The editor is rendered by about ten screens, so it could not move to one host the way
+`ProjectFormSheet` did without changing every call site. `RootPortal`
+(`components/RootOverlay.tsx`) moves only the drawing instead:
+
+- **The component renders `<RootPortal>` where it rendered `<Modal>`.** `RootOverlayHost`,
+  mounted once in `app/_layout.tsx` after the navigator, draws what it is handed. Every
+  hook still runs in the caller's tree, so the props and the call sites are unchanged.
+- **Context does not travel with it.** The sheet sees the providers above the host (query
+  client, undo toast, gesture handler), not the screen's. Nothing in the editor needs a
+  screen-level one. A future one that does would have to be lifted above the host.
+- **A later portal draws on top**, and an update keeps an entry's place
+  (`lib/root-overlay-store.ts`). That is how the location sheet, opened from inside the
+  editor, sits over it.
+- **`KeyboardLift` pads the sheet's contents by the keyboard's height every frame**, on
+  the UI thread. Padding, not a transform, for the reason `ProjectFormSheet` gives: the
+  body has to get shorter so it can scroll. The Close bar rides above the keyboard.
+- **A ScrollView that shrinks keeps its focused child in view by itself**
+  (Android's `ScrollView.onSizeChanged`), so the field moves up with the keyboard.
+  `revealScrollDelta` (`lib/keyboard-reveal.ts`) is a fallback that runs once the
+  keyboard has landed, and does nothing when the field is already visible. It leaves a
+  note taller than the body alone while any of it shows, since only the native text view
+  knows where the cursor is.
+- **Android's back button is a `BackHandler`**, registered while the sheet is open.
+  React Native calls the newest handler first, so back closes the editor before the
+  screen under it, and the location sheet before the editor.
+- **The pickers inside are still `Modal`s.** Their windows sit above the activity's, so
+  they draw over the editor as before.
+- **An entry sets `OVERLAY_Z_INDEX` on its root.** The dev banner and the PR preview pill
+  are siblings of the host with zIndex 9999. Without it the pill drew over the Close bar
+  and took its taps. Android `elevation` still outranks zIndex, so the undo toast now
+  draws over the editor, where the `Modal` used to hide it.
+- **The back handler reads the close through a ref.** Re-registering it when Reduce
+  Motion changes would make it the newest handler, and back would skip the location
+  sheet above it.
+- **The status bar looks the same.** RN 0.81 makes a `Modal`'s window edge-to-edge and
+  copies the activity's status-bar style onto it, so both versions draw the backdrop
+  under a transparent status bar with the same icons.
+- **iOS keeps the `Modal`.** There, a `transparentModal` route (quick-add, `task/[id]`) is
+  a separately presented view controller, so anything in the root view would be behind
+  it. The body sets `automaticallyAdjustKeyboardInsets`, which insets it by the keyboard
+  and scrolls the focused field into view during the keyboard's own animation.
+- **The cost: TalkBack is no longer confined to the sheet.** A `Modal`'s window kept the
+  screen reader inside it. The root view does not, so swiping past the sheet's last
+  element can reach the screen behind the backdrop.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
+
 Two render-cost rules, both because **the editor re-renders on every keystroke in the
 title** — autosave holds the task in React state:
 
@@ -1566,9 +1870,103 @@ title** — autosave holds the task in React state:
   stable. `SubtasksSection` takes `parentId`/`parentDepth` rather than the parent `Task`
   for exactly this reason: a `Task` prop is a new object on every keystroke and would
   defeat the memo on the renders it exists to skip.
-- Nested pickers are mounted only while they are open. Six of them used to live
-  permanently inside every open editor, each rebuilding its option rows per keystroke and
-  holding a host view it never showed.
+- A picker's rows are mounted only while it is open, plus the length of its exit.
+  Six of them used to live permanently inside every open editor, each rebuilding its
+  option rows per keystroke and holding a host view it never showed. The pickers are
+  `BottomSheet`s now and always rendered by the editor, but `BottomSheet` renders no
+  children while closed, and each picker keeps its rows in a body component, so a
+  closed picker is one element and no host views.
+- `TagRow`, `MetaField`, `NotesField` (as `MemoNotesField`) and the cover's art
+  (`CoverArt`) are memoised for the same reason, with stable handlers. The notes read view
+  re-parses every URL when it renders, so before this a title keystroke re-parsed the notes.
+
+**The sheet opens in one piece.** Four rules, each of which removed a visible jump:
+
+- **Sections below the fold mount after the rise.** Places, subtasks, notes, attachments
+  and Repeat mount when the open animation ends (`opened`, set from the `withTiming`
+  callback whether it finished or a drag cancelled it), then fade in. They sit below
+  everything already on screen, so nothing visible moves when they arrive. A drill to
+  another task mounts them at once, because the sheet is already open.
+- **Sections glide when one above them changes height.** Every body section carries
+  `layout={BODY_LAYOUT}`, a Reanimated `LinearTransition`. The calendar fades between the
+  strip and the month grid, crossfades between months, and fades in the second week. The
+  layout animations are on views inside the body. Never put one on the sheet itself,
+  whose transform belongs to the open and the drag.
+- **What the cache already holds is drawn first.** Subtasks are seeded from cached rows
+  (`cachedSubtasks`), the parent crumb from `cachedTask`, and `app/task/[id]` opens on the
+  cached row instead of waiting for `getById`. The subtask fetch still runs and fills in a
+  short seed, and keeps the seed when it fails. The deep link's fetch also still runs,
+  because the persisted cache can hold a task deleted on another device; a `PGRST116`
+  closes the sheet. The parent crumb is the exception: it fetches only when nothing was
+  cached, because after a drill the cached copy has the parent's last save in it and a
+  fetch can race that save.
+- **The deep-link route draws no dim.** The editor's backdrop already follows the sheet;
+  the route's own 40% layer stacked to about 64%, showed alone while the task loaded, and
+  faded out as a second step after the sheet had gone.
+
+**Autosave patches the cache; it does not refetch.** Each save writes the row into the
+cached lists that hold it (`patchSavedTask`). The full refetch runs once, when the editor
+body unmounts, which every close path and every drill has in common. A save still queued
+at that moment is waited for, so the refetch reads the row after it, with a 4s fallback if
+it never lands. The rule is `createEditorReconciler` in `lib/editor-reconcile.ts`,
+node-tested. Refetching on every save meant a pause between words refetched every list
+under the sheet, on the JS thread the title field was using. The trade: a row the edit
+moves to another list (re-dated off Today, ticked done) moves when the sheet closes.
+
+- **The side effects of a write still run on every save.** `patchSavedTask` calls the
+  same `notifyTaskWritten()` that `invalidateTasks()` does: reminders, widgets, the watch
+  and geofences. A reminder set in the editor has to be armed even if the sheet is never
+  closed (set 3pm at 2:40, press Home).
+- **The host's `onSaved` runs through the reconciler**, once, after the close settles
+  (`afterClose`), and not on a drill. It used to run in the close handler, before the
+  last save was sent, so it refetched the row without it. It is skipped when something
+  saved and it is `invalidateTasks` itself, which every host passes today, so the lists
+  are refetched once rather than twice. `app/task/[id]` no longer refetches on close for
+  the same reason.
+
+Reduce Motion lands every one of these on its end state (`ReduceMotion.System`). None of
+it has been seen on a device: typecheck, the node tests and a full Metro bundle pass.
+
+**Subtask writes are optimistic, and a failure is reported inside the section.** A tick
+or a delete changes the row on the tap and goes through `toggleComplete` / `deleteTask`,
+so the lists behind the sheet move with it. A failed write puts the row back
+(`lib/subtask-edits.ts`) and prints a line under the subtask card. It is not a toast:
+the undo toast is drawn by the app root, under the editor's `Modal` window, so a toast
+raised while the editor is open cannot be seen. The add field clears before the create
+goes out, so text typed during the round trip is kept and a second Return cannot create
+the same subtask twice.
+
+## Bottom sheets (mobile)
+
+**Every menu and picker is a `BottomSheet`** (`components/BottomSheet.tsx`). It rises
+from the bottom edge while the backdrop darkens, and slides back down on close. Before,
+the sheets did three different things: most faded in place, the Display sheet slid
+its dark backdrop up the screen with it, and several were removed from the tree while
+their `Modal` was visible, so they vanished in one frame.
+
+- **It is still an RN `Modal`, with `animationType="none"`.** The `Modal` is what puts a
+  picker above the task editor, which is itself a `Modal`. The motion is one shared
+  value, `translateY`, animated on the UI thread with the editor's timings from
+  `lib/sheet-motion.ts`, and the backdrop's opacity is derived from it.
+- **It stays mounted until its exit lands.** Callers pass `visible={open}` and keep it
+  rendered. It renders no children while closed, so put an expensive body in its own
+  component and it costs nothing until opened.
+- **The bottom padding includes the safe-area inset** (`sheetBottomPadding`). RN 0.81's
+  `ReactModalHostView` reports `navigationBarTranslucent` as true whenever edge-to-edge
+  is on, so a `Modal` window draws under the navigation bar, and the old fixed 28px put
+  the last row under three-button navigation.
+- **Only the grabber drags.** Several sheets hold a `ScrollView`, and sharing a drag with
+  one is the problem the editor's `dragVerdict` exists for. The release rule is the
+  editor's `shouldDismiss`.
+- **Android back closes it; Reduce Motion lands on the end state.**
+- **A row that opens another modal uses `useRunAfterDismiss`.** On iOS it holds the
+  action until the `Modal`'s `onDismiss`, which now fires after the slide. On Android it
+  runs inline. `onClosed` is the other hook: it fires once the sheet is fully gone on
+  both platforms, and quick-add uses it to hand focus back to the title field after the
+  month grid closes.
+- **`useSheetMotion` is the motion on its own**, for a sheet that cannot be a `Modal`.
+  `ProjectFormSheet` uses it.
+- **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle pass.
 
 ## The completion animation
 
@@ -1636,7 +2034,10 @@ the moment the project ending, not the task's size.
 counts through two contexts in `task-row-behavior.tsx`. Section and project are provided
 at different depths — a project page groups by status, so the project's last open task is
 not the last in any group — and one context would have the inner erase the outer. Mobile
-passes props, matching the split already documented on `keepsCompleted`.
+passes props, matching the split already documented on `keepsCompleted`, and the
+props are getters (`lib/section-counts.ts`) that read the count when the row is
+tapped. A plain number changed on every completion in the section and
+re-rendered every row beside the one that was ticked.
 
 **A missing count means "this surface cannot tell" and is deliberately different from
 zero**, so the inbox, search, and the drag overlay never fire those rules rather than
@@ -2109,6 +2510,33 @@ is a burst, not one item, which is the one place a list composer must diverge fr
 the task composer. On mobile that is `blurOnSubmit={false}` plus
 `submitBehavior="submit"`.
 
+On mobile the composer has four more rules, all in `components/ListDetail.tsx`:
+
+- **The row lands before the server answers.** `addListItem` puts a stand-in row
+  in the cache, with an id starting `pending:` (`lib/list-item-add.ts`), and
+  swaps the real row into its place when the insert returns. A failed insert
+  takes the stand-in out, takes the "N added" count back down, and names the
+  item in the toast. The stand-in ignores touches until the swap, because a
+  tick or an edit would write to an id the database does not have. A refetch
+  that lands mid-add merges the stand-ins back in (`fetchListItems`), or a
+  burst would blink each row out for a round trip.
+- **The text lives in `ListComposer`, not in the screen.** Held in the screen,
+  every keystroke re-rendered the native header, every row and the pantry
+  drawer. For the same reason the header's options, the row callbacks and the
+  list's header, footer and empty elements are memoised.
+- **The sheet moves in and out.** The scrim fades, and the card slides and
+  fades on a view inside the one the keyboard moves, so the two transforms
+  never overwrite each other. Closing keeps the card drawn until its exit has
+  played, so it leaves with the keyboard instead of vanishing ahead of it. The
+  plus button fades back in. Android's back button closes the sheet before it
+  pops the screen. Reduce Motion lands on the end state.
+- **The regroup at six items fades.** When the list splits into aisles, or
+  folds back into one group, the list dips to 35% opacity and fades back up
+  over 260ms. An opacity on a wrapper is the one thing that can animate here
+  without fighting `SectionedDraggableList`, which positions its own cells.
+  It is not a true crossfade: the old layout is gone on the frame the new one
+  draws.
+
 **Put away soft-deletes**, which is what makes a list standing rather than
 disposable: the list survives, its history does not pile up in it, and the ids it
 returns are an undo token `TasksApi.restore` takes directly. It was called "Clear
@@ -2440,7 +2868,9 @@ removed from the bands below, so nothing is offered twice on one screen.
 - **An optimistic append plus a parent re-sync is a race**, and which side wins
   differs by surface: against Supabase the append lands first, but the demo's write
   is synchronous so its re-render arrives *before* the append and the row showed
-  twice. Both composers dedupe by id.
+  twice. Both composers dedupe by id. Mobile's stand-in row is swapped for the
+  real one by the same rule: if a refetch has already brought the real row in,
+  the stand-in is dropped rather than replaced (`settlePendingItem`).
 - **`Project.kind` and `Task.is_list_item` are optional on read**, and default to
   `tasks`/`false` through `projectKind()`. A deploy that lands ahead of its migration
   must not fail to parse, and defaulting either the other way would hide a whole
@@ -2498,6 +2928,84 @@ longer, and both envelopes comfortably inside the undo window.
   absence of an undo; that reason is gone. Asking first *and* offering an undo
   afterwards is asking twice. `deleteTask` takes a `holdMs` so the optimistic cache
   patch waits for the animation, exactly as `toggleComplete` does.
+
+### A row that moves to another list (mobile)
+
+The third exit, for a task that still exists and is still open but now belongs
+somewhere else. It fades where it stands, then closes, and does not travel:
+
+```
+completion   hold reading as done, then slide RIGHT   filed
+deletion     dim where it stands, then slide LEFT     removed
+move         fade where it stands, then close         moved
+```
+
+```
+  0 → 180   the row fades out at full height    fade
+180 → 400   height closes, no slide              collapse
+```
+
+Constants are `TASK_MOVE_*` in `packages/shared/src/constants.ts`, tested beside
+the deletion's in `delete-motion.test.ts`. `useRowExit().startMove()` plays it.
+
+It plays in four places. Each used to make the row vanish in one frame, and the
+rows below jumped up a row height.
+
+| Where | What moves the row |
+| --- | --- |
+| Swipe left → Today / Tomorrow | `updateTask(id, input, { holdMs })` |
+| Reopening on the Completed screen | `toggleComplete(id, false, { holdMs })` |
+| A row's chip on Today's Overdue card | `updateTask`, as the swipe |
+| "Reschedule all" on that card, or its last row | `bulkRescheduleTasks(ids, date, { holdMs })`; the whole card closes |
+
+- **The write goes out on the tap; only the cache patch waits.** Same contract
+  as `deleteTask`'s `holdMs`. A failed write never moves the row, and the row
+  un-collapses.
+- **The list decides whether a reschedule leaves, not the row.** "Tomorrow"
+  takes a row off Today, moves it to another day on a date-grouped Upcoming, and
+  leaves it where it is on All grouped by status. Each list passes `TaskItem` a
+  `leavesSection` predicate built from the function it places rows with
+  (`lib/row-leave.ts`): Today's universe, Upcoming's `upcomingSectionKey`, or
+  `applyDisplay` for `GroupedTaskList`. A row whose section does not change gets
+  no exit. Moving between Focus and Other on Today is a move within the list.
+- **A row that moves to another section of the same list snaps back to full
+  height when the patch lands.** The list keys rows by id, so it reuses the
+  collapsed instance in the new section. Left alone, that is the row-key trap
+  in *The item row*: a row drawn at zero height. `TaskItem` calls
+  `useRowExit().reset()` in a layout effect when the task it was moving
+  changes, so the reset lands before that frame is painted.
+- **The Overdue card goes through the cache now.** It called the API directly,
+  with no optimistic patch and no auto-sync notice, and showed a spinner for a
+  round trip. Every action on it takes a task off the card, so every action
+  plays the exit.
+
+### "Show completed" marks the row done in place
+
+On a list that keeps done tasks, completing passes `keepInLists` to
+`toggleComplete`, which marks the row done in every `taskKeys.lists()` cache
+instead of filtering it out. Filtering removed it from `everything` and
+`project`, which do hold done tasks, so the check never showed and the row came
+back under Done a round trip later. Each view's own filter hides done rows when
+Show completed is off (`filterTasks`, `todayUniverse`, Upcoming's section
+builder), so the in-place patch never shows a done row where it should not.
+
+- **The inbox cache is still filtered.** Its query is `status = inbox`, and the
+  Tasks tab badge counts it directly. For the same reason the Inbox screen
+  passes `keepsCompleted={false}`, so its row plays the completion exit even
+  with Show completed on.
+- **Curated Upcoming never keeps a done row**, whatever the config says, so it
+  no longer passes `keepsCompleted`. With Show completed on, its rows used to
+  skip the exit and vanish.
+- **The patch waits `TASK_COMPLETE_HOLD_MS`** (`TASK_COMPLETE_CHECK_MS` for a
+  reopen), so the check is seen where the row is before the row moves into its
+  Done section. The row does not collapse, so the row-key trap in *The item row*
+  does not apply: an instance reused in its new section is still full height.
+- **Reopening patches the active lists in place too**, and tag and search
+  results are patched in place on both. Before, a reopened row there kept its
+  done styling until the refetch.
+
+**Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
+pass.
 
 ### Undo gives back the same task
 
@@ -2587,6 +3095,32 @@ page:
   over the button and must never be the reason a half-typed title loses its last word. The
   binding is advertised on the button, since one nobody is told about is one nobody
   presses.
+
+Three mobile rules, in `components/UndoToast.tsx` with the decisions in
+`lib/undo-toast-motion.ts`:
+
+- **Showing a toast re-renders nothing else.** The context carries only `show`,
+  and both it and the value object are stable. The toast's own state lives in a
+  child `ToastHost`. Every task row reads this context and context ignores
+  `React.memo`, so a new value object per toast re-rendered every row on screen
+  while the completed row was still animating out.
+- **A second toast replaces the first in place.** It keeps full opacity, swaps
+  the text, dips a few points and springs back, and restarts the bar and the
+  timer. It used to reset opacity to 0 first, so two completions in a row
+  blinked. A fade-out unmounts only if it finished and its toast is still the
+  current one (`shouldUnmountAfterFade`); otherwise a toast shown within the
+  150ms fade after tapping Undo was wiped at once.
+- **On a tab screen it sits beside the add button and follows the tab bar.** It
+  rests above the expanded bar, inset from the right by the add button's width,
+  and moves down by what the bar sheds as it minimizes, off the same shared
+  value, as a transform. The toast is mounted in the root layout, above the tab
+  navigator, so `TabBarMinimizeProvider` publishes its progress through
+  `useVisibleTabBarProgress()` while the tab bar is on screen. That includes a
+  transparent modal over the tabs (quick-add, a task), which unfocuses them but
+  still draws the bar (`tabsShowing`). Off the tabs it sits above the safe
+  area, and a toast that is up when the bar comes or goes slides to its new
+  height. Reduce Motion lands on the end state; the draining bar still drains,
+  because it is information.
 
 ## Swiping a task row (mobile)
 
@@ -3205,6 +3739,16 @@ The picker **expands in flow on both platforms and never floats.** Web's dialog 
 panel is clipped the moment it passes the footer. On mobile an Android `Modal` would open a
 second window and drop the IME. The form grows and its body scrolls instead.
 
+**On mobile the grid mounts a screenful first and the rest over the next frames.** Mounting
+all 409 icons in one render stalled the panel before it appeared. It cannot be a `FlatList`
+instead: it scrolls inside the form's vertical `ScrollView`, where a `FlatList` warns and
+renders every row anyway. `lib/icon-grid.ts` holds the batch sizes. Opening the panel or
+switching tab starts from the first batch. A search, a group filter or a weight change keeps
+the count already mounted, so narrowing remounts nothing and a weight change keeps the scroll
+position. The grid is one wrapping container with the section labels as full-width items, so
+a cell keeps its parent and stays mounted when a search narrows the list. The cells, `ProjectIcon` and the picker are memoised,
+so a keystroke in the search box or the name field re-renders only what changed.
+
 `ProjectFormSheet` is the whole of it on mobile — create, edit and delete, for a project
 and for a list alike — so the full palette and both icon tabs are reachable there.
 
@@ -3223,13 +3767,20 @@ and nothing in the sheet could react to it.
   its fields in a `ScrollView`. A transform would push a tall sheet (one with the icon
   grid open) off the top of the screen. Cancel and Create sit below the scroll, so they
   stay on screen.
-- **The sheet mounts on open and unmounts on close**, so its fields are seeded once from
-  the row. Before, they were re-seeded whenever the `project` prop changed, so a refetch
+- **The sheet mounts on open and unmounts once its exit has finished**, so its fields
+  are seeded once from the row. It rises and leaves through `useSheetMotion`, the same
+  motion as every `BottomSheet`, on an inner wrapper; the keyboard lift stays padding
+  on the frame around it. Each request gets its own key, so a sheet opened while the
+  last one is still leaving starts fresh. Before, they were re-seeded whenever the `project` prop changed, so a refetch
   while the sheet was open could replace a half-typed rename.
 - **Android's back button closes it**, through `BackHandler`. `Modal`'s `onRequestClose`
   used to do this.
 - **Not yet seen on a device.** Typecheck, the node tests and a full Metro bundle
   pass. The keyboard behaviour can only be checked on a phone.
+
+The task editor and its location sheet have the same problem but are rendered by the
+screens, so they use a general version of this host, `RootPortal`. See *The task editor
+sheet (mobile)*. `ProjectFormHost` was left as it is.
 
 **Where it is opened from differs by screen, and the reason is the header.** A list's
 detail bar has no ⋯ menu, so editing is a pencil beside "Put away". A project's already
@@ -3516,6 +4067,12 @@ what hid the problem, so an unrecognised reason deliberately does not claim curr
   `@do-done/api-client`, and the task engine are behind `await import(...)` on the branch
   that needs them.
 - Widgets read the Supabase session from AsyncStorage, shared with the main app.
+- **The in-app refresh asks the launcher what is placed before reading anything.**
+  `refreshTaskWidgets()` runs after every write, and its task read used to run
+  whether or not a widget existed. `widgetRefreshPlan` (`lib/widget-refresh-plan.ts`)
+  skips the shared read when no Today, Upcoming or Next up widget is placed, and
+  skips the List widgets when none is. It runs 800ms after a write and the watch
+  sync 2s after, so the two reads do not land on the JS thread together.
 
 ### The task widgets draw the app's row
 
@@ -3729,8 +4286,10 @@ home screen without launching the main app.
   from `lib/task-queries` and let it invalidate the cache, while the widget root reads
   `ProjectsApi` directly and keeps its own array. The widget used to pass neither, which is why
   its Project chip was missing and `#groceries` silently became a tag on the one surface where
-  it could not be a project. A surface that omits the list still gets that behaviour, which now
-  only describes the first frame while a list loads.
+  it could not be a project. A surface that omits the list still treats every `#token` as a tag.
+  While the list loads, the Project chip is drawn dimmed and does nothing, so it holds its place
+  in the row instead of appearing later and pushing Estimate sideways. A host whose read fails passes
+  `[]`, so the chip never stays inert for the whole session.
 - **Every quick-add surface has a door to the full editor**, because the chips will never cover
   notes, subtasks, attachments, or the month calendar, and a capture surface that dead-ends
   there is one you have to abandon. The rule is the same on both platforms: **create the task
@@ -3979,9 +4538,11 @@ be dragged.
 
 The sheet tracks the IME height itself and shrinks its list to fit, because `edgeToEdgeEnabled`
 turns off Android's `adjustResize`, so nothing moves on its own and a bottom-anchored sheet is
-simply behind the keyboard. Same problem `QuickAddComposer` solves by riding
-`useAnimatedKeyboard`; this sheet needs the number rather than a transform, because it resizes its
-list instead of moving.
+simply behind the keyboard. It reads `useAnimatedKeyboard` every frame on the UI thread, as
+`QuickAddComposer` does. It used to set a margin from `Keyboard` events, which on Android are the
+"did" events: the sheet sat behind the rising keyboard and jumped up after it landed. On Android it
+is drawn through `RootPortal` rather than a `Modal`, for the reason in *The task editor sheet
+(mobile)*.
 
 **Engine** (`lib/geofencing.ts`)
 
@@ -4161,7 +4722,13 @@ when it is spent, so two clients holding the same one sign each other out — th
 watch would take the phone down with it, silently, an hour after pairing.
 
 So the phone pushes a fresh token on three triggers, and they are not
-interchangeable:
+interchangeable. **None of them runs until a watch has been seen from this
+phone**: `hasWatchApp()` once, or the watch asking, and then a stored flag. A
+phone with no watch used to read the task list and build a snapshot after every
+write for nobody. The flag is stored rather than checked live, because the live
+check sees only connected watches, and a watch out of range still needs the
+snapshot the Data Layer will hand it when it is back. The signed-out clear is
+not gated: it reads nothing, and it is the one put that must not be missed.
 
 - **Every task write**, debounced, through `invalidateTasks()` — the same
   chokepoint the widget refresh and the geofence sync hang off.

@@ -24,6 +24,14 @@ import {
 import { queryClient } from './query-client';
 import { scheduleListShortcutSync } from './list-shortcuts';
 import { invalidateTasks, listKeys, projectKeys } from './task-queries';
+import {
+  PENDING_ITEM_PREFIX,
+  dropPendingItem,
+  pendingListItem,
+  settlePendingItem,
+  withPendingItems,
+} from './list-item-add';
+import type { ScreenQueryOptions } from './task-queries';
 
 /**
  * Shopping lists, on mobile.
@@ -36,8 +44,9 @@ import { invalidateTasks, listKeys, projectKeys } from './task-queries';
 export { listKeys };
 
 /** The user's shopping lists — projects with `kind = 'list'`. */
-export function useLists() {
+export function useLists(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.index(),
     queryFn: async (): Promise<Project[]> => {
       const api = await getProjectsApi();
@@ -49,8 +58,9 @@ export function useLists() {
 }
 
 /** Open/bought counts per list, for the index rows. */
-export function useListCounts() {
+export function useListCounts(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.counts(),
     queryFn: async (): Promise<Map<string, { open: number; got: number }>> => {
       const api = await getTasksApi();
@@ -71,35 +81,42 @@ export function useListCounts() {
  * is what lets the optimistic sweeps in `task-queries.ts` tick a row off here
  * without knowing this view exists.
  */
-export function useListItems(listId: string) {
+export function useListItems(listId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: listKeys.itemsFor(listId),
-    queryFn: async (): Promise<Task[]> => {
-      const api = await getTasksApi();
-      if (listId === ALL_SHOPPING_ID) {
-        // Which lists count is decided from the project rows, so the read is
-        // two round trips. The project read is the same one `useLists` makes;
-        // a failure in it fails this query, rather than reading as a view with
-        // nothing on it.
-        const projects = await getProjectsApi();
-        const lists = await projects.list();
-        if (lists.error) throw lists.error;
-        const ids = shoppingLists(lists.data ?? []).map((l) => l.id);
-        const { data, error } = await api.listItemsIn(ids);
-        if (error) throw error;
-        return data ?? [];
-      }
-      const { data, error } = await api.listItems(listId);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => fetchListItems(listId),
     enabled: !!listId,
   });
 }
 
+/** `useListItems`' read, exported so the node suite can run it. */
+export async function fetchListItems(listId: string): Promise<Task[]> {
+  const api = await getTasksApi();
+  if (listId === ALL_SHOPPING_ID) {
+    // Which lists count is decided from the project rows, so the read is
+    // two round trips. The project read is the same one `useLists` makes;
+    // a failure in it fails this query, rather than reading as a view with
+    // nothing on it.
+    const projects = await getProjectsApi();
+    const lists = await projects.list();
+    if (lists.error) throw lists.error;
+    const ids = shoppingLists(lists.data ?? []).map((l) => l.id);
+    const { data, error } = await api.listItemsIn(ids);
+    if (error) throw error;
+    return withPendingItems(data ?? [], pendingFor(listId));
+  }
+  const { data, error } = await api.listItems(listId);
+  if (error) throw error;
+  // Rows still being created stay on screen through a refetch. See
+  // `addListItem`.
+  return withPendingItems(data ?? [], pendingFor(listId));
+}
+
 /** A single list, for the screen's title bar. */
-export function useList(listId: string) {
+export function useList(listId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: [...projectKeys.all, 'detail', listId] as const,
     queryFn: async () => {
       const api = await getProjectsApi();
@@ -116,15 +133,15 @@ export function useList(listId: string) {
 /**
  * Invalidate everything a list write can move.
  *
- * `invalidateTasks()` on top, because the same write feeds the widgets and the
- * geofence sweep — and because a list *item* is still a task row, so the caches
- * that count rows have to hear about it even though no task view will show it.
+ * `invalidateTasks()` is the whole of it. It invalidates `listKeys.all`, which
+ * covers every list's items and the counts, and it feeds the widgets and the
+ * geofence sweep, since a list *item* is still a task row. This used to
+ * invalidate `listKeys.all` itself and `itemsFor(listId)` as well before
+ * calling it. Each invalidate cancels a fetch in flight and starts it again,
+ * so the open list's items were requested three times per write, two of them
+ * cancelled. `listId` is kept so callers need not change; the prefix covers it.
  */
-export function invalidateLists(listId?: string) {
-  queryClient.invalidateQueries({ queryKey: listKeys.all });
-  if (listId) {
-    queryClient.invalidateQueries({ queryKey: listKeys.itemsFor(listId) });
-  }
+export function invalidateLists(_listId?: string) {
   invalidateTasks();
   // A list created, renamed or deleted has to reach the launcher: its quick
   // action is labelled with the list's name, and a pinned icon outlives the
@@ -134,11 +151,32 @@ export function invalidateLists(listId?: string) {
 }
 
 /**
+ * Stand-in rows for adds the server has not answered yet, by the cache key
+ * they were appended to. `useListItems` merges them into every fetch, so a
+ * refetch that lands mid-add cannot take the row away.
+ */
+const pendingAdds = new Map<string, Task[]>();
+let pendingSeq = 0;
+const LAUNCH_STAMP = Date.now().toString(36);
+
+function pendingFor(key: string): Task[] {
+  return pendingAdds.get(key) ?? [];
+}
+
+function setPending(key: string, rows: Task[]) {
+  if (rows.length === 0) pendingAdds.delete(key);
+  else pendingAdds.set(key, rows);
+}
+
+/**
  * Add an item, optimistically.
  *
- * Appends to the cached list before the write so the row is on screen by the
- * time the thumb leaves the return key — this is the one surface where capture
- * is a burst and a round trip per word would be felt.
+ * A stand-in row goes into the cached list before the write, so the row is on
+ * screen by the time the thumb leaves the return key. This is the one surface
+ * where capture is a burst, and a round trip per word would be felt. The
+ * stand-in is swapped for the real row when the insert returns, and taken out
+ * again if it fails. Its id starts with `PENDING_ITEM_PREFIX`, and the row
+ * ignores touches until the swap.
  */
 export async function addListItem(
   listId: string,
@@ -152,17 +190,58 @@ export async function addListItem(
     alsoInto?: string;
   } = {}
 ): Promise<Task | null> {
-  const api = await getTasksApi();
-  const { data, error } = await api.create({ ...input, project_id: listId });
-  if (error) throw error;
-  if (data) {
-    for (const key of [listId, ...(options.alsoInto ? [options.alsoInto] : [])]) {
-      queryClient.setQueryData<Task[]>(listKeys.itemsFor(key), (prev) =>
-        // Guarded against a refetch having already landed the row — same race
-        // the web composer has, and the same one-line answer.
-        !prev || prev.some((t) => t.id === data.id) ? prev ?? [data] : [...prev, data]
+  const keys = [listId, ...(options.alsoInto ? [options.alsoInto] : [])];
+  // The launch time is in the id because the query cache is persisted: a
+  // stand-in left by a launch killed mid-add must not share an id with a new
+  // one, or `withPendingItems` would keep the old row and drop the new.
+  const tempId = `${PENDING_ITEM_PREFIX}${LAUNCH_STAMP}-${++pendingSeq}`;
+  const temp = pendingListItem({ tempId, listId, input, now: new Date() });
+  for (const key of keys) {
+    setPending(key, [...pendingFor(key), temp]);
+    queryClient.setQueryData<Task[]>(listKeys.itemsFor(key), (prev) =>
+      // Not into a view that has never loaded: its first fetch merges the
+      // stand-in in anyway.
+      prev ? withPendingItems(prev, [temp]) : prev
+    );
+  }
+  const forget = () => {
+    for (const key of keys) {
+      setPending(
+        key,
+        pendingFor(key).filter((t) => t.id !== tempId)
       );
     }
+  };
+
+  let data: Task | null;
+  try {
+    const api = await getTasksApi();
+    const result = await api.create({ ...input, project_id: listId });
+    if (result.error) throw result.error;
+    data = result.data;
+  } catch (error) {
+    forget();
+    for (const key of keys) {
+      queryClient.setQueryData<Task[]>(listKeys.itemsFor(key), (prev) =>
+        dropPendingItem(prev, tempId)
+      );
+    }
+    throw error;
+  }
+
+  forget();
+  // A fetch sent before the insert committed would answer without the new row,
+  // and with the stand-in no longer merged in, the row would blink out until
+  // the invalidate below fetches again. Cancelling it keeps the cache as it is.
+  await Promise.all(
+    keys.map((key) =>
+      queryClient.cancelQueries({ queryKey: listKeys.itemsFor(key) })
+    )
+  );
+  for (const key of keys) {
+    queryClient.setQueryData<Task[]>(listKeys.itemsFor(key), (prev) =>
+      data ? settlePendingItem(prev, tempId, data) : dropPendingItem(prev, tempId)
+    );
   }
   invalidateLists(listId);
   return data;

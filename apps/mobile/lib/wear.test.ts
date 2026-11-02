@@ -21,7 +21,16 @@ vi.mock('@/lib/runtime', () => ({ IS_EXPO_GO: false }));
 
 const syncToWatch = vi.fn(async () => true);
 const clearWatch = vi.fn(async () => true);
-vi.mock('@/modules/dodone-wear', () => ({ syncToWatch, clearWatch }));
+// A watch is paired throughout this suite. The no-watch case, where nothing is
+// read or sent, is `wear-gate.test.ts`.
+vi.mock('@/modules/dodone-wear', () => ({
+  syncToWatch,
+  clearWatch,
+  hasWatchApp: async () => true,
+}));
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: { getItem: async () => null, setItem: async () => {} },
+}));
 
 const complete = vi.fn(async () => ({ data: null, error: null }));
 const update = vi.fn(async () => ({ data: null, error: null }));

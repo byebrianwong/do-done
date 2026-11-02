@@ -15,6 +15,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 
 import {
   hydrateViewModes,
+  modeChangeCause,
   resetViewModes,
   setAgendaMode,
   setTasksMode,
@@ -82,4 +83,23 @@ describe('view modes', () => {
     setAgendaMode('upcoming');
     expect(store.get(AGENDA)).toBeUndefined();
   });
+
+  // Only a swap the user made animates (see lib/swap-motion.ts), so the cause
+  // has to say which kind of change happened last.
+  it('records a toggle as a swap and anything else as a set', async () => {
+    toggleAgendaMode();
+    expect(modeChangeCause('agenda')).toBe('swap');
+    expect(modeChangeCause('tasks')).toBe('set');
+    setAgendaMode('today');
+    expect(modeChangeCause('agenda')).toBe('set');
+    toggleTasksMode();
+    expect(modeChangeCause('tasks')).toBe('swap');
+  });
+
+  it('records the launch-time restore as a set', async () => {
+    store.set(AGENDA, 'upcoming');
+    await hydrateViewModes();
+    expect(modeChangeCause('agenda')).toBe('set');
+  });
 });
+

@@ -18,32 +18,38 @@ import {
 import {
   invalidateTasks,
   useInboxTasks,
-  useProjectsWithCounts,
+  useProjects,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 export function InboxView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const inboxQuery = useInboxTasks();
+  const inboxQuery = useInboxTasks({ subscribed: active });
   const { data: tasks = [], refetch } = inboxQuery;
   const loadState = useListLoadState(inboxQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick, which
+  // would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('inbox');
 
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(inboxQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -51,6 +57,34 @@ export function InboxView() {
     for (const t of tasks) for (const tag of t.tags) set.add(tag);
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
+
+  // Memoised so the list does not see a new element on every render.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        tintColor="#6366f1"
+      />
+    ),
+    [refreshing, onRefresh]
+  );
+  const emptyState = useMemo(
+    () =>
+      loadState.showSkeleton ? (
+        <ListSkeleton rows={4} />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Inbox is empty</Text>
+          <Text style={styles.emptyHint}>
+            Add a task below to get started
+          </Text>
+        </View>
+      ),
+    [loadState.showSkeleton, loadState.showError, refetch]
+  );
 
   return (
     <View style={styles.container}>
@@ -78,32 +112,16 @@ export function InboxView() {
       <UpdatingBar visible={loadState.showUpdating} />
 
       <GroupedTaskList
+        // The inbox query is `status = inbox`, so a done task cannot stay
+        // here whatever "Show completed" says. Its row plays the exit.
+        keepsCompleted={false}
         tasks={tasks}
         projects={projectList}
         config={config}
         onConfigChange={setConfig}
         onTaskPress={handlePress}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#6366f1"
-          />
-        }
-        ListEmptyComponent={
-          loadState.showSkeleton ? (
-            <ListSkeleton rows={4} />
-          ) : loadState.showError ? (
-            <ListError onRetry={refetch} />
-          ) : (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Inbox is empty</Text>
-              <Text style={styles.emptyHint}>
-                Add a task below to get started
-              </Text>
-            </View>
-          )
-        }
+        refreshControl={refreshControl}
+        ListEmptyComponent={emptyState}
         contentContainerStyle={styles.listContent}
       />
       <QuickAddButton defaultStatus="inbox" />

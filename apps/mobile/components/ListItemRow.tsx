@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import ReanimatedSwipeable, {
@@ -25,6 +25,7 @@ import {
 } from '@/lib/use-row-exit';
 import { SWIPE_RETURN_MS, SWIPE_RETURN_SPRING, panelForSwipe } from '@/lib/swipe-actions';
 import { ROW_DRAG_HOLD_MS } from '@/lib/row-gesture';
+import { claimArrival } from '@/lib/row-arrival';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { StruckText } from '@/components/StruckText';
 import { useUndoToast } from '@/components/UndoToast';
@@ -59,6 +60,7 @@ export function ListItemRow({
   onOpen,
   onDragStart,
   onToggled,
+  pending = false,
 }: {
   item: Task;
   /**
@@ -73,8 +75,11 @@ export function ListItemRow({
   shopping?: boolean;
   /** The list the item is on, first in the subline. "All shopping" only. */
   listName?: string;
-  /** Tap on the words: the full editor. */
-  onOpen: () => void;
+  /**
+   * Tap on the words: the full editor. Takes the item, so the screen can hand
+   * every row the same function and the memo holds while the composer types.
+   */
+  onOpen: (item: Task) => void;
   /**
    * Long press: picks the row up, the same as on a task list. Dropped in
    * another section it moves there; put down without moving, a shopping list
@@ -82,7 +87,14 @@ export function ListItemRow({
    */
   onDragStart: () => void;
   /** Ticking writes to the pantry, so the drawer has to reload. */
-  onToggled: () => void;
+  onToggled: (item: Task) => void;
+  /**
+   * The row is a stand-in the server has not answered for yet (see
+   * `lib/list-item-add.ts`). It has no real id, so a tick, a swipe or the
+   * editor would write to nothing. It ignores touches until it is swapped for
+   * the real row, usually a few hundred milliseconds.
+   */
+  pending?: boolean;
 }) {
   const copy = listCopy(shopping);
   // Optimistic, because the row deliberately stays mounted for the length of
@@ -91,7 +103,12 @@ export function ListItemRow({
   const [completed, setCompleted] = useOptimisticCompleted(
     item.status === 'done' || item.status === 'cancelled'
   );
-  const exit = useRowExit(completed);
+  // A tick moves the item to the other side of the cart, and the row is keyed
+  // by which side it is on, so it mounts fresh there. `toggleComplete` marks
+  // it, and the new row opens up instead of appearing at full height. Asked
+  // once: a row scrolled back into view was not marked.
+  const [arrive] = useState(() => claimArrival(item.id));
+  const exit = useRowExit(completed, { arrive });
   const toast = useUndoToast();
   const swipeRef = useRef<SwipeableMethods | null>(null);
   // A completion the swipe has asked for and the row's journey home hasn't
@@ -182,7 +199,7 @@ export function ListItemRow({
       // The pantry is written inside `TasksApi.update`, so the drawer has to
       // reload either way: on success because a gap was just recorded, on
       // failure because nothing was and the cache must stop claiming it was.
-      .finally(onToggled);
+      .finally(() => onToggled(item));
   }
 
   /**
@@ -196,7 +213,7 @@ export function ListItemRow({
       setCompleted(false);
       exit.setChecked(false);
       exit.cancel();
-      onToggled();
+      onToggled(item);
     } catch {
       // Say so. A silent failure here reads as a dead button.
       toast.show({
@@ -290,8 +307,11 @@ export function ListItemRow({
     // collapsing, so it can't clip the swipe panels the rest of the time.
     <Animated.View
       style={[exit.collapsing && styles.exitShell, exit.style]}
-      onLayout={exit.onLayout}
+      pointerEvents={pending ? 'none' : 'auto'}
     >
+      {/* Measured from in here, not from the shell: an arriving shell is
+          clamped to zero when it first lays out. See `RowExit.onLayout`. */}
+      <View onLayout={exit.onLayout} collapsable={false}>
       <ReanimatedSwipeable
         ref={swipeRef}
         friction={2}
@@ -316,7 +336,7 @@ export function ListItemRow({
         }}
       >
         <Pressable
-          onPress={onOpen}
+          onPress={() => onOpen(item)}
           onLongPress={() => {
             // The tick that says the row is now under the finger. The lift is
             // the only other feedback the gesture gives.
@@ -418,6 +438,7 @@ export function ListItemRow({
           </View>
         </Pressable>
       </ReanimatedSwipeable>
+      </View>
     </Animated.View>
   );
 }

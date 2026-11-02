@@ -22,7 +22,7 @@ import {
   ListSkeleton,
   UpdatingBar,
 } from '@/components/ListPlaceholder';
-import { useCompletedTasks, useProjectsWithCounts } from '@/lib/task-queries';
+import { useCompletedTasks, useProjects } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
@@ -81,15 +81,17 @@ export default function CompletedScreen() {
   const completedQuery = useCompletedTasks();
   const { data: tasks = [], refetch } = completedQuery;
   const loadState = useListLoadState(completedQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick, which
+  // would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('completed');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(completedQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -151,7 +153,11 @@ export default function CompletedScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(t) => t.id}
-          renderItem={({ item }) => <TaskItem task={item} keepsCompleted />}
+          // Reopening is the one way a row leaves this list, so it plays
+          // the move exit before the cache drops it.
+          renderItem={({ item }) => (
+            <TaskItem task={item} keepsCompleted dropsReopened />
+          )}
           renderSectionHeader={({ section: { title, data } }) => (
             <View style={sectionHeaderStyles.container}>
               <Text style={sectionHeaderStyles.text} numberOfLines={1}>
@@ -170,6 +176,7 @@ export default function CompletedScreen() {
           projects={projectList}
           config={config}
           onConfigChange={setConfig}
+          dropsReopened
           refreshControl={refresh}
           ListEmptyComponent={empty}
         />

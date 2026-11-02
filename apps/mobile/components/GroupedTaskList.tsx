@@ -4,6 +4,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import TaskItem from '@/components/TaskItem';
+import { FoldAway } from '@/components/FoldAway';
+import { RowLift } from '@/components/RowLift';
 import {
   SectionCount,
   SectionHeaderButton,
@@ -13,6 +15,9 @@ import SectionedDraggableList, {
   type DraggableSection,
 } from '@/components/SectionedDraggableList';
 import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
+import { useCountGetter, useSectionOpenCounts } from '@/lib/section-counts';
+import { displayGroupOf, leavesBySection } from '@/lib/row-leave';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import {
   applyDisplay,
   dateGroupNamesTheDay,
@@ -78,6 +83,20 @@ interface Props {
   contentContainerStyle?: object;
   /** Shown when the list is empty — skeleton, error, or the view's own copy. */
   ListEmptyComponent?: React.ReactElement | null;
+  /**
+   * Whether a completed row stays in this list. Defaults to the config's
+   * "Show completed". The Inbox passes false: its query is `status = inbox`,
+   * so a done task cannot stay there whatever the config says.
+   */
+  keepsCompleted?: boolean;
+  /** The Completed screen: a reopened row leaves. See `TaskItem`. */
+  dropsReopened?: boolean;
+  /**
+   * For a caller that hands this list an already-narrowed `tasks` (Today
+   * passes its universe): whether a task, as it would be after a write, is
+   * still in that narrower set. Feeds the reschedule exit, not rendering.
+   */
+  inView?: (task: Task) => boolean;
 }
 
 /** Translate a group's drop target into the task patch a cross-section drop implies. */
@@ -100,13 +119,7 @@ function patchForDrop(drop: GroupDropTarget): UpdateTaskInput {
  * Cross-section drag maps the target group's drop target to a task patch;
  * reorder persists only under manual sort (else the engine owns the order).
  */
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
-
-export default function GroupedTaskList({
+function GroupedTaskList({
   tasks,
   projects,
   config,
@@ -119,6 +132,9 @@ export default function GroupedTaskList({
   refreshControl,
   contentContainerStyle,
   ListEmptyComponent,
+  keepsCompleted: keepsCompletedProp,
+  dropsReopened = false,
+  inView,
 }: Props) {
   const { sections, meta } = useMemo(() => {
     const all = applyDisplay(tasks, config, { projects });
@@ -141,13 +157,31 @@ export default function GroupedTaskList({
   // What the list actually renders: collapsed sections keep their header but
   // drop their rows. The full `sections` (above) still drive the freeze/convert
   // refs, so a collapsed section's order is preserved.
-  const renderSections = useMemo(
-    () =>
-      sections.map((s) =>
-        isCollapsed(config, s.key) ? { ...s, data: [] as typeof s.data } : s
-      ),
-    [sections, config]
+  //
+  // Folding a section shut or opening it animates its rows rather than
+  // swapping them in one frame, and on a list that hides its empty groups the
+  // header of a group whose last task just left folds away after it. Any other
+  // change to the config is a different list, and snaps.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+    foldRemovedSections: hideEmptyGroups,
+  });
+  const renderSections = transitions.sections;
+  const { isDepartingSection, isArriving, isDeparting } = transitions;
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes. Read through a ref, like the rest of the drop state.
+  const liveIdsRef = useRef(transitions.liveIds);
+  liveIdsRef.current = transitions.liveIds;
+
+  // Read at the tap, not passed as numbers: both change on every completion,
+  // and a changed prop re-renders every row it reaches. See lib/section-counts.
+  const sectionOpenCount = useSectionOpenCounts(sections);
+  const projectOpenCount = useCountGetter(openInProject);
 
   const metaRef = useRef(meta);
   metaRef.current = meta;
@@ -162,7 +196,8 @@ export default function GroupedTaskList({
   const onConfigChangeRef = useRef(onConfigChange);
   onConfigChangeRef.current = onConfigChange;
 
-  const onReorder = useCallback((sectionKey: string, ids: string[]) => {
+  const onReorder = useCallback((sectionKey: string, rawIds: string[]) => {
+    const ids = liveIdsRef.current(sectionKey, rawIds);
     if (manualRef.current) {
       void reorderTasks(ids).catch(() => {});
       return;
@@ -183,7 +218,8 @@ export default function GroupedTaskList({
   }, []);
 
   const onMove = useCallback(
-    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+    (taskId: string, _from: string, toKey: string, rawDestIds: string[]) => {
+      const destIds = liveIdsRef.current(toKey, rawDestIds);
       // Collapsed sections aren't drop targets in v1 — snap back, expand to drop in.
       if (isCollapsed(configRef.current, toKey)) {
         invalidateTasks();
@@ -220,6 +256,7 @@ export default function GroupedTaskList({
 
   const renderHeader = useCallback((section: DraggableSection) => {
     if (!section.title) return <View style={styles.noneHeader} />;
+    const departing = isDepartingSection(section.key);
     const m = metaRef.current.get(section.key);
     const color = m?.color ?? '#9ca3af';
     // Full count (not the rendered-rows count, which is 0 when collapsed).
@@ -227,31 +264,52 @@ export default function GroupedTaskList({
     const collapsed = isCollapsed(configRef.current, section.key);
     const toggle = onConfigChangeRef.current;
     return (
-      <SectionHeaderButton
-        collapsed={collapsed}
-        onToggle={
-          toggle
-            ? () => toggle(toggleCollapsed(configRef.current, section.key))
-            : undefined
-        }
-      >
-        <Ionicons
-          name={collapsed ? 'chevron-forward' : 'chevron-down'}
-          size={14}
-          color="#9ca3af"
-        />
-        <View style={[sectionHeaderStyles.dot, { backgroundColor: color }]} />
-        <Text style={sectionHeaderStyles.text} numberOfLines={1}>
-          {section.title}
-        </Text>
-        <SectionCount value={count} />
-      </SectionHeaderButton>
+      <FoldAway departing={departing}>
+        <SectionHeaderButton
+          collapsed={collapsed}
+          onToggle={
+            toggle && !departing
+              ? () => toggle(toggleCollapsed(configRef.current, section.key))
+              : undefined
+          }
+        >
+          <Ionicons
+            name={collapsed ? 'chevron-forward' : 'chevron-down'}
+            size={14}
+            color="#9ca3af"
+          />
+          <View style={[sectionHeaderStyles.dot, { backgroundColor: color }]} />
+          <Text style={sectionHeaderStyles.text} numberOfLines={1}>
+            {section.title}
+          </Text>
+          <SectionCount value={count} />
+        </SectionHeaderButton>
+      </FoldAway>
     );
-  }, []);
+  }, [isDepartingSection]);
 
   // With "show completed" on, a ticked-off task stays in this list, so its row
   // must not play the collapse-and-vanish completion exit.
-  const keepsCompleted = config.showCompleted;
+  const keepsCompleted = keepsCompletedProp ?? config.showCompleted;
+  // A reschedule plays the move exit only when it changes the row's group, or
+  // takes it out of the list. Same function the list places rows with.
+  // Read through refs so the predicate, and so `renderTask`, stays the same
+  // object while the data under it changes. It is only called on a tap.
+  const inViewRef = useRef(inView);
+  inViewRef.current = inView;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        inViewRef.current && !inViewRef.current(t)
+          ? null
+          : displayGroupOf(t, configRef.current, {
+              projects: projectsRef.current,
+            })
+      ),
+    []
+  );
   // A status-grouped list puts the status in the header above every row it
   // applies to, so the row saying it again is pure repetition — the same
   // reasoning web's `hideStatusBadge` has always followed.
@@ -261,32 +319,44 @@ export default function GroupedTaskList({
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+      sectionKey: string
+    ) => {
+      const departing = isDeparting(sectionKey, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={onTaskPress}
-          onDragStart={drag}
+          onDragStart={departing ? undefined : drag}
+          arriving={isArriving(sectionKey, task.id)}
+          departing={departing}
           keepsCompleted={keepsCompleted}
+          dropsReopened={dropsReopened}
+          leavesSection={leavesSection}
           hideProject={hideProject}
           hideStatus={groupedByStatus}
           // Under a "Today" or "Tomorrow" header the row's own day is pure
           // repetition; under "This week" or "Later" it is the only thing
           // saying which day, so it stays.
-          hideScheduledDay={dateGroupNamesTheDay(section.key)}
-          openInSection={sectionCounts ? openCount(section.data) : undefined}
-          openInProject={openInProject}
+          hideScheduledDay={dateGroupNamesTheDay(sectionKey)}
+          openInSection={sectionCounts ? sectionOpenCount(sectionKey) : undefined}
+          openInProject={projectOpenCount}
         />
-      </View>
-    ),
+      </RowLift>
+      );
+    },
     [
+      isArriving,
+      isDeparting,
       onTaskPress,
       keepsCompleted,
+      dropsReopened,
+      leavesSection,
       hideProject,
       groupedByStatus,
       sectionCounts,
-      openInProject,
+      sectionOpenCount,
+      projectOpenCount,
     ]
   );
 
@@ -304,7 +374,12 @@ export default function GroupedTaskList({
   );
 }
 
+/**
+ * Memoised for the same reason as `SectionedDraggableList`: a screen that
+ * re-renders for its own reasons should not re-render its list.
+ */
+export default React.memo(GroupedTaskList);
+
 const styles = StyleSheet.create({
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   noneHeader: { height: 8 },
 });

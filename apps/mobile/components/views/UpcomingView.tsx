@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -11,6 +11,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
+import { RowLift } from '@/components/RowLift';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import { AgendaTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -33,15 +35,18 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useListLoadState } from '@/lib/list-load-state';
+import { useSectionOpenCounts } from '@/lib/section-counts';
+import { leavesBySection } from '@/lib/row-leave';
 import {
   invalidateTasks,
   moveTask,
   reorderTasks,
   useAllTasks,
-  useProjectsWithCounts,
+  useProjects,
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
@@ -88,6 +93,20 @@ function sectionTarget(key: string): UpdateTaskInput {
   return { scheduled_date: key }; // a YYYY-MM-DD day
 }
 
+/**
+ * Which section the curated layout puts a task in: 'overdue', a YYYY-MM-DD
+ * day, 'later' or 'anytime'. Null for a finished task, which this layout never
+ * shows. `buildSections` places rows with this, and the reschedule exit asks it
+ * where a row would go, so the two cannot disagree.
+ */
+function upcomingSectionKey(t: Task, horizonEnd: string): string | null {
+  if (t.status === 'done' || t.status === 'cancelled') return null;
+  if (isOverdue(t)) return 'overdue';
+  const d = effectiveDate(t);
+  if (!d) return 'anytime';
+  return d <= horizonEnd ? d : 'later';
+}
+
 // Build ordered date sections: Overdue → Today → Tomorrow → each dated day in
 // the horizon → Later (beyond the horizon) → Anytime (undated). Days that only
 // have calendar events (no tasks) still get a section so the events show.
@@ -114,18 +133,12 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   };
 
   for (const t of tasks) {
-    if (t.status === 'done' || t.status === 'cancelled') continue;
-    if (isOverdue(t)) {
-      overdue.push(t);
-      continue;
-    }
-    const d = effectiveDate(t);
-    if (d) {
-      if (d <= horizonEnd) push(d, t);
-      else later.push(t);
-    } else {
-      anytime.push(t);
-    }
+    const key = upcomingSectionKey(t, horizonEnd);
+    if (key === null) continue;
+    if (key === 'overdue') overdue.push(t);
+    else if (key === 'later') later.push(t);
+    else if (key === 'anytime') anytime.push(t);
+    else push(key, t);
   }
 
   const out: DraggableSection[] = [];
@@ -139,30 +152,32 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   return out;
 }
 
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
+/** Stable while events load, so the memoised header renderer keeps its identity. */
+const NO_EVENTS: CalendarEvent[] = [];
 
 export function UpcomingView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const tasksQuery = useAllTasks();
+  const tasksQuery = useAllTasks({ subscribed: active });
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick,
+  // which would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('upcoming');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tasksQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -175,7 +190,7 @@ export function UpcomingView() {
   // useLocalDay keeps the window anchored to the CURRENT day across overnight
   // foregrounds, not the day the screen last rendered.
   const localDay = useLocalDay();
-  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
+  const { data: events = NO_EVENTS, isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, HORIZON_DAYS + 1)
   );
@@ -187,19 +202,43 @@ export function UpcomingView() {
     [tasks, config, eventsByDay]
   );
 
-  // Collapsed days keep their header but drop their rows from the list.
-  const renderSections = useMemo(
-    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
-    [sections, config]
+  // Collapsed days keep their header but drop their rows from the list, and
+  // folding or opening one animates its rows. See lib/section-transitions.ts.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+  });
+  const renderSections = transitions.sections;
   const countByKey = useMemo(
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
   );
+  const sectionOpenCount = useSectionOpenCounts(sections);
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    void reorderTasks(ids).catch(() => {});
-  }, []);
+  // The header renderer reads these through refs so it keeps its identity
+  // across data changes; a new renderer would re-render every cell. A header
+  // still redraws when its own section object changes, which `buildSections`
+  // does whenever the tasks, the config or the events change.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const countByKeyRef = useRef(countByKey);
+  countByKeyRef.current = countByKey;
+  const eventsByDayRef = useRef(eventsByDay);
+  eventsByDayRef.current = eventsByDay;
+
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes.
+  const { liveIds, isArriving, isDeparting } = transitions;
+  const onReorder = useCallback(
+    (key: string, ids: string[]) => {
+      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    },
+    [liveIds]
+  );
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
@@ -208,18 +247,21 @@ export function UpcomingView() {
         invalidateTasks();
         return;
       }
-      void moveTask(taskId, sectionTarget(toKey), destIds).catch(() => {});
+      void moveTask(taskId, sectionTarget(toKey), liveIds(toKey, destIds)).catch(
+        () => {}
+      );
     },
-    [config]
+    [config, liveIds]
   );
 
   const renderHeader = useCallback(
     (section: DraggableSection) => {
-      const collapsed = isCollapsed(config, section.key);
-      const count = countByKey.get(section.key) ?? section.data.length;
+      const collapsed = isCollapsed(configRef.current, section.key);
+      const count = countByKeyRef.current.get(section.key) ?? section.data.length;
       // Day sections are keyed by YYYY-MM-DD, so the key doubles as the
       // events lookup; sentinel sections (overdue/later/anytime) miss the map.
-      const dayEvents: CalendarEvent[] = eventsByDay.get(section.key) ?? [];
+      const dayEvents: CalendarEvent[] =
+        eventsByDayRef.current.get(section.key) ?? [];
       // "(0)" over visible event rows reads as a bug — drop the count when
       // the day only has events.
       const showCount = count > 0 || dayEvents.length === 0;
@@ -227,7 +269,9 @@ export function UpcomingView() {
         <View>
           <SectionHeaderButton
             collapsed={collapsed}
-            onToggle={() => setConfig(toggleCollapsed(config, section.key))}
+            onToggle={() =>
+              setConfig(toggleCollapsed(configRef.current, section.key))
+            }
           >
             <Ionicons
               name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -250,38 +294,69 @@ export function UpcomingView() {
         </View>
       );
     },
-    [config, setConfig, countByKey, eventsByDay]
+    [setConfig]
   );
 
-  // With "show completed" on, a ticked-off task stays in this list, so its row
-  // must not play the collapse-and-vanish completion exit.
-  const keepsCompleted = config.showCompleted;
+  // This layout never shows a finished task (`upcomingSectionKey` drops it),
+  // even with "show completed" on, so a completed row always leaves. It used
+  // to read the config here, and with Show completed on the row skipped its
+  // exit and vanished on the tap.
+  //
+  // A reschedule leaves when it changes the row's day section. The filters
+  // still apply, so a row the config would now hide leaves too.
+  const leavesSection = useMemo(
+    () =>
+      leavesBySection((t) =>
+        filterByConfig([t], configRef.current).length === 0
+          ? null
+          : upcomingSectionKey(t, addDaysLocalISO(HORIZON_DAYS))
+      ),
+    []
+  );
   const renderTask = useCallback(
     (
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+      sectionKey: string
+    ) => {
+      const departing = isDeparting(sectionKey, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragStart={drag}
-          keepsCompleted={keepsCompleted}
+          onDragStart={departing ? undefined : drag}
+          arriving={isArriving(sectionKey, task.id)}
+          departing={departing}
+          leavesSection={leavesSection}
           // A day section's header is the day, so its rows keep only their
           // time. The sentinel sections (Overdue / Later / Anytime) name no
           // single day, so those rows still print their own.
-          hideScheduledDay={isDayKey(section.key)}
-          openInSection={openCount(section.data)}
+          hideScheduledDay={isDayKey(sectionKey)}
+          openInSection={sectionOpenCount(sectionKey)}
         />
-      </View>
-    ),
-    [handlePress, keepsCompleted]
+      </RowLift>
+      );
+    },
+    [handlePress, leavesSection, sectionOpenCount, isArriving, isDeparting]
   );
 
-  const refreshControl = (
-    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+  // Memoised so the lists below do not see a new element on every render.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+    ),
+    [refreshing, onRefresh]
+  );
+  const emptyState = useMemo(
+    () => (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>Nothing coming up</Text>
+        <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+      </View>
+    ),
+    []
   );
 
   return (
@@ -331,12 +406,7 @@ export function UpcomingView() {
           // The curated branch above is a run of day columns, so it says
           // "nothing" by showing empty days. Any other grouping has no such
           // shape to fall back on and would render blank.
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing coming up</Text>
-              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
-            </View>
-          }
+          ListEmptyComponent={emptyState}
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -383,7 +453,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#6366f1',
   },
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 96, flexGrow: 1 },
   empty: {
     flex: 1,

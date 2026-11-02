@@ -40,7 +40,7 @@ import {
 import { todayUniverse } from '@do-done/task-engine';
 
 /** How many days ahead the Upcoming widget lists individual day sections. */
-const UPCOMING_HORIZON_DAYS = 7;
+export const UPCOMING_HORIZON_DAYS = 7;
 
 export interface WidgetGroup {
   key: string;
@@ -263,8 +263,8 @@ export const PICKER_ROW_HEIGHT = 26;
  *
  * Each row is drawn to two images (light and dark) and written to disk on
  * every widget update, and an update follows every task write. Upcoming's
- * Anytime group can hold most of the 200 tasks `loadWidgetTasks` reads, which
- * would be 400 images per write. Fifty rows is several screens of scrolling on
+ * Anytime group can hold hundreds of the tasks `loadWidgetTasks` reads, which
+ * would be twice that many images per write. Fifty rows is several screens of scrolling on
  * any widget size.
  */
 export const WIDGET_MAX_LIST_ROWS = 50;
