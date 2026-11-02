@@ -43,7 +43,13 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from 'react-native-reanimated';
 import { parseTaskInput } from '@do-done/task-engine';
+import { QUICK_ADD_LAYOUT_MS } from '@/lib/quick-add-motion';
 import {
   COMPACT_PROJECT_COLORS,
   PRIORITY_CONFIG,
@@ -178,6 +184,8 @@ export interface QuickAddFields {
    * someone with a better claim than the history.
    */
   suggestionsFor: (title: string) => FacetSuggestions;
+  /** The history `suggestionsFor` scores against, so a caller can memoise on it. */
+  suggestionIndex: SuggestionIndex | undefined;
   /** True once the user has chosen anything — keeps a surface expanded. */
   anySet: boolean;
   /** Back to the seed: what a surface does after a successful create. */
@@ -458,11 +466,21 @@ export function useQuickAddFields(
     calendarOpen,
     setCalendarOpen,
     suggestionsFor,
+    suggestionIndex,
     anySet,
     reset,
     buildInput,
   };
 }
+
+/**
+ * How a popover arrives and leaves. A fade, short enough that switching from
+ * one chip's options to another's never reads as waiting. Reanimated's builders
+ * skip the animation under Reduce Motion, so the popover lands as it did
+ * before.
+ */
+const POPOVER_ENTERING = FadeIn.duration(140);
+const POPOVER_EXITING = FadeOut.duration(100);
 
 /**
  * A chip's options, floating directly above the card and anchored to the chip
@@ -479,7 +497,11 @@ function Popover({
   onSelect: (key: string) => void;
 }) {
   return (
-    <View style={[styles.popover, { marginLeft: left }]}>
+    <Animated.View
+      style={[styles.popover, { marginLeft: left }]}
+      entering={POPOVER_ENTERING}
+      exiting={POPOVER_EXITING}
+    >
       <ScrollView
         style={styles.popoverScroll}
         keyboardShouldPersistTaps="always"
@@ -509,7 +531,7 @@ function Popover({
           </Pressable>
         ))}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -546,7 +568,11 @@ function NewProjectForm({
   };
 
   return (
-    <View style={[styles.popover, styles.newProject, { marginLeft: left }]}>
+    <Animated.View
+      style={[styles.popover, styles.newProject, { marginLeft: left }]}
+      entering={POPOVER_ENTERING}
+      exiting={POPOVER_EXITING}
+    >
       <TextInput
         style={styles.newProjectInput}
         value={name}
@@ -597,7 +623,7 @@ function NewProjectForm({
           )}
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -611,11 +637,14 @@ function Chip({
   iconColor,
   onPress,
   onLayout,
+  disabled = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   active: boolean;
   open: boolean;
+  /** Drawn in its place but not tappable yet — see the Project chip below. */
+  disabled?: boolean;
   /** Overrides the active tint for both icon and label (priority's own colour). */
   color?: string;
   /**
@@ -629,11 +658,19 @@ function Chip({
   const tint = active ? color ?? '#4338ca' : '#6b7280';
   return (
     <Pressable
-      style={[styles.chip, active && styles.chipActive, open && styles.chipOpen]}
+      style={[
+        styles.chip,
+        active && styles.chipActive,
+        open && styles.chipOpen,
+        disabled && styles.chipPending,
+      ]}
       onPress={onPress}
       onLayout={onLayout}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      accessibilityHint={disabled ? 'Loading projects' : undefined}
       hitSlop={4}
     >
       <Ionicons name={icon} size={15} color={active ? iconColor ?? tint : tint} />
@@ -647,8 +684,12 @@ function Chip({
 }
 
 /**
- * The chip row itself. Goes inside the card, under the title input. The
- * Project chip appears only once `fields.projects` has a list to show.
+ * The chip row itself. Goes inside the card, under the title input.
+ *
+ * The Project chip is drawn from the first frame, dimmed and inert until
+ * `fields.projects` has a list to show. Both hosts load that list after the
+ * composer is already up, and a chip that appeared on arrival pushed Estimate
+ * sideways under the user's thumb.
  */
 export function QuickAddChipRow({
   fields,
@@ -669,9 +710,11 @@ export function QuickAddChipRow({
   const project = projects?.find((p) => p.id === projectId) ?? null;
 
   return (
-    <View
+    <Animated.View
       style={[styles.chipRow, style]}
       onLayout={(e) => setRowOffset(e.nativeEvent.layout.x)}
+      // Moves with the card when a row above it appears or goes.
+      layout={LinearTransition.duration(QUICK_ADD_LAYOUT_MS)}
     >
       <Chip
         icon="calendar-outline"
@@ -690,21 +733,22 @@ export function QuickAddChipRow({
         onPress={() => fields.toggleMenu('priority')}
         onLayout={fields.anchorFor('priority')}
       />
-      {projects ? (
-        <Chip
-          icon="folder-outline"
-          label={
-            project
-              ? `${projectIconText(project.icon)} ${project.name}`.trim()
-              : 'Project'
-          }
-          active={!!project}
-          open={menu === 'project'}
-          iconColor={project?.color}
-          onPress={() => fields.toggleMenu('project')}
-          onLayout={fields.anchorFor('project')}
-        />
-      ) : null}
+      <Chip
+        icon="folder-outline"
+        label={
+          project
+            ? `${projectIconText(project.icon)} ${project.name}`.trim()
+            : 'Project'
+        }
+        active={!!project}
+        open={menu === 'project'}
+        iconColor={project?.color}
+        // Undefined means still loading. A host whose read failed passes [],
+        // so the chip never stays inert for the whole session.
+        disabled={!projects}
+        onPress={() => fields.toggleMenu('project')}
+        onLayout={fields.anchorFor('project')}
+      />
       <Chip
         icon="time-outline"
         label={durationLabel(duration)}
@@ -713,7 +757,7 @@ export function QuickAddChipRow({
         onPress={() => fields.toggleMenu('estimate')}
         onLayout={fields.anchorFor('estimate')}
       />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -740,7 +784,15 @@ export function QuickAddSuggestionRow({
   title: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const suggestions = fields.suggestionsFor(title);
+  // Scored once per change to what it reads, not on every render of the
+  // composer: a recording re-renders it as the transcript lands.
+  const { suggestionsFor, projectId, duration, projects, suggestionIndex } = fields;
+  const suggestions = useMemo(
+    () => suggestionsFor(title),
+    // `suggestionsFor` is rebuilt every render; these are what it reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [title, projectId, duration, projects, suggestionIndex]
+  );
   const project = suggestions.project_id
     ? fields.projects?.find((p) => p.id === suggestions.project_id!.value) ?? null
     : null;
@@ -749,7 +801,12 @@ export function QuickAddSuggestionRow({
   if (!project && minutes == null) return null;
 
   return (
-    <View style={[styles.suggestRow, style]}>
+    <Animated.View
+      style={[styles.suggestRow, style]}
+      entering={FadeIn.duration(160)}
+      exiting={FadeOut.duration(120)}
+      layout={LinearTransition.duration(QUICK_ADD_LAYOUT_MS)}
+    >
       <Text style={styles.suggestLabel}>Suggested</Text>
       {project ? (
         <Pressable
@@ -781,7 +838,7 @@ export function QuickAddSuggestionRow({
           <Text style={styles.suggestChipText}>{durationLabel(minutes)}</Text>
         </Pressable>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1154,6 +1211,10 @@ const styles = StyleSheet.create({
   // read as one control.
   chipOpen: {
     backgroundColor: '#e0e7ff',
+  },
+  // Holding the Project chip's place while the list loads.
+  chipPending: {
+    opacity: 0.45,
   },
   chipText: {
     fontSize: 13,

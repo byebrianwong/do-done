@@ -16,8 +16,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import {
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { VOICE_MAX_DURATION_MS } from "@do-done/shared";
 import { IS_EXPO_GO } from "./runtime";
+import { METER_TWEEN_MS } from "./quick-add-motion";
+import { prefersReducedMotion } from "./use-row-exit";
 import {
   applyResult,
   EMPTY_TRANSCRIPT,
@@ -83,7 +90,10 @@ if (!IS_EXPO_GO && Platform.OS !== "web") {
  */
 export const VOICE_SUPPORTED = moduleLoaded;
 
-/** How often the elapsed counter reticks. Fine enough for a 0:0x readout. */
+/**
+ * How often the duration ceiling is checked. The clock the user sees ticks
+ * inside `VoiceRecorder`, not here.
+ */
 const TICK_MS = 200;
 
 /**
@@ -122,9 +132,18 @@ export interface VoiceCapture {
   recording: boolean;
   /** Live text, partial results included, so words appear as they're spoken. */
   transcript: string;
-  elapsedMs: number;
-  /** 0..1 input level, for the meter. */
-  level: number;
+  /**
+   * When the current or last recording started (epoch ms), 0 before the first.
+   * The recorder runs its own clock from this. A ticking `elapsedMs` here would
+   * re-render whatever holds this hook, which is the whole quick-add composer,
+   * five times a second.
+   */
+  startedAt: number;
+  /**
+   * 0..1 input level, for the meter. A shared value, so a reading moves the
+   * bars on the UI thread and re-renders nothing.
+   */
+  level: SharedValue<number>;
   error: string | null;
   /** Resolves false when permission was refused or the mic couldn't start. */
   start: () => Promise<boolean>;
@@ -152,8 +171,8 @@ export function useVoiceCapture(
 
   const [recording, setRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const [level, setLevel] = useState(0);
+  const [startedAt, setStartedAt] = useState(0);
+  const level = useSharedValue(0);
   const [error, setError] = useState<string | null>(null);
 
   // Everything the native events touch is a ref: they fire from outside
@@ -191,7 +210,7 @@ export function useVoiceCapture(
     activeRef.current = false;
     clearTimers();
     setRecording(false);
-    setLevel(0);
+    level.value = 0;
 
     if (cancelledRef.current) return;
 
@@ -201,7 +220,7 @@ export function useVoiceCapture(
       durationMs: Date.now() - startedAtRef.current,
       startedAt: startedAtRef.current,
     });
-  }, [clearTimers]);
+  }, [clearTimers, level]);
 
   const settle = useCallback(() => {
     if (
@@ -222,7 +241,11 @@ export function useVoiceCapture(
 
   useSpeechRecognitionEvent("volumechange", (event: { value: number }) => {
     if (!activeRef.current) return;
-    setLevel(normalizeLevel(event.value));
+    // Tween to the reading over the interval readings arrive at, so the bars
+    // move continuously. Reduce motion lands on each reading instead.
+    level.value = withTiming(normalizeLevel(event.value), {
+      duration: prefersReducedMotion() ? 0 : METER_TWEEN_MS,
+    });
   });
 
   useSpeechRecognitionEvent("audiostart", (event: { uri: string | null }) => {
@@ -287,8 +310,8 @@ export function useVoiceCapture(
     activeRef.current = false;
     clearTimers();
     setRecording(false);
-    setLevel(0);
-  }, [clearTimers]);
+    level.value = 0;
+  }, [clearTimers, level]);
 
   const start = useCallback(async (): Promise<boolean> => {
     if (!moduleLoaded || activeRef.current) return false;
@@ -309,8 +332,8 @@ export function useVoiceCapture(
     cancelledRef.current = false;
     startedAtRef.current = Date.now();
     setTranscript("");
-    setElapsedMs(0);
-    setLevel(0);
+    setStartedAt(startedAtRef.current);
+    level.value = 0;
 
     try {
       SpeechRecognition.start({
@@ -324,7 +347,8 @@ export function useVoiceCapture(
         // The recogniser writes the WAV it is already listening to, so nothing
         // else has to open the microphone.
         recordingOptions: { persist: true },
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 150 },
+        // In step with METER_TWEEN_MS, which tweens between readings.
+        volumeChangeEventOptions: { enabled: true, intervalMillis: METER_TWEEN_MS },
       });
     } catch {
       setError("Couldn't start recording.");
@@ -336,7 +360,6 @@ export function useVoiceCapture(
 
     tickRef.current = setInterval(() => {
       const elapsed = Date.now() - startedAtRef.current;
-      setElapsedMs(elapsed);
       // The ceiling is the attachment size limit wearing a clock's face; see
       // VOICE_MAX_DURATION_MS. Stopping is a normal finish, so the note is
       // kept rather than lost at the boundary.
@@ -344,7 +367,7 @@ export function useVoiceCapture(
     }, TICK_MS);
 
     return true;
-  }, [lang, stop]);
+  }, [lang, stop, level]);
 
   // A surface torn down mid-recording must not leave the microphone open.
   useEffect(
@@ -368,7 +391,7 @@ export function useVoiceCapture(
     supported: moduleLoaded,
     recording,
     transcript,
-    elapsedMs,
+    startedAt,
     level,
     error,
     start,

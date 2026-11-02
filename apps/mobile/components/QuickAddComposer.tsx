@@ -46,6 +46,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  LinearTransition,
   useAnimatedKeyboard,
   useAnimatedStyle,
 } from 'react-native-reanimated';
@@ -55,6 +59,7 @@ import type { Project, SuggestionIndex, Task } from '@do-done/shared';
 import { getTasksApi } from '@/lib/supabase';
 import { hapticSuccess } from '@/lib/haptics';
 import { useVoiceQuickAdd } from '@/lib/use-voice-quick-add';
+import { QUICK_ADD_LAYOUT_MS, quickAddOpenAction } from '@/lib/quick-add-motion';
 import ParsePreview from './ParsePreview';
 import VoiceRecorder, { DictatedNote } from './VoiceRecorder';
 import { TagRow } from './TaskEditModalV2';
@@ -87,12 +92,25 @@ interface QuickAddComposerProps {
   /** Focus the input as soon as the composer mounts. */
   autoFocus?: boolean;
   /**
+   * The host's window is already up, so `autoFocus` can focus while mounting
+   * and the keyboard rises with the card. True for the in-app modal. The
+   * widget's activity leaves it off and keeps a short delay; see
+   * `quickAddOpenAction`.
+   */
+  settled?: boolean;
+  /**
+   * Take the card off screen while keeping what was typed. The in-app host sets
+   * it while the full editor is open over this surface, so an emptied or stale
+   * card is not left showing under the editor's sheet.
+   */
+  hidden?: boolean;
+  /**
    * Open recording the moment the composer mounts, instead of the keyboard.
    * This is what the launcher's "Voice task" quick action is: the same
    * composer, entered through the microphone rather than the text field.
    */
   autoRecord?: boolean;
-  /** Projects for the Project chip. Omit and the chip hides. */
+  /** Projects for the Project chip. Until they arrive the chip is drawn dimmed and inert. */
   projects?: Project[];
   /**
    * The counted task history quick-add guesses from. Handed in for the same
@@ -109,6 +127,26 @@ interface QuickAddComposerProps {
   onExpand?: (task: Task) => void;
 }
 
+/**
+ * The card and the rows inside it move to their new place when a row appears
+ * or goes, rather than jumping. The card is pinned to the keyboard, so a row
+ * appearing inside it moves its top edge; without this that edge jumped about
+ * 36px while the user typed. Reanimated skips layout animations under Reduce
+ * Motion, so there the card lands on its new size as before.
+ */
+const LAYOUT = LinearTransition.duration(QUICK_ADD_LAYOUT_MS);
+
+/** Rows that come and go above or inside the card. */
+const ROW_ENTERING = FadeIn.duration(160);
+const ROW_EXITING = FadeOut.duration(120);
+
+/**
+ * The card's own arrival: a short rise on an inner wrapper. The keyboard lift
+ * is a transform on the outer view, so the two never write the same property.
+ */
+const CARD_ENTERING = FadeInDown.duration(220);
+const CARD_EXITING = FadeOut.duration(140);
+
 const CARD_PADDING_H = 14;
 const WRAPPER_PADDING_H = 12;
 
@@ -117,6 +155,8 @@ export default function QuickAddComposer({
   onCreated,
   seed,
   autoFocus = false,
+  settled = false,
+  hidden = false,
   autoRecord = false,
   projects,
   suggestionIndex,
@@ -125,6 +165,10 @@ export default function QuickAddComposer({
 }: QuickAddComposerProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // The double-submit guard. A ref rather than the state above, so a second
+  // tap in the same frame sees it, and rather than `editable={false}`, which
+  // on Android can drop the keyboard mid-request and drop the card with it.
+  const submittingRef = useRef(false);
   const inputRef = useRef<TextInput>(null);
   const fields = useQuickAddFields(seed, projects, suggestionIndex);
 
@@ -154,60 +198,98 @@ export default function QuickAddComposer({
     ],
   }));
 
-  // Focus after mount rather than via `autoFocus`: the widget's activity is
-  // still settling when the root first renders, and an immediate focus there
-  // sometimes never brings the IME up. Recording is deferred for the same
-  // reason — the permission dialog and the activity transition arriving
-  // together is what leaves the composer behind a dialog it can't be seen
-  // under.
+  // What happens on mount is decided by quickAddOpenAction. In short: the
+  // in-app modal focuses while mounting, so the keyboard rises with the card;
+  // the widget's activity is still settling when its root first renders, and
+  // an immediate focus there sometimes never brings the IME up, so it waits.
+  // Recording waits on both, so a permission dialog does not race the
+  // transition.
   // `begin` is rebuilt on every render of the hook, and the effect below must
   // fire exactly once — reading it through a ref is what keeps a re-render
   // from starting a second recording.
   const beginRef = useRef(voiceQuickAdd.begin);
   beginRef.current = voiceQuickAdd.begin;
 
+  const openAction = quickAddOpenAction({ autoFocus, autoRecord, settled });
+  const delayMs = 'delayMs' in openAction ? openAction.delayMs : 0;
   useEffect(() => {
-    if (!autoFocus && !autoRecord) return;
+    if (openAction.kind !== 'focus-later' && openAction.kind !== 'record-later') {
+      return;
+    }
+    const recordOnOpen = openAction.kind === 'record-later';
     const t = setTimeout(() => {
-      if (autoRecord) void beginRef.current();
+      if (recordOnOpen) void beginRef.current();
       else inputRef.current?.focus();
-    }, 150);
+    }, delayMs);
     return () => clearTimeout(t);
-  }, [autoFocus, autoRecord]);
+    // Mount only: the action is fixed by props the host never changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /** Persist what's in the composer. Returns the created task, or null. */
-  async function create(): Promise<Task | null> {
-    const trimmed = text.trim();
-    if (!trimmed || submitting) return null;
-    setSubmitting(true);
-
-    const tasks = await getTasksApi();
-    const { data, error } = await tasks.create(
-      fields.buildInput(trimmed, {
-        status: defaultStatus,
-        description: voiceQuickAdd.description,
-      })
-    );
-    // Nothing to attach a recording to until the task exists.
-    if (!error && data) await voiceQuickAdd.flush(data.id);
-
-    setSubmitting(false);
-    if (error || !data) return null;
-    hapticSuccess();
+  /** Clear the composer for the next task. */
+  function clear() {
     setText('');
     fields.reset();
     voiceQuickAdd.reset();
-    return data;
+  }
+
+  /**
+   * Persist what's in the composer. Returns the created task, or null.
+   *
+   * It does not clear the composer. A host that closes after a create would
+   * otherwise show an emptied card while it fades out, so clearing is left to
+   * the caller, and only done when nothing is about to close.
+   *
+   * On success the double-submit guard stays latched. The text is still in the
+   * field while the host closes, so a second tap or Return in that window
+   * would otherwise create the task again. The caller releases it only if the
+   * composer stays open.
+   */
+  async function create(): Promise<Task | null> {
+    const trimmed = text.trim();
+    if (!trimmed || submittingRef.current) return null;
+    submittingRef.current = true;
+    setSubmitting(true);
+
+    let created: Task | null = null;
+    try {
+      const tasks = await getTasksApi();
+      const { data, error } = await tasks.create(
+        fields.buildInput(trimmed, {
+          status: defaultStatus,
+          description: voiceQuickAdd.description,
+        })
+      );
+      // Nothing to attach a recording to until the task exists.
+      if (!error && data) await voiceQuickAdd.flush(data.id);
+      if (error || !data) return null;
+      hapticSuccess();
+      created = data;
+      return data;
+    } finally {
+      if (!created) submittingRef.current = false;
+      setSubmitting(false);
+    }
   }
 
   async function handleSubmit() {
-    if (await create()) onCreated?.();
+    const created = await create();
+    if (!created) return;
+    // Every current host closes here. One that did not would want the
+    // composer emptied for the next task.
+    if (onCreated) onCreated();
+    else {
+      clear();
+      submittingRef.current = false;
+    }
   }
 
   async function handleExpand() {
     // Create first, then hand the persisted task over: the full editor
     // autosaves against a real row, so there is no draft state for it to open
     // on. This is why the button needs a title — see the disabled state below.
+    // Not cleared either, and the guard stays latched: both hosts take the
+    // composer off screen here and then close.
     const created = await create();
     if (created) onExpand?.(created);
   }
@@ -217,121 +299,153 @@ export default function QuickAddComposer({
       style={[styles.wrapper, { paddingBottom: insets.bottom + 8 }, liftStyle]}
       pointerEvents="box-none"
     >
-      {/* Outside tap closes the open popover — and only the popover; the host's
-          own backdrop underneath still dismisses the whole surface. */}
-      <QuickAddMenuScrim fields={fields} />
+      {hidden ? null : (
+        <>
+          {/* Outside tap closes the open popover — and only the popover; the
+              host's own backdrop underneath still dismisses the whole
+              surface. */}
+          <QuickAddMenuScrim fields={fields} />
 
-      <QuickAddPickers
-        fields={fields}
-        onCreateProject={onCreateProject}
-        onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
-      />
-
-      {/* Deadline / recurrence only — the chips and the tag row own the rest.
-          Reads the list off `fields` rather than the host's prop, so a project
-          created from the chip is matchable by name straight away. */}
-      <ParsePreview text={text} omitChipFields projects={fields.projects} />
-
-      {voiceQuickAdd.open ? (
-        <View style={styles.recorderSlot}>
-          <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
-        </View>
-      ) : null}
-
-      <View style={styles.card}>
-        {/* Title row */}
-        <View style={styles.titleRow}>
-          <TextInput
-            ref={inputRef}
-            testID="quick-add-input"
-            style={styles.input}
-            placeholder="Add a task…"
-            placeholderTextColor="#9ca3af"
-            value={text}
-            onChangeText={(v) => setText(fields.absorbTags(v))}
-            onSubmitEditing={handleSubmit}
-            // The field wraps so a long title can be read in full. A dictated
-            // title runs up to VOICE_TITLE_MAX_CHARS, and on one line most of
-            // it scrolled out of sight. Return still adds the task and keeps
-            // the keyboard up. It never inserts a newline.
-            multiline
-            submitBehavior="submit"
-            returnKeyType="done"
-            editable={!submitting}
-          />
-          {voiceQuickAdd.supported ? (
-            <Pressable
-              testID="quick-add-mic"
-              accessibilityLabel="Record a voice note"
-              style={({ pressed }) => [
-                styles.micBtn,
-                (pressed || voiceQuickAdd.voice.recording) && styles.micBtnActive,
-              ]}
-              onPress={() => void voiceQuickAdd.begin()}
-              disabled={submitting || voiceQuickAdd.voice.recording}
-              hitSlop={4}
-            >
-              <Ionicons
-                name={voiceQuickAdd.voice.recording ? 'mic' : 'mic-outline'}
-                size={20}
-                color={voiceQuickAdd.voice.recording ? '#6366f1' : '#6b7280'}
-              />
-            </Pressable>
-          ) : null}
-          {onExpand ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.expandBtn,
-                pressed && styles.expandBtnPressed,
-              ]}
-              onPress={handleExpand}
-              disabled={submitting || !text.trim()}
-              hitSlop={4}
-              accessibilityRole="button"
-              accessibilityLabel="Open full editor"
-            >
-              <Ionicons
-                name="open-outline"
-                size={20}
-                color={text.trim() ? '#6b7280' : '#d1d5db'}
-              />
-            </Pressable>
-          ) : null}
-          <Pressable
-            testID="quick-add-submit"
-            style={({ pressed }) => [
-              styles.sendBtn,
-              (pressed || !text.trim()) && styles.sendBtnMuted,
-            ]}
-            onPress={handleSubmit}
-            disabled={submitting || !text.trim()}
-            hitSlop={4}
+          {/* `layout` here too: the stack is bottom-anchored, so when anything
+              in it grows, its top edge moves. Animating the stack's frame and
+              the card's together keeps the card's bottom still and lets its
+              top glide, instead of jumping up and then settling. */}
+          <Animated.View
+            style={styles.stack}
+            pointerEvents="box-none"
+            entering={CARD_ENTERING}
+            exiting={CARD_EXITING}
+            layout={LAYOUT}
           >
-            {submitting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="arrow-up" size={22} color="#fff" />
-            )}
-          </Pressable>
-        </View>
+            <QuickAddPickers
+              fields={fields}
+              onCreateProject={onCreateProject}
+              onReturnFocus={() => setTimeout(() => inputRef.current?.focus(), 50)}
+            />
 
-        <DictatedNote
-          description={voiceQuickAdd.description}
-          pending={voiceQuickAdd.pending}
-          error={voiceQuickAdd.error}
-          onClear={voiceQuickAdd.reset}
-        />
+            {/* Deadline / recurrence only — the chips and the tag row own the
+                rest. Reads the list off `fields` rather than the host's prop,
+                so a project created from the chip is matchable by name
+                straight away. */}
+            <ParsePreview text={text} omitChipFields projects={fields.projects} />
 
-        <TagRow
-          tags={fields.tags}
-          onAdd={fields.addTag}
-          onRemove={fields.removeTag}
-        />
+            {voiceQuickAdd.open ? (
+              <Animated.View
+                style={styles.recorderSlot}
+                entering={ROW_ENTERING}
+                exiting={ROW_EXITING}
+                layout={LAYOUT}
+              >
+                <VoiceRecorder voice={voiceQuickAdd.voice} onCancel={voiceQuickAdd.dismiss} />
+              </Animated.View>
+            ) : null}
 
-        <QuickAddSuggestionRow fields={fields} title={text} />
+            <Animated.View style={styles.card} layout={LAYOUT}>
+              {/* Title row */}
+              <Animated.View style={styles.titleRow} layout={LAYOUT}>
+                <TextInput
+                  ref={inputRef}
+                  testID="quick-add-input"
+                  style={styles.input}
+                  placeholder="Add a task…"
+                  placeholderTextColor="#9ca3af"
+                  value={text}
+                  onChangeText={(v) => setText(fields.absorbTags(v))}
+                  onSubmitEditing={handleSubmit}
+                  // The field wraps so a long title can be read in full. A
+                  // dictated title runs up to VOICE_TITLE_MAX_CHARS, and on one
+                  // line most of it scrolled out of sight. Return still adds
+                  // the task and keeps the keyboard up. It never inserts a
+                  // newline.
+                  multiline
+                  submitBehavior="submit"
+                  returnKeyType="done"
+                  // Focus while mounting on a settled host, so the keyboard
+                  // rises with the card. The field stays editable while a
+                  // create is in flight: see `submittingRef`.
+                  autoFocus={openAction.kind === 'focus-on-mount'}
+                />
+                {voiceQuickAdd.supported ? (
+                  <Pressable
+                    testID="quick-add-mic"
+                    accessibilityLabel="Record a voice note"
+                    style={({ pressed }) => [
+                      styles.micBtn,
+                      (pressed || voiceQuickAdd.voice.recording) && styles.micBtnActive,
+                    ]}
+                    onPress={() => void voiceQuickAdd.begin()}
+                    disabled={submitting || voiceQuickAdd.voice.recording}
+                    hitSlop={4}
+                  >
+                    <Ionicons
+                      name={voiceQuickAdd.voice.recording ? 'mic' : 'mic-outline'}
+                      size={20}
+                      color={voiceQuickAdd.voice.recording ? '#6366f1' : '#6b7280'}
+                    />
+                  </Pressable>
+                ) : null}
+                {onExpand ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.expandBtn,
+                      pressed && styles.expandBtnPressed,
+                    ]}
+                    onPress={handleExpand}
+                    disabled={submitting || !text.trim()}
+                    hitSlop={4}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open full editor"
+                  >
+                    <Ionicons
+                      name="open-outline"
+                      size={20}
+                      color={text.trim() ? '#6b7280' : '#d1d5db'}
+                    />
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  testID="quick-add-submit"
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    (pressed || !text.trim()) && styles.sendBtnMuted,
+                  ]}
+                  onPress={handleSubmit}
+                  disabled={submitting || !text.trim()}
+                  hitSlop={4}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="arrow-up" size={22} color="#fff" />
+                  )}
+                </Pressable>
+              </Animated.View>
 
-        <QuickAddChipRow fields={fields} />
-      </View>
+              <DictatedNote
+                description={voiceQuickAdd.description}
+                pending={voiceQuickAdd.pending}
+                error={voiceQuickAdd.error}
+                onClear={voiceQuickAdd.reset}
+              />
+
+              <Animated.View layout={LAYOUT}>
+                <TagRow
+                  tags={fields.tags}
+                  onAdd={fields.addTag}
+                  onRemove={fields.removeTag}
+                />
+              </Animated.View>
+
+              <QuickAddSuggestionRow fields={fields} title={text} />
+
+              {/* Not wrapped: its onLayout reads its x inside the card, which
+                  is what lines a popover up with its chip. It carries its own
+                  `layout` transition. */}
+              <QuickAddChipRow fields={fields} />
+            </Animated.View>
+          </Animated.View>
+        </>
+      )}
     </Animated.View>
   );
 }
@@ -402,6 +516,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   micBtnActive: { backgroundColor: '#eef2ff' },
+  // Popovers, preview, recorder and card, stacked from the bottom. The arrival
+  // animation lives here so the lift transform on `wrapper` is left alone.
+  stack: {
+    alignSelf: 'stretch',
+  },
   // Above the card, not in place of it: the chips and anything already typed
   // stay visible, so a dictation reads as adding to this task rather than
   // starting a different one.
