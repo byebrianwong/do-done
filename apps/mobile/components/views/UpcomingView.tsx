@@ -44,6 +44,7 @@ import {
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import {
   addDaysLocalISO,
@@ -153,9 +154,12 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
 const NO_EVENTS: CalendarEvent[] = [];
 
 export function UpcomingView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const tasksQuery = useAllTasks();
+  const tasksQuery = useAllTasks({ subscribed: active });
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   // Names and colours only. The counts query changes on every tick,
@@ -164,7 +168,7 @@ export function UpcomingView() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('upcoming');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tasksQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);

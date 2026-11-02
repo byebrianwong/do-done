@@ -31,6 +31,7 @@ import {
   useProjectTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { saveResume } from '@/lib/tab-resume';
 import { useResumeArrival } from '@/lib/use-resume-arrival';
 import { useDisplayConfig } from '@/lib/use-display-config';
@@ -40,19 +41,22 @@ import { ProjectIcon } from '@/components/ProjectIcon';
 import { openProjectForm } from '@/components/ProjectFormSheet';
 
 export default function ProjectDetailScreen() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const { id } = useLocalSearchParams<{ id: string }>();
   useResumeArrival();
   const projectId = id ?? '';
 
   const router = useRouter();
-  const { data: project } = useProject(projectId);
-  const tasksQuery = useProjectTasks(projectId);
+  const { data: project } = useProject(projectId, { subscribed: active });
+  const tasksQuery = useProjectTasks(projectId, { subscribed: active });
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   // Names and colours only. The counts query changes on every tick, which
   // would hand `applyDisplay` a new project list each time.
   const { data: projects } = useProjects();
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tasksQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   // What the Projects tab opens on next time — see `lib/tab-resume.ts`.

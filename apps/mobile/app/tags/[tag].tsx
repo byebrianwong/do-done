@@ -50,7 +50,7 @@ export default function TagDetailScreen() {
   // Names and colours only. The counts query changes on every tick, which
   // would hand `applyDisplay` a new project list each time.
   const { data: projects } = useProjects();
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(tasksQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const [editing, setEditing] = useState<Task | null>(null);

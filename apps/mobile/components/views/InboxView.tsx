@@ -21,14 +21,18 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { useListLoadState } from '@/lib/list-load-state';
 import type { Task } from '@do-done/shared';
 
 export function InboxView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const inboxQuery = useInboxTasks();
+  const inboxQuery = useInboxTasks({ subscribed: active });
   const { data: tasks = [], refetch } = inboxQuery;
   const loadState = useListLoadState(inboxQuery);
   // Names and colours only. The counts query changes on every tick, which
@@ -38,7 +42,7 @@ export function InboxView() {
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('inbox');
 
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(inboxQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);

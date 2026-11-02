@@ -128,6 +128,19 @@ async function fetchTasks(filters?: TaskFilterInput): Promise<Task[]> {
 // ─── Queries ────────────────────────────────────────────────
 
 /**
+ * Options a screen passes to the queries it draws its list from.
+ *
+ * `subscribed: false` while the screen is off view, from `useScreenActive()`.
+ * The query keeps its cache and goes inactive, so a write elsewhere marks it
+ * stale instead of refetching it, and it refetches when the screen comes back.
+ * See `lib/screen-activity.ts`. Omitted, the query is subscribed as before,
+ * which is what a caller that is not a screen (the Tasks tab badge) wants.
+ */
+export interface ScreenQueryOptions {
+  subscribed?: boolean;
+}
+
+/**
  * The rows Today is built from: every open task scheduled or with a deadline
  * on or before today, every task pinned into Focus, and the other open tasks
  * Focus ranks.
@@ -144,8 +157,9 @@ export function todayTaskQuery(now: Date = new Date()): { datedThrough: string }
   return { datedThrough: addDaysLocalISO(1, now) };
 }
 
-export function useTodayTasks() {
+export function useTodayTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.today(),
     queryFn: async () => {
       const api = await getTasksApi();
@@ -156,23 +170,26 @@ export function useTodayTasks() {
   });
 }
 
-export function useInboxTasks() {
+export function useInboxTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.inbox(),
     queryFn: () => fetchTasks({ status: 'inbox', limit: 50, offset: 0 }),
   });
 }
 
-export function useProjectTasks(projectId: string) {
+export function useProjectTasks(projectId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.project(projectId),
     queryFn: () => fetchTasks({ project_id: projectId, limit: 200, offset: 0 }),
   });
 }
 
 /** Every task (active + done) — the "All" browse view groups these by status. */
-export function useAllTasks() {
+export function useAllTasks(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: taskKeys.everything(),
     queryFn: () => fetchTasks({ limit: 500, offset: 0 }),
   });
@@ -263,8 +280,9 @@ export function useCompletedTasks() {
   });
 }
 
-export function useProject(projectId: string) {
+export function useProject(projectId: string, opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: [...projectKeys.all, 'detail', projectId] as const,
     queryFn: async () => {
       const api = await getProjectsApi();
@@ -312,8 +330,9 @@ export function useProjects() {
   });
 }
 
-export function useProjectsWithCounts() {
+export function useProjectsWithCounts(opts: ScreenQueryOptions = {}) {
   return useQuery({
+    ...opts,
     queryKey: projectKeys.withCounts(),
     queryFn: async () => {
       const api = await getProjectsApi();

@@ -45,6 +45,7 @@ import {
 import { useSectionOpenCounts } from '@/lib/section-counts';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
+import { useScreenActive } from '@/lib/screen-activity';
 import { useDisplayConfig } from '@/lib/use-display-config';
 import { partitionToday, todayUniverse } from '@do-done/task-engine';
 import {
@@ -98,9 +99,12 @@ const scheduleStyles = StyleSheet.create({
 });
 
 export function TodayView() {
+  // Off view, its lists go inactive rather than refetching on every write.
+  // See lib/screen-activity.ts.
+  const active = useScreenActive();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const todayQuery = useTodayTasks();
+  const todayQuery = useTodayTasks({ subscribed: active });
   const { data: allTasks = [], refetch } = todayQuery;
   // Whether we have an answer at all — "Nothing scheduled today" is only ever
   // shown once we do. On a cold start that's the restored cache; failing that,
@@ -120,7 +124,7 @@ export function TodayView() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('today');
-  useRefreshOnFocus(refetch);
+  useRefreshOnFocus(todayQuery);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
   const handlePress = useCallback((t: Task) => setEditing(t), []);

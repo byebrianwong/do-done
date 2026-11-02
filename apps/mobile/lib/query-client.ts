@@ -1,7 +1,8 @@
 import { AppState, Platform } from 'react-native';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { QueryClient, focusManager } from '@tanstack/react-query';
+import { shouldRefetchOnFocus } from './focus-refresh';
 
 /**
  * How long a query may sit unobserved before it's collected.
@@ -42,14 +43,31 @@ if (Platform.OS !== 'web') {
 }
 
 /**
- * Refetch a query when the screen regains focus (tab switch / back nav),
- * preserving the old useFocusEffect-reload behavior on top of the shared cache.
+ * Refetch a screen's list when the screen regains focus (tab switch, back
+ * navigation), if the list is old enough to be worth it.
+ *
+ * Takes the query result rather than its `refetch`, because the decision needs
+ * `dataUpdatedAt`. The rule is `shouldRefetchOnFocus` in `lib/focus-refresh.ts`:
+ * the mount's own focus is skipped, a later one refetches only data older than
+ * ten seconds, and a refetch joins a fetch already in flight instead of
+ * cancelling it.
  */
-export function useRefreshOnFocus(refetch: () => void) {
+export function useRefreshOnFocus(query: {
+  refetch: (options?: { cancelRefetch?: boolean }) => unknown;
+  dataUpdatedAt: number;
+}) {
+  const latest = useRef(query);
+  latest.current = query;
+  const focusedBefore = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      refetch();
-    }, [refetch])
+      const firstFocus = !focusedBefore.current;
+      focusedBefore.current = true;
+      const { refetch, dataUpdatedAt } = latest.current;
+      if (shouldRefetchOnFocus({ firstFocus, dataUpdatedAt, now: Date.now() })) {
+        void refetch({ cancelRefetch: false });
+      }
+    }, [])
   );
 }
 
@@ -57,8 +75,8 @@ export function useRefreshOnFocus(refetch: () => void) {
  * Pull-to-refresh state that belongs to the **gesture**, not to the query.
  *
  * `<RefreshControl refreshing={isRefetching} />` reads as obviously right and
- * isn't: `useRefreshOnFocus` above refires every query on every tab switch, so
- * that binding made the platform draw its pull-to-refresh spinner — a control
+ * isn't: `useRefreshOnFocus` above refetches on tab switches, so that binding
+ * made the platform draw its pull-to-refresh spinner — a control
  * the user is meant to have dragged into view — unprompted at the top of every
  * list, on every tap of the tab bar. A circle appearing out of a gesture nobody
  * made reads as a glitch, and it fired even when the refetch resolved from
