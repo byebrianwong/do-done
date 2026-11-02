@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DEFAULT_DISPLAY, type DisplayConfig, type Task } from '@do-done/shared';
 import {
   displayGroupOf,
@@ -57,6 +57,17 @@ describe('leavesBySection', () => {
 });
 
 describe('inTodayUniverse', () => {
+  // `todayUniverse` reads the clock to decide what is overdue. Pinned to TODAY,
+  // or a task moved to "tomorrow" turns overdue once the real date passes it
+  // and stays in Today.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('drops a task moved to tomorrow', () => {
     const all = [task('a'), task('b')];
     const moved = patchedTask(all[0]!, { scheduled_date: '2026-10-30' });
