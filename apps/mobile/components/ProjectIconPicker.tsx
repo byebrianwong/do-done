@@ -14,7 +14,15 @@
  * The catalogue itself is in `@do-done/shared` so web offers the same choice.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Pressable,
   ScrollView,
@@ -31,14 +39,114 @@ import {
   parseProjectIcon,
   searchPhosphorIcons,
   searchProjectIcons,
+  type PhosphorCatalogueIcon,
   type PhosphorWeight,
   type ProjectIconOption,
 } from '@do-done/shared';
 import { ProjectIcon } from '@/components/ProjectIcon';
+import {
+  iconGridItems,
+  initialRenderCount,
+  nextRenderCount,
+  renderCountAfterChange,
+  type IconGridSection,
+} from '@/lib/icon-grid';
 
 type Tab = 'icons' | 'emoji';
 
-export function ProjectIconPicker({
+/**
+ * How many of `total` grid items to mount. Grows a batch per frame until it
+ * reaches `total`. When `scope` changes (the panel opens, or the tab switches)
+ * it starts again from the first batch; any other change to the list keeps the
+ * count already reached (`renderCountAfterChange`). The growth runs in a
+ * transition, so a keystroke in the search box is never queued behind it.
+ */
+function useProgressiveCount(total: number, scope: string): number {
+  const [state, setState] = useState(() => ({
+    scope,
+    total,
+    count: initialRenderCount(total),
+  }));
+  let count = state.count;
+  if (state.scope !== scope || state.total !== total) {
+    // Adjusted during render rather than in an effect, so the frame that shows
+    // the new results never mounts more than this.
+    count = renderCountAfterChange(state.count, total, state.scope === scope);
+    setState({ scope, total, count });
+  }
+
+  useEffect(() => {
+    if (count >= total) return;
+    const frame = requestAnimationFrame(() => {
+      startTransition(() => {
+        setState((s) =>
+          s.scope === scope && s.total === total
+            ? { ...s, count: nextRenderCount(s.count, total) }
+            : s,
+        );
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [count, total, scope]);
+
+  return Math.min(count, total);
+}
+
+const EmojiCell = memo(function EmojiCell({
+  char,
+  name,
+  active,
+  onPick,
+}: {
+  char: string;
+  name: string;
+  active: boolean;
+  onPick: (icon: string) => void;
+}) {
+  return (
+    <Pressable
+      onPress={() => onPick(char)}
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      style={[styles.iconCell, active && styles.iconCellActive]}
+    >
+      <Text style={styles.iconChar}>{char}</Text>
+    </Pressable>
+  );
+});
+
+const PhosphorCell = memo(function PhosphorCell({
+  token,
+  label,
+  active,
+  color,
+  onPick,
+}: {
+  token: string;
+  label: string;
+  active: boolean;
+  color: string;
+  onPick: (icon: string) => void;
+}) {
+  return (
+    <Pressable
+      onPress={() => onPick(token)}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.iconCell, active && styles.iconCellActive]}
+    >
+      {/* Previewed in the project's own colour, which is how the row will
+          actually draw it. */}
+      <ProjectIcon icon={token} size={22} color={color} />
+    </Pressable>
+  );
+});
+
+/**
+ * Memoised, so a keystroke in the form's name field does not re-render the
+ * grid. The host passes `onChange` as a state setter, which is stable.
+ */
+export const ProjectIconPicker = memo(function ProjectIconPicker({
   value,
   onChange,
   color,
@@ -60,49 +168,83 @@ export function ProjectIconPicker({
     parsed.kind === 'phosphor' ? parsed.weight : 'fill',
   );
 
-  const emojiResults = useMemo(() => {
-    const searched = searchProjectIcons(query);
-    if (group === 'all') return searched;
-    const inGroup = new Set(
-      PROJECT_ICON_GROUPS.find((g) => g.id === group)?.icons.map((i) => i.char),
-    );
-    return searched.filter((i) => inGroup.has(i.char));
-  }, [query, group]);
-
-  const iconResults = useMemo(() => {
-    const searched = searchPhosphorIcons(query);
-    return group === 'all'
-      ? searched
-      : searched.filter((i) => i.groupId === group);
-  }, [query, group]);
-
   const narrowed = query.trim() !== '' || group !== 'all';
   const groups = tab === 'emoji' ? PROJECT_ICON_GROUPS : PHOSPHOR_CATALOGUE;
 
   // Headed sections only when nothing is narrowing the list — a filtered result
   // set broken into eleven labelled boxes is harder to scan than one grid.
-  const emojiSections: {
-    label: string | null;
-    icons: readonly ProjectIconOption[];
-  }[] = narrowed
-    ? [{ label: null, icons: emojiResults }]
-    : PROJECT_ICON_GROUPS.map((g) => ({ label: g.label, icons: g.icons }));
-
-  const iconSections = narrowed
-    ? [{ label: null as string | null, icons: iconResults }]
-    : PHOSPHOR_CATALOGUE.map((g) => ({
-        label: g.label as string | null,
-        icons: g.icons.map((i) => ({ ...i, groupId: g.id })),
+  const emojiItems = useMemo(() => {
+    if (!open || tab !== 'emoji') return [];
+    let sections: IconGridSection<ProjectIconOption>[];
+    if (narrowed) {
+      const searched = searchProjectIcons(query);
+      const inGroup =
+        group === 'all'
+          ? null
+          : new Set(
+              PROJECT_ICON_GROUPS.find((g) => g.id === group)?.icons.map(
+                (i) => i.char,
+              ),
+            );
+      sections = [
+        {
+          id: null,
+          label: null,
+          icons: inGroup ? searched.filter((i) => inGroup.has(i.char)) : searched,
+        },
+      ];
+    } else {
+      sections = PROJECT_ICON_GROUPS.map((g) => ({
+        id: g.id,
+        label: g.label,
+        icons: g.icons,
       }));
+    }
+    return iconGridItems(sections, (i) => i.char);
+  }, [open, tab, narrowed, query, group]);
 
-  const empty = (tab === 'emoji' ? emojiResults : iconResults).length === 0;
+  const iconItems = useMemo(() => {
+    if (!open || tab !== 'icons') return [];
+    let sections: IconGridSection<PhosphorCatalogueIcon>[];
+    if (narrowed) {
+      const searched = searchPhosphorIcons(query);
+      sections = [
+        {
+          id: null,
+          label: null,
+          icons:
+            group === 'all'
+              ? searched
+              : searched.filter((i) => i.groupId === group),
+        },
+      ];
+    } else {
+      sections = PHOSPHOR_CATALOGUE.map((g) => ({
+        id: g.id,
+        label: g.label,
+        icons: g.icons,
+      }));
+    }
+    return iconGridItems(sections, (i) => i.name);
+  }, [open, tab, narrowed, query, group]);
 
-  const pick = (icon: string) => {
-    onChange(icon);
+  const total = tab === 'emoji' ? emojiItems.length : iconItems.length;
+  const empty = total === 0;
+  // Reopening the panel or switching tab starts from the first batch again.
+  // A weight change re-renders the mounted cells in place, keyed by name, so
+  // the grid keeps its scroll position.
+  const shown = useProgressiveCount(open ? total : 0, `${open}|${tab}`);
+
+  // A stable callback, so the memoised cells skip re-rendering. The ref holds
+  // the latest `onChange` in case a host ever passes a fresh one.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const pick = useCallback((icon: string) => {
+    onChangeRef.current(icon);
     setOpen(false);
     setQuery('');
     setGroup('all');
-  };
+  }, []);
 
   const pickWeight = (next: PhosphorWeight) => {
     setWeight(next);
@@ -254,63 +396,47 @@ export function ProjectIconPicker({
                   ? `Nothing matches “${query.trim()}”. Any character works — paste one into the search box.`
                   : `No icon matches “${query.trim()}”. The Emoji tab has the long tail.`}
               </Text>
-            ) : tab === 'emoji' ? (
-              emojiSections
-                .filter((s) => s.icons.length > 0)
-                .map((section, i) => (
-                  <View key={section.label ?? `results-${i}`}>
-                    {section.label ? (
-                      <Text style={styles.sectionLabel}>{section.label}</Text>
-                    ) : null}
-                    <View style={styles.iconWrap}>
-                      {section.icons.map((icon) => (
-                        <Pressable
-                          key={icon.char}
-                          onPress={() => pick(icon.char)}
-                          accessibilityRole="button"
-                          accessibilityLabel={icon.name}
-                          style={[
-                            styles.iconCell,
-                            value === icon.char && styles.iconCellActive,
-                          ]}
-                        >
-                          <Text style={styles.iconChar}>{icon.char}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                ))
             ) : (
-              iconSections
-                .filter((s) => s.icons.length > 0)
-                .map((section, i) => (
-                  <View key={section.label ?? `results-${i}`}>
-                    {section.label ? (
-                      <Text style={styles.sectionLabel}>{section.label}</Text>
-                    ) : null}
-                    <View style={styles.iconWrap}>
-                      {section.icons.map((icon) => {
-                        const token = formatPhosphorIcon(icon.name, weight);
+              // One wrapping container for every section, so a cell keeps its
+              // parent, and stays mounted, when a search narrows the list.
+              <View style={styles.iconWrap}>
+                {tab === 'emoji'
+                  ? emojiItems.slice(0, shown).map((item) =>
+                      item.kind === 'label' ? (
+                        <Text key={item.key} style={styles.sectionLabel}>
+                          {item.label}
+                        </Text>
+                      ) : (
+                        <EmojiCell
+                          key={item.key}
+                          char={item.icon.char}
+                          name={item.icon.name}
+                          active={value === item.icon.char}
+                          onPick={pick}
+                        />
+                      ),
+                    )
+                  : iconItems.slice(0, shown).map((item) => {
+                      if (item.kind === 'label') {
                         return (
-                          <Pressable
-                            key={`${section.label ?? 'r'}-${icon.name}`}
-                            onPress={() => pick(token)}
-                            accessibilityRole="button"
-                            accessibilityLabel={icon.label}
-                            style={[
-                              styles.iconCell,
-                              value === token && styles.iconCellActive,
-                            ]}
-                          >
-                            {/* Previewed in the project's own colour, which is
-                                how the row will actually draw it. */}
-                            <ProjectIcon icon={token} size={22} color={color} />
-                          </Pressable>
+                          <Text key={item.key} style={styles.sectionLabel}>
+                            {item.label}
+                          </Text>
                         );
-                      })}
-                    </View>
-                  </View>
-                ))
+                      }
+                      const token = formatPhosphorIcon(item.icon.name, weight);
+                      return (
+                        <PhosphorCell
+                          key={item.key}
+                          token={token}
+                          label={item.icon.label}
+                          active={value === token}
+                          color={color}
+                          onPick={pick}
+                        />
+                      );
+                    })}
+              </View>
             )}
           </ScrollView>
 
@@ -328,7 +454,7 @@ export function ProjectIconPicker({
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   header: {
@@ -420,14 +546,17 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '600', color: '#4b5563' },
   chipTextActive: { color: '#fff' },
   grid: { maxHeight: 210, paddingHorizontal: 8, paddingTop: 6 },
+  // A full-width item inside the wrapping grid, so it takes a line of its own.
+  // The grid's 4 px gap sits above and below it, which with this margin gives
+  // the spacing the per-group containers used to.
   sectionLabel: {
+    width: '100%',
     fontSize: 10,
     fontWeight: '700',
     color: '#9ca3af',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 4,
   },
   iconWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   iconCell: {
