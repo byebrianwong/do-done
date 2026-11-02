@@ -64,8 +64,18 @@ import {
   deleteTask,
   invalidateTasks,
   restoreTasks,
+  toggleComplete,
   useProjects,
 } from "@/lib/task-queries";
+import {
+  appendSubtask,
+  applySubtaskStatus,
+  draftAfterFailedAdd,
+  nextSubtaskStatus,
+  reinsertSubtask,
+  removeSubtask,
+  revertSubtaskStatus,
+} from "@/lib/subtask-edits";
 import { useUndoToast } from "./UndoToast";
 import {
   useTaskLocations,
@@ -93,7 +103,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { hapticLight } from "@/lib/haptics";
+import { hapticLight, hapticMedium, hapticSuccess } from "@/lib/haptics";
 import {
   RETURN_SPRING,
   SHEET_CLOSE_MS,
@@ -1425,7 +1435,8 @@ export { recurrenceShortLabel };
  * A `TextInput` can only ever hold dead text, so notes — the field a URL is
  * most likely to be pasted into — swap between a linkified read view and the
  * editor: tap the notes to edit, blur to go back to links. Empty notes go
- * straight to the input so the "add notes" affordance still takes one tap.
+ * straight to the input so the "add notes" affordance still takes one tap, and
+ * focusing that input sets `editing` so it stays mounted once text arrives.
  */
 // How close to the notes ceiling the character counter starts showing. 2,000
 // chars of warning is a few paragraphs — enough to wrap up a thought rather
@@ -1464,6 +1475,10 @@ function NotesField({
           // — so the task stops saving *at all*, not just its notes.
           maxLength={TASK_DESCRIPTION_MAX_LENGTH}
           onChangeText={(v) => onChange(v.length === 0 ? null : v)}
+          // Empty notes render this input without `editing` set. Without this,
+          // the first letter typed makes the notes non-empty, the read view
+          // replaces the input, and the keyboard closes after one character.
+          onFocus={() => setEditing(true)}
           onBlur={() => setEditing(false)}
           placeholder="Tap to add notes…"
           placeholderTextColor="#9ca3af"
@@ -1630,6 +1645,53 @@ function SubtasksSectionImpl({
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  // The draft as of the last keystroke, read by the submit handlers. State
+  // alone is not enough: Return and the blur that follows it can both run
+  // before a re-render, and both would read the same un-cleared closure.
+  const draftRef = useRef("");
+  const setDraftText = useCallback((next: string) => {
+    draftRef.current = next;
+    setDraft(next);
+  }, []);
+  // Creates run one after another, so subtasks typed quickly land in the
+  // order they were typed rather than the order their responses arrive.
+  const addChain = useRef<Promise<void>>(Promise.resolve());
+  // Why the last subtask write failed, said inside the section. A toast would
+  // not do: the undo toast is drawn by the app root, under the editor's own
+  // window, so it cannot be seen while the editor is open.
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const toast = useUndoToast();
+  // False once the sheet has closed. A failure that lands after that cannot be
+  // shown in the section, so it goes to the root toast, which is visible again.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const reportError = useCallback(
+    (message: string) => {
+      if (!mountedRef.current) {
+        toast.show({ message });
+        return;
+      }
+      setWriteError(message);
+      // `accessibilityLiveRegion` on the line below is Android-only.
+      if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(message);
+    },
+    [toast]
+  );
+  // The list as of the last local change, mirrored so two taps that land
+  // before a re-render each read the row the previous tap left.
+  const subtasksRef = useRef<Task[]>([]);
+  const updateSubtasks = useCallback((fn: (prev: Task[]) => Task[]) => {
+    subtasksRef.current = fn(subtasksRef.current);
+    setSubtasks(subtasksRef.current);
+  }, []);
+  // The latest tick per subtask id. Only the latest tap's failure reverts the
+  // row: an earlier tap's failure is already superseded by what was tapped next.
+  const tickSeq = useRef(new Map<string, number>());
   const inputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
@@ -1637,7 +1699,7 @@ function SubtasksSectionImpl({
     (async () => {
       const { data } = await tasksApi.listSubtasks(parentId);
       if (!cancelled) {
-        setSubtasks(data);
+        updateSubtasks(() => data);
         setLoaded(true);
       }
     })();
@@ -1653,39 +1715,81 @@ function SubtasksSectionImpl({
   // DB trigger enforces depth ≤ 2, so depth 2 tasks can't have children.
   const canAdd = parentDepth < 2;
 
-  const handleAdd = async () => {
-    const title = draft.trim();
+  const handleAdd = () => {
+    const title = draftRef.current.trim();
     if (!title) {
       setAdding(false);
       return;
     }
-    const { data } = await tasksApi.create({
-      title,
-      parent_task_id: parentId,
-    });
-    if (data) {
-      setSubtasks((prev) => [...prev, data]);
-      invalidateTasks();
-    }
-    setDraft("");
+    // Cleared before the create goes out, not after it returns. Anything
+    // typed during the round trip is the next subtask, and clearing after the
+    // await wiped it. Clearing first is also the double-submit guard: a second
+    // Return, or the blur after one, now finds an empty draft.
+    setDraftText("");
+    setWriteError(null);
     // Keep the input open for rapid entry.
+    addChain.current = addChain.current.then(async () => {
+      let created: Task | null = null;
+      try {
+        const { data, error } = await tasksApi.create({
+          title,
+          parent_task_id: parentId,
+        });
+        if (!error) created = data;
+      } catch {
+        // Reported below, the same as an error result.
+      }
+      if (created) {
+        const row = created;
+        updateSubtasks((prev) => appendSubtask(prev, row));
+        invalidateTasks();
+        return;
+      }
+      // If an earlier failed title is already back in the field, this one is
+      // named in the error line only.
+      if (mountedRef.current) {
+        setDraftText(draftAfterFailedAdd(draftRef.current, title));
+      }
+      reportError(`Couldn't add “${title}”`);
+    });
   };
 
-  const handleToggle = async (st: Task) => {
-    const next = st.status === "done" ? "not_started" : "done";
-    const { data } = await tasksApi.update(st.id, { status: next });
-    if (data) {
-      setSubtasks((prev) => prev.map((s) => (s.id === data.id ? data : s)));
-      invalidateTasks();
-    }
+  // Optimistic: the ring fills on the tap, and the write follows. A failed
+  // write puts the row back and says so. `toggleComplete` is the same door the
+  // list rows use, so the row behind the sheet and every cached list move with
+  // this one, and its per-id chain orders quick re-taps.
+  const handleToggle = (id: string) => {
+    const before = subtasksRef.current.find((t) => t.id === id);
+    if (!before) return;
+    const status = nextSubtaskStatus(before);
+    const seq = (tickSeq.current.get(id) ?? 0) + 1;
+    tickSeq.current.set(id, seq);
+    if (status === "done") hapticSuccess();
+    else hapticLight();
+    setWriteError(null);
+    updateSubtasks((prev) => applySubtaskStatus(prev, id, status));
+    toggleComplete(id, status === "done").catch((e) => {
+      console.error("Subtask toggle failed:", e);
+      if (tickSeq.current.get(id) === seq) {
+        updateSubtasks((prev) => revertSubtaskStatus(prev, before, status));
+      }
+      reportError(`Couldn't update “${before.title}”`);
+    });
   };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await tasksApi.delete(id);
-    if (!error) {
-      setSubtasks((prev) => prev.filter((s) => s.id !== id));
-      invalidateTasks();
-    }
+  // Optimistic: the row goes on the tap. `deleteTask` drops it from every
+  // cached list too, and puts the lists back if the write fails.
+  const handleDelete = (id: string) => {
+    const { removed, index } = removeSubtask(subtasksRef.current, id);
+    if (!removed) return;
+    hapticMedium();
+    setWriteError(null);
+    updateSubtasks((prev) => removeSubtask(prev, id).list);
+    deleteTask(id).catch((e) => {
+      console.error("Subtask delete failed:", e);
+      updateSubtasks((prev) => reinsertSubtask(prev, removed, index));
+      reportError(`Couldn't delete “${removed.title}”`);
+    });
   };
 
   if (!canAdd && subtasks.length === 0 && loaded) return null;
@@ -1707,7 +1811,7 @@ function SubtasksSectionImpl({
           <SubtaskRow
             key={st.id}
             task={st}
-            onToggle={() => handleToggle(st)}
+            onToggle={() => handleToggle(st.id)}
             onOpen={() => onOpenSubtask(st)}
             onDelete={() => handleDelete(st.id)}
           />
@@ -1719,11 +1823,11 @@ function SubtasksSectionImpl({
               <TextInput
                 ref={inputRef}
                 value={draft}
-                onChangeText={setDraft}
-                onSubmitEditing={() => void handleAdd()}
+                onChangeText={setDraftText}
+                onSubmitEditing={handleAdd}
                 blurOnSubmit={false}
                 onBlur={() => {
-                  if (draft.trim()) void handleAdd();
+                  if (draftRef.current.trim()) handleAdd();
                   setAdding(false);
                 }}
                 placeholder="Subtask title…"
@@ -1744,6 +1848,11 @@ function SubtasksSectionImpl({
           )
         ) : null}
       </View>
+      {writeError ? (
+        <Text style={styles.notesError} accessibilityLiveRegion="polite">
+          {writeError}
+        </Text>
+      ) : null}
     </View>
   );
 }

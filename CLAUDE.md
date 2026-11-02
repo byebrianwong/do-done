@@ -1570,6 +1570,15 @@ title** — autosave holds the task in React state:
   permanently inside every open editor, each rebuilding its option rows per keystroke and
   holding a host view it never showed.
 
+**Subtask writes are optimistic, and a failure is reported inside the section.** A tick
+or a delete changes the row on the tap and goes through `toggleComplete` / `deleteTask`,
+so the lists behind the sheet move with it. A failed write puts the row back
+(`lib/subtask-edits.ts`) and prints a line under the subtask card. It is not a toast:
+the undo toast is drawn by the app root, under the editor's `Modal` window, so a toast
+raised while the editor is open cannot be seen. The add field clears before the create
+goes out, so text typed during the round trip is kept and a second Return cannot create
+the same subtask twice.
+
 ## The completion animation
 
 The most repeated gesture in the app, and one shape on both platforms. Timings and rules
