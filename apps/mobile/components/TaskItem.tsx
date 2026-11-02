@@ -46,6 +46,7 @@ import {
   useProjects,
 } from '@/lib/task-queries';
 import { useTaskSelection } from '@/lib/task-selection';
+import { readCount, type CountSource } from '@/lib/section-counts';
 import {
   prefersReducedMotion,
   useRowExit,
@@ -136,10 +137,14 @@ interface TaskItemProps {
    * before the tap. One means completing this empties the section, which earns
    * the celebratory burst. Omitted on surfaces with no sections (the inbox,
    * search), where that rule simply can't fire.
+   *
+   * Lists pass a getter that is read at the tap (see `lib/section-counts.ts`).
+   * A plain number changes on every completion in the section and would
+   * re-render every row beside this one.
    */
-  openInSection?: number | null;
+  openInSection?: CountSource;
   /** The same for the row's project. One means this completion finishes it. */
-  openInProject?: number | null;
+  openInProject?: CountSource;
 }
 
 function buildReschedule(
@@ -316,7 +321,13 @@ function TaskItem({
       // …and the burst on top, for the completions that earned one. Read now,
       // not at render time: by the time the write lands the row has already
       // told its list it is done.
-      if (shouldSpark(task, { openInSection, openInProject, streakDay })) {
+      if (
+        shouldSpark(task, {
+          openInSection: readCount(openInSection),
+          openInProject: readCount(openInProject),
+          streakDay,
+        })
+      ) {
         exit.spark();
       }
     }

@@ -21,7 +21,7 @@ import {
 } from '@/components/ListPlaceholder';
 import {
   invalidateTasks,
-  useProjectsWithCounts,
+  useProjects,
   useTaggedTasks,
 } from '@/lib/task-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
@@ -47,7 +47,9 @@ export default function TagDetailScreen() {
   const tasksQuery = useTaggedTasks(tag);
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick, which
+  // would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   useRefreshOnFocus(refetch);
   const { refreshing, onRefresh } = usePullToRefresh(refetch);
 
@@ -57,8 +59,8 @@ export default function TagDetailScreen() {
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -66,6 +68,34 @@ export default function TagDetailScreen() {
     for (const t of tasks) for (const tag of t.tags) set.add(tag);
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
+
+  // Memoised so the list does not see a new element on every render.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        tintColor="#6366f1"
+      />
+    ),
+    [refreshing, onRefresh]
+  );
+  const emptyState = useMemo(
+    () =>
+      loadState.showSkeleton ? (
+        <ListSkeleton rows={4} />
+      ) : loadState.showError ? (
+        <ListError onRetry={refetch} />
+      ) : (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Nothing tagged #{tag}</Text>
+          <Text style={styles.emptyHint}>
+            A tag exists only while a task carries it.
+          </Text>
+        </View>
+      ),
+    [loadState.showSkeleton, loadState.showError, refetch, tag]
+  );
 
   return (
     <View style={styles.container}>
@@ -101,27 +131,8 @@ export default function TagDetailScreen() {
         // celebration rules from firing on a guess.
         sectionCounts={false}
         hideEmptyGroups
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#6366f1"
-          />
-        }
-        ListEmptyComponent={
-          loadState.showSkeleton ? (
-            <ListSkeleton rows={4} />
-          ) : loadState.showError ? (
-            <ListError onRetry={refetch} />
-          ) : (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing tagged #{tag}</Text>
-              <Text style={styles.emptyHint}>
-                A tag exists only while a task carries it.
-              </Text>
-            </View>
-          )
-        }
+        refreshControl={refreshControl}
+        ListEmptyComponent={emptyState}
         contentContainerStyle={styles.listContent}
       />
       <DisplaySheet

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -33,12 +33,13 @@ import {
   UpdatingBar,
 } from '@/components/ListPlaceholder';
 import { useListLoadState } from '@/lib/list-load-state';
+import { useSectionOpenCounts } from '@/lib/section-counts';
 import {
   invalidateTasks,
   moveTask,
   reorderTasks,
   useAllTasks,
-  useProjectsWithCounts,
+  useProjects,
 } from '@/lib/task-queries';
 import { addDaysISO, useCalendarEvents, useLocalDay } from '@/lib/calendar-queries';
 import { useRefreshOnFocus, usePullToRefresh } from '@/lib/query-client';
@@ -139,11 +140,8 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
   return out;
 }
 
-/** Tasks in this list that still count as work. Feeds the spark gate. */
-function openCount(tasks: Task[]): number {
-  return tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .length;
-}
+/** Stable while events load, so the memoised header renderer keeps its identity. */
+const NO_EVENTS: CalendarEvent[] = [];
 
 export function UpcomingView() {
   const router = useRouter();
@@ -151,7 +149,9 @@ export function UpcomingView() {
   const tasksQuery = useAllTasks();
   const { data: tasks = [], refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
-  const { data: projectsWithCounts = [] } = useProjectsWithCounts();
+  // Names and colours only. The counts query changes on every tick,
+  // which would hand `applyDisplay` a new project list each time.
+  const { data: projects } = useProjects();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const { config, setConfig, reset, isDefault } = useDisplayConfig('upcoming');
@@ -161,8 +161,8 @@ export function UpcomingView() {
   const handlePress = useCallback((t: Task) => setEditing(t), []);
 
   const projectList = useMemo(
-    () => projectsWithCounts.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    [projectsWithCounts]
+    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    [projects]
   );
 
   const availableTags = useMemo(() => {
@@ -175,7 +175,7 @@ export function UpcomingView() {
   // useLocalDay keeps the window anchored to the CURRENT day across overnight
   // foregrounds, not the day the screen last rendered.
   const localDay = useLocalDay();
-  const { data: events = [], isError: eventsFailed } = useCalendarEvents(
+  const { data: events = NO_EVENTS, isError: eventsFailed } = useCalendarEvents(
     localDay,
     addDaysISO(localDay, HORIZON_DAYS + 1)
   );
@@ -196,6 +196,18 @@ export function UpcomingView() {
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
   );
+  const sectionOpenCount = useSectionOpenCounts(sections);
+
+  // The header renderer reads these through refs so it keeps its identity
+  // across data changes; a new renderer would re-render every cell. A header
+  // still redraws when its own section object changes, which `buildSections`
+  // does whenever the tasks, the config or the events change.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const countByKeyRef = useRef(countByKey);
+  countByKeyRef.current = countByKey;
+  const eventsByDayRef = useRef(eventsByDay);
+  eventsByDayRef.current = eventsByDay;
 
   const onReorder = useCallback((_key: string, ids: string[]) => {
     void reorderTasks(ids).catch(() => {});
@@ -215,11 +227,12 @@ export function UpcomingView() {
 
   const renderHeader = useCallback(
     (section: DraggableSection) => {
-      const collapsed = isCollapsed(config, section.key);
-      const count = countByKey.get(section.key) ?? section.data.length;
+      const collapsed = isCollapsed(configRef.current, section.key);
+      const count = countByKeyRef.current.get(section.key) ?? section.data.length;
       // Day sections are keyed by YYYY-MM-DD, so the key doubles as the
       // events lookup; sentinel sections (overdue/later/anytime) miss the map.
-      const dayEvents: CalendarEvent[] = eventsByDay.get(section.key) ?? [];
+      const dayEvents: CalendarEvent[] =
+        eventsByDayRef.current.get(section.key) ?? [];
       // "(0)" over visible event rows reads as a bug — drop the count when
       // the day only has events.
       const showCount = count > 0 || dayEvents.length === 0;
@@ -227,7 +240,9 @@ export function UpcomingView() {
         <View>
           <SectionHeaderButton
             collapsed={collapsed}
-            onToggle={() => setConfig(toggleCollapsed(config, section.key))}
+            onToggle={() =>
+              setConfig(toggleCollapsed(configRef.current, section.key))
+            }
           >
             <Ionicons
               name={collapsed ? 'chevron-forward' : 'chevron-down'}
@@ -250,7 +265,7 @@ export function UpcomingView() {
         </View>
       );
     },
-    [config, setConfig, countByKey, eventsByDay]
+    [setConfig]
   );
 
   // With "show completed" on, a ticked-off task stays in this list, so its row
@@ -261,7 +276,7 @@ export function UpcomingView() {
       task: Task,
       drag: () => void,
       isActive: boolean,
-      section: DraggableSection
+      sectionKey: string
     ) => (
       <View style={isActive ? styles.activeRow : undefined}>
         <TaskItem
@@ -272,16 +287,29 @@ export function UpcomingView() {
           // A day section's header is the day, so its rows keep only their
           // time. The sentinel sections (Overdue / Later / Anytime) name no
           // single day, so those rows still print their own.
-          hideScheduledDay={isDayKey(section.key)}
-          openInSection={openCount(section.data)}
+          hideScheduledDay={isDayKey(sectionKey)}
+          openInSection={sectionOpenCount(sectionKey)}
         />
       </View>
     ),
-    [handlePress, keepsCompleted]
+    [handlePress, keepsCompleted, sectionOpenCount]
   );
 
-  const refreshControl = (
-    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+  // Memoised so the lists below do not see a new element on every render.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+    ),
+    [refreshing, onRefresh]
+  );
+  const emptyState = useMemo(
+    () => (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>Nothing coming up</Text>
+        <Text style={styles.emptyHint}>Tap + to add a task.</Text>
+      </View>
+    ),
+    []
   );
 
   return (
@@ -331,12 +359,7 @@ export function UpcomingView() {
           // The curated branch above is a run of day columns, so it says
           // "nothing" by showing empty days. Any other grouping has no such
           // shape to fall back on and would render blank.
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nothing coming up</Text>
-              <Text style={styles.emptyHint}>Tap + to add a task.</Text>
-            </View>
-          }
+          ListEmptyComponent={emptyState}
           contentContainerStyle={styles.listContent}
         />
       )}
