@@ -30,18 +30,18 @@ export type Row =
  * A task row's key is its id unless `rowKey` says otherwise. The key is only
  * what React reconciles on. Everything that names a task to the caller reads
  * `task.id`, so a caller can key rows by something else (a shopping list keys
- * them by id and by which side of the cart they are on) without the ids it is
- * handed back changing shape.
+ * them by id and by which side of the cart they are on, Today keys Focus rows
+ * apart from the rest) without the ids it is handed back changing shape.
  */
 export function flatten(
   sections: DraggableSection[],
-  rowKey: (task: Task) => string = (t) => t.id
+  rowKey: (task: Task, sectionKey: string) => string = (t) => t.id
 ): Row[] {
   const rows: Row[] = [];
   for (const s of sections) {
     rows.push({ kind: 'header', key: `h:${s.key}`, section: s });
     for (const t of s.data) {
-      rows.push({ kind: 'task', key: rowKey(t), task: t, sectionKey: s.key });
+      rows.push({ kind: 'task', key: rowKey(t, s.key), task: t, sectionKey: s.key });
     }
   }
   return rows;
@@ -67,7 +67,7 @@ export function flatten(
 export function flattenReusing(
   sections: DraggableSection[],
   prev: Row[],
-  rowKey: (task: Task) => string = (t) => t.id
+  rowKey: (task: Task, sectionKey: string) => string = (t) => t.id
 ): Row[] {
   const byKey = new Map<string, Row>();
   for (const r of prev) byKey.set(r.key, r);
@@ -83,7 +83,7 @@ export function flattenReusing(
     if (prev[rows.length] !== header) changed = true;
     rows.push(header);
     for (const t of s.data) {
-      const k = rowKey(t);
+      const k = rowKey(t, s.key);
       const old = byKey.get(k);
       const row: Row =
         old?.kind === 'task' && old.task === t && old.sectionKey === s.key

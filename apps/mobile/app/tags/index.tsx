@@ -111,7 +111,7 @@ export default function TagsScreen() {
         }
         ListEmptyComponent={
           loadState.showSkeleton ? (
-            <ListSkeleton rows={5} />
+            <ListSkeleton rows={5} variant="cards" />
           ) : loadState.showError ? (
             <ListError onRetry={refetch} />
           ) : query.trim() ? (

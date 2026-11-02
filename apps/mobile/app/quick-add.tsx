@@ -10,6 +10,7 @@ import type { Project, Task } from '@do-done/shared';
 
 import QuickAddComposer from '@/components/QuickAddComposer';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
+import { markArriving } from '@/lib/row-arrival';
 import {
   createProjectOrNull,
   invalidateTasks,
@@ -88,7 +89,10 @@ export default function QuickAddModal() {
    * `lib/screen-activity.ts`), and the focus refetch after closing joins this
    * fetch rather than restarting it (`lib/focus-refresh.ts`).
    */
-  const created = () => {
+  const created = (task?: Task) => {
+    // The new row opens up in the list as the refetch brings it in, rather
+    // than appearing at full height. See lib/row-arrival.ts.
+    if (task) markArriving([task.id]);
     invalidateTasks();
     close();
   };
@@ -124,7 +128,7 @@ export default function QuickAddModal() {
           visible
           // The task is already created; closing the editor finishes the
           // capture, so this surface goes with it.
-          onClose={created}
+          onClose={() => created(expandedTask)}
         />
       ) : null}
     </View>

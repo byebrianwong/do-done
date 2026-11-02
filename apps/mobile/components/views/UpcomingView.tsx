@@ -11,6 +11,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TaskItem from '@/components/TaskItem';
+import { RowLift } from '@/components/RowLift';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import { AgendaTitle } from '@/components/SwapTitle';
 import QuickAddButton from '@/components/QuickAddButton';
 import TaskEditModalV2 from '@/components/TaskEditModalV2';
@@ -200,11 +202,17 @@ export function UpcomingView() {
     [tasks, config, eventsByDay]
   );
 
-  // Collapsed days keep their header but drop their rows from the list.
-  const renderSections = useMemo(
-    () => sections.map((s) => (isCollapsed(config, s.key) ? { ...s, data: [] } : s)),
-    [sections, config]
+  // Collapsed days keep their header but drop their rows from the list, and
+  // folding or opening one animates its rows. See lib/section-transitions.ts.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+  });
+  const renderSections = transitions.sections;
   const countByKey = useMemo(
     () => new Map(sections.map((s) => [s.key, s.data.length])),
     [sections]
@@ -222,9 +230,15 @@ export function UpcomingView() {
   const eventsByDayRef = useRef(eventsByDay);
   eventsByDayRef.current = eventsByDay;
 
-  const onReorder = useCallback((_key: string, ids: string[]) => {
-    void reorderTasks(ids).catch(() => {});
-  }, []);
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes.
+  const { liveIds, isArriving, isDeparting } = transitions;
+  const onReorder = useCallback(
+    (key: string, ids: string[]) => {
+      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    },
+    [liveIds]
+  );
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, destIds: string[]) => {
@@ -233,9 +247,11 @@ export function UpcomingView() {
         invalidateTasks();
         return;
       }
-      void moveTask(taskId, sectionTarget(toKey), destIds).catch(() => {});
+      void moveTask(taskId, sectionTarget(toKey), liveIds(toKey, destIds)).catch(
+        () => {}
+      );
     },
-    [config]
+    [config, liveIds]
   );
 
   const renderHeader = useCallback(
@@ -303,12 +319,16 @@ export function UpcomingView() {
       drag: () => void,
       isActive: boolean,
       sectionKey: string
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+    ) => {
+      const departing = isDeparting(sectionKey, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={handlePress}
-          onDragStart={drag}
+          onDragStart={departing ? undefined : drag}
+          arriving={isArriving(sectionKey, task.id)}
+          departing={departing}
           leavesSection={leavesSection}
           // A day section's header is the day, so its rows keep only their
           // time. The sentinel sections (Overdue / Later / Anytime) name no
@@ -316,9 +336,10 @@ export function UpcomingView() {
           hideScheduledDay={isDayKey(sectionKey)}
           openInSection={sectionOpenCount(sectionKey)}
         />
-      </View>
-    ),
-    [handlePress, leavesSection, sectionOpenCount]
+      </RowLift>
+      );
+    },
+    [handlePress, leavesSection, sectionOpenCount, isArriving, isDeparting]
   );
 
   // Memoised so the lists below do not see a new element on every render.
@@ -432,7 +453,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#6366f1',
   },
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   listContent: { paddingBottom: 96, flexGrow: 1 },
   empty: {
     flex: 1,

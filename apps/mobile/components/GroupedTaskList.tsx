@@ -4,6 +4,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import TaskItem from '@/components/TaskItem';
+import { FoldAway } from '@/components/FoldAway';
+import { RowLift } from '@/components/RowLift';
 import {
   SectionCount,
   SectionHeaderButton,
@@ -15,6 +17,7 @@ import SectionedDraggableList, {
 import { invalidateTasks, moveTask, reorderTasks } from '@/lib/task-queries';
 import { useCountGetter, useSectionOpenCounts } from '@/lib/section-counts';
 import { displayGroupOf, leavesBySection } from '@/lib/row-leave';
+import { useSectionTransitions } from '@/lib/use-section-transitions';
 import {
   applyDisplay,
   dateGroupNamesTheDay,
@@ -154,13 +157,26 @@ function GroupedTaskList({
   // What the list actually renders: collapsed sections keep their header but
   // drop their rows. The full `sections` (above) still drive the freeze/convert
   // refs, so a collapsed section's order is preserved.
-  const renderSections = useMemo(
-    () =>
-      sections.map((s) =>
-        isCollapsed(config, s.key) ? { ...s, data: [] as typeof s.data } : s
-      ),
-    [sections, config]
+  //
+  // Folding a section shut or opening it animates its rows rather than
+  // swapping them in one frame, and on a list that hides its empty groups the
+  // header of a group whose last task just left folds away after it. Any other
+  // change to the config is a different list, and snaps.
+  const resetKey = useMemo(
+    () => JSON.stringify({ ...config, collapsed: [] }),
+    [config]
   );
+  const transitions = useSectionTransitions(sections, {
+    collapsed: config.collapsed,
+    resetKey,
+    foldRemovedSections: hideEmptyGroups,
+  });
+  const renderSections = transitions.sections;
+  const { isDepartingSection, isArriving, isDeparting } = transitions;
+  // Ghosts are rows folding out of view; they are not part of the order a
+  // drop writes. Read through a ref, like the rest of the drop state.
+  const liveIdsRef = useRef(transitions.liveIds);
+  liveIdsRef.current = transitions.liveIds;
 
   // Read at the tap, not passed as numbers: both change on every completion,
   // and a changed prop re-renders every row it reaches. See lib/section-counts.
@@ -180,7 +196,8 @@ function GroupedTaskList({
   const onConfigChangeRef = useRef(onConfigChange);
   onConfigChangeRef.current = onConfigChange;
 
-  const onReorder = useCallback((sectionKey: string, ids: string[]) => {
+  const onReorder = useCallback((sectionKey: string, rawIds: string[]) => {
+    const ids = liveIdsRef.current(sectionKey, rawIds);
     if (manualRef.current) {
       void reorderTasks(ids).catch(() => {});
       return;
@@ -201,7 +218,8 @@ function GroupedTaskList({
   }, []);
 
   const onMove = useCallback(
-    (taskId: string, _from: string, toKey: string, destIds: string[]) => {
+    (taskId: string, _from: string, toKey: string, rawDestIds: string[]) => {
+      const destIds = liveIdsRef.current(toKey, rawDestIds);
       // Collapsed sections aren't drop targets in v1 — snap back, expand to drop in.
       if (isCollapsed(configRef.current, toKey)) {
         invalidateTasks();
@@ -238,6 +256,7 @@ function GroupedTaskList({
 
   const renderHeader = useCallback((section: DraggableSection) => {
     if (!section.title) return <View style={styles.noneHeader} />;
+    const departing = isDepartingSection(section.key);
     const m = metaRef.current.get(section.key);
     const color = m?.color ?? '#9ca3af';
     // Full count (not the rendered-rows count, which is 0 when collapsed).
@@ -245,27 +264,29 @@ function GroupedTaskList({
     const collapsed = isCollapsed(configRef.current, section.key);
     const toggle = onConfigChangeRef.current;
     return (
-      <SectionHeaderButton
-        collapsed={collapsed}
-        onToggle={
-          toggle
-            ? () => toggle(toggleCollapsed(configRef.current, section.key))
-            : undefined
-        }
-      >
-        <Ionicons
-          name={collapsed ? 'chevron-forward' : 'chevron-down'}
-          size={14}
-          color="#9ca3af"
-        />
-        <View style={[sectionHeaderStyles.dot, { backgroundColor: color }]} />
-        <Text style={sectionHeaderStyles.text} numberOfLines={1}>
-          {section.title}
-        </Text>
-        <SectionCount value={count} />
-      </SectionHeaderButton>
+      <FoldAway departing={departing}>
+        <SectionHeaderButton
+          collapsed={collapsed}
+          onToggle={
+            toggle && !departing
+              ? () => toggle(toggleCollapsed(configRef.current, section.key))
+              : undefined
+          }
+        >
+          <Ionicons
+            name={collapsed ? 'chevron-forward' : 'chevron-down'}
+            size={14}
+            color="#9ca3af"
+          />
+          <View style={[sectionHeaderStyles.dot, { backgroundColor: color }]} />
+          <Text style={sectionHeaderStyles.text} numberOfLines={1}>
+            {section.title}
+          </Text>
+          <SectionCount value={count} />
+        </SectionHeaderButton>
+      </FoldAway>
     );
-  }, []);
+  }, [isDepartingSection]);
 
   // With "show completed" on, a ticked-off task stays in this list, so its row
   // must not play the collapse-and-vanish completion exit.
@@ -299,12 +320,16 @@ function GroupedTaskList({
       drag: () => void,
       isActive: boolean,
       sectionKey: string
-    ) => (
-      <View style={isActive ? styles.activeRow : undefined}>
+    ) => {
+      const departing = isDeparting(sectionKey, task.id);
+      return (
+      <RowLift isActive={isActive}>
         <TaskItem
           task={task}
           onPress={onTaskPress}
-          onDragStart={drag}
+          onDragStart={departing ? undefined : drag}
+          arriving={isArriving(sectionKey, task.id)}
+          departing={departing}
           keepsCompleted={keepsCompleted}
           dropsReopened={dropsReopened}
           leavesSection={leavesSection}
@@ -317,9 +342,12 @@ function GroupedTaskList({
           openInSection={sectionCounts ? sectionOpenCount(sectionKey) : undefined}
           openInProject={projectOpenCount}
         />
-      </View>
-    ),
+      </RowLift>
+      );
+    },
     [
+      isArriving,
+      isDeparting,
       onTaskPress,
       keepsCompleted,
       dropsReopened,
@@ -353,6 +381,5 @@ function GroupedTaskList({
 export default React.memo(GroupedTaskList);
 
 const styles = StyleSheet.create({
-  activeRow: { opacity: 0.9, backgroundColor: '#f1f5f9' },
   noneHeader: { height: 8 },
 });
