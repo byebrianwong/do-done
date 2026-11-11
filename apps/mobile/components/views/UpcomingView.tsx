@@ -154,6 +154,12 @@ function buildSections(tasks: Task[], eventDays: string[]): DraggableSection[] {
 
 /** Stable while events load, so the memoised header renderer keeps its identity. */
 const NO_EVENTS: CalendarEvent[] = [];
+/**
+ * Stable while the tasks load. A `= []` default is a new array on every
+ * render, and the sections built from it are handed to
+ * `useSectionTransitions`, which updates state when they change.
+ */
+const NO_TASKS: Task[] = [];
 
 export function UpcomingView() {
   // Off view, its lists go inactive rather than refetching on every write.
@@ -162,7 +168,7 @@ export function UpcomingView() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tasksQuery = useAllTasks({ subscribed: active });
-  const { data: tasks = [], refetch } = tasksQuery;
+  const { data: tasks = NO_TASKS, refetch } = tasksQuery;
   const loadState = useListLoadState(tasksQuery);
   // Names and colours only. The counts query changes on every tick,
   // which would hand `applyDisplay` a new project list each time.

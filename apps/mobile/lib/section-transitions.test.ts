@@ -6,6 +6,7 @@ import {
   carryGhosts,
   planTransitions,
   rowId,
+  sameDrawn,
   withGhosts,
 } from './section-transitions';
 import type { DraggableSection } from './section-rows';
@@ -214,5 +215,59 @@ describe('carryGhosts', () => {
     expect(carryGhosts(earlier, NO_TRANSITIONS, after).ghostRows).toEqual([]);
     // Keyed per section, the two rows cannot collide, so the ghost stays.
     expect(carryGhosts(earlier, NO_TRANSITIONS, after, true).ghostRows).toHaveLength(1);
+  });
+});
+
+describe('sameDrawn', () => {
+  // The hook sets state during render whenever this says the list changed, so
+  // a list that is equal but rebuilt has to read as unchanged. Otherwise
+  // every re-run of the render sets state again and React gives up with
+  // "Too many re-renders", which is what crashed Today and Upcoming on
+  // Android while their task query had not answered yet.
+  it('treats two empty lists built separately as the same', () => {
+    const build = () => [sec('focus'), sec('other')];
+    expect(sameDrawn(build(), build())).toBe(true);
+  });
+
+  it('treats a rebuilt list holding the same task objects as the same', () => {
+    const one = t('1');
+    const two = t('2');
+    const build = () => [
+      { key: 'a', title: 'A', data: [one, two] },
+      { key: 'b', title: 'B', data: [] },
+    ];
+    expect(sameDrawn(build(), build())).toBe(true);
+  });
+
+  it('sees an edited task as a change, even with the same id', () => {
+    // A ghost is copied from the previous list, so a stale copy would fold
+    // shut showing the old title.
+    const before = [{ key: 'a', title: 'A', data: [t('1')] }];
+    const after = [{ key: 'a', title: 'A', data: [t('1')] }];
+    expect(sameDrawn(before, after)).toBe(false);
+  });
+
+  it('sees a row added, removed or moved as a change', () => {
+    const one = t('1');
+    const two = t('2');
+    const base = [{ key: 'a', title: 'A', data: [one, two] }];
+    expect(sameDrawn(base, [{ key: 'a', title: 'A', data: [one] }])).toBe(false);
+    expect(sameDrawn(base, [{ key: 'a', title: 'A', data: [two, one] }])).toBe(false);
+    expect(
+      sameDrawn(base, [
+        { key: 'a', title: 'A', data: [one] },
+        { key: 'b', title: 'B', data: [two] },
+      ])
+    ).toBe(false);
+  });
+
+  it('sees a section added, removed, renamed or reordered as a change', () => {
+    const base = [sec('a'), sec('b')];
+    expect(sameDrawn(base, [sec('a')])).toBe(false);
+    expect(sameDrawn(base, [sec('a'), sec('b'), sec('c')])).toBe(false);
+    expect(sameDrawn(base, [sec('b'), sec('a')])).toBe(false);
+    expect(
+      sameDrawn(base, [sec('a'), { key: 'b', title: 'Tomorrow', data: [] }])
+    ).toBe(false);
   });
 });

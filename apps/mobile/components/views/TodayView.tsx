@@ -65,6 +65,12 @@ import type { CalendarEvent, Task } from '@do-done/shared';
 const FOCUS = 'focus';
 /** Stable while events load, so the memoised list header keeps its identity. */
 const NO_EVENTS: CalendarEvent[] = [];
+/**
+ * Stable while the tasks load. A `= []` default is a new array on every
+ * render, and the sections built from it are handed to
+ * `useSectionTransitions`, which updates state when they change.
+ */
+const NO_TASKS: Task[] = [];
 const OTHER = 'other';
 
 /**
@@ -128,7 +134,7 @@ export function TodayView() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const todayQuery = useTodayTasks({ subscribed: active });
-  const { data: allTasks = [], refetch } = todayQuery;
+  const { data: allTasks = NO_TASKS, refetch } = todayQuery;
   // Whether we have an answer at all — "Nothing scheduled today" is only ever
   // shown once we do. On a cold start that's the restored cache; failing that,
   // a skeleton until the fetch lands.

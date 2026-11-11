@@ -15,6 +15,7 @@ import {
   isEmptyPlan,
   planTransitions,
   rowId,
+  sameDrawn,
   withGhosts,
   type TransitionPlan,
 } from './section-transitions';
@@ -85,7 +86,18 @@ export function useSectionTransitions(
   // row from the data is the frame that draws its ghost. An effect would paint
   // one frame with the row simply gone. See react.dev "adjusting state when a
   // prop changes"; `useOptimisticCompleted` does the same.
-  if (prev.drawn !== drawn || prev.resetKey !== opts.resetKey) {
+  //
+  // That pattern only stops if the next pass sees no change. So the drawn list
+  // is compared by what it shows (`sameDrawn`), not by identity: a caller that
+  // rebuilds an equal list on every render would otherwise set state on every
+  // pass, and React gives up with "Too many re-renders". The collapsed set is
+  // compared on its own, because collapsing a section that is already empty
+  // changes nothing that is drawn.
+  if (
+    prev.resetKey !== opts.resetKey ||
+    prev.collapsedKey !== collapsedKey ||
+    !sameDrawn(prev.drawn, drawn)
+  ) {
     let next = NO_TRANSITIONS;
     if (prev.resetKey === opts.resetKey && !prefersReducedMotion()) {
       const now = Date.now();
