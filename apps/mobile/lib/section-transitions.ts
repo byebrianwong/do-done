@@ -56,6 +56,42 @@ export function rowId(sectionKey: string, taskId: string): string {
   return `${sectionKey}\n${taskId}`;
 }
 
+/**
+ * Whether two drawn lists show the same thing: the same sections in the same
+ * order, each with the same title and the same task objects in the same order.
+ *
+ * The hook decides whether the list changed with this, not with `!==`. It
+ * updates its state during render when the list changes, and React re-runs the
+ * render straight away to apply the update. If the caller builds an equal list
+ * under a new identity on every render, each re-run looks like another change,
+ * and React stops after 25 with "Too many re-renders". A screen whose task
+ * query has not answered yet does exactly that: `data = []` makes a new array
+ * on every render. That crashed Today and Upcoming on Android.
+ *
+ * Tasks are compared by object, not by id. A ghost is taken from the previous
+ * list, so an edited task has to count as a change, or its ghost would fold
+ * shut showing the old title. TanStack keeps an unchanged task at the same
+ * object, so this costs nothing on an ordinary refetch.
+ */
+export function sameDrawn(
+  a: readonly DraggableSection[],
+  b: readonly DraggableSection[]
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x === y) continue;
+    if (x.key !== y.key || x.title !== y.title) return false;
+    if (x.data.length !== y.data.length) return false;
+    for (let j = 0; j < x.data.length; j++) {
+      if (x.data[j] !== y.data[j]) return false;
+    }
+  }
+  return true;
+}
+
 export interface PlanOptions {
   /** Section keys collapsed before this change. */
   collapsedBefore: ReadonlySet<string>;
