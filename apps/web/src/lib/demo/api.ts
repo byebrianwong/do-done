@@ -27,6 +27,9 @@ import {
   splitProjects,
   daysSince,
   storeHints,
+  compareTaskOrder,
+  rankBetween,
+  TASK_ORDER_STEP,
 } from "@do-done/shared";
 import type { Aisle, AisleMemory } from "@do-done/shared";
 import type {
@@ -95,7 +98,7 @@ function datesOf(t: Task): string[] {
 const PRIORITY_RANK = { p1: 0, p2: 1, p3: 2, p4: 3 } as const;
 
 function bySortOrder(a: Task, b: Task): number {
-  return a.sort_order - b.sort_order;
+  return compareTaskOrder(a, b);
 }
 
 function byPriorityThenSort(a: Task, b: Task): number {
@@ -144,6 +147,89 @@ class DemoTasksApiImpl {
 
   private write(tasks: Task[]) {
     setDemoState({ tasks });
+  }
+
+  /**
+   * The `task_place_new` trigger, in TypeScript: a top-level task goes first,
+   * where the user can see the thing they just typed; a subtask or a list item
+   * goes last, like the list it is added to. Deleted rows count, as they do in
+   * the database.
+   */
+  private newRowKey(task: Task): number {
+    const keys = this.allTasks.map((t) => t.sort_order);
+    if (keys.length === 0) return 0;
+    return task.parent_task_id !== null || task.is_list_item
+      ? Math.max(...keys) + TASK_ORDER_STEP
+      : Math.min(...keys) - TASK_ORDER_STEP;
+  }
+
+  /** `task_order_renumber`: respace every key, keeping the order. */
+  private renumbered(rows: Task[]): Task[] {
+    const rank = new Map(
+      [...rows].sort(compareTaskOrder).map((t, i) => [t.id, (i + 1) * TASK_ORDER_STEP])
+    );
+    return rows.map((t) => ({ ...t, sort_order: rank.get(t.id)! }));
+  }
+
+  /**
+   * The key `place_task` would give `id`: directly after `after` in the whole
+   * order, or directly before `before` without it. Null when the gap has run
+   * out; undefined when a neighbour does not exist.
+   */
+  private placementKey(
+    rows: Task[],
+    id: string,
+    after: string | null,
+    before: string | null
+  ): number | null | undefined {
+    const others = rows.filter((t) => t.id !== id).sort(compareTaskOrder);
+    const ref = others.findIndex((t) => t.id === (after ?? before));
+    if (ref < 0) return undefined;
+    if (after !== null) {
+      return rankBetween(others[ref].sort_order, others[ref + 1]?.sort_order ?? null);
+    }
+    return rankBetween(others[ref - 1]?.sort_order ?? null, others[ref].sort_order);
+  }
+
+  /** Mirrors `TasksApi.place` and the `place_task` function behind it. */
+  async place(
+    id: string,
+    neighbors: { after: string | null; before: string | null }
+  ): Promise<{ data: number | null; error: Error | null }> {
+    const { after, before } = neighbors;
+    let rows = this.allTasks;
+    const moved = rows.find((t) => t.id === id);
+    if (!moved) return { data: null, error: new Error("Task not found") };
+    if (after === null && before === null) return ok(moved.sort_order);
+    let key = this.placementKey(rows, id, after, before);
+    if (key === undefined) return { data: null, error: new Error("Task not found") };
+    if (key === null) {
+      rows = this.renumbered(rows);
+      key = this.placementKey(rows, id, after, before) ?? null;
+    }
+    if (key === null) return { data: null, error: new Error("No room to place the task") };
+    const placed = key;
+    this.write(rows.map((t) => (t.id === id ? { ...t, sort_order: placed } : t)));
+    return ok(placed);
+  }
+
+  /** Mirrors `TasksApi.adoptOrder` and the `adopt_task_order` function. */
+  async adoptOrder(orderedIds: string[]): Promise<{ error: Error | null }> {
+    if (orderedIds.length === 0) return { error: null };
+    let rows = this.allTasks;
+    const listed = new Set(orderedIds);
+    const keysOf = (all: Task[]) =>
+      all.filter((t) => listed.has(t.id)).map((t) => t.sort_order);
+    if (keysOf(rows).length !== orderedIds.length) {
+      return { error: new Error("Task not found") };
+    }
+    if (new Set(keysOf(rows)).size < orderedIds.length) rows = this.renumbered(rows);
+    const slots = keysOf(rows).sort((a, b) => a - b);
+    const dealt = new Map(orderedIds.map((id, i) => [id, slots[i]]));
+    this.write(
+      rows.map((t) => (dealt.has(t.id) ? { ...t, sort_order: dealt.get(t.id)! } : t))
+    );
+    return { error: null };
   }
 
   /**
@@ -307,9 +393,8 @@ class DemoTasksApiImpl {
       tags: input.tags ?? [],
       parent_task_id: input.parent_task_id ?? null,
       depth: parent ? ((parent.depth + 1) as Task["depth"]) : 0,
-      // New tasks land at the top of their list, where the user can see the
-      // thing they just typed.
-      sort_order: Math.min(0, ...this.tasks.map((t) => t.sort_order)) - 100,
+      // Set below, once the list flag is known.
+      sort_order: 0,
       focus_override: null,
       created_at: nowISO(),
       updated_at: nowISO(),
@@ -319,6 +404,7 @@ class DemoTasksApiImpl {
     // Stands in for `task_sync_is_list_item`: the flag is derived from the
     // project, never passed in, on the way in and on every re-parent.
     task.is_list_item = this.derivedListFlag(task.project_id);
+    task.sort_order = this.newRowKey(task);
     // `allTasks`, not `tasks`: `write` replaces the whole array, so building
     // it from a *filtered* getter destroys everything the filter hid. That was
     // already quietly true of deleted rows — creating a task made the previous
@@ -507,7 +593,7 @@ class DemoTasksApiImpl {
     return ok(
       this.tasks
         .filter((t) => t.parent_task_id === parentId)
-        .sort((a, b) => bySortOrder(a, b) || a.created_at.localeCompare(b.created_at))
+        .sort(bySortOrder)
     );
   }
 
@@ -523,7 +609,7 @@ class DemoTasksApiImpl {
     return ok(
       this.itemRows
         .filter((t) => t.project_id !== null && wanted.has(t.project_id))
-        .sort((a, b) => bySortOrder(a, b) || a.created_at.localeCompare(b.created_at))
+        .sort(bySortOrder)
     );
   }
 

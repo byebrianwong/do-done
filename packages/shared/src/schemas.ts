@@ -81,7 +81,10 @@ export const TaskSchema = z
     // two in sync; reading code can rely on depth being correct.
     parent_task_id: z.string().uuid().nullable(),
     depth: TaskDepth.default(0),
-    sort_order: z.number().int().default(0),
+    // Position in the user's single task order: a float, unique per user in
+    // practice, compared with `compareTaskOrder`. Only the database writes it;
+    // a client moves a task with `TasksApi.place` or `adoptOrder`.
+    sort_order: z.number().default(0),
     // Manual override of the Today Focus section: include = pinned in,
     // exclude = forced out, null = let the urgency algorithm decide.
     focus_override: FocusOverride.nullable().default(null),
@@ -471,7 +474,6 @@ export const UpdateTaskInput = z.object({
   calendar_event_etag: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   parent_task_id: z.string().uuid().nullable().optional(),
-  sort_order: z.number().int().optional(),
   focus_override: FocusOverride.nullable().optional(),
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;

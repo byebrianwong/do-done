@@ -5,7 +5,7 @@ import {
   QUICK_WIN_MAX_MINUTES,
   QUICK_WIN_PARTIAL_MAX_MINUTES,
 } from "@do-done/shared";
-import { isOverdue, isDeadlineToday } from "@do-done/shared";
+import { compareTaskOrder, isOverdue, isDeadlineToday } from "@do-done/shared";
 
 /**
  * Quick-win bonus: small tasks that can be completed quickly bubble up so the
@@ -48,8 +48,10 @@ function isActive(task: Task): boolean {
  *   into focus never pushes an auto pick out: the auto picks always fill their
  *   full `maxItems`, and any pin not already among them is layered on top.
  *
- * Final order honors manual drag position (`sort_order`); ties fall back to
- * urgency so an un-touched list still reads most-important-first.
+ * The picks are shown in the user's task order (`compareTaskOrder`), so a
+ * drag inside Focus sticks. Every task has its own position in that order, so
+ * urgency decides which tasks are picked but not where they sit. It used to
+ * break ties too, back when untouched tasks all shared `sort_order` 0.
  *
  * `now` defaults to the clock. The watch snapshot passes tomorrow's midnight to
  * build the list the phone would show once the day turns over.
@@ -78,10 +80,7 @@ export function generateFocusList(
     (t) => t.focus_override === "include" && !selectedIds.has(t.id)
   );
 
-  return [...auto, ...extraPins].sort(
-    (a, b) =>
-      a.sort_order - b.sort_order || scoreTask(b, now) - scoreTask(a, now)
-  );
+  return [...auto, ...extraPins].sort(compareTaskOrder);
 }
 
 export interface TodayPartition {

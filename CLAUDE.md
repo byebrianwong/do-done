@@ -130,6 +130,76 @@ what `QuickAddButton.tsx` puts in the URL: only the project screen sends
 `status=not_started`, and `app/quick-add.tsx` reads anything else as `inbox`. On
 web, omitting `status` from the `QuickAddSeed` is what reaches it.
 
+## Task order: every task has its own position
+
+**A user's tasks are in one order, and every list shows them in it unless the
+list sorts by another field.** Drag B above A and B is above A in every view
+that shows both, in manual order or inside any group, until one of them is
+dragged past the other. A sort by another field (priority, title, a date)
+decides first, and the task order breaks its ties.
+
+Why: `sort_order` used to be an integer that defaulted to 0. A task only got a
+distinct value when it was dragged, and a drag re-stamped its whole section as
+1000, 2000, 3000. So most tasks tied at 0, and two sections dragged separately
+reused the same numbers. Postgres returns tied rows in no fixed order, so two
+tasks could swap places between views, or between two reads of one view, and
+LIMIT/OFFSET paging could skip rows. `organize_tasks` paging through `list()`
+is what made this matter.
+
+| Piece | Where |
+| --- | --- |
+| Keys, new-row placement, `place_task`, `adopt_task_order`, renumbering | `supabase/migrations/20261120000001_task_order.sql` |
+| `compareTaskOrder`, `rankBetween`, `planPlacement`, `adoptedRanks` | `packages/shared/src/task-order.ts` |
+| `TasksApi.place`, `TasksApi.adoptOrder` | `packages/api-client/src/tasks.ts` |
+| Web drop helpers | `apps/web/src/lib/task-order.ts` |
+| Mobile drop writes | `reorderTasks`, `adoptTaskOrder`, `moveTask` in `apps/mobile/lib/task-queries.ts` |
+
+- **The order is `(sort_order, id)`.** `sort_order` is a float8, one value per
+  task in practice. `id` only decides a tie, which happens when two devices
+  place a task into the same gap at once. Every read orders by both, and every
+  client sort uses `compareTaskOrder`. Comparing the id strings matches
+  Postgres's uuid order because Supabase returns lowercase uuids.
+- **A drag writes one row.** The moved task gets a key next to the row it was
+  dropped beside (`place_task`), and no other task's key changes. That is what
+  keeps everything else in its relative order. The client sends the neighbours'
+  ids, not a key, and the server reads their keys itself, so a stale cache
+  cannot misplace the task.
+- **The server places the task directly after the row above it in the whole
+  order**, or directly before the row below it when it was dropped at the top.
+  The client only sees the rows its view shows, and a key computed from those
+  two alone could land among hidden rows on either side of them.
+- **Making a sorted view manual re-deals keys among the shown tasks**
+  (`adopt_task_order`). The order the view showed becomes the order of those
+  tasks, using only the keys they already hold, so tasks the view hides keep
+  their places. This is the one write that changes many rows, and it only runs
+  on a drag in a sorted view.
+- **A new row gets its key from a trigger** (`task_place_new`). A top-level task
+  goes first, which is where the demo sandbox already put it. A subtask or a
+  list item goes last, next to the "Add subtask" field and the list composer.
+- **Only the database writes `sort_order`.** It is in neither `CreateTaskInput`
+  nor `UpdateTaskInput`, and the editor's autosave strips it (`toUpdateInput`):
+  the editor holds the row as it was when it opened, and writing that key back
+  could undo a drag made in the meantime.
+- **Midpoints run out after about 40 inserts into one gap.** A float8 has a
+  52-bit fraction. `place_task` then renumbers the user's keys 1024 apart, in
+  the same order, and tries once more. A key change alone does not enqueue a
+  calendar push.
+- **The client shows a provisional key until the server answers.**
+  `planPlacement` takes the midpoint of the visible neighbours' keys. That is
+  right for the list on screen even when the server's key differs, so the
+  refetch replaces it without moving the row.
+- **Focus shows its picks in the task order.** Urgency decides which tasks are
+  picked. It used to order untouched tasks too, because they all tied at 0. Now
+  every task has a position, so a drag inside Focus sticks, and Focus no longer
+  reads most-urgent-first for tasks nobody has dragged.
+- **The migration kept the order users saw.** Dragged rows kept their relative
+  order. Rows that tied at 0 were put in the order new rows arrive in from now
+  on: top-level tasks newest first, subtasks and list items oldest first.
+
+The SQL has run against a local Postgres 16 with a stand-in schema: new-row
+placement, `place_task`, an exhausted gap, tied neighbours, `adopt_task_order`
+and RLS. It has not run against the Supabase project.
+
 ## Quick-add pre-fills the fields it can guess
 
 **When the surface knows what a field should be, the chip shows that value
@@ -1533,9 +1603,11 @@ which is what read as the whole screen flashing.
   drag that both re-files a task and re-orders its destination: one optimistic apply of
   *both* halves, both writes, one invalidate. All four cross-section drag handlers
   (Today, Upcoming, and both branches of `GroupedTaskList`) go through it.
-- **`reorderTasks` patches the cache too**, via `patchCachedOrder`, which stamps
-  `sort_order` and re-sorts. That reproduces what the refetch will return, so the
-  reconcile is a no-op rather than a second opinion.
+- **`reorderTasks` patches the cache too**, via `patchCachedOrder`: the moved task
+  takes a provisional key between its neighbours and every list is re-sorted. That
+  reproduces what the refetch will return, so the reconcile is a no-op rather than
+  a second opinion. A drop writes the moved task alone (see *Task order*), so there
+  is no section-wide stamp for the cache to wait on.
 
 `lib/task-move.test.ts` asserts on the cache *mid-flight*, with the writes held open,
 because the settled state was never the problem.
@@ -2630,11 +2702,11 @@ function, tested in node.
 - **A short list has no aisles to drag between.** Under `AISLE_GROUP_MIN_ITEMS` it
   is one unlabelled group, so its sections are that group and Got it. Reordering
   and ticking by drag still work.
-- **The dropped order is ranked below zero** (`aheadOfNew` on `reorderTasks` and
-  `moveTask`). An item is created with `sort_order` 0. Ranked 1000 and up, as a
-  task list's drag is, every dragged item would sort after every item added since,
-  and a new item would appear at the top of its aisle rather than the bottom, where
-  people look for it.
+- **A drop writes the one item that moved.** A new item gets the last key in the
+  user's order (*Task order*), so it lands at the bottom of its aisle, where people
+  look for it, whatever was dragged before. This used to need the dragged run
+  ranked below zero (`aheadOfNew`), because items were created with 0 and a drag
+  stamped 1000 and up.
 - **The lesson is put in the cache before the write** (`previewAisleLesson`). The
   drop changes the row's tag in the cache at once, and a row with no tag falls back
   to the memory, which still holds the old lesson until the write lands. Without
@@ -2643,10 +2715,10 @@ function, tested in node.
 - **A checklist drags too.** It is one flat group plus Done, so a drag reorders an
   item or ticks it. Holding still does nothing there (`onHold` is absent), because
   a checklist has no aisle or store to correct.
-- **In All shopping a reorder can touch several lists.** That view interleaves
-  every shopping list's items by `sort_order`, so a drop stamps ranks on items from
-  each list in the section. Each list's own view keeps the relative order the drop
-  gave those items, since it sorts by the same column.
+- **In All shopping a drop moves one item.** That view interleaves every shopping
+  list's items in the task order, and each list's own view sorts by the same
+  order, so the item keeps the same place relative to its list's other items in
+  both.
 - **Dropping into Got it plays no completion animation and offers no undo toast**,
   the same as dropping a task into a Done column. Dragging it back out is the undo.
 - **The hold and the drag share a start.** `resolveDrop` tells them apart by

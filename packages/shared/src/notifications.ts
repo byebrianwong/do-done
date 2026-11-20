@@ -21,6 +21,7 @@ import {
   type NotificationSettings,
   type Task,
 } from "./schemas.js";
+import { compareTaskOrder } from "./task-order.js";
 
 // ── Clock times ────────────────────────────────────────
 //
@@ -204,7 +205,7 @@ function rankForBody(tasks: Task[], todayISO: string): Task[] {
     return overdue * 10 + p;
   };
   return [...tasks].sort(
-    (a, b) => rank(a) - rank(b) || (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    (a, b) => rank(a) - rank(b) || compareTaskOrder(a, b)
   );
 }
 

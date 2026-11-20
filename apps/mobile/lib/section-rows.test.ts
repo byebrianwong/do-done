@@ -167,8 +167,10 @@ describe('resolveDrop', () => {
 
   it('reorders within the section the row started in', () => {
     const { result } = resolveDrop(dropped(rows, 1, 2), 1, 2, true);
+    // a1 moved down past a2, so a1 is the one task the reorder writes.
     expect(result).toEqual({
       kind: 'reorder',
+      taskId: 'a1',
       sectionKey: 'a',
       orderedIds: ['a2', 'a1'],
     });

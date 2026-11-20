@@ -700,17 +700,17 @@ export function ListDetail({ listId }: { listId: string }) {
     did before. A checklist has nothing to correct, so there the hold does
     nothing.
 
-    `aheadOfNew` ranks the dropped order below the column default of 0, so an
-    item added afterwards still appears at the bottom of its aisle.
+    A drop moves the one item next to its new neighbours. An item added
+    afterwards is given the last key, so it still appears at the bottom of its
+    aisle.
   */
   const onReorder = useCallback(
-    (_sectionKey: string, ids: string[]) => {
-      // A stand-in still waiting on its insert has no row to rank yet.
-      void reorderTasks(ids.filter((i) => !isPendingItem(i)), {
-        aheadOfNew: true,
-      }).catch(() =>
-        toast.show({ message: "Couldn't move that item" })
-      );
+    (_sectionKey: string, ids: string[], taskId: string) => {
+      // A stand-in still waiting on its insert has no row to place beside.
+      void reorderTasks(
+        taskId,
+        ids.filter((i) => !isPendingItem(i))
+      ).catch(() => toast.show({ message: "Couldn't move that item" }));
     },
     [toast]
   );
@@ -726,8 +726,7 @@ export function ListDetail({ listId }: { listId: string }) {
       void moveTask(
         id,
         patch,
-        ids.filter((i) => !isPendingItem(i)),
-        { aheadOfNew: true }
+        ids.filter((i) => !isPendingItem(i))
       )
         .then(async () => {
           // The same two halves as a correction made in the item sheet: the

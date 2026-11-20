@@ -23,6 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, Project } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { commitPlacement, placeLocally } from "@/lib/task-order";
 import { TaskItem } from "./task-item";
 import { NO_LINK_NAV_WHILE_DRAGGING } from "./linkified-text";
 import { TaskDragOverlay } from "./task-drag-overlay";
@@ -145,11 +146,13 @@ export function SortableTaskList({
     setItems(next);
 
     const api = await getClientTasksApi();
-    const updates = next.map((t, i) => ({
-      id: t.id,
-      input: { sort_order: (i + 1) * 1000 },
-    }));
-    const { error } = await api.bulkUpdate(updates);
+    // One task moves, next to the row it was dropped beside; every other row
+    // keeps its key.
+    const movedId = String(active.id);
+    const { placement } = placeLocally(items, next.map((t) => t.id), movedId);
+    const { error } = placement
+      ? await commitPlacement(api, movedId, placement)
+      : { error: new Error("The dropped task is not in the list") };
     if (error) {
       console.error("Reorder failed:", error);
       setItems(items);

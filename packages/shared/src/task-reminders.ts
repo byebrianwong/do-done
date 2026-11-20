@@ -21,6 +21,7 @@
 
 import type { NotificationSettings, Task } from "./schemas.js";
 import { describeDigestSchedule, shiftISO } from "./notifications.js";
+import { compareTaskOrder } from "./task-order.js";
 
 /** How many task titles a roundup names before it collapses into "+N more". */
 export const ROUNDUP_BODY_TASKS = 3;
@@ -246,7 +247,7 @@ export function buildDayStartRoundup(
 
   const ranked = [...onDay].sort((a, b) => {
     const p = (t: Task) => Number((t.priority ?? "p4").slice(1)) || 4;
-    return p(a) - p(b) || (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    return p(a) - p(b) || compareTaskOrder(a, b);
   });
 
   const named = ranked.slice(0, ROUNDUP_BODY_TASKS).map((t) => t.title);

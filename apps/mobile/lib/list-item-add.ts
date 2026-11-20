@@ -22,9 +22,11 @@ export function isPendingItem(id: string): boolean {
  * The stand-in row for an item that is being created.
  *
  * It carries what the row draws: the title, the tags (a typed `@store` shows in
- * the subline at once), the list and the default status. `sort_order` is 0, the
- * column default a created row gets, and `created_at` is now, so the stand-in
- * sorts where the real row will.
+ * the subline at once), the list and the default status. It sorts last, which
+ * is where the real row will land: `task_place_new` gives a new list item the
+ * last key in the user's order. `Number.MAX_SAFE_INTEGER` rather than
+ * `Infinity`, because the query cache is persisted as JSON and `Infinity`
+ * comes back as null.
  */
 export function pendingListItem({
   tempId,
@@ -57,7 +59,7 @@ export function pendingListItem({
     tags: input.tags ?? [],
     parent_task_id: null,
     depth: 0,
-    sort_order: 0,
+    sort_order: Number.MAX_SAFE_INTEGER,
     focus_override: null,
     created_at: iso,
     updated_at: iso,

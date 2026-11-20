@@ -26,6 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Project, Task, UpdateTaskInput } from "@do-done/shared";
 import { partitionToday } from "@do-done/task-engine";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { commitPlacement, placeLocally } from "@/lib/task-order";
 import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
 import { OverdueSection } from "./overdue-section";
 import { TaskItem } from "./task-item";
@@ -56,9 +57,10 @@ function patchForSection(key: string): UpdateTaskInput {
  * static block on top (overdue always wins, never a drop target). Focus and
  * Other are two droppable, sortable sections inside one DndContext: dragging a
  * row from Other into Focus pins it (`focus_override = 'include'`); dragging it
- * back out forces it out (`'exclude'`). Reordering within a section persists
- * `sort_order`. Cross-section moves re-bucket live during the drag (Todoist
- * style) by mutating the optimistic copy and re-running `partitionToday`.
+ * back out forces it out (`'exclude'`). A drop moves that one task next to
+ * the row it was dropped beside (`TasksApi.place`). Cross-section moves
+ * re-bucket live during the drag (Todoist style) by mutating the optimistic
+ * copy and re-running `partitionToday`.
  */
 export function DraggableToday({
   tasks,
@@ -120,12 +122,6 @@ export function DraggableToday({
     ];
   }
 
-  function applySortOrder(orderedIds: string[]): Map<string, number> {
-    const map = new Map<string, number>();
-    orderedIds.forEach((id, i) => map.set(id, (i + 1) * 1000));
-    return map;
-  }
-
   function findSectionOf(list: Task[], id: string) {
     return sectionsOf(list).find((s) => s.tasks.some((t) => t.id === id));
   }
@@ -167,14 +163,7 @@ export function DraggableToday({
         }
       }
       toIds.splice(insertAt, 0, activeId);
-      const orders = applySortOrder(toIds);
-
-      return prev.map((t) => {
-        if (t.id === activeId)
-          return { ...t, ...patch, sort_order: orders.get(t.id)! } as Task;
-        if (orders.has(t.id)) return { ...t, sort_order: orders.get(t.id)! };
-        return t;
-      });
+      return placeLocally(prev, toIds, activeId, patch).tasks;
     });
   }
 
@@ -225,10 +214,11 @@ export function DraggableToday({
         const oldIndex = ids.indexOf(activeId);
         const newIndex = ids.indexOf(overId);
         if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
-          const orders = applySortOrder(arrayMove(ids, oldIndex, newIndex));
-          finalTasks = localTasks.map((t) =>
-            orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t
-          );
+          finalTasks = placeLocally(
+            localTasks,
+            arrayMove(ids, oldIndex, newIndex),
+            activeId
+          ).tasks;
           setLocalTasks(finalTasks);
         }
       }
@@ -251,26 +241,15 @@ export function DraggableToday({
     }
 
     const api = await getClientTasksApi();
-    const orders = applySortOrder(finalToIds);
-
-    let updates: Array<{ id: string; input: UpdateTaskInput }>;
-    if (sameSection) {
-      updates = finalToIds.map((id) => ({
-        id,
-        input: { sort_order: orders.get(id)! },
-      }));
-    } else {
-      const patch = patchForSection(toS.key);
-      updates = [
-        { id: activeId, input: { ...patch, sort_order: orders.get(activeId)! } },
-      ];
-      for (const id of finalToIds) {
-        if (id === activeId) continue;
-        updates.push({ id, input: { sort_order: orders.get(id)! } });
-      }
-    }
-
-    const { error } = await api.bulkUpdate(updates);
+    const { placement } = placeLocally(finalTasks, finalToIds, activeId);
+    const { error } = placement
+      ? await commitPlacement(
+          api,
+          activeId,
+          placement,
+          sameSection ? undefined : patchForSection(toS.key)
+        )
+      : { error: new Error("The dropped task is not in its section") };
     if (error) {
       console.error(sameSection ? "Reorder failed:" : "Focus move failed:", error);
       restore();

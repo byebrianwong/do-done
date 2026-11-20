@@ -14,9 +14,17 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { UNDO_TOAST_TTL_MS, addDaysLocalISO, buildSuggestionIndex } from '@do-done/shared';
+import {
+  UNDO_TOAST_TTL_MS,
+  addDaysLocalISO,
+  adoptedRanks,
+  buildSuggestionIndex,
+  compareTaskOrder,
+  planPlacement,
+} from '@do-done/shared';
 import type {
   CreateProjectInput,
+  Placement,
   Project,
   Task,
   TaskFilterInput,
@@ -494,56 +502,83 @@ function patchCachedTasks(patches: Map<string, UpdateTaskInput>) {
   );
 }
 
-/** How a drag's id list is turned into `sort_order` values. */
-export interface DropOrderOptions {
-  /**
-   * Rank the dropped order below zero rather than above it.
-   *
-   * A new row is created with the column's default `sort_order` of 0. With the
-   * default ranks (1000, 2000, …) it then sorts ahead of every row a drag has
-   * touched. That is fine for a task list. A shopping list is append-only in
-   * practice, and the first thing anyone does after adding an item is look for
-   * it at the bottom (see `TasksApi.listItems`). So a list passes this, the run
-   * ends at -1000, and an item added afterwards still lands at the bottom of
-   * its aisle.
-   */
-  aheadOfNew?: boolean;
-}
-
-/** The `sort_order` a drag assigns to each id it hands back. */
-function ranksFor(
-  orderedIds: string[],
-  { aheadOfNew = false }: DropOrderOptions = {}
-): Map<string, number> {
-  const n = orderedIds.length;
-  return new Map(
-    orderedIds.map((id, i) => [id, (aheadOfNew ? i - n : i + 1) * 1000])
-  );
+/** The key the cached copy of a task holds. Every copy holds the same one. */
+function cachedKey(id: string): number | undefined {
+  return cachedTask(id)?.sort_order;
 }
 
 /**
- * Apply a drag's new order to every cached list, so the order the finger chose
- * is the order the cache holds for the whole round trip.
+ * Give some tasks new keys in every cached list, and re-sort, so the order the
+ * finger chose is the order the cache holds for the whole round trip.
  *
  * Without this the cache kept the *pre-drag* order until the write came back,
  * and anything that re-read the cache in between — an optimistic field patch,
  * a background refetch — re-seeded the list into that stale order and then out
- * of it again a moment later. Every list is ordered by `sort_order` alone
- * (`TasksApi.list`) and `generateFocusList` breaks its ties the same way, so
- * re-sorting here reproduces exactly what the refetch will return. Sort is
- * stable, so rows the drag didn't touch keep their relative places.
+ * of it again a moment later. Every list is in the user's task order
+ * (`compareTaskOrder`, which `TasksApi` reads by and `generateFocusList`
+ * shows), so re-sorting here reproduces what the refetch will return.
  */
-function patchCachedOrder(orderedIds: string[], opts?: DropOrderOptions) {
-  if (orderedIds.length === 0) return;
-  const ranks = ranksFor(orderedIds, opts);
+function patchCachedOrder(ranks: Map<string, number>) {
+  if (ranks.size === 0) return;
   patchTaskLists((old) =>
     old
       .map((t) => {
         const rank = ranks.get(t.id);
         return rank === undefined ? t : ({ ...t, sort_order: rank } as Task);
       })
-      .sort((a, b) => a.sort_order - b.sort_order)
+      .sort(compareTaskOrder)
   );
+}
+
+/**
+ * What a drop writes for the order.
+ *
+ * - `place`: one task moves next to its new neighbours in `orderedIds`, the
+ *   section it was dropped into. Every other task keeps its key, which is what
+ *   keeps any two tasks in the same relative order in every view.
+ * - `adopt`: a sorted view is being made manual, so the order it showed
+ *   becomes the order of the tasks in it. They swap keys among themselves and
+ *   tasks the view does not show keep their places.
+ */
+type OrderWrite =
+  | { kind: 'place'; taskId: string; orderedIds: string[] }
+  | { kind: 'adopt'; orderedIds: string[] };
+
+/** The keys to show until the server answers, and the neighbours to send. */
+function provisionalOrder(write: OrderWrite): {
+  ranks: Map<string, number>;
+  placement: Placement | null;
+} {
+  if (write.kind === 'adopt') {
+    return { ranks: adoptedRanks(write.orderedIds, cachedKey), placement: null };
+  }
+  const placement = planPlacement(write.orderedIds, write.taskId, cachedKey);
+  return {
+    ranks: placement ? new Map([[write.taskId, placement.rank]]) : new Map(),
+    placement,
+  };
+}
+
+/**
+ * Send an order write. The server works out the keys from what it holds (see
+ * `TasksApi.place`), so the provisional ones above only have to be right for
+ * the list on screen.
+ */
+async function sendOrder(
+  api: Awaited<ReturnType<typeof getTasksApi>>,
+  write: OrderWrite,
+  placement: Placement | null
+): Promise<Error | null> {
+  if (write.kind === 'adopt') return (await api.adoptOrder(write.orderedIds)).error;
+  // Alone in its section, or not in it at all: nothing to sit next to.
+  if (!placement || (placement.after === null && placement.before === null)) {
+    return null;
+  }
+  const { error } = await api.place(write.taskId, {
+    after: placement.after,
+    before: placement.before,
+  });
+  return error;
 }
 
 /**
@@ -599,7 +634,7 @@ export function cachedSubtasks(parentId: string): Task[] {
       if (t.parent_task_id === parentId && !byId.has(t.id)) byId.set(t.id, t);
     }
   }
-  return [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+  return [...byId.values()].sort(compareTaskOrder);
 }
 
 /** The cached copy of one task, from whichever list holds it. */
@@ -1303,16 +1338,9 @@ export async function reorderProjects(orderedIds: string[]) {
   if (error) throw error;
 }
 
-/** The `sort_order` patches a drag's id list turns into. */
-function orderPatches(orderedIds: string[], opts?: DropOrderOptions) {
-  return [...ranksFor(orderedIds, opts)].map(([id, sort_order]) => ({
-    id,
-    input: { sort_order },
-  }));
-}
-
 /**
- * Persist a reordered set of task ids (drag-to-reorder).
+ * Persist a drop within one section: `taskId` moves next to its new
+ * neighbours in `orderedIds`, the section's order after the drop.
  *
  * The dropped order goes into the cache *before* the write, not after it. The
  * drag list keeps a local copy too, but it re-seeds itself from the cache
@@ -1320,15 +1348,25 @@ function orderPatches(orderedIds: string[], opts?: DropOrderOptions) {
  * one background refetch away from yanking the row back out from under the
  * finger.
  */
-export async function reorderTasks(
-  orderedIds: string[],
-  opts?: DropOrderOptions
-) {
+export async function reorderTasks(taskId: string, orderedIds: string[]) {
+  await writeOrder({ kind: 'place', taskId, orderedIds });
+}
+
+/**
+ * Persist a sorted view's order as the manual order of the tasks in it: what a
+ * drag on a sorted list does before the list flips to manual sort.
+ */
+export async function adoptTaskOrder(orderedIds: string[]) {
+  await writeOrder({ kind: 'adopt', orderedIds });
+}
+
+async function writeOrder(write: OrderWrite) {
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
-  patchCachedOrder(orderedIds, opts);
+  const { ranks, placement } = provisionalOrder(write);
+  patchCachedOrder(ranks);
   const api = await getTasksApi();
-  const { error } = await api.bulkUpdate(orderPatches(orderedIds, opts));
+  const error = await sendOrder(api, write, placement);
   if (error) restoreTaskLists(prev);
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   refreshTaskWidgets();
@@ -1347,27 +1385,34 @@ export async function reorderTasks(
  * is the only thing that decides a row's position within it. The row landed in
  * the wrong slot, the list re-laid-out around it, and only the second write's
  * refetch put it where the finger had left it a second earlier.
+ *
+ * `orderedIds` is the destination section after the drop. With `adopt`, it is
+ * instead the whole order a sorted view showed, which becomes the manual order
+ * (see `adoptTaskOrder`).
  */
 export async function moveTask(
   id: string,
   input: UpdateTaskInput,
   orderedIds: string[],
-  opts?: DropOrderOptions
+  opts: { adopt?: boolean } = {}
 ) {
   await cancelTaskFetches();
   const prev = snapshotTaskLists();
+  const write: OrderWrite = opts.adopt
+    ? { kind: 'adopt', orderedIds }
+    : { kind: 'place', taskId: id, orderedIds };
+  const { ranks, placement } = provisionalOrder(write);
   patchCachedTasks(new Map([[id, input]]));
-  patchCachedOrder(orderedIds, opts);
+  patchCachedOrder(ranks);
   try {
     const api = await getTasksApi();
     const { error, autoSync } = await api.update(id, input);
     if (error) throw error;
     notifyAutoSync(autoSync?.notice);
-    // The move landed; the order is a separate write because `sort_order` has
-    // to be stamped across the whole destination section, not just this row.
-    const { error: orderError } = await api.bulkUpdate(
-      orderPatches(orderedIds, opts)
-    );
+    // The move landed. The position is a second call because the server
+    // reads the neighbours' keys itself (`place_task`), rather than taking a
+    // key computed from this phone's cache.
+    const orderError = await sendOrder(api, write, placement);
     if (orderError) throw orderError;
   } catch (e) {
     restoreTaskLists(prev);

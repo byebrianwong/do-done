@@ -27,6 +27,7 @@ import {
   sweepPromoteRange,
   TASK_TRASH_RETENTION_MS,
   QUICK_WIN_PARTIAL_MAX_MINUTES,
+  compareTaskOrder,
 } from "@do-done/shared";
 import { AttachmentsApi } from "./attachments.js";
 
@@ -441,10 +442,12 @@ export class TasksApi {
       open()
         .or(needed.join(","))
         .order("sort_order", { ascending: true })
+        .order("id", { ascending: true })
         .range(0, NEEDED_TASKS_LIMIT - 1),
       open()
         .order("priority", { ascending: true })
         .order("sort_order", { ascending: true })
+        .order("id", { ascending: true })
         .range(0, (opts.limit ?? OPEN_TASKS_LIMIT) - 1),
     ];
     if (opts.completedSince) {
@@ -452,7 +455,11 @@ export class TasksApi {
         .eq("status", "done")
         .gte("completed_at", opts.completedSince);
       if (this.userId) done = done.eq("user_id", this.userId);
-      reads.push(done.order("sort_order", { ascending: true }));
+      reads.push(
+        done
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+      );
     }
 
     const results = await Promise.all(reads);
@@ -463,7 +470,7 @@ export class TasksApi {
     for (const r of results) {
       for (const t of (r.data as Task[] | null) ?? []) byId.set(t.id, t);
     }
-    const rows = [...byId.values()].sort((a, b) => a.sort_order - b.sort_order);
+    const rows = [...byId.values()].sort(compareTaskOrder);
     return { data: normalizeTasks(rows), error: null };
   }
 
@@ -485,6 +492,7 @@ export class TasksApi {
 
     query = query
       .order("sort_order", { ascending: true })
+      .order("id", { ascending: true })
       .range(filters?.offset ?? 0, (filters?.offset ?? 0) + (filters?.limit ?? 50) - 1);
 
     const { data, error } = await query;
@@ -1033,6 +1041,50 @@ export class TasksApi {
     };
   }
 
+  /**
+   * Move one task next to the row it was dropped beside.
+   *
+   * Pass the task's new neighbours in the list it was dropped into, as the
+   * client saw them: `after` is the task it now follows, `before` the one it
+   * now precedes. The server puts it directly after `after` in the user's
+   * whole order, or directly before `before` when there is no `after`, and
+   * returns the key it gave it. It reads the neighbours' keys itself, so a
+   * stale cache cannot misplace the task. See `place_task` in
+   * supabase/migrations/20261120000001_task_order.sql.
+   *
+   * This is the only write a drag within one manual list makes. Every other
+   * task keeps its key, which is what keeps any two tasks in the same
+   * relative order in every view.
+   */
+  async place(
+    id: string,
+    neighbors: { after: string | null; before: string | null }
+  ): Promise<{ data: number | null; error: Error | null }> {
+    const { data, error } = await this.supabase.rpc("place_task", {
+      p_task: id,
+      p_after: neighbors.after,
+      p_before: neighbors.before,
+    });
+    if (error) return { data: null, error: error as Error };
+    return { data: data as number, error: null };
+  }
+
+  /**
+   * Make `orderedIds` the order of those tasks, using only the keys they
+   * already hold. Tasks not listed keep their places.
+   *
+   * What dragging a sorted view into manual order writes: the order the view
+   * showed becomes the manual order of the tasks in it. See
+   * `adopt_task_order`.
+   */
+  async adoptOrder(orderedIds: string[]): Promise<{ error: Error | null }> {
+    if (orderedIds.length === 0) return { error: null };
+    const { error } = await this.supabase.rpc("adopt_task_order", {
+      p_ids: orderedIds,
+    });
+    return { error: (error as Error) ?? null };
+  }
+
   async bulkUpdate(
     updates: Array<{ id: string; input: UpdateTaskInput }>
   ): Promise<BulkUpdateResult> {
@@ -1100,7 +1152,7 @@ export class TasksApi {
     let query = this.read()
       .eq("parent_task_id", parentId)
       .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+      .order("id", { ascending: true });
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query;
     return {
@@ -1115,13 +1167,13 @@ export class TasksApi {
   // above this point is the task universe and cannot see an item at all.
 
   /**
-   * Every item on one list, bought and unbought, oldest first.
+   * Every item on one list, bought and unbought, in the user's task order.
    *
-   * Ascending `created_at` rather than `sort_order`: a shopping list is
-   * append-only in practice — you say things in the order they occur to you —
-   * and the first thing anyone does after adding an item is look for it at the
-   * bottom. Manual reordering still works and still wins, because
-   * `sort_order` leads the ordering; it just isn't what decides ties.
+   * A new item is given the last key (`task_place_new`), so an undragged list
+   * reads oldest first. A shopping list is append-only in practice: you say
+   * things in the order they occur to you, and the first thing anyone does
+   * after adding an item is look for it at the bottom. A drag moves one item
+   * between its neighbours and leaves the rest where they were.
    */
   async listItems(
     listId: string
@@ -1129,7 +1181,7 @@ export class TasksApi {
     let query = this.readItems()
       .eq("project_id", listId)
       .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+      .order("id", { ascending: true });
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query;
     return {
@@ -1157,7 +1209,7 @@ export class TasksApi {
     let query = this.readItems()
       .in("project_id", listIds)
       .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+      .order("id", { ascending: true });
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query;
     return {
@@ -1257,7 +1309,7 @@ export class TasksApi {
       .is("deadline_date", null)
       .not("status", "in", "(done,cancelled,archived)")
       .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false });
+      .order("id", { ascending: true });
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query;
     return {
@@ -1274,7 +1326,8 @@ export class TasksApi {
       .not("status", "in", "(done,cancelled,archived)")
       .or(`scheduled_date.lt.${today},deadline_date.lt.${today}`)
       .order("priority")
-      .order("sort_order");
+      .order("sort_order")
+      .order("id");
     if (this.userId) query = query.eq("user_id", this.userId);
     const { data, error } = await query;
     return {
@@ -1309,7 +1362,8 @@ export class TasksApi {
       .not("status", "in", "(done,cancelled,archived)")
       .or(`scheduled_date.lte.${today},deadline_date.lte.${today}`)
       .order("priority")
-      .order("sort_order");
+      .order("sort_order")
+      .order("id");
 
     if (this.userId) query = query.eq("user_id", this.userId);
 

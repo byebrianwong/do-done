@@ -4,7 +4,7 @@ Supabase client wrapper and typed API classes.
 
 ## Key Files
 - `src/supabase.ts` — Client factories (service role for MCP, anon for apps)
-- `src/tasks.ts` — TasksApi: list, listOpen, create, update, complete, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted; list items through `readItems()`: listItems, listItemsIn, listCounts, clearGot, clearGotIn
+- `src/tasks.ts` — TasksApi: list, listOpen, create, update, complete, place, adoptOrder, search, getInbox, getToday, getUpcoming, getDatedBetween, getOverdue, listTags, listByTag, suggestionHistory, delete, restore, purgeDeleted; list items through `readItems()`: listItems, listItemsIn, listCounts, clearGot, clearGotIn
 - `src/projects.ts` — ProjectsApi: list, getById, create
 - `src/locations.ts` — LocationsApi: list, listAll, create, update, remove, linkTask, unlinkTask, getTaskLocations, listTaskLinks, save, listWithPendingTasks
 
@@ -12,9 +12,17 @@ Supabase client wrapper and typed API classes.
 - `getToday`/`getUpcoming` derive "today" from the **process** clock, which is
   UTC on a deployed host. Server-side callers should use `getDatedBetween` /
   `getOverdue` and pass the day they resolved from the user's timezone instead.
+- **Only the database writes `sort_order`.** Every read orders by
+  `(sort_order, id)`, the user's task order (root CLAUDE.md, *Task order*).
+  `place(id, { after, before })` moves one task next to the row it was dropped
+  beside, and `adoptOrder(ids)` makes a sorted view's order the manual order of
+  the tasks in it. Both are RPCs that read the current keys on the server.
+  Neither `CreateTaskInput` nor `UpdateTaskInput` carries the column.
 - **`listOpen()` is for day-based views, `list()` is a page.** `list({ limit })`
-  orders by `sort_order` and cuts at the limit, finished tasks included, so a
-  view that picks today's rows out of it loses whatever sorts past the cutoff.
+  orders by `(sort_order, id)` and cuts at the limit, finished tasks included, so
+  a view that picks today's rows out of it loses whatever sorts past the cutoff.
+  Paging it with `offset` is safe, because that order is total: no row can be
+  skipped or repeated between two pages. `organize_tasks` does this.
   `listOpen` reads every open task dated through the day it is given, plus
   Focus pins and every task with a Focus bonus, as one read, and the other open
   tasks highest-priority first as a second. That split keeps Focus exact unless the

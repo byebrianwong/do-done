@@ -1,5 +1,6 @@
 "use client";
 
+import { compareTaskOrder } from "@do-done/shared";
 import Link from "next/link";
 import { use } from "react";
 import { QuickAddBar } from "@/components/quick-add-bar";
@@ -35,7 +36,7 @@ export default function DemoProjectDetailPage({
 
   const projectTasks = tasks
     .filter((t) => t.project_id === id)
-    .sort((a, b) => a.sort_order - b.sort_order);
+    .sort(compareTaskOrder);
 
   return (
     <div className="mx-auto max-w-3xl">

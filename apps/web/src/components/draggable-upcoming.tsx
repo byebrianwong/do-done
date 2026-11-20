@@ -23,13 +23,20 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { CalendarEvent, Task, Project } from "@do-done/shared";
+import type {
+  CalendarEvent,
+  Task,
+  Project,
+  UpdateTaskInput,
+} from "@do-done/shared";
 import {
   addDaysLocalISO,
+  planPlacement,
   resolveQuickSchedule,
   todayLocalISO,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import { commitPlacement } from "@/lib/task-order";
 import { buildRescheduleInput } from "@/lib/reschedule";
 import { seedFromUpcomingDate } from "@/lib/quick-add";
 import { SectionOpenProvider, useIsCompact } from "@/lib/task-row-behavior";
@@ -513,81 +520,51 @@ export function DraggableUpcoming({
 
     const api = await getClientTasksApi();
     const toIds = finalByDate.get(toDate) ?? [];
-
-    if (fromDate === toDate) {
-      const updates = toIds.map((id, i) => ({
-        id,
-        input: { sort_order: (i + 1) * 1000 },
-      }));
-      const { error } = await api.bulkUpdate(updates);
-      if (error) {
-        console.error("Reorder failed:", error);
-        if (snap) {
-          setByDate(snap.byDate);
-          setTasks(snap.tasks);
-        }
-        return;
+    const revert = () => {
+      if (snap) {
+        setByDate(snap.byDate);
+        setTasks(snap.tasks);
       }
-    } else {
+    };
+
+    let patch: UpdateTaskInput | undefined;
+    if (fromDate !== toDate) {
       // Overdue has no single past date to assign, so it's never a valid drop
       // target. handleDragOver already blocks previews into it; guard the
       // commit too so a stray drop can't write scheduled_date: "overdue".
       if (toDate === OVERDUE_KEY) {
-        if (snap) {
-          setByDate(snap.byDate);
-          setTasks(snap.tasks);
-        }
+        revert();
         return;
       }
 
       // Cross-section: update scheduled_date on the moved task. Both ends can be the
       // No-date sentinel — moving INTO no-date clears scheduled_date; moving OUT of
       // no-date sets scheduled_date to the target day.
-      const toNoDate = toDate === NO_DATE_KEY;
-      const nextScheduledDate = toNoDate ? null : toDate;
+      const nextScheduledDate = toDate === NO_DATE_KEY ? null : toDate;
+      patch = { scheduled_date: nextScheduledDate };
 
       const moved = tasks.get(activeId);
       if (moved) {
         const nextTasks = new Map(tasks);
-        nextTasks.set(activeId, {
-          ...moved,
-          scheduled_date: nextScheduledDate,
-        });
+        nextTasks.set(activeId, { ...moved, scheduled_date: nextScheduledDate });
         setTasks(nextTasks);
       }
+    }
 
-      // The moved row's new day and its new place in that day are one write,
-      // not two. It appears in `toIds` as well, so a separate entry for the
-      // date made it the only row in the batch patched twice — two concurrent
-      // writes to one id, racing each other for a `sort_order` the other one
-      // doesn't carry. Same shape as draggable-today / draggable-task-groups.
-      const updates: Array<{
-        id: string;
-        input: {
-          sort_order?: number;
-          scheduled_date?: string | null;
-        };
-      }> = toIds.map((id, i) => ({
-        id,
-        input:
-          id === activeId
-            ? { scheduled_date: nextScheduledDate, sort_order: (i + 1) * 1000 }
-            : { sort_order: (i + 1) * 1000 },
-      }));
-      // A drop that somehow left the row out of the target's order still has to
-      // land its date, or the task keeps the day the user dragged it off.
-      if (!toIds.includes(activeId)) {
-        updates.push({ id: activeId, input: { scheduled_date: nextScheduledDate } });
-      }
-      const { error } = await api.bulkUpdate(updates);
-      if (error) {
-        console.error("Move failed:", error);
-        if (snap) {
-          setByDate(snap.byDate);
-          setTasks(snap.tasks);
-        }
-        return;
-      }
+    // One task moves: the new day, then its place next to the row it was
+    // dropped beside. Every other row keeps its key.
+    const placement = planPlacement(toIds, activeId, (id) => tasks.get(id)?.sort_order);
+    const { error } = placement
+      ? await commitPlacement(api, activeId, placement, patch)
+      : // A drop that somehow left the row out of the target's order still
+        // has to land its date, or the task keeps the day it was dragged off.
+        patch
+        ? await api.update(activeId, patch)
+        : { error: null };
+    if (error) {
+      console.error(fromDate === toDate ? "Reorder failed:" : "Move failed:", error);
+      revert();
+      return;
     }
     startTransition(() => router.refresh());
   }

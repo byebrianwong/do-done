@@ -47,25 +47,29 @@ describe("generateFocusList", () => {
     vi.useRealTimers();
   });
 
-  it("higher priority tasks score higher", () => {
+  // Urgency decides which tasks are picked. Where they sit is the user's task
+  // order ("honors manual sort_order ahead of score" below), so these cases
+  // ask for fewer slots than there are tasks and check which ones made it.
+
+  it("picks higher priority tasks first", () => {
     const tasks = [
       makeTask({ title: "low", priority: "p4" }),
       makeTask({ title: "urgent", priority: "p1" }),
       makeTask({ title: "medium", priority: "p3" }),
     ];
-    const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("urgent");
-    expect(result[1].title).toBe("medium");
-    expect(result[2].title).toBe("low");
+    expect(generateFocusList(tasks, 1).map((t) => t.title)).toEqual(["urgent"]);
+    expect(generateFocusList(tasks, 2).map((t) => t.title).sort()).toEqual([
+      "medium",
+      "urgent",
+    ]);
   });
 
-  it("overdue tasks rank highest", () => {
+  it("picks overdue tasks first", () => {
     const tasks = [
       makeTask({ title: "p1 no date", priority: "p1" }),
       makeTask({ title: "overdue p4", priority: "p4", deadline_date: "2026-04-10" }),
     ];
-    const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("overdue p4");
+    expect(generateFocusList(tasks, 1)[0].title).toBe("overdue p4");
   });
 
   it("excludes done tasks", () => {
@@ -104,13 +108,12 @@ describe("generateFocusList", () => {
     expect(result).toHaveLength(3);
   });
 
-  it("deadline-today tasks rank above tasks with no date", () => {
+  it("picks deadline-today tasks above tasks with no date", () => {
     const tasks = [
       makeTask({ title: "no date", priority: "p3" }),
       makeTask({ title: "deadline today", priority: "p3", deadline_date: "2026-04-12" }),
     ];
-    const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("deadline today");
+    expect(generateFocusList(tasks, 1)[0].title).toBe("deadline today");
   });
 
   // ── Manual overrides ────────────────────────────────────
@@ -138,28 +141,26 @@ describe("generateFocusList", () => {
     ];
     // The pin is already the top auto pick, so it appears exactly once.
     const result = generateFocusList(tasks, 2);
-    const titles = result.map((t) => t.title);
-    expect(titles).toEqual(["pinned p1", "p2"]);
+    const titles = result.map((t) => t.title).sort();
+    expect(titles).toEqual(["p2", "pinned p1"]);
   });
 
-  it("boosts quick wins above longer same-priority tasks", () => {
+  it("picks quick wins above longer same-priority tasks", () => {
     const tasks = [
       makeTask({ title: "long p3", priority: "p3", duration_minutes: 120 }),
       makeTask({ title: "quick p3", priority: "p3", duration_minutes: 10 }),
     ];
-    const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("quick p3");
+    expect(generateFocusList(tasks, 1)[0].title).toBe("quick p3");
   });
 
-  it("lifts a quick low-priority task above a longer higher-priority one", () => {
+  it("picks a quick low-priority task above a longer higher-priority one", () => {
     const tasks = [
       // p2 (30) with no quick bonus.
       makeTask({ title: "long p2", priority: "p2", duration_minutes: 90 }),
       // p4 (10) + quick-win bonus (25) = 35, edging out the long p2.
       makeTask({ title: "quick p4", priority: "p4", duration_minutes: 10 }),
     ];
-    const result = generateFocusList(tasks);
-    expect(result[0].title).toBe("quick p4");
+    expect(generateFocusList(tasks, 1)[0].title).toBe("quick p4");
   });
 
   it("drops an exclude task even when it would otherwise rank highest", () => {

@@ -6,7 +6,7 @@ import {
   ProjectsApi,
   TasksApi,
 } from "@do-done/api-client";
-import { TASK_COMPLETE_EXIT_MS } from "@do-done/shared";
+import { TASK_COMPLETE_EXIT_MS, compareTaskOrder } from "@do-done/shared";
 import {
   demoAisleTermsApi,
   demoAttachmentsApi,
@@ -220,6 +220,60 @@ describe("demo store writes", () => {
  * `task-item.tsx` holds `router.refresh()` until the row has gone — so these
  * assertions are about the *timing* of the notification, never the data.
  */
+describe("demo task order", () => {
+  beforeEach(() => resetDemoStore());
+
+  const order = () =>
+    [...getDemoState().tasks].sort(compareTaskOrder).map((t) => t.id);
+
+  it("seeds every task with its own key", () => {
+    const keys = getDemoState().tasks.map((t) => t.sort_order);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("puts a new task first and a new subtask last, as the insert trigger does", async () => {
+    const { data: top } = await demoTasksApi.create({ title: "Top" });
+    const parent = order()[1];
+    const { data: sub } = await demoTasksApi.create({
+      title: "Sub",
+      parent_task_id: parent,
+    });
+    const ids = order();
+    expect(ids[0]).toBe(top!.id);
+    expect(ids[ids.length - 1]).toBe(sub!.id);
+  });
+
+  it("places a task directly after the row named, moving nothing else", async () => {
+    const [a, b, c, d] = order();
+    const before = new Map(getDemoState().tasks.map((t) => [t.id, t.sort_order]));
+
+    const { error } = await demoTasksApi.place(d, { after: a, before: b });
+
+    expect(error).toBeNull();
+    expect(order().slice(0, 4)).toEqual([a, d, b, c]);
+    for (const t of getDemoState().tasks) {
+      if (t.id !== d) expect(t.sort_order).toBe(before.get(t.id));
+    }
+  });
+
+  it("renumbers once a gap runs out, and keeps the order", async () => {
+    const [a, b, c] = order();
+    for (let i = 0; i < 80; i++) {
+      await demoTasksApi.place(i % 2 ? b : c, { after: a, before: null });
+    }
+    // The last move put b directly after a, and the one before it put c there.
+    expect(order().slice(0, 3)).toEqual([a, b, c]);
+    const keys = getDemoState().tasks.map((t) => t.sort_order);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("adopts an order by swapping keys among the listed tasks only", async () => {
+    const [a, h, b] = order();
+    await demoTasksApi.adoptOrder([b, a]);
+    expect(order().slice(0, 3)).toEqual([b, h, a]);
+  });
+});
+
 describe("a completion's write lands now and is announced later", () => {
   beforeEach(() => {
     vi.useFakeTimers();

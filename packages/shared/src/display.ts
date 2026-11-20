@@ -7,6 +7,7 @@ import {
   TERMINAL_STATUSES,
 } from "./constants.js";
 import { isOverdue, todayLocalISO, addDaysLocalISO } from "./utils.js";
+import { compareTaskOrder } from "./task-order.js";
 
 /**
  * Display engine: one pure function (`applyDisplay`) that turns a flat task
@@ -560,7 +561,7 @@ function cmpByRule(a: Task, b: Task, rule: SortRule): number {
   const { field, dir } = rule;
   switch (field) {
     case "manual": {
-      const base = a.sort_order - b.sort_order;
+      const base = compareTaskOrder(a, b);
       return dir === "desc" ? -base : base;
     }
     case "status": {
@@ -599,8 +600,10 @@ export function sortTasks(tasks: Task[], rules: SortRule[]): Task[] {
       const c = cmpByRule(a, b, r);
       if (c !== 0) return c;
     }
-    // Stable tiebreak so equal keys keep a deterministic order.
-    return a.sort_order - b.sort_order;
+    // Equal on every rule: fall back to the user's task order, so two tasks
+    // the user put in an order keep it under any sort that cannot tell them
+    // apart (two P1s under "priority", say).
+    return compareTaskOrder(a, b);
   });
 }
 
