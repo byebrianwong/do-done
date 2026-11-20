@@ -15,6 +15,10 @@ export const dynamic = "force-dynamic";
 
 const DEFAULT_TIMEZONE = "America/New_York";
 const BATCH_SIZE = 50;
+// MAX_ATTEMPTS and RENEW_WINDOW_MS are copied into `calendar_drain_tick`
+// (supabase/migrations/20261121000001_cron_log_cleanup.sql), which skips
+// calling this route when neither the outbox nor a watch channel has work.
+// Change them in both places.
 const MAX_ATTEMPTS = 6;
 // Renew watch channels this far ahead of expiry.
 const RENEW_WINDOW_MS = 24 * 60 * 60 * 1000;
