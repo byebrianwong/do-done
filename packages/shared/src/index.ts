@@ -7,6 +7,7 @@ export * from "./markdown.js";
 export * from "./utils.js";
 export * from "./timezone.js";
 export * from "./display.js";
+export * from "./task-order.js";
 export * from "./status-sync.js";
 export * from "./notifications.js";
 export * from "./task-reminders.js";

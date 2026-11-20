@@ -15,18 +15,18 @@ import type {
  * rather than simulated. jsdom has no layout, so a real DndContext here would
  * collide against zero-sized rects and never reach these code paths at all.
  */
-interface RowPatch {
-  id: string;
-  input: { sort_order?: number; scheduled_date?: string | null };
-}
-
-const bulkUpdate = vi.fn<
-  (updates: RowPatch[]) => Promise<{
-    data: never[];
+const update = vi.fn<
+  (id: string, input: { scheduled_date?: string | null }) => Promise<{
+    data: null;
     error: null;
-    failedIds: string[];
   }>
->(async () => ({ data: [], error: null, failedIds: [] }));
+>(async () => ({ data: null, error: null }));
+const place = vi.fn<
+  (
+    id: string,
+    neighbors: { after: string | null; before: string | null }
+  ) => Promise<{ data: number; error: null }>
+>(async () => ({ data: 0, error: null }));
 const refresh = vi.fn();
 
 let handlers: {
@@ -85,7 +85,7 @@ vi.mock("@dnd-kit/sortable", () => ({
 }));
 
 vi.mock("@/lib/supabase/tasks-client", () => ({
-  getClientTasksApi: vi.fn(async () => ({ bulkUpdate })),
+  getClientTasksApi: vi.fn(async () => ({ update, place })),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -173,19 +173,23 @@ async function dragOver(...overs: Array<{ id: string; rect: unknown }>) {
 
 const dragOnto = (over: { id: string; rect: unknown }) => dragOver(over);
 
-function ordersFrom(): RowPatch[] {
-  expect(bulkUpdate).toHaveBeenCalledTimes(1);
-  return bulkUpdate.mock.calls[0][0];
+/** The neighbours the one `place` call named. */
+function placedBetween() {
+  expect(place).toHaveBeenCalledTimes(1);
+  const [id, neighbors] = place.mock.calls[0];
+  expect(id).toBe("x");
+  return neighbors;
 }
 
 describe("DraggableUpcoming — what a cross-day drop writes", () => {
   beforeEach(() => {
-    bulkUpdate.mockClear();
+    update.mockClear();
+    place.mockClear();
     refresh.mockClear();
     handlers = {};
   });
 
-  it("writes the slot the hovered row is giving up, not the one the crossing spliced into", async () => {
+  it("places the row in the slot the hovered row is giving up, not the one the crossing spliced into", async () => {
     renderTwoDays();
     // Crossing into Today splices X in by geometry — under `c`, here. Nobody
     // sees that: dnd-kit's sortable strategy is what's on screen, and it
@@ -194,11 +198,7 @@ describe("DraggableUpcoming — what a cross-day drop writes", () => {
     // gap the user was looking at.
     await dragOnto(overRow("c"));
 
-    const updates = ordersFrom();
-    expect(updates.map((u) => u.id)).toEqual(["a", "b", "x", "c"]);
-    expect(updates.map((u) => u.input.sort_order)).toEqual([
-      1000, 2000, 3000, 4000,
-    ]);
+    expect(placedBetween()).toEqual({ after: "b", before: "c" });
   });
 
   it("keeps following the pointer once the row is in the day", async () => {
@@ -209,7 +209,7 @@ describe("DraggableUpcoming — what a cross-day drop writes", () => {
     // top of the day, so the drop has to as well.
     await dragOver(overRow("c"), overRow("a"));
 
-    expect(ordersFrom().map((u) => u.id)).toEqual(["x", "a", "b", "c"]);
+    expect(placedBetween()).toEqual({ after: null, before: "a" });
   });
 
   it("keeps the crossing's placement when the drop lands on the day itself", async () => {
@@ -219,26 +219,27 @@ describe("DraggableUpcoming — what a cross-day drop writes", () => {
     // handleDragOver made is the one on screen.
     await dragOnto({ id: `group:${TODAY}`, rect: overRow("c").rect });
 
-    expect(ordersFrom().map((u) => u.id)).toEqual(["a", "b", "c", "x"]);
+    expect(placedBetween()).toEqual({ after: "c", before: null });
   });
 
-  it("patches the moved row once, with its new day and its new place together", async () => {
+  it("writes only the moved row: its new day, then its place", async () => {
     renderTwoDays();
     await dragOnto(overRow("c"));
 
-    const updates = ordersFrom();
-    const forX = updates.filter((u) => u.id === "x");
-    expect(forX).toHaveLength(1);
-    expect(forX[0].input).toEqual({ scheduled_date: TODAY, sort_order: 3000 });
+    // a, b and c keep their keys, which is what keeps them in the same order
+    // relative to each other, and to everything else, in every view.
+    expect(update.mock.calls).toEqual([["x", { scheduled_date: TODAY }]]);
+    expect(place.mock.calls.map(([id]) => id)).toEqual(["x"]);
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      place.mock.invocationCallOrder[0]
+    );
   });
 
-  it("clears the date when the target is the No-date column", async () => {
+  it("clears the date when the target is the No-date column, with nothing to place beside", async () => {
     renderTwoDays();
     await dragOnto({ id: `group:${NO_DATE_KEY}`, rect: overRow("c").rect });
 
-    const updates = ordersFrom();
-    expect(updates).toEqual([
-      { id: "x", input: { scheduled_date: null, sort_order: 1000 } },
-    ]);
+    expect(update.mock.calls).toEqual([["x", { scheduled_date: null }]]);
+    expect(place).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { compareTaskOrder } from "@do-done/shared";
 import { QuickAddBar } from "@/components/quick-add-bar";
 import { TaskDisplayView } from "@/components/task-display-view";
 import { DemoLoading } from "@/components/demo/demo-loading";
@@ -11,7 +12,7 @@ export default function DemoInboxPage() {
 
   const inbox = tasks
     .filter((t) => t.status === "inbox")
-    .sort((a, b) => a.sort_order - b.sort_order);
+    .sort(compareTaskOrder);
 
   return (
     <div className="mx-auto max-w-3xl">

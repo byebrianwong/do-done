@@ -85,8 +85,11 @@ interface Props {
      */
     sectionKey: string
   ) => React.ReactElement;
-  /** Reorder within one section: the section's new id order. */
-  onReorder: (sectionKey: string, orderedIds: string[]) => void;
+  /**
+   * Reorder within one section: the section's new id order, and the task that
+   * moved. Only that task is written (`reorderTasks`).
+   */
+  onReorder: (sectionKey: string, orderedIds: string[], taskId: string) => void;
   /**
    * Move across sections: task moved from→to, plus the dest section's new order.
    *
@@ -267,7 +270,7 @@ function SectionedDraggableList({
       case 'none':
         return;
       case 'reorder':
-        onReorder(result.sectionKey, result.orderedIds);
+        onReorder(result.sectionKey, result.orderedIds, result.taskId);
         return;
       case 'move':
         if (

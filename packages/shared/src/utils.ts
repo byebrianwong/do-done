@@ -1,5 +1,6 @@
 import type { PhosphorWeight } from "./phosphor.js";
 import type { CalendarEvent, Task } from "./schemas.js";
+import { compareTaskOrder } from "./task-order.js";
 
 /**
  * Today's date as YYYY-MM-DD in the runtime's LOCAL timezone.
@@ -377,7 +378,7 @@ export function sortByPriority(tasks: Task[]): Task[] {
 }
 
 export function sortBySortOrder(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => a.sort_order - b.sort_order);
+  return [...tasks].sort(compareTaskOrder);
 }
 
 export function formatDuration(minutes: number): string {

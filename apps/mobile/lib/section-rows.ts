@@ -180,7 +180,7 @@ export function collectSectionTaskIds(rows: Row[], key: string): string[] {
 export type DropResult =
   | { kind: 'hold'; task: Task }
   | { kind: 'none' }
-  | { kind: 'reorder'; sectionKey: string; orderedIds: string[] }
+  | { kind: 'reorder'; taskId: string; sectionKey: string; orderedIds: string[] }
   | {
       kind: 'move';
       taskId: string;
@@ -233,7 +233,7 @@ export function resolveDrop(
     rows,
     result:
       moved.sectionKey === toKey
-        ? { kind: 'reorder', sectionKey: toKey, orderedIds }
+        ? { kind: 'reorder', taskId: moved.task.id, sectionKey: toKey, orderedIds }
         : {
             kind: 'move',
             taskId: moved.task.id,

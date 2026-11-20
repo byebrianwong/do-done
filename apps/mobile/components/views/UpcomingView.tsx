@@ -240,8 +240,8 @@ export function UpcomingView() {
   // drop writes.
   const { liveIds, isArriving, isDeparting } = transitions;
   const onReorder = useCallback(
-    (key: string, ids: string[]) => {
-      void reorderTasks(liveIds(key, ids)).catch(() => {});
+    (key: string, ids: string[], taskId: string) => {
+      void reorderTasks(taskId, liveIds(key, ids)).catch(() => {});
     },
     [liveIds]
   );

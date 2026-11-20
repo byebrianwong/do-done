@@ -45,9 +45,16 @@ const baseTask: Omit<Task, "id" | "title" | "priority" | "status"> = {
   completed_at: null,
 };
 
+// Every task has its own position in the user's order, as in the database
+// (see `compareTaskOrder`). Handing them out in creation order keeps a list of
+// fixtures in the order it is written.
+let nextSortOrder = 0;
+
 export function makeTask(overrides: Partial<Task> = {}): Task {
+  nextSortOrder += 1024;
   return {
     ...baseTask,
+    sort_order: nextSortOrder,
     id: `task-${Math.random().toString(36).slice(2, 9)}`,
     title: "Sample task",
     priority: "p3",

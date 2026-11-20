@@ -58,6 +58,23 @@ the stdio process sits through midnight.
 Date arithmetic in `src/dates.ts` parses `YYYY-MM-DD` at UTC midnight, so a DST
 boundary inside a span can't round a day count off by one.
 
+## organize_tasks
+
+`organize_tasks` applies one bulk instruction ("set all overdue to p1") to every
+matching task. Three rules. The first two fixed it missing tasks; the third
+keeps it off finished ones:
+
+- **"Overdue" is the app's rule**: open, with a `scheduled_date` or a
+  `deadline_date` before the user's today (`isOverdueOn` with the day from
+  `src/clock.ts`). It used to read `deadline_date` alone, against the process
+  clock, so it matched almost nothing in the Overdue section.
+- **It reads every candidate row.** It pages `list()` one status at a time until
+  a page comes back empty, and writes nothing until it has read everything. It
+  used to read the first 100 rows by `sort_order` and stop.
+- **No status word means open tasks.** Done and cancelled tasks are matched only
+  when the instruction names them. Without this, lifting the 100-row cap would
+  have let "archive all p4 tasks" cancel every finished p4 task in the account.
+
 ## Tags
 
 `list_tags` is the only way an agent learns the tags that exist: they are a

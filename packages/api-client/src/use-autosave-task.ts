@@ -252,7 +252,11 @@ export function shallowDiff(a: Task, b: Task): Partial<Task> {
 /**
  * Convert a Partial<Task> patch into the UpdateTaskInput shape the
  * TasksApi.update method expects. Strips fields that aren't writable
- * (id, user_id, depth, timestamps).
+ * (id, user_id, depth, timestamps, sort_order).
+ *
+ * `sort_order` is stripped because only the database writes it (see
+ * `TasksApi.place`). The editor holds the row as it was when it opened, so
+ * writing the key back could undo a drag made while the editor was open.
  *
  * Exported for testing. Not part of the stable public API.
  */
@@ -264,6 +268,7 @@ export function toUpdateInput(patch: Partial<Task>): UpdateTaskInput {
     "created_at",
     "updated_at",
     "completed_at",
+    "sort_order",
   ]);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {

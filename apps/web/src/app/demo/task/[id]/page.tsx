@@ -1,5 +1,6 @@
 "use client";
 
+import { compareTaskOrder } from "@do-done/shared";
 import Link from "next/link";
 import { use } from "react";
 import { TaskItem } from "@/components/task-item";
@@ -33,7 +34,7 @@ export default function DemoTaskDetailPage({
 
   const subtasks = tasks
     .filter((t) => t.parent_task_id === id)
-    .sort((a, b) => a.sort_order - b.sort_order);
+    .sort(compareTaskOrder);
 
   return (
     // This page IS the task, so ticking it off must not collapse the row out

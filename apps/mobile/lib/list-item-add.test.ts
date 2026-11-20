@@ -92,6 +92,12 @@ describe('adding an item', () => {
     expect(rows[1].title).toBe('eggs');
     expect(rows[1].tags).toEqual(['at:Target']);
     expect(isPendingItem(rows[1].id)).toBe(true);
+    // Sorts last, where the real row will land, and survives the JSON the
+    // persisted cache is written as.
+    expect(rows[1].sort_order).toBe(Number.MAX_SAFE_INTEGER);
+    expect(JSON.parse(JSON.stringify(rows[1])).sort_order).toBe(
+      Number.MAX_SAFE_INTEGER
+    );
 
     resolve({ data: item('eggs-id', { title: 'eggs' }), error: null });
     await pending;

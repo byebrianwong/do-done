@@ -37,6 +37,12 @@ import {
   type UpdateTaskInput,
 } from "@do-done/shared";
 import { getClientTasksApi } from "@/lib/supabase/tasks-client";
+import {
+  adoptLocally,
+  commitAdoptedOrder,
+  commitPlacement,
+  placeLocally,
+} from "@/lib/task-order";
 import { seedFromDrop } from "@/lib/quick-add";
 import {
   SectionOpenProvider,
@@ -102,8 +108,9 @@ export function DraggableTaskGroups({
   useEffect(() => setLocalTasks(tasks), [tasks]);
 
   // A sorted view can be dragged to *convert* it to manual sort (Todoist-style):
-  // on drag start we freeze the current order into sort_order and render as
-  // manual for the gesture; on drop we persist that order + flip sort to manual.
+  // on drag start the shown tasks swap keys among themselves so manual order
+  // matches what is on screen, and render as manual for the gesture; on drop
+  // that order is written (`adoptOrder`) and the sort flips to manual.
   const sortedView = !isManualSort(config);
   const canConvert = sortedView && !!onConfigChange;
   const [converting, setConverting] = useState(false);
@@ -186,24 +193,16 @@ export function DraggableTaskGroups({
     return groups.find((g) => g.tasks.some((t) => t.id === taskId));
   }
 
-  function applySortOrder(orderedIds: string[]): Map<string, number> {
-    const map = new Map<string, number>();
-    orderedIds.forEach((id, i) => map.set(id, (i + 1) * 1000));
-    return map;
-  }
-
   function handleDragStart(e: DragStartEvent) {
     setDraggingId(String(e.active.id));
     if (canConvert) {
-      // Freeze the current sorted order into sort_order so flipping to manual
-      // rendering keeps the rows exactly where they are (no jump), then let the
-      // gesture proceed as a manual drag. Snapshot the seeded order so the
-      // drop's no-op check compares against what the user actually saw.
+      // Deal the shown tasks their own keys in the order they are shown, so
+      // flipping to manual rendering keeps the rows exactly where they are (no
+      // jump), then let the gesture proceed as a manual drag. Snapshot the
+      // seeded order so the drop's no-op check compares against what the user
+      // actually saw.
       const orderedIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
-      const orders = applySortOrder(orderedIds);
-      const seeded = localTasks.map((t) =>
-        orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t
-      );
+      const seeded = adoptLocally(localTasks, orderedIds);
       dragSnapshot.current = seeded.map((t) => ({ ...t }));
       setLocalTasks(seeded);
       setConverting(true);
@@ -250,14 +249,9 @@ export function DraggableTaskGroups({
         }
       }
       toIds.splice(insertAt, 0, activeId);
-      const orders = applySortOrder(toIds);
-
-      return prev.map((t) => {
-        if (t.id === activeId)
-          return { ...t, ...patch, sort_order: orders.get(t.id)! } as Task;
-        if (orders.has(t.id)) return { ...t, sort_order: orders.get(t.id)! };
-        return t;
-      });
+      // Only the dragged row changes: it takes the group's field and a key
+      // between its new neighbours.
+      return placeLocally(prev, toIds, activeId, patch).tasks;
     });
   }
 
@@ -317,10 +311,11 @@ export function DraggableTaskGroups({
         const oldIndex = ids.indexOf(activeId);
         const newIndex = ids.indexOf(overId);
         if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
-          const orders = applySortOrder(arrayMove(ids, oldIndex, newIndex));
-          finalTasks = localTasks.map((t) =>
-            orders.has(t.id) ? { ...t, sort_order: orders.get(t.id)! } : t
-          );
+          finalTasks = placeLocally(
+            localTasks,
+            arrayMove(ids, oldIndex, newIndex),
+            activeId
+          ).tasks;
           setLocalTasks(finalTasks);
         }
       }
@@ -344,44 +339,33 @@ export function DraggableTaskGroups({
     }
 
     const api = await getClientTasksApi();
+    const patch: UpdateTaskInput | undefined =
+      !sameGroup && toGroup.drop ? patchForDrop(toGroup.drop) : undefined;
 
-    let updates: Array<{ id: string; input: UpdateTaskInput }>;
+    let result: { error: Error | null };
     if (convert) {
-      // Converting a sorted view → manual: lock in the *entire* displayed order
-      // (across every group) as sort_order so nothing reshuffles after refresh,
-      // plus the dragged task's cross-group field change.
+      // Converting a sorted view → manual: the *entire* displayed order
+      // (across every group) becomes the manual order of the tasks in it, so
+      // nothing reshuffles after refresh. Tasks the view does not show keep
+      // their places. Plus the dragged task's cross-group field change.
       const allIds = applyDisplay(finalTasks, effectiveConfig, { projects }).flatMap(
         (grp) => grp.tasks.map((t) => t.id)
       );
-      const orders = applySortOrder(allIds);
-      const patch = !sameGroup && toGroup.drop ? patchForDrop(toGroup.drop) : {};
-      updates = allIds.map((id) => ({
-        id,
-        input:
-          id === activeId
-            ? { ...patch, sort_order: orders.get(id)! }
-            : { sort_order: orders.get(id)! },
-      }));
+      result = await commitAdoptedOrder(
+        api,
+        allIds,
+        patch ? { id: activeId, patch } : undefined
+      );
     } else {
-      const orders = applySortOrder(finalToIds);
-      if (sameGroup) {
-        updates = finalToIds.map((id) => ({
-          id,
-          input: { sort_order: orders.get(id)! },
-        }));
-      } else {
-        const patch = toGroup.drop ? patchForDrop(toGroup.drop) : {};
-        updates = [
-          { id: activeId, input: { ...patch, sort_order: orders.get(activeId)! } },
-        ];
-        for (const id of finalToIds) {
-          if (id === activeId) continue;
-          updates.push({ id, input: { sort_order: orders.get(id)! } });
-        }
-      }
+      // Manual: one task moves. It goes next to the row it was dropped beside
+      // and every other task keeps its key.
+      const { placement } = placeLocally(finalTasks, finalToIds, activeId);
+      result = placement
+        ? await commitPlacement(api, activeId, placement, patch)
+        : { error: new Error("The dropped task is not in its group") };
     }
 
-    const { error } = await api.bulkUpdate(updates);
+    const { error } = result;
     if (error) {
       console.error(
         convert ? "Convert-to-manual failed:" : sameGroup ? "Reorder failed:" : "Move failed:",

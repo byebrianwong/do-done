@@ -1458,3 +1458,69 @@ describe("TasksApi.update: only a shopping list records a buy", () => {
     expect(rpcs).not.toContain("record_pantry_buy");
   });
 });
+
+describe("TasksApi: the task order", () => {
+  function rpcStub(result: { data: unknown; error: unknown }) {
+    const calls: { fn: string; args: unknown }[] = [];
+    const supabase = {
+      rpc: (fn: string, args: unknown) => {
+        calls.push({ fn, args });
+        return Promise.resolve(result);
+      },
+    };
+    return { supabase, calls };
+  }
+
+  it("place sends the moved task and both neighbours, and returns the new key", async () => {
+    const { supabase, calls } = rpcStub({ data: 1536, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    const res = await api.place("t", { after: "a", before: "b" });
+
+    expect(calls).toEqual([
+      { fn: "place_task", args: { p_task: "t", p_after: "a", p_before: "b" } },
+    ]);
+    expect(res).toEqual({ data: 1536, error: null });
+  });
+
+  it("place reports a failure rather than a key", async () => {
+    const failure = new Error("place_task: task t not found");
+    const { supabase } = rpcStub({ data: null, error: failure });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    expect(await api.place("t", { after: null, before: "b" })).toEqual({
+      data: null,
+      error: failure,
+    });
+  });
+
+  it("adoptOrder sends the ids in the order shown, and sends nothing for none", async () => {
+    const { supabase, calls } = rpcStub({ data: null, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = new TasksApi(supabase as any, "user-1");
+
+    expect(await api.adoptOrder(["c", "a", "b"])).toEqual({ error: null });
+    expect(await api.adoptOrder([])).toEqual({ error: null });
+    expect(calls).toEqual([
+      { fn: "adopt_task_order", args: { p_ids: ["c", "a", "b"] } },
+    ]);
+  });
+
+  it.each([
+    ["list", (api: TasksApi) => api.list({ limit: 10, offset: 0 })],
+    ["listSubtasks", (api: TasksApi) => api.listSubtasks("parent")],
+    ["listItems", (api: TasksApi) => api.listItems("list")],
+    ["listUndated", (api: TasksApi) => api.listUndated()],
+  ])("%s breaks a tied key by id, so pages and views agree", async (_name, read) => {
+    const { supabase, calls } = makeSupabaseStub();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await read(new TasksApi(supabase as any, "user-1"));
+
+    const orders = calls
+      .filter((c) => c.method === "order")
+      .map((c) => c.args[0]);
+    expect(orders).toEqual(["sort_order", "id"]);
+  });
+});

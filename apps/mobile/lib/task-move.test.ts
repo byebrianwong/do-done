@@ -9,6 +9,9 @@
  * the task's new section and still carried its old `sort_order`, which is the
  * only thing that decides its place inside one.
  *
+ * A drop now writes one task's position (`place`), or a sorted view's whole
+ * order (`adoptOrder`). Every other task keeps its key.
+ *
  * These tests hold both writes open and assert on the cache in between, because
  * that in-between is the entire bug. The settled state was always correct.
  */
@@ -22,9 +25,10 @@ const queryClient = new QueryClient({
 vi.mock("./query-client", () => ({ queryClient }));
 
 const update = vi.fn();
-const bulkUpdate = vi.fn();
+const place = vi.fn();
+const adoptOrder = vi.fn();
 vi.mock("./supabase", () => ({
-  getTasksApi: async () => ({ update, bulkUpdate }),
+  getTasksApi: async () => ({ update, place, adoptOrder }),
   getProjectsApi: async () => ({}),
 }));
 
@@ -38,28 +42,29 @@ vi.mock("./task-reminders", () => ({ scheduleTaskReminderSync: vi.fn() }));
 // it is stood in for here like every other native seam in this suite.
 vi.mock("./wear", () => ({ scheduleWatchSync: vi.fn() }));
 
-const { taskKeys, listKeys, moveTask, reorderTasks } = await import(
-  "./task-queries"
-);
+const { taskKeys, listKeys, moveTask, reorderTasks, adoptTaskOrder } =
+  await import("./task-queries");
+
+function rowsFor(ids: string[]): Task[] {
+  return ids.map(
+    (id, i) =>
+      ({
+        id,
+        title: id,
+        status: "not_started",
+        sort_order: (i + 1) * 1024,
+        scheduled_date: null,
+      }) as unknown as Task
+  );
+}
 
 function seed(...ids: string[]) {
-  queryClient.setQueryData(
-    taskKeys.today(),
-    ids.map(
-      (id, i) =>
-        ({
-          id,
-          title: id,
-          status: "not_started",
-          sort_order: (i + 1) * 1000,
-          scheduled_date: null,
-        }) as unknown as Task
-    )
-  );
+  queryClient.setQueryData(taskKeys.today(), rowsFor(ids));
 }
 
 const cached = () => queryClient.getQueryData<Task[]>(taskKeys.today()) ?? [];
 const order = () => cached().map((t) => t.id);
+const keyOf = (id: string) => cached().find((t) => t.id === id)?.sort_order;
 
 /** Let every pending microtask settle, leaving only the deferred write. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -76,38 +81,66 @@ function deferred<T>() {
 beforeEach(() => {
   queryClient.clear();
   update.mockReset();
-  bulkUpdate.mockReset();
+  place.mockReset();
+  adoptOrder.mockReset();
   update.mockResolvedValue({ data: null, error: null });
-  bulkUpdate.mockResolvedValue({ data: [], failedIds: [], error: null });
+  place.mockResolvedValue({ data: 0, error: null });
+  adoptOrder.mockResolvedValue({ error: null });
 });
 
 describe("reorderTasks", () => {
   it("puts the dropped order in the cache before the write goes out", async () => {
     seed("a", "b", "c");
-    const write = deferred<{ failedIds: string[]; error: null }>();
-    bulkUpdate.mockReturnValue(write.promise);
+    const write = deferred<{ data: number; error: null }>();
+    place.mockReturnValue(write.promise);
 
-    const done = reorderTasks(["c", "a", "b"]);
+    const done = reorderTasks("c", ["c", "a", "b"]);
     // Let getTasksApi() and the optimistic patch settle, but not the write.
     await flush();
 
     expect(order()).toEqual(["c", "a", "b"]);
 
-    write.resolve({ failedIds: [], error: null });
+    write.resolve({ data: 0, error: null });
     await done;
     expect(order()).toEqual(["c", "a", "b"]);
   });
 
+  it("writes the moved task's place and re-keys nothing else", async () => {
+    seed("a", "b", "c");
+    await reorderTasks("a", ["b", "a", "c"]);
+
+    expect(place.mock.calls).toEqual([["a", { after: "b", before: "c" }]]);
+    expect(update).not.toHaveBeenCalled();
+    expect(keyOf("b")).toBe(2048);
+    expect(keyOf("c")).toBe(3072);
+    expect(order()).toEqual(["b", "a", "c"]);
+  });
+
   it("puts the old order back when the write fails", async () => {
     seed("a", "b", "c");
-    bulkUpdate.mockResolvedValue({
-      data: [],
-      failedIds: ["c"],
-      error: new Error("offline"),
-    });
+    place.mockResolvedValue({ data: null, error: new Error("offline") });
 
-    await expect(reorderTasks(["c", "a", "b"])).rejects.toThrow("offline");
+    await expect(reorderTasks("c", ["c", "a", "b"])).rejects.toThrow("offline");
     expect(order()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("adoptTaskOrder", () => {
+  it("swaps keys among the listed tasks only, before the write goes out", async () => {
+    // `h` is on the list but not in the sorted view being made manual.
+    seed("a", "h", "b");
+    const write = deferred<{ error: null }>();
+    adoptOrder.mockReturnValue(write.promise);
+
+    const done = adoptTaskOrder(["b", "a"]);
+    await flush();
+
+    expect(order()).toEqual(["b", "h", "a"]);
+    expect(keyOf("h")).toBe(2048);
+
+    write.resolve({ error: null });
+    await done;
+    expect(adoptOrder).toHaveBeenCalledWith(["b", "a"]);
   });
 });
 
@@ -131,16 +164,32 @@ describe("moveTask", () => {
     expect(order()).toEqual(["c", "a", "b"]);
   });
 
-  it("writes the order across the whole destination section", async () => {
+  it("writes the field change, then places the one task beside its new neighbours", async () => {
     seed("a", "b", "c");
     await moveTask("c", { scheduled_date: "2026-08-09" }, ["c", "a", "b"]);
 
     expect(update).toHaveBeenCalledWith("c", { scheduled_date: "2026-08-09" });
-    expect(bulkUpdate).toHaveBeenCalledWith([
-      { id: "c", input: { sort_order: 1000 } },
-      { id: "a", input: { sort_order: 2000 } },
-      { id: "b", input: { sort_order: 3000 } },
-    ]);
+    expect(place.mock.calls).toEqual([["c", { after: null, before: "a" }]]);
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      place.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("adopts the whole shown order when a sorted view is being made manual", async () => {
+    seed("a", "b", "c");
+    await moveTask("c", { priority: "p1" }, ["c", "b", "a"], { adopt: true });
+
+    expect(update).toHaveBeenCalledWith("c", { priority: "p1" });
+    expect(adoptOrder).toHaveBeenCalledWith(["c", "b", "a"]);
+    expect(place).not.toHaveBeenCalled();
+  });
+
+  it("writes no position when the task lands alone in its section", async () => {
+    seed("a", "b", "c");
+    await moveTask("c", { scheduled_date: "2026-08-09" }, ["c"]);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(place).not.toHaveBeenCalled();
   });
 
   it("rolls back to the pre-drag state when the field write fails", async () => {
@@ -153,18 +202,14 @@ describe("moveTask", () => {
 
     expect(order()).toEqual(["a", "b", "c"]);
     expect(cached().find((t) => t.id === "c")?.scheduled_date).toBeNull();
-    // The order write never went out — a move that didn't land must not
-    // reshuffle the section it failed to join.
-    expect(bulkUpdate).not.toHaveBeenCalled();
+    // The position never went out. A move that didn't land must not move the
+    // task within the section it failed to join.
+    expect(place).not.toHaveBeenCalled();
   });
 
-  it("rolls back the field patch too when only the order write fails", async () => {
+  it("rolls back the field patch too when only the position write fails", async () => {
     seed("a", "b", "c");
-    bulkUpdate.mockResolvedValue({
-      data: [],
-      failedIds: ["c"],
-      error: new Error("offline"),
-    });
+    place.mockResolvedValue({ data: null, error: new Error("offline") });
 
     await expect(
       moveTask("c", { scheduled_date: "2026-08-09" }, ["c", "a", "b"])
@@ -178,52 +223,29 @@ describe("moveTask", () => {
 /**
  * A shopping list's order, after a drag.
  *
- * Items are created with the column default of 0. Ranked 1000 and up, a dragged
- * run sorts after every item nobody has dragged, so the next item added goes to
- * the top of its aisle rather than the bottom, where people look for it.
- * `aheadOfNew` ranks the run below zero instead.
+ * A new item gets the last key in the user's order (`task_place_new`), so it
+ * goes to the bottom of its aisle, where people look for it. A drag writes one
+ * item, so it cannot push a later item anywhere else. This used to need the
+ * dragged run ranked below zero (`aheadOfNew`), because items were created
+ * with 0 and a drag stamped 1000 and up.
  */
-describe("aheadOfNew", () => {
+describe("a shopping list", () => {
   const listKey = listKeys.itemsFor("groceries");
   const listOrder = () =>
     (queryClient.getQueryData<Task[]>(listKey) ?? []).map((t) => t.id);
 
-  function seedList(...ids: string[]) {
-    queryClient.setQueryData(
-      listKey,
-      ids.map(
-        (id) =>
-          ({ id, title: id, status: "inbox", sort_order: 0 }) as unknown as Task
-      )
-    );
-  }
+  it("moves only the dragged item, and an item still being added stays last", async () => {
+    const stillAdding = {
+      id: "pending:1",
+      title: "eggs",
+      status: "inbox",
+      sort_order: Number.MAX_SAFE_INTEGER,
+    } as unknown as Task;
+    queryClient.setQueryData(listKey, [...rowsFor(["a", "b", "c"]), stillAdding]);
 
-  it("ranks the dropped order below zero, ending at -1000", async () => {
-    seedList("a", "b", "c");
-    await reorderTasks(["b", "a"], { aheadOfNew: true });
-    expect(bulkUpdate).toHaveBeenCalledWith([
-      { id: "b", input: { sort_order: -2000 } },
-      { id: "a", input: { sort_order: -1000 } },
-    ]);
-  });
+    await reorderTasks("c", ["c", "a", "b"]);
 
-  it("keeps an undragged item after the dragged ones", async () => {
-    seedList("a", "b", "c");
-    await reorderTasks(["b", "a"], { aheadOfNew: true });
-    expect(listOrder()).toEqual(["b", "a", "c"]);
-  });
-
-  it("is what stops an undragged item jumping ahead without it", async () => {
-    seedList("a", "b", "c");
-    await reorderTasks(["b", "a"]);
-    expect(listOrder()).toEqual(["c", "b", "a"]);
-  });
-
-  it("applies to a move as well as a reorder", async () => {
-    seedList("a", "b", "c");
-    await moveTask("c", { status: "done" }, ["c"], { aheadOfNew: true });
-    expect(bulkUpdate).toHaveBeenCalledWith([
-      { id: "c", input: { sort_order: -1000 } },
-    ]);
+    expect(place.mock.calls).toEqual([["c", { after: null, before: "a" }]]);
+    expect(listOrder()).toEqual(["c", "a", "b", "pending:1"]);
   });
 });

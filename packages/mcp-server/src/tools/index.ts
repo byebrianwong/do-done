@@ -412,20 +412,23 @@ export function registerTools(
 
   server.tool(
     "organize_tasks",
-    "Execute bulk task operations described in natural language. Supported: 'archive done tasks older than N days', 'set all overdue tasks to p1', 'complete all p4 tasks', 'archive overdue tasks'.",
+    "Execute bulk task operations described in natural language. Supported: 'archive done tasks older than N days', 'set all overdue tasks to p1', 'complete all p4 tasks', 'archive overdue tasks'. " +
+      "Overdue means an open task whose scheduled_date or deadline_date is before the user's today, the same rule as the app's Overdue section. " +
+      "An instruction that names no status (done, completed, cancelled, inbox, overdue) matches open tasks only.",
     { instructions: z.string().min(1) },
     async ({ instructions }) => {
-      const outcome = await executeOrganize(tasks, instructions);
+      const { todayISO } = await clock.now();
+      const outcome = await executeOrganize(tasks, instructions, todayISO);
       if (!outcome.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: ${outcome.error}` }],
         };
       }
       const { result, parsed } = outcome;
-      const filterDesc =
-        Object.entries(parsed.filter)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(", ") || "all tasks";
+      // No status word means open tasks, so say so rather than leave it out.
+      const filterDesc = Object.entries({ status: "open", ...parsed.filter })
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ");
       const actionDesc =
         parsed.action.kind === "set_priority"
           ? `set_priority → ${parsed.action.priority}`
