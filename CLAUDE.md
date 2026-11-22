@@ -1616,6 +1616,28 @@ The other half of a drag's aftermath is the refresh spinner, covered one section
 every one of these invalidates used to drop `RefreshControl`'s circle over the list,
 landing it on the row the finger had just released.
 
+**A drop remounts the rows it shifted.** While a row is dragged, the library moves the
+rows it passes with a transform. After the drop it keeps each row's transform until that
+row reports its new layout. On Android that report comes a few frames after the new order
+is drawn, so every shifted row was drawn one row away from its new place, then jumped
+back. That was the flash after a drop, and the moment a slot showed another task's title.
+
+- `SectionedDraggableList` adds a count to the list key of each shifted row, so the
+  render that draws the new order draws those rows as new views with no transform.
+  `rowsToRemount` in `lib/section-rows.ts` picks the rows.
+- **Only rows on screen are remounted**, read from the list's viewability reports. A new
+  key throws away the size the list measured for that row, and the list estimates the
+  rows it has not drawn from those sizes.
+- **The count stays with the row**, so the cache's copy of the same rows, arriving a
+  moment later, keeps the same keys and remounts nothing.
+- A refused drop (`onMove` returning `false`) needs this too. The rows go back to places
+  whose layout never changed, so no `onLayout` would ever clear their transforms.
+- **A sorted view switches to manual sort on the drop**, not when the write returns
+  (`makeManual` in `GroupedTaskList`). Switching after the write showed the new order
+  sorted by the old field for a round trip, so the row went back to its sorted place and
+  then jumped to where it was dropped. A failed write puts the old sort back.
+- **Not yet seen on a device.** Typecheck and the node tests pass.
+
 ### Every optimistic sweep goes through `patchTaskLists`
 
 **Not every cache under `taskKeys.all` holds a `Task[]`.** `useParentTask` caches a

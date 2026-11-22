@@ -29,6 +29,7 @@ import type {
   RefreshControlProps,
   StyleProp,
   ViewStyle,
+  ViewToken,
 } from 'react-native';
 import { StyleSheet } from 'react-native';
 import DraggableFlatList, {
@@ -41,9 +42,11 @@ import {
   flattenReusing,
   hasTaskRows,
   resolveDrop,
+  rowsToRemount,
   stickyHeaderIndices,
   type DraggableSection,
   type Row,
+  type ScreenRange,
 } from '@/lib/section-rows';
 import { useTabBarScrollSync } from '@/lib/tab-bar-minimize';
 
@@ -254,8 +257,49 @@ function SectionedDraggableList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
+  // The rows on screen, from the list's viewability reports. Read at a drop.
+  const onScreen = useRef<ScreenRange>(null);
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<Row>[] }) => {
+      let first = Infinity;
+      let last = -Infinity;
+      for (const v of viewableItems) {
+        if (!v.isViewable || v.index == null) continue;
+        first = Math.min(first, v.index);
+        last = Math.max(last, v.index);
+      }
+      onScreen.current = first <= last ? { first, last } : null;
+    },
+    []
+  );
+
+  // How many times each row has been remounted after a drop, by row key. A
+  // row's list key carries the count, so bumping it gives the row a new cell.
+  // See `rowsToRemount` for why a drop needs that. The count stays with the
+  // row afterwards, so the cache's copy of the same rows, arriving a moment
+  // later, keeps the same keys and remounts nothing.
+  const remounts = useRef(new Map<string, number>());
+  const keyExtractor = useCallback((r: Row) => {
+    const n = remounts.current.get(r.key);
+    return n === undefined ? r.key : `${r.key}#${n}`;
+  }, []);
+
+  function remountShifted(data: Row[], from: number, to: number) {
+    const keys = rowsToRemount(data, from, to, onScreen.current);
+    if (keys.length === 0) return;
+    const counts = remounts.current;
+    for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+    // Forget rows that have left the list, so the map does not grow with
+    // every task ever dragged. A row that comes back mounts fresh anyway.
+    const live = new Set(data.map((r) => r.key));
+    for (const key of counts.keys()) if (!live.has(key)) counts.delete(key);
+  }
+
   function handleDragEnd({ data, from, to }: { data: Row[]; from: number; to: number }) {
     endDrag();
+    // Before the state updates below, so the render that draws the new order
+    // is the one that gives the shifted rows their new keys.
+    remountShifted(data, from, to);
     const { rows: next, result } = resolveDrop(
       data,
       from,
@@ -282,8 +326,11 @@ function SectionedDraggableList({
           ) === false
         ) {
           // A fresh array in the original order, so the list re-renders with
-          // the row back where it was picked up. The same as before this
-          // change; not yet checked on a device.
+          // the row back where it was picked up. The shifted rows were given
+          // new keys above, so they come back at their old places with no
+          // transform. Their layout does not change here, so without the new
+          // keys no `onLayout` would ever clear the transform. Not yet checked
+          // on a device.
           setDropped({ base: seededRef.current, rows: [...seededRef.current] });
         }
         return;
@@ -332,6 +379,7 @@ function SectionedDraggableList({
       onPlaceholderIndexChange={() => {
         placeholderMoved.current = true;
       }}
+      onViewableItemsChanged={onViewableItemsChanged}
       // The library sets its own `onScroll` after spreading props, so this is
       // the only way in — and it is already hopping to JS on every frame
       // whether or not anyone listens. Undefined off a tab, where there is no
@@ -348,10 +396,6 @@ function SectionedDraggableList({
       ListFooterComponent={ListFooterComponent}
     />
   );
-}
-
-function keyExtractor(r: Row): string {
-  return r.key;
 }
 
 /**
