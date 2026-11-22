@@ -244,6 +244,64 @@ export function resolveDrop(
   };
 }
 
+/** The rows on screen, as data indices. Null when the list has not said yet. */
+export type ScreenRange = { first: number; last: number } | null;
+
+/**
+ * Rows either side of the screen that also remount on a drop, in case the
+ * last viewability report is a scroll event behind.
+ */
+const REMOUNT_MARGIN = 2;
+
+/**
+ * The row keys a drop has to remount: every row the drop shifted that is on
+ * screen, and the dropped row itself.
+ *
+ * While a row is dragged, the drag library moves the rows it passes with a
+ * transform, one row height up or down. The drop then reorders the data, and
+ * the library keeps each row's last transform until that row reports its new
+ * layout (`onLayout`), so the rows do not jump back before the new order is
+ * drawn. On Android that report arrives late. The new order is drawn first,
+ * with the old transforms still applied, so every shifted row is drawn one row
+ * away from its new place, and the dropped row several rows away. The report
+ * comes in a few frames later and the rows jump back. That is the flash after
+ * a drop, and the moment a slot shows another task's title.
+ *
+ * A remounted row is a new native view. Its transform starts at 0, and it is
+ * created in the same commit that draws the new order, so there is no frame in
+ * between. Section headers already remount at the drop, because their sticky
+ * wrapper comes back (see `stickyHeaderIndices`), which is why they never
+ * showed this.
+ *
+ * Only rows on screen are remounted. A row off screen holds no transform the
+ * user can see, and giving it a new key would throw away the size the list
+ * measured for it. The list estimates the rows it has not drawn from those
+ * sizes, so an unknown one could move everything below it.
+ */
+export function rowsToRemount(
+  data: Row[],
+  from: number,
+  to: number,
+  onScreen: ScreenRange
+): string[] {
+  if (from === to) return [];
+  let lo = Math.min(from, to);
+  let hi = Math.max(from, to);
+  if (onScreen) {
+    lo = Math.max(lo, onScreen.first - REMOUNT_MARGIN);
+    hi = Math.min(hi, onScreen.last + REMOUNT_MARGIN);
+  }
+  const keys = new Set<string>();
+  for (let i = lo; i <= hi; i++) {
+    const row = data[i];
+    if (row) keys.add(row.key);
+  }
+  // The finger was on it, so it is on screen even if the report is stale.
+  const dropped = data[to];
+  if (dropped) keys.add(dropped.key);
+  return [...keys];
+}
+
 /**
  * Which row indices pin to the top as the list scrolls.
  *

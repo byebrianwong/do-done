@@ -44,6 +44,7 @@ vi.mock("./wear", () => ({ scheduleWatchSync: vi.fn() }));
 
 const { taskKeys, listKeys, moveTask, reorderTasks, adoptTaskOrder } =
   await import("./task-queries");
+const { isLocalReconcile, resetLocalWrite } = await import("./local-write");
 
 function rowsFor(ids: string[]): Task[] {
   return ids.map(
@@ -122,6 +123,18 @@ describe("reorderTasks", () => {
 
     await expect(reorderTasks("c", ["c", "a", "b"])).rejects.toThrow("offline");
     expect(order()).toEqual(["a", "b", "c"]);
+  });
+
+  /**
+   * The refetch after a drop only confirms the order the drop already drew,
+   * so the "updating" bar must stay down for it. Every other write gets that
+   * from `invalidateTasks()`; a reorder does not call it.
+   */
+  it("marks its refetch as the reconcile of a local write", async () => {
+    resetLocalWrite();
+    seed("a", "b", "c");
+    await reorderTasks("c", ["c", "a", "b"]);
+    expect(isLocalReconcile()).toBe(true);
   });
 });
 

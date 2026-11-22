@@ -9,6 +9,7 @@ import {
   flattenReusing,
   hasTaskRows,
   resolveDrop,
+  rowsToRemount,
   stickyHeaderIndices,
   type DraggableSection,
   type Row,
@@ -337,3 +338,71 @@ describe('carryDrop', () => {
     expect(carryDrop(dropRows, base, next)).toBeNull();
   });
 });
+
+/**
+ * The bug this encodes: on Android a drop flashed the list. The drag library
+ * moves the rows a dragged row passes with a transform, and after the drop it
+ * keeps that transform until each row reports its new layout. The reordered
+ * data is drawn before that report arrives, so for a few frames every shifted
+ * row sat one row away from its new place and a slot showed another task's
+ * title. Remounting the shifted rows draws them as new views with no
+ * transform, in the same commit as the new order.
+ */
+describe('rowsToRemount', () => {
+  // h:a a1 a2 a3 a4 h:b b1 b2
+  const rows = flatten([
+    section('a', ['a1', 'a2', 'a3', 'a4']),
+    section('b', ['b1', 'b2']),
+  ]);
+
+  it('remounts nothing when the row did not move', () => {
+    expect(rowsToRemount(rows, 2, 2, null)).toEqual([]);
+  });
+
+  it('remounts every row between where the row started and where it landed', () => {
+    // a1 dragged down below a3: a2 and a3 each moved up one.
+    const after = dropped(rows, 1, 3);
+    expect(rowsToRemount(after, 1, 3, null).sort()).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('remounts the same rows when the drag went up', () => {
+    // a4 dragged up above a2.
+    const after = dropped(rows, 4, 2);
+    expect(rowsToRemount(after, 4, 2, null).sort()).toEqual(['a2', 'a3', 'a4']);
+  });
+
+  it('includes a header the row was dragged across', () => {
+    // a3 dragged down below b1, past the b header.
+    const after = dropped(rows, 3, 6);
+    expect(rowsToRemount(after, 3, 6, null).sort()).toEqual([
+      'a3',
+      'a4',
+      'b1',
+      'h:b',
+    ]);
+  });
+
+  it('leaves rows off screen alone, apart from a small margin', () => {
+    // 30 rows; a row dragged from index 2 to 25, with only 20..28 on screen
+    // (the list scrolled while it was held).
+    const long = flatten([
+      section(
+        'a',
+        Array.from({ length: 29 }, (_, i) => `t${i + 1}`)
+      ),
+    ]);
+    const after = dropped(long, 2, 25);
+    const keys = rowsToRemount(after, 2, 25, { first: 20, last: 28 });
+    const indices = keys.map((k) => after.findIndex((r) => r.key === k)).sort(
+      (x, y) => x - y
+    );
+    expect(indices).toEqual([18, 19, 20, 21, 22, 23, 24, 25]);
+  });
+
+  it('always remounts the dropped row, even when the screen report is stale', () => {
+    const after = dropped(rows, 1, 3);
+    // A report from before the list scrolled, which no longer covers index 3.
+    expect(rowsToRemount(after, 1, 3, { first: 0, last: 0 })).toContain('a1');
+  });
+});
+

@@ -201,6 +201,22 @@ function GroupedTaskList({
   const onConfigChangeRef = useRef(onConfigChange);
   onConfigChangeRef.current = onConfigChange;
 
+  // A drag in a sorted view switches it to manual sort, on the drop itself
+  // rather than after the write. It used to switch once the server answered.
+  // Until then the view was still sorted by the old field, so the cache's new
+  // order was shown sorted that way: the dropped row went back to its sorted
+  // place for a round trip, then jumped to where the finger had left it.
+  //
+  // Switching first is safe because the drag list keeps showing the dropped
+  // order until the cache changes a task (`carryDrop`), and the cache's next
+  // change is the new order. Returns what to call if the write fails: the old
+  // sort comes back, since the cache goes back to the old order too.
+  const makeManual = useCallback((convert: (next: DisplayConfig) => void) => {
+    const before = configRef.current.sort;
+    convert(withSort(configRef.current, 'manual'));
+    return () => convert({ ...configRef.current, sort: before });
+  }, []);
+
   const onReorder = useCallback(
     (sectionKey: string, rawIds: string[], taskId: string) => {
       const ids = liveIdsRef.current(sectionKey, rawIds);
@@ -210,7 +226,7 @@ function GroupedTaskList({
       }
       // Sorted view: dragging converts it to manual. The full displayed order
       // (this section reordered) becomes the manual order of the tasks in it,
-      // then the sort flips to manual. Tasks the view hides keep their places.
+      // and the sort flips to manual. Tasks the view hides keep their places.
       const convert = onConfigChangeRef.current;
       if (!convert) {
         invalidateTasks();
@@ -219,48 +235,41 @@ function GroupedTaskList({
       const allIds = sectionsRef.current.flatMap((s) =>
         s.key === sectionKey ? ids : s.data.map((t) => t.id)
       );
-      void adoptTaskOrder(allIds)
-        .then(() => convert(withSort(configRef.current, 'manual')))
-        .catch(() => {});
+      const undo = makeManual(convert);
+      void adoptTaskOrder(allIds).catch(undo);
     },
-    []
+    [makeManual]
   );
 
   const onMove = useCallback(
     (taskId: string, _from: string, toKey: string, rawDestIds: string[]) => {
       const destIds = liveIdsRef.current(toKey, rawDestIds);
-      // Collapsed sections aren't drop targets in v1 — snap back, expand to drop in.
-      if (isCollapsed(configRef.current, toKey)) {
-        invalidateTasks();
-        return;
-      }
+      // Collapsed sections aren't drop targets in v1 — snap back, expand to
+      // drop in. Refused by returning false: a refetch would come back
+      // unchanged and leave the row where the finger let go of it.
+      if (isCollapsed(configRef.current, toKey)) return false;
       const drop = metaRef.current.get(toKey)?.drop;
-      if (!drop) {
-        invalidateTasks();
-        return;
-      }
+      if (!drop) return false;
       if (manualRef.current) {
         void moveTask(taskId, patchForDrop(drop), destIds).catch(() => {});
         return;
       }
       // Sorted view: apply the field change AND adopt the full displayed order
-      // (moved task removed from its old section, dest uses destIds), then flip
-      // sort to manual.
+      // (moved task removed from its old section, dest uses destIds), and flip
+      // the sort to manual. With no way to flip it, the drop is refused.
       const convert = onConfigChangeRef.current;
-      if (!convert) {
-        invalidateTasks();
-        return;
-      }
+      if (!convert) return false;
       const allIds = sectionsRef.current.flatMap((s) =>
         s.key === toKey
           ? destIds
           : s.data.map((t) => t.id).filter((id) => id !== taskId)
       );
-      void moveTask(taskId, patchForDrop(drop), allIds, { adopt: true })
-        .then(() => convert(withSort(configRef.current, 'manual')))
-        .catch(() => {});
+      const undo = makeManual(convert);
+      void moveTask(taskId, patchForDrop(drop), allIds, { adopt: true }).catch(
+        undo
+      );
     },
-    []
+    [makeManual]
   );
 
   const renderHeader = useCallback((section: DraggableSection) => {

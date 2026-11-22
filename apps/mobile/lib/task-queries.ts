@@ -1368,6 +1368,10 @@ async function writeOrder(write: OrderWrite) {
   const api = await getTasksApi();
   const error = await sendOrder(api, write, placement);
   if (error) restoreTaskLists(prev);
+  // This write does not end in `invalidateTasks()`, so it stamps the time
+  // itself. Without it the refetch below put the "updating" bar up over a
+  // list the drop had already reordered (see lib/local-write.ts).
+  noteLocalWrite();
   queryClient.invalidateQueries({ queryKey: taskKeys.all });
   refreshTaskWidgets();
   if (error) throw error;
