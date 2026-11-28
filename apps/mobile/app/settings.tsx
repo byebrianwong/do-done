@@ -410,7 +410,12 @@ export default function SettingsScreen() {
         // screen.
         onPress={() => {
           router.replace('/(tabs)');
-          void supabase.auth.signOut();
+          // Sign out of this phone only. The default scope is 'global',
+          // which revokes every session the person has. This Supabase
+          // project is shared with the pantry app, and so are its users, so
+          // a global sign-out here would also sign them out of the pantry
+          // app and out of DoDone on the web.
+          void supabase.auth.signOut({ scope: 'local' });
         }}
       >
         <Text style={styles.signoutText}>Sign out</Text>
